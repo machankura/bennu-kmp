@@ -18,7 +18,7 @@ Usage: m3-spacing-positions.py [--list]
 """
 import os, re, sys
 
-UI = 'composeApp/src/commonMain/kotlin/press/mantra/compose/ui'
+UI = 'composeApp/src/commonMain/kotlin/com/it/curated/compose/ui'
 THEME = os.path.join(UI, 'theme')
 
 

@@ -13,7 +13,7 @@ plugins {
     alias(libs.plugins.ksp)
     // No sqldelight plugin here on purpose. The fr.acinq.phoenix.db.sqldelight databases this
     // module used to generate are the same three lightning-kmp-app's :library generates from an
-    // identical copy of the .sq sources, and nothing under press.mantra touches them. Generating
+    // identical copy of the .sq sources, and nothing under com.it.curated touches them. Generating
     // them on both sides put every generated class in the apk twice, which debug tolerates and
     // mergeDexRelease rejects as duplicate types. The library's copies are the ones that count.
 }
@@ -159,14 +159,14 @@ kotlin {
 }
 
 android {
-    namespace = "press.mantra.android"
+    namespace = "com.it.curated.android"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     buildFeatures {
         buildConfig = true
     }
     defaultConfig {
-        applicationId = "press.mantra.android"
+        applicationId = "com.it.curated"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 2
@@ -243,7 +243,7 @@ val m3Audit = tasks.register("m3Audit") {
 
     val script = rootProject.layout.projectDirectory.file("docs/scripts/m3-audit.sh").asFile
     val uiSources = rootProject.layout.projectDirectory
-        .dir("composeApp/src/commonMain/kotlin/press/mantra/compose/ui")
+        .dir("composeApp/src/commonMain/kotlin/com/it/curated/compose/ui")
     val projectDirectory = rootProject.layout.projectDirectory.asFile
 
     inputs.file(script).withPropertyName("auditScript")
@@ -286,11 +286,11 @@ tasks.named("check") { dependsOn(m3Audit) }
 
 compose.desktop {
     application {
-        mainClass = "press.mantra.desktop.MainKt"
+        mainClass = "com.it.curated.desktop.MainKt"
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "press.mantra.desktop"
+            packageName = "com.it.curated.desktop"
             packageVersion = "1.0.0"
         }
     }

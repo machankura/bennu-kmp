@@ -99,7 +99,7 @@ Worth knowing before reading older guidance or older code:
 
 ## Where this app stands
 
-Counts below are over `composeApp/src/commonMain/kotlin/press/mantra/compose/ui`
+Counts below are over `composeApp/src/commonMain/kotlin/com/it/curated/compose/ui`
 unless stated. Phase 0 turns them into a script so they can be re-run.
 
 ### The theme is incomplete, and two entry points bypass it
@@ -133,8 +133,8 @@ Three gaps:
 
 Two entry points render outside the theme:
 
-- `composeApp/src/jvmMain/kotlin/press/mantra/desktop/Main.kt:126` —
-  `PassphraseGate` sits in the `else` branch beside `MantraApp`, so it composes
+- `composeApp/src/jvmMain/kotlin/com/it/curated/desktop/Main.kt:126` —
+  `PassphraseGate` sits in the `else` branch beside `CuratedApp`, so it composes
   under the **default** `MaterialTheme`. Its `MaterialTheme.colorScheme.error`
   and `typography.headlineSmall` are baseline M3, not this app's. It is the
   first screen a desktop user sees.
@@ -442,7 +442,7 @@ find-and-replace.
 3. **Give the theme its other three slots.** *Built.* The expressive-vs-standard
    question was put to the product owner on 2026-09-08 and answered
    **expressive**, so `TorchTheme` calls `MaterialExpressiveTheme` with all four
-   slots passed explicitly — colour, `MotionScheme.expressive()`, `MantraShapes`,
+   slots passed explicitly — colour, `MotionScheme.expressive()`, `CuratedShapes`,
    `AuxTypography`. Explicitly, because `MaterialExpressiveTheme` would otherwise
    default them to `expressiveLightColorScheme()` and friends, which is Material's
    palette rather than this app's: the same class of accident as the twelve
@@ -456,13 +456,13 @@ find-and-replace.
    components later phases need (button groups, split buttons, floating toolbars,
    wide navigation rails, `LoadingIndicator`).
 
-   `MantraShapes` is baseline `Shapes()`, and `Shape.kt` records why: the corners
+   `CuratedShapes` is baseline `Shapes()`, and `Shape.kt` records why: the corners
    hand-written across the tree already land on the scale — 4dp ×3 = `extraSmall`,
    12dp ×11 = `medium`, 16dp ×2 = `large`, and one 30dp that drifted two units off
    `extraLarge`. Nothing needs restyling; seventeen literals need migrating, later.
 
 4. **Move and fill typography.** `Type.kt` moves from `com.example.ui.theme` to
-   `press.mantra.compose.ui.theme`. It stays baseline-derived, but it becomes a
+   `com.it.curated.compose.ui.theme`. It stays baseline-derived, but it becomes a
    real file with a stated font stack and a comment recording which roles carry
    what: `display*`/`headline*` for screen identity, `title*` for section and
    card headers, `body*` for prose, `label*` for component text only.
@@ -474,17 +474,17 @@ find-and-replace.
 
 6. **Wrap the desktop gate.** *Built.* `Main.kt` moves `TorchTheme` outside the
    `unlocked` branch, so `PassphraseGate` — the first screen a desktop user sees —
-   stops composing under the default `MaterialTheme`. `MantraApp` keeps its own
+   stops composing under the default `MaterialTheme`. `CuratedApp` keeps its own
    `TorchTheme`, so the unlocked branch is wrapped twice: android and ios enter
-   through `MantraApp` and would lose the theme entirely if it moved out, and a
+   through `CuratedApp` and would lose the theme entirely if it moved out, and a
    second application of the same values costs one `CompositionLocalProvider`.
 
-   `Type.kt` also left `com.example.ui.theme` for `press.mantra.compose.ui.theme`,
+   `Type.kt` also left `com.example.ui.theme` for `com.it.curated.compose.ui.theme`,
    which removes one of the three package namespaces the UI was living across.
 
 **Done when** every role in `ColorScheme` is explicitly assigned in both
 schemes; the contrast test still passes and now covers six schemes; `Type.kt`
-lives under `press.mantra`; no composable in the tree renders under a default
+lives under `com.it.curated`; no composable in the tree renders under a default
 `MaterialTheme`.
 
 **Risk:** medium. Adding the fixed roles cannot regress anything (nothing reads
@@ -1127,7 +1127,7 @@ Phases 1–5 can be worked in parallel by different people if 1 lands first;
 - **iOS.** The ios targets only build on a mac (see `jvm-target.md`), so nothing
   here has been verified on the platform whose HIG asks for 44dp targets rather
   than 48dp. M3 notes the difference; this plan assumes 48dp everywhere.
-- **The three package namespaces.** `press.mantra`, `com.example.ui.theme` and
+- **The three package namespaces.** `com.it.curated`, `com.example.ui.theme` and
   `com.machankura.compose` all hold live UI code. Phase 1 moves `Type.kt` and
   Phase 3 moves `Clickable.kt` because both are in the way; the rest of the
   `com.machankura` tree — NFC widgets among it — is out of scope.

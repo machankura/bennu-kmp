@@ -1,6 +1,6 @@
 # Bringing up the JVM target
 
-What it would actually take to build Mantra for desktop, phased, with the
+What it would actually take to build Curated for desktop, phased, with the
 blocking work separated from the mechanical work.
 
 The headline is not what you would expect. The four-deep native chain — secp256k1
@@ -10,7 +10,7 @@ set in our own phoenix fork.
 
 One scoping note before anything else: **none of this is needed to test the
 DAOs.** Host-speed Room tests run under `androidUnitTest` today, given one extra
-dependency. The JVM target is a product decision — a desktop Mantra — not a
+dependency. The JVM target is a product decision — a desktop Curated — not a
 testing prerequisite. See [Room DAO tests](#appendix-room-dao-tests-do-not-need-this)
 at the end.
 
@@ -63,7 +63,7 @@ expects, and both of them are the template's own.
 
 So **23 JVM actuals are missing**, one level down from us, and
 `lightning-kmp-app/library/build.gradle.kts:18` has `jvm()` commented out because
-of it. Mantra cannot declare `jvm()` — commented out in turn at
+of it. Curated cannot declare `jvm()` — commented out in turn at
 [composeApp/build.gradle.kts:46](../composeApp/build.gradle.kts) — until phoenix
 does.
 
@@ -142,7 +142,7 @@ check with `git submodule status` in each — and worth being careful about when
 they do not.
 
 Then the fresh clones need `local.properties`, which is gitignored and therefore
-absent, at **five** levels — the mantra root and each of the four nested builds
+absent, at **five** levels — the curated root and each of the four nested builds
 down to secp256k1-kmp. Without it configuration fails at
 `:lightning-kmp-app:lightning-kmp:bitcoin-kmp:secp256k1-kmp:jni:android` with
 "SDK location not found":
@@ -163,7 +163,7 @@ done
 **~1–2 days. Blocked by nothing. Do this first.**
 
 **Start by turning on `jvm()` in the library** —
-`lightning-kmp-app/library/build.gradle.kts:18`, not mantra's, which still waits
+`lightning-kmp-app/library/build.gradle.kts:18`, not curated's, which still waits
 for Phase 4. Without it `library/src/jvmMain/` is an orphan source set that
 nothing compiles, and every actual in Phases 1–3 would be written blind. With it,
 `./gradlew :library:compileKotlinJvm` prints the remaining expects by name, and
@@ -227,7 +227,7 @@ TechnicalExtensions.kt gracefulSingleSeedDecryption, gracefulMultiSeedDecryption
 ```
 
 Anything else in that list means something in this phase is wrong. Also re-run
-`./gradlew :composeApp:compileDebugKotlinAndroid` from the mantra root: adding a
+`./gradlew :composeApp:compileDebugKotlinAndroid` from the curated root: adding a
 jvm target to the library must not disturb how the android target resolves it.
 
 ---
@@ -413,7 +413,7 @@ those copies.
 
 ---
 
-## Phase 4 — mantra's own actuals
+## Phase 4 — curated's own actuals
 
 **~1–2 days. Blocked by Phases 1–3.**
 
@@ -455,17 +455,17 @@ unit tests, not just the compile.
 
 ### Then the actuals
 
-Mantra declares 16 expects across 8 files. They split cleanly:
+Curated declares 16 expects across 8 files. They split cleanly:
 
-**Six platform basics.** `getPlatform` ([Platform.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/Platform.kt)),
+**Six platform basics.** `getPlatform` ([Platform.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/Platform.kt)),
 `PlatformContext`, `AppVersion`, `themeColorScheme`
-([Theme.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/ui/theme/Theme.kt)),
+([Theme.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/ui/theme/Theme.kt)),
 and `PlatformDatabaseBuilder`'s two functions. The deleted Aux files from Phase 0
-are a working skeleton for five of these — repackage to `press.mantra.compose`,
+are a working skeleton for five of these — repackage to `com.it.curated.compose`,
 update Room 2 → Room 3 (`androidx.room` → `androidx.room3`), and point at
-`MantraDatabase` instead of `AuxDatabase`.
+`CuratedDatabase` instead of `AuxDatabase`.
 
-`MantraDatabaseConstructor` needs no hand-written actual; Room's KSP generates it
+`CuratedDatabaseConstructor` needs no hand-written actual; Room's KSP generates it
 once `kspJvm` is wired above.
 
 For `PlatformDatabaseBuilder.getDatabaseBuilder`, use the real application data
@@ -477,7 +477,7 @@ systems.
 at the top of this document are `expect` declarations, and the compiler lists those
 for you. `BusinessManager` is not one — it exists as a plain object in `androidMain`
 and again in `iosMain`, with no common declaration, so nothing flags its absence until
-mantra's own actual tries to import it.
+curated's own actual tries to import it.
 
 The ios one turns out to contain no ios API whatever: no `platform.*`, no cinterop, no
 `NSObject`. It ports to `jvmMain` on a package rename alone and compiles unchanged. It
@@ -487,10 +487,10 @@ is exactly what the jvm can do. `NavigationViewModel.ios.kt` is likewise portabl
 one changed import.
 
 **Nine lightning wrappers.** Four in
-[Phoenix.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/extensions/Phoenix.kt)
+[Phoenix.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/extensions/Phoenix.kt)
 (`platformStartupLogic`, `schedulePlatformLogic`, `getShowIntroFlow`,
 `getGlobalPrefs`) and five declared in
-[SovereignWalletViewModel.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/ui/view/model/SovereignWalletViewModel.kt)
+[SovereignWalletViewModel.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/ui/view/model/SovereignWalletViewModel.kt)
 (`updateBusinessActiveInUI`, `loadAndDecryptSeed`, `getAvailableWalletsMeta`, and
 the two `saveAvailableWalletMeta` overloads, plus `platformWriteSeed`) whose
 android actuals live in `NavigationViewModel.android.kt`.
@@ -521,7 +521,7 @@ dependency-substitution surprises to land here rather than earlier.
 **~1–2 days. Blocked by Phase 4.**
 
 [composeApp/build.gradle.kts:221](../composeApp/build.gradle.kts) already names
-`press.mantra.desktop.MainKt` as the desktop main class. **That file does not
+`com.it.curated.desktop.MainKt` as the desktop main class. **That file does not
 exist.** Write it: a `application { Window { ... } }` entry point constructing
 `PlatformContext` and handing it to the same root composable android uses.
 
@@ -545,7 +545,7 @@ the protection, so the window opens onto a gate rather than onto the app.
 
 **Verification:** `./gradlew :composeApp:run`, and then a jvm test that opens the
 database. The run proves the window paints; it does not prove Room works, because the
-gate stops before anything touches the database. `MantraDatabaseJvmTest` covers what
+gate stops before anything touches the database. `CuratedDatabaseJvmTest` covers what
 the compiler cannot see — that Room's KSP output for this target is usable, that the
 **host** SQLite native loads (the android artifact ships only android-ABI `.so` files
 and would fail here), that the schema is created, and that the queries forced from
@@ -564,7 +564,7 @@ Note that a gradle `run` killed with SIGTERM reports `BUILD FAILED` with exit va
 | 1 | phoenix: mechanical actuals (14) | 1–2 | — |
 | 2 | phoenix: drivers + network (4) | 2–3 | — |
 | 3 | phoenix: key storage (4) | **decision** | — |
-| 4 | mantra actuals (16) | 1–2 | 1, 2, 3 |
+| 4 | curated actuals (16) | 1–2 | 1, 2, 3 |
 | 5 | desktop entry point + shakeout | 1–2 | 4 |
 
 Phases 0–5 are now implemented. What each phase actually turned out to require, as
@@ -577,7 +577,7 @@ step the `expect` signature cannot express, which lands in Phase 5 rather than 3
 **Roughly one focused week to a launchable desktop build**, assuming Phase 3
 takes the passphrase-derived KEK and the build is marked dev-only. Real desktop
 key storage is separate work that should not be folded into this estimate, and
-should land before anyone holds funds on a desktop Mantra.
+should land before anyone holds funds on a desktop Curated.
 
 Phases 1, 2 and 3 are independent of each other and can go in parallel if more
 than one person is on it. Phase 4 cannot start until all three are done, because
@@ -607,8 +607,8 @@ no-`Context` builder overload:
 inMemoryDatabaseBuilder(kotlin.jvm.functions.Function0<? extends T>)
 ```
 
-and [MantraDatabaseConstructor.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/database/MantraDatabaseConstructor.kt)
-already supplies what it needs. So `Room.inMemoryDatabaseBuilder<MantraDatabase>()`
+and [CuratedDatabaseConstructor.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/database/CuratedDatabaseConstructor.kt)
+already supplies what it needs. So `Room.inMemoryDatabaseBuilder<CuratedDatabase>()`
 compiles in `commonTest` and runs under `testDebugUnitTest`.
 
 The one trap is native, and it is the same shape as the secp256k1 problem

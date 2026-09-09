@@ -18,7 +18,7 @@ Usage: m3-touch-targets.py [--list]
 """
 import os, re, sys
 
-UI = 'composeApp/src/commonMain/kotlin/press/mantra/compose/ui'
+UI = 'composeApp/src/commonMain/kotlin/com/it/curated/compose/ui'
 
 
 def offenders():

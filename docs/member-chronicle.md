@@ -159,7 +159,7 @@ after the phase that makes it unnecessary.
 
 **Half a day. No wire change, no behaviour change.**
 
-In [GroupKeyStateEvent.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/nostr/frost/GroupKeyStateEvent.kt),
+In [GroupKeyStateEvent.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/nostr/frost/GroupKeyStateEvent.kt),
 split the existing check in two and keep the existing one as a caller:
 
 ```kotlin
@@ -197,7 +197,7 @@ is even reached.
 
 **A day.**
 
-A new package, `press.mantra.compose.nostr.chronicle`, with `ChronicleEvents.kt`
+A new package, `com.it.curated.compose.nostr.chronicle`, with `ChronicleEvents.kt`
 holding the kinds -- mirroring `FrostSigningEvents`.
 
 ```
@@ -653,7 +653,7 @@ batch-signing note's did, so this section is the index rather than the work.
 Every claim below is asserted somewhere; what is here is which claim and where.
 
 **The whole thing, end to end** --
-[ChronicleApplyJvmTest](../composeApp/src/jvmTest/kotlin/press/mantra/compose/managers/ChronicleApplyJvmTest.kt),
+[ChronicleApplyJvmTest](../composeApp/src/jvmTest/kotlin/com/it/curated/compose/managers/ChronicleApplyJvmTest.kt),
 over two real databases with the pages carried by hand. The sender's room is
 seeded through `ChatMessage.applyInnerEvent` itself, so what is chronicled is what
 a member's device really holds rather than rows built to suit the test. The
@@ -684,7 +684,7 @@ hand-rolled because `ChronicleEvent.build` refuses the kind, which is the outbou
 half of the same rule.
 
 **The `toXEvent` round trip per chronicled kind** --
-[ChronicleRoundTripTest](../composeApp/src/commonTest/kotlin/press/mantra/compose/nostr/chronicle/ChronicleRoundTripTest.kt),
+[ChronicleRoundTripTest](../composeApp/src/commonTest/kotlin/com/it/curated/compose/nostr/chronicle/ChronicleRoundTripTest.kt),
 against real FROST with no database. This is the one that earned its place: it
 found that `MantraArtifact.toArtifactEvent` had the alt tag in the wrong position
 *and* omitted the version metadata entirely, either of which produces payloads
@@ -774,17 +774,17 @@ short. That is the failure mode to weigh -- it looks like success on both ends.
 
 | what | where |
 |---|---|
-| `rebuiltEventsOf` | [ChronicleManager.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/managers/ChronicleManager.kt) -- the tree walk, and the version-label recovery inside it |
+| `rebuiltEventsOf` | [ChronicleManager.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/managers/ChronicleManager.kt) -- the tree walk, and the version-label recovery inside it |
 | the union in `signedEventsOf` | same file -- it collapses to the `GroupSignedEvent` read plus the `isChroniclable` filter, which **stays**: see below |
-| `MantraDialect.toDialectEvent` | [MantraDialect.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/database/model/MantraDialect.kt) |
-| `MantraArtifact.toArtifactEvent` | [MantraArtifact.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/database/model/MantraArtifact.kt) -- and with it the `versionLabel` parameter that exists only because the label is not on the row |
-| `MantraArtifactVersion.toArtifactVersionEvent` | [MantraArtifactVersion.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/database/model/MantraArtifactVersion.kt) |
-| `MantraChapter.toChapterEvent` | [MantraChapter.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/database/model/MantraChapter.kt) |
-| `MantraChunk.toChunkEvent` | [MantraChunk.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/database/model/MantraChunk.kt) |
-| `MantraTranslationArtifactVersion.toTranslationArtifactVersionEvent` | [MantraTranslationArtifactVersion.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/database/model/MantraTranslationArtifactVersion.kt) |
-| `MantraTranslationChapter.toTranslationChapterEvent` | [MantraTranslationChapter.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/database/model/MantraTranslationChapter.kt) |
-| `MantraTranslationChunk.toTranslationChunkEvent` | [MantraTranslationChunk.kt](../composeApp/src/commonMain/kotlin/press/mantra/compose/database/model/MantraTranslationChunk.kt) |
-| `ChronicleRoundTripTest`, all ten cases | [ChronicleRoundTripTest.kt](../composeApp/src/commonTest/kotlin/press/mantra/compose/nostr/chronicle/ChronicleRoundTripTest.kt) -- it exists to hold the rebuild up and covers nothing else |
+| `MantraDialect.toDialectEvent` | [MantraDialect.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/database/model/MantraDialect.kt) |
+| `MantraArtifact.toArtifactEvent` | [MantraArtifact.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/database/model/MantraArtifact.kt) -- and with it the `versionLabel` parameter that exists only because the label is not on the row |
+| `MantraArtifactVersion.toArtifactVersionEvent` | [MantraArtifactVersion.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/database/model/MantraArtifactVersion.kt) |
+| `MantraChapter.toChapterEvent` | [MantraChapter.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/database/model/MantraChapter.kt) |
+| `MantraChunk.toChunkEvent` | [MantraChunk.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/database/model/MantraChunk.kt) |
+| `MantraTranslationArtifactVersion.toTranslationArtifactVersionEvent` | [MantraTranslationArtifactVersion.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/database/model/MantraTranslationArtifactVersion.kt) |
+| `MantraTranslationChapter.toTranslationChapterEvent` | [MantraTranslationChapter.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/database/model/MantraTranslationChapter.kt) |
+| `MantraTranslationChunk.toTranslationChunkEvent` | [MantraTranslationChunk.kt](../composeApp/src/commonMain/kotlin/com/it/curated/compose/database/model/MantraTranslationChunk.kt) |
+| `ChronicleRoundTripTest`, all ten cases | [ChronicleRoundTripTest.kt](../composeApp/src/commonTest/kotlin/com/it/curated/compose/nostr/chronicle/ChronicleRoundTripTest.kt) -- it exists to hold the rebuild up and covers nothing else |
 | the "Where the events come from" reasoning above | this file |
 
 **Two already-dead cousins to sweep at the same time**, neither of which is part
