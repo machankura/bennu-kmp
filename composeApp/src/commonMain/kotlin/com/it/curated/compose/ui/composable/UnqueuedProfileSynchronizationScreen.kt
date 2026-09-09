@@ -91,7 +91,7 @@ fun UnqueuedProfileSynchronizationScreen(
 @ConformancePreviews
 @Composable
 private fun UnqueuedProfileSynchronizationScreenPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

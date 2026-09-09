@@ -77,7 +77,7 @@ import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
 import com.it.curated.compose.ui.composable.widgets.dialogs.ModalBottomSheet
 import com.it.curated.compose.ui.composable.widgets.rememberNotifier
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileAvatar
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.ChatRoomDetailViewModel
 import com.it.curated.compose.ui.view.state.ChatRoomDetailUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -1222,7 +1222,7 @@ private fun ReindexMarmotGroupEventsButton(
 @ConformancePreviews
 @Composable
 private fun ChatRoomMessagingScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

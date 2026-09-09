@@ -23,7 +23,7 @@ import com.vitorpamplona.quartz.nip51Lists.relayLists.RelayFeedsListEvent
 import com.it.curated.compose.ui.composable.navigation.routes.NostrEventDetailRoute
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileAvatar
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileColor
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import kotlin.time.Clock
 import kotlin.time.Instant
 import com.it.curated.compose.ui.theme.ConformancePreviews
@@ -180,7 +180,7 @@ fun ProfileRenderAsListItemPreview() {
         about = "I am the stone that the builder refused.",
         nostrEventId = "nostrEventId"
     )
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.padding(20.dp)
         ) {

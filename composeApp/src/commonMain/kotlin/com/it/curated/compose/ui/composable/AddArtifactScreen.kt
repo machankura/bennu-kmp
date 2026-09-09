@@ -59,7 +59,7 @@ import com.it.curated.compose.repository.NostrRepository
 import com.it.curated.compose.ui.composable.navigation.routes.ChatRoomDetailRoute
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.state.ChatRoomMessagingUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.it.curated.compose.repository.MantraRepository
@@ -405,7 +405,7 @@ fun AddArtifactScreen(
 @ConformancePreviews
 @Composable
 private fun AddArtifactScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

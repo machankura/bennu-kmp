@@ -42,7 +42,7 @@ import com.it.curated.compose.repository.MantraRepository
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.navigation.routes.TranslateChunkRoute
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.TranslationChapterViewModel
 import com.it.curated.compose.ui.view.state.ChunkTranslationPair
 import com.it.curated.compose.ui.view.state.TranslationChapterUIState
@@ -245,7 +245,7 @@ private fun TableRow(
 @ConformancePreviews
 @Composable
 private fun TranslationChapterScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             TranslationChapterScreen(
                 activeUserPublicKey = "",

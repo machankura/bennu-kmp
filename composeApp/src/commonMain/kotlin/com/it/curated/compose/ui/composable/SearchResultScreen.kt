@@ -284,7 +284,7 @@ fun SearchResultScreen(
 @ConformancePreviews
 @Composable
 private fun SearchResultScreenPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.padding(MaterialTheme.spacing.space250)
         ) {

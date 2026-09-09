@@ -42,7 +42,7 @@ import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.navigation.routes.TranslationChapterRoute
 import com.it.curated.compose.ui.composable.widgets.DetailRow
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.TranslationArtifactVersionDetailViewModel
 import com.it.curated.compose.ui.view.state.TranslationArtifactVersionDetailUIState
 import com.it.curated.compose.ui.theme.spacing
@@ -287,7 +287,7 @@ fun TranslationArtifactVersionDetailScreen(
 @ConformancePreviews
 @Composable
 private fun TranslationArtifactVersionDetailScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             TranslationArtifactVersionDetailScreen(
                 activeUserPublicKey = "",

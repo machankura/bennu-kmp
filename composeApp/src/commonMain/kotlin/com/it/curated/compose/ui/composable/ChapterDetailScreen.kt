@@ -34,7 +34,7 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.it.curated.compose.database.model.MantraChapter
 import com.it.curated.compose.repository.MantraRepository
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.ChapterDetailViewModel
 import com.it.curated.compose.ui.view.state.ChapterDetailUIState
 import com.it.curated.compose.ui.theme.spacing
@@ -199,7 +199,7 @@ fun ChapterDetailScreen(
 @ConformancePreviews
 @Composable
 private fun ChapterDetailScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             ChapterDetailScreen(
                 activeUserPublicKey = "",

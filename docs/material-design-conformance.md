@@ -121,7 +121,7 @@ Three gaps:
    today; the trap springs the first time an expressive component does.
 
 2. **The medium and high contrast schemes are dead code.** All four are declared
-   `private val`; `TorchTheme` only ever selects `darkScheme` or `lightScheme`.
+   `private val`; `CuratedTheme` only ever selects `darkScheme` or `lightScheme`.
    There is no plumbing to the platform's contrast setting, so the two schemes
    that would honour it are unreachable. The accessibility foundation's first
    principle is *honour individuals* — *"supporting varying preferences and
@@ -138,7 +138,7 @@ Two entry points render outside the theme:
   under the **default** `MaterialTheme`. Its `MaterialTheme.colorScheme.error`
   and `typography.headlineSmall` are baseline M3, not this app's. It is the
   first screen a desktop user sees.
-- `Profile.kt:183` and 50 other `@Preview` bodies wrap in `TorchTheme` by hand,
+- `Profile.kt:183` and 50 other `@Preview` bodies wrap in `CuratedTheme` by hand,
   which is correct, but there is no preview that exercises dark, high-contrast
   or a wide window — so nothing catches the two problems below.
 
@@ -418,7 +418,7 @@ find-and-replace.
    Keep the existing hex values for the roles already defined so nothing shifts
    visually; this phase adds, it does not restyle.
 
-2. **Reach the contrast schemes.** *Built.* `TorchTheme` takes a `ThemeContrast`
+2. **Reach the contrast schemes.** *Built.* `CuratedTheme` takes a `ThemeContrast`
    defaulted from a new `platformThemeContrast()` expect/actual, and the six-way
    selection table lives in common code as `appColorScheme`. The old
    `themeColorScheme` expect took four arguments and did both jobs; it splits into
@@ -441,7 +441,7 @@ find-and-replace.
 
 3. **Give the theme its other three slots.** *Built.* The expressive-vs-standard
    question was put to the product owner on 2026-09-08 and answered
-   **expressive**, so `TorchTheme` calls `MaterialExpressiveTheme` with all four
+   **expressive**, so `CuratedTheme` calls `MaterialExpressiveTheme` with all four
    slots passed explicitly — colour, `MotionScheme.expressive()`, `CuratedShapes`,
    `AuxTypography`. Explicitly, because `MaterialExpressiveTheme` would otherwise
    default them to `expressiveLightColorScheme()` and friends, which is Material's
@@ -472,10 +472,10 @@ find-and-replace.
    `container`/`on`/`onContainer`. `CreateProfileScreen.kt:311` and `:329` then
    stop pairing them with `Color.White`/`Color.DarkGray` by eye.
 
-6. **Wrap the desktop gate.** *Built.* `Main.kt` moves `TorchTheme` outside the
+6. **Wrap the desktop gate.** *Built.* `Main.kt` moves `CuratedTheme` outside the
    `unlocked` branch, so `PassphraseGate` — the first screen a desktop user sees —
    stops composing under the default `MaterialTheme`. `CuratedApp` keeps its own
-   `TorchTheme`, so the unlocked branch is wrapped twice: android and ios enter
+   `CuratedTheme`, so the unlocked branch is wrapped twice: android and ios enter
    through `CuratedApp` and would lose the theme entirely if it moved out, and a
    second application of the same values costs one `CompositionLocalProvider`.
 
@@ -651,8 +651,14 @@ the whole sentence is, and several of them are pluralisations —
 `(if (n == 2) "event" else "events")` — which want a real plural resource rather than a
 format argument. `m3-extract-formatted.py --remaining` lists them.
 
-`UserAgent.APP_NAME` still says "Torch". It goes on the wire to relay operators, so it is
-a network identity question rather than a content one.
+`UserAgent.APP_NAME` said "Torch", and was left that way here because it goes on the wire
+to relay operators -- a network identity question rather than a content one. That was
+settled when the app was rebranded to Curated: both it and `CLIENT_NAME` now say
+"Curated", so the `client` tag on a published relay list names the client that published
+it. `TorchTheme` became `CuratedTheme` in the same change, and the two error strings that
+told a user to install Torch now name Curated, so no live code answers to that brand any
+more. What is left of it is this note, the finding above, and one test fixture -- all
+three records of what was, and wrong to rewrite.
 
 ---
 
@@ -729,13 +735,13 @@ panes last because both were product decisions.
    see below.
 
 2. **`Breakpoint`**, the five-value enum with `ofWidth` as a pure function so the
-   thresholds are assertable without a Compose runtime. `TorchTheme` classifies
+   thresholds are assertable without a Compose runtime. `CuratedTheme` classifies
    once and provides `LocalBreakpoint`, so no two screens can disagree about the
    window they are both in.
 
    It reads `currentWindowDpSize()` rather than `currentWindowAdaptiveInfo()`,
    because the latter also computes a `Posture` from the platform's fold state —
-   on android, `WindowInfoTracker` and an activity. This call sits in `TorchTheme`,
+   on android, `WindowInfoTracker` and an activity. This call sits in `CuratedTheme`,
    which wraps all 51 `@Preview` bodies in the tree, and a preview context is not
    an activity.
 
@@ -950,9 +956,9 @@ reduced. And a crossfade is told from a cut by the one frame in which *both*
 states are composed.
 
 **A test found a design flaw rather than a bug.** The reduced case read 54dp of
-slide at first, because the test provided `LocalReducedMotion` around `TorchTheme`
+slide at first, because the test provided `LocalReducedMotion` around `CuratedTheme`
 and the theme overwrote it. The fix is not in the test: `reducedMotion` is now a
-`TorchTheme` parameter defaulted to the platform, exactly as `contrast` is,
+`CuratedTheme` parameter defaulted to the platform, exactly as `contrast` is,
 because a value nothing can override is a value nothing can test — and because the
 desktop actual is a hardcoded `false` that a settings screen will need to override
 anyway.
@@ -1017,7 +1023,7 @@ finding that out is most of what it was worth.
    High contrast is deliberately not in the annotation. Contrast is a property of
    the scheme rather than of a screen, `ColorSchemeContrastTest` measures every
    pair in all six, and there is no `@Preview` parameter for it — it needs
-   `TorchTheme(contrast = …)` in the body. `ThemeGallery` covers the six once,
+   `CuratedTheme(contrast = …)` in the body. `ThemeGallery` covers the six once,
    over components rather than screens, with `dynamicColor = false` because an
    android 12+ preview would otherwise paint all six columns from the wallpaper.
    It is the only place the medium and high contrast schemes can be seen at all.
@@ -1104,7 +1110,7 @@ Phases 1–5 can be worked in parallel by different people if 1 lands first;
   `ExperimentalMaterial3ExpressiveApi` opt-ins and the pinned alpha both point
   expressive, but it is a product decision with a visible outcome, and it should
   be made deliberately rather than inherited from an import.
-- **Whether dynamic colour should keep overriding the brand.** `TorchTheme` defaults
+- **Whether dynamic colour should keep overriding the brand.** `CuratedTheme` defaults
   `dynamicColor = true`, and on Android 12+ that wins unconditionally — so on
   essentially every current Android device, none of the six schemes below is used
   and the app renders in whatever the user's wallpaper produced. Verified on an API

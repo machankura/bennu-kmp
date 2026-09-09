@@ -44,7 +44,7 @@ import com.it.curated.compose.ui.composable.navigation.routes.ChapterDetailRoute
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.navigation.routes.TranslationArtifactVersionDetailRoute
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.ArtifactDetailViewModel
 import com.it.curated.compose.ui.view.state.ArtifactDetailUIState
 import com.it.curated.compose.ui.theme.spacing
@@ -333,7 +333,7 @@ fun ArtifactDetailScreen(
 @ConformancePreviews
 @Composable
 private fun ArtifactDetailScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             ArtifactDetailScreen(
                 activeUserPublicKey = "",

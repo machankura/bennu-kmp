@@ -127,7 +127,7 @@ fun SocialPreconditionScreen(
 @ConformancePreviews
 @Composable
 private fun SocialPreconditionScreenPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.padding(MaterialTheme.spacing.space250)
         ) {

@@ -21,7 +21,7 @@ import androidx.compose.ui.tooling.preview.Preview
  * is right in the default scheme is right in the high-contrast one by construction. A
  * per-screen high-contrast preview would be 51 more renders checking something already
  * proved, and there is no `@Preview` parameter for it anyway -- it needs
- * `TorchTheme(contrast = …)` in the body. [ThemeGallery] covers the schemes once, over
+ * `CuratedTheme(contrast = …)` in the body. [ThemeGallery] covers the schemes once, over
  * the components rather than over the screens.
  *
  * @see ThemeGallery

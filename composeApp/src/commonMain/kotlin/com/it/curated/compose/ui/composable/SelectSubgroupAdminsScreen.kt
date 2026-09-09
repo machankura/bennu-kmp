@@ -62,7 +62,7 @@ import com.it.curated.compose.ui.composable.widgets.LocalSnackbarHostState
 import com.it.curated.compose.ui.composable.widgets.ScreenStateTransition
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileAvatar
 import com.it.curated.compose.ui.theme.ConformancePreviews
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.theme.readableContent
 import com.it.curated.compose.ui.theme.spacing
 import com.it.curated.compose.ui.view.model.SelectSubgroupAdminsViewModel
@@ -326,7 +326,7 @@ private fun QuorumStepper(
 @ConformancePreviews
 @Composable
 private fun SelectSubgroupAdminsScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             SelectSubgroupAdminsScreen(
                 activeUserPublicKey = "a".repeat(64),

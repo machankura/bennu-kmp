@@ -63,7 +63,7 @@ import com.it.curated.compose.repository.ChatRepository
 import com.it.curated.compose.repository.DkgRepository
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileColor
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.database.model.types.DkgApprovalStep
 import com.it.curated.compose.ui.composable.navigation.routes.DkgJoinApprovalRoute
 import com.it.curated.compose.ui.composable.navigation.routes.DkgRound1ApprovalRoute
@@ -865,7 +865,7 @@ private fun QuorumStepper(
 @ConformancePreviews
 @Composable
 private fun DkgRitualScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             DkgRitualScreen(
                 activeUserPublicKey = "",

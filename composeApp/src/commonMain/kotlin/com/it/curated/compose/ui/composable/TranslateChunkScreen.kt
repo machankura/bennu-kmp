@@ -49,7 +49,7 @@ import com.it.curated.compose.ui.composable.navigation.routes.FrostSigningRoute
 import com.it.curated.compose.ui.composable.navigation.routes.ImplementationPendingRoute
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.TranslateChunkViewModel
 import com.it.curated.compose.ui.view.state.TranslateChunkUIState
 import com.it.curated.compose.ui.theme.spacing
@@ -270,7 +270,7 @@ fun TranslateChunkScreen(
 @ConformancePreviews
 @Composable
 private fun TranslateChunkScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             TranslateChunkScreen(
                 activeUserPublicKey = "",

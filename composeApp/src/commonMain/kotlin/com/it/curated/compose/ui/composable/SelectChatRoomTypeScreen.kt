@@ -47,7 +47,7 @@ import com.it.curated.compose.repository.DkgRepository
 import com.it.curated.compose.repository.NostrRepository
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.SelectChatRoomTypeViewModel
 import com.it.curated.compose.ui.view.state.SelectChatRoomTypeUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -465,7 +465,7 @@ private fun QuorumPicker(
 @ConformancePreviews
 @Composable
 private fun SelectChatRoomTypeScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

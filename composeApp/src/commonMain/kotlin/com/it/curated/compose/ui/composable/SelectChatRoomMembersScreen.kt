@@ -37,7 +37,7 @@ import com.it.curated.compose.repository.NostrRepository
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileAvatar
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.SelectChatRoomMembersViewModel
 import com.it.curated.compose.ui.view.state.SelectChatRoomMembersUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -283,7 +283,7 @@ fun SelectChatRoomMembersScreen(
 @ConformancePreviews
 @Composable
 private fun SelectChatRoomMembersScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

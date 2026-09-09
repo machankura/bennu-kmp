@@ -18,7 +18,7 @@ import com.it.curated.compose.repository.DkgRepository
 import com.it.curated.compose.repository.FrostSigningRepository
 import com.it.curated.compose.repository.NostrRepository
 import com.it.curated.compose.ui.composable.widgets.ProvideSnackbarHost
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.state.HomeScreenUIState
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import kotlin.test.Test
@@ -83,7 +83,7 @@ class ChatPaneLayoutJvmTest {
 
     @androidx.compose.runtime.Composable
     private fun Home() {
-        TorchTheme {
+        CuratedTheme {
             // Required, and deliberately so: `LocalSnackbarHostState` throws rather than
             // defaulting, because a default would make every `notify` on a screen that
             // forgot the host a silent no-op.

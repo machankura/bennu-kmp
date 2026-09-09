@@ -19,7 +19,7 @@ import com.it.curated.compose.ui.composable.navigation.routes.ChatRoomMessagingR
 import com.it.curated.compose.ui.composable.navigation.routes.HomeRoute
 import com.it.curated.compose.ui.composable.navigation.routes.SearchRoute
 import com.it.curated.compose.ui.theme.Breakpoint
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import kotlin.test.Test
 
 /**
@@ -131,7 +131,7 @@ class NavigationSuiteRenderJvmTest {
         profileNostrEventId: String?,
         navController: NavHostController = rememberNavController(),
     ) {
-        TorchTheme {
+        CuratedTheme {
             CuratedNavigationSuite(
                 navController = navController,
                 breakpoint = Breakpoint.Large,

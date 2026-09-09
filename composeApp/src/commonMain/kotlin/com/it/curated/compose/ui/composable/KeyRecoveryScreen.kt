@@ -299,7 +299,7 @@ private fun KeyRecoveryOption(
 @ConformancePreviews
 @Composable
 private fun KeyRecoveryScreenPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

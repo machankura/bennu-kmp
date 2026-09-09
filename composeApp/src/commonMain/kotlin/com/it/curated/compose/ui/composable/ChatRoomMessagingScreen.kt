@@ -52,7 +52,7 @@ import com.it.curated.compose.ui.composable.navigation.routes.FrostSigningRoute
 import com.it.curated.compose.ui.composable.navigation.routes.ProposalListRoute
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.ChatRoomMessagingViewModel
 import com.it.curated.compose.ui.view.state.ChatRoomMessagingUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -466,7 +466,7 @@ fun ChatRoomMessagingScreen(
 @ConformancePreviews
 @Composable
 private fun ChatRoomMessagingScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

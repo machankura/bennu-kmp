@@ -32,7 +32,7 @@ import com.it.curated.compose.database.model.intermdiate.LocalChatRoom
 import com.it.curated.compose.repository.ChatRepository
 import com.it.curated.compose.repository.NostrRepository
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.AddMemberToChatRoomConfirmationViewModel
 import com.it.curated.compose.ui.view.state.AddMemberToChatRoomConfirmationUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -217,7 +217,7 @@ fun AddMemberToChatRoomConfirmationScreen(
 @ConformancePreviews
 @Composable
 private fun ChatRoomDetailScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -227,7 +227,7 @@ private fun ChatRoomDetailScreenPreview() {
                 chatRoomId = "publicKey",
                 relayHint = null,
                 initialChatRoomDetailUIState =
-//                    AddMemberToChatRoomConfirmationUIState.Error("Profile missing key package event.\n\nTry again later or tell Person to use Torch."),
+//                    AddMemberToChatRoomConfirmationUIState.Error("Profile missing key package event.\n\nTry again later or tell Person to use Curated."),
                     AddMemberToChatRoomConfirmationUIState.Loaded(
                     localChatRoom = LocalChatRoom(
                         chatRoom = ChatRoom(

@@ -129,7 +129,7 @@ fun com.it.curated.compose.database.model.intermdiate.LocalNostrEvent.ListView(
 @ConformancePreviews
 @Composable
 private fun EventListViewRepostedPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.padding(MaterialTheme.spacing.space250)
         ) {
@@ -180,7 +180,7 @@ private fun EventListViewRepostedPreview() {
 @ConformancePreviews
 @Composable
 private fun EventListViewInReplyPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.padding(MaterialTheme.spacing.space250)
         ) {

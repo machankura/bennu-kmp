@@ -36,7 +36,7 @@ import com.it.curated.compose.extensions.bech32ToHexOrNull
 import com.it.curated.compose.ui.composable.navigation.routes.ChatRoomMessagingRoute
 import com.it.curated.compose.ui.composable.navigation.routes.ImplementationPendingRoute
 import com.it.curated.compose.ui.composable.navigation.routes.Route
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.phoenix.utils.Parser
 import kotlinx.coroutines.CoroutineScope
@@ -190,7 +190,7 @@ fun StartDirectMessageToNpubOrNip05Dialog(
 @ConformancePreviews
 @Composable
 private fun StartDirectMessageToNpubOrNip05DialogPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

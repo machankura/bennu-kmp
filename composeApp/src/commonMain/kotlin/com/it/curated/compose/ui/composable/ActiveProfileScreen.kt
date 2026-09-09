@@ -395,7 +395,7 @@ fun ActiveProfileScreen(
 @ConformancePreviews
 @Composable
 private fun UnannouncedProfileScreenPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

@@ -7,7 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import com.it.curated.compose.ui.composable.navigation.CuratedNavHost
 import com.it.curated.compose.ui.composable.widgets.ProvideSnackbarHost
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import fr.acinq.phoenix.PhoenixGlobal
 
 @Composable
@@ -16,7 +16,7 @@ fun CuratedApp(
     curatedGlobal: CuratedGlobal,
     phoenixGlobal: PhoenixGlobal
 ) {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

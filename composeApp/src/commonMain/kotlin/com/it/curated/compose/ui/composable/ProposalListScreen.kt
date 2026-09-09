@@ -50,7 +50,7 @@ import com.it.curated.compose.repository.FrostSigningRepository
 import com.it.curated.compose.text.ProposedEvent
 import com.it.curated.compose.ui.composable.navigation.routes.FrostSigningRoute
 import com.it.curated.compose.ui.composable.navigation.routes.Route
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.ProposalListViewModel
 import com.it.curated.compose.ui.view.state.ProposalListUIState
 import com.it.curated.compose.ui.theme.spacing
@@ -418,7 +418,7 @@ private fun ProposalListScreenPreview() {
         signerId = 1
     )
 
-    TorchTheme {
+    CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             ProposalListScreen(
                 activeUserPublicKey = "u".repeat(64),

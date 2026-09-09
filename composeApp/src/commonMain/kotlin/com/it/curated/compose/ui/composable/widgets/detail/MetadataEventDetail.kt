@@ -50,7 +50,7 @@ import com.it.curated.compose.ui.composable.navigation.routes.ChatRoomMessagingR
 import com.it.curated.compose.ui.composable.navigation.routes.ImplementationPendingRoute
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileAvatar
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.MetadataEventDetailType
 import com.it.curated.compose.ui.view.model.MetadataEventDetailViewModel
 import com.it.curated.compose.ui.view.state.MetadataEventDetailUIState
@@ -326,7 +326,7 @@ fun MetadataEventDetail(
 @Composable
 private fun MetadataEventEventDetailPreview() {
 
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.padding(MaterialTheme.spacing.space250)
         ) {

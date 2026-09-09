@@ -40,7 +40,7 @@ import com.it.curated.compose.CuratedApp
 import com.it.curated.compose.CuratedGlobal
 import com.it.curated.compose.PlatformContext
 import com.it.curated.compose.defaultCuratedDir
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import java.awt.Dimension
 import java.io.File
 
@@ -80,16 +80,16 @@ fun main() = application {
         // 400x600 is the narrowest window the phase's acceptance widths name.
         LaunchedEffect(window) { window.minimumSize = Dimension(400, 600) }
 
-        // TorchTheme wraps both branches, not just the app. PassphraseGate used to sit
+        // CuratedTheme wraps both branches, not just the app. PassphraseGate used to sit
         // beside CuratedApp -- which applies the theme itself -- so it composed under the
         // default MaterialTheme and its colorScheme and typography were baseline M3
         // rather than this app's. It is the first screen a desktop user sees.
         //
-        // CuratedApp still applies TorchTheme, so the unlocked branch is wrapped twice.
+        // CuratedApp still applies CuratedTheme, so the unlocked branch is wrapped twice.
         // That is deliberate: android and ios enter through CuratedApp and would lose the
         // theme entirely if it moved out, and a second application of the same values
         // costs one composition of a CompositionLocalProvider.
-        TorchTheme {
+        CuratedTheme {
             if (unlocked) {
                 val navController = rememberNavController()
                 CuratedApp(

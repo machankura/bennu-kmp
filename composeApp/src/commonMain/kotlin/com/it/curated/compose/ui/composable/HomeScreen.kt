@@ -48,7 +48,7 @@ import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.widgets.LoadingDataIndicator
 import com.it.curated.compose.ui.composable.widgets.dialogs.NewChatBottomSheetDialog
 import com.it.curated.compose.ui.composable.widgets.dialogs.StartDirectMessageToNpubOrNip05Dialog
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.ChatRoomListViewModel
 import com.it.curated.compose.ui.view.model.HomeScreenType
 import com.it.curated.compose.ui.view.model.HomeViewModel
@@ -154,11 +154,11 @@ fun HomeScreen(
                         TopAppBar(
                             title = {
                                 // "Curated". The launcher label, the desktop window title, the
-                                // landing screen and the package name all say so; this bar was
-                                // the last place still saying "Torch". `UserAgent.APP_NAME` is
-                                // the other, and is left alone -- it goes on the wire to relay
-                                // operators, so it is a network identity question rather than
-                                // a content one.
+                                // landing screen and the package name all say so, and since the
+                                // rebrand so does `UserAgent.CLIENT_NAME` -- the one that goes on
+                                // the wire, as the `client` tag on a published relay list. The
+                                // brand before that one is gone from live code too -- `TorchTheme`
+                                // is `CuratedTheme`, and no error string still names it.
                                 Text(stringResource(Res.string.curated))
                             },
                             // No navigation icon and no actions. The avatar in the leading
@@ -350,7 +350,7 @@ fun HomeScreen(
 @ConformancePreviews
 @Composable
 private fun HomeScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.padding(MaterialTheme.spacing.space250)
         ) {

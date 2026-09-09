@@ -21,7 +21,7 @@ import com.it.curated.compose.database.model.Profile
 import com.it.curated.compose.database.model.QuotedRelation
 import com.it.curated.compose.ui.composable.widgets.content.RichContent
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileAvatar
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.theme.ConformancePreviews
 
 data class LocalQuotedNostrEvent(
@@ -113,7 +113,7 @@ data class LocalQuotedNostrEvent(
 @ConformancePreviews
 @Composable
 private fun LocalQuotedNostrEventPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.padding(20.dp)
         ) {

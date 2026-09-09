@@ -31,7 +31,7 @@ fun LoadingScreen(
 @ConformancePreviews
 @Composable
 private fun LoadingScreenPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

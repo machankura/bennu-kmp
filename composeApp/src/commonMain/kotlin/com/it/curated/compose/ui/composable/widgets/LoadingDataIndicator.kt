@@ -69,7 +69,7 @@ fun LoadingDataIndicator(
 @ConformancePreviews
 @Composable
 private fun TransferHistoryScreenPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             LoadingDataIndicator(
                 text = "Starting up"

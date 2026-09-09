@@ -58,7 +58,7 @@ import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.navigation.routes.SearchResultRoute
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileAvatar
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileColor
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.SearchViewModel
 import com.it.curated.compose.ui.view.state.SearchUIState
 import com.it.curated.compose.ui.theme.spacing
@@ -426,7 +426,7 @@ fun SearchScreen(
 @ConformancePreviews
 @Composable
 private fun SearchScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(
             modifier = Modifier.padding(MaterialTheme.spacing.space250)
         ) {

@@ -52,7 +52,7 @@ import com.it.curated.compose.repository.ChatRepository
 import com.it.curated.compose.repository.FrostSigningRepository
 import com.it.curated.compose.text.ProposedEvent
 import com.it.curated.compose.ui.composable.widgets.profile.ProfileAvatar
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.FrostSigningViewModel
 import com.it.curated.compose.ui.view.state.FrostSigningUIState
 import com.it.curated.compose.ui.theme.spacing
@@ -410,7 +410,7 @@ private fun statusOf(session: FrostSigningSession): String = when (session.stage
 @ConformancePreviews
 @Composable
 private fun FrostSigningScreenPreview() {
-    TorchTheme {
+    CuratedTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             FrostSigningScreen(
                 activeUserPublicKey = "",

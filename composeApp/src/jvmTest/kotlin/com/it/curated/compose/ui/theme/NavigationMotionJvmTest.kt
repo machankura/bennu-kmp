@@ -75,12 +75,12 @@ class NavigationMotionJvmTest {
                 controller = rememberNavController()
                 // Through the theme's parameter rather than by providing the local
                 // around it. Providing it outside is what this test did first, and
-                // `TorchTheme` silently overwrote it -- the reduced case read 54dp of
-                // slide. That is also why `reducedMotion` is a `TorchTheme` parameter
+                // `CuratedTheme` silently overwrote it -- the reduced case read 54dp of
+                // slide. That is also why `reducedMotion` is a `CuratedTheme` parameter
                 // rather than something the theme only reads from the platform: the
                 // desktop actual is a hardcoded `false`, and a value nothing can override
                 // is a value nothing can test either.
-                TorchTheme(reducedMotion = reducedMotion) {
+                CuratedTheme(reducedMotion = reducedMotion) {
                     NavHost(
                         navController = controller,
                         startDestination = First,

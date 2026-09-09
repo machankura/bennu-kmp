@@ -123,7 +123,7 @@ class ChatRoomMessagingViewModel(
             val lookupTimeout = viewModelScope.launch {
                 delay(RELAY_LOOKUP_TIMEOUT)
                 chatRoomMessagingUIState = ChatRoomMessagingUIState.Error(
-                    "Couldn't find this profile's chat details on the relays yet. They may not have finished setting up Torch."
+                    "Couldn't find this profile's chat details on the relays yet. They may not have finished setting up Curated."
                 )
             }
 

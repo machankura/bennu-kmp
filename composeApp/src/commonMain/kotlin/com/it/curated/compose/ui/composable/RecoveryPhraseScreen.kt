@@ -460,7 +460,7 @@ private fun RecoveryPhraseCheckbox(
 @ConformancePreviews
 @Composable
 private fun RecoveryPhraseScreenPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -487,7 +487,7 @@ private fun RecoveryPhraseScreenPreview() {
 @ConformancePreviews
 @Composable
 private fun RecoveryPhraseScreenHiddenPreview() {
-    com.it.curated.compose.ui.theme.TorchTheme {
+    com.it.curated.compose.ui.theme.CuratedTheme {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {

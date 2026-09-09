@@ -18,7 +18,7 @@ import com.it.curated.compose.database.model.GroupKeyState
 import com.it.curated.compose.database.model.GroupSignedEvent
 import com.it.curated.compose.nostr.frost.GroupKeyStateEvent
 import com.it.curated.compose.ui.composable.widgets.ProvideSnackbarHost
-import com.it.curated.compose.ui.theme.TorchTheme
+import com.it.curated.compose.ui.theme.CuratedTheme
 
 /**
  * The one thing about this sheet that reading it does not settle.
@@ -78,7 +78,7 @@ class GroupKeyStateSheetLayoutJvmTest {
     fun `the signed event wraps inside the sheet rather than running off it`() =
         runDesktopComposeUiTest(width = 800, height = 2400) {
             setContent {
-                TorchTheme {
+                CuratedTheme {
                     // The sheet reports a copy through the snackbar host, so it
                     // needs one in scope the way every screen does.
                     ProvideSnackbarHost {
@@ -105,7 +105,7 @@ class GroupKeyStateSheetLayoutJvmTest {
     fun `a device holding no signed event still renders the state`() =
         runDesktopComposeUiTest(width = 800, height = 2400) {
             setContent {
-                TorchTheme {
+                CuratedTheme {
                     ProvideSnackbarHost {
                         Box(modifier = Modifier.width(phoneWidth).testTag(SHEET)) {
                             GroupKeyStateSheetContent(
