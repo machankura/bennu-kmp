@@ -7,6 +7,8 @@ import com.it.curated.compose.database.model.GroupSignedEvent
 import com.it.curated.compose.database.model.MantraArtifact
 import com.it.curated.compose.database.model.MantraDialect
 import com.it.curated.compose.database.model.intermdiate.LocalChatRoom
+import com.it.curated.compose.nostr.GroupNostrProfile
+import com.it.curated.compose.nostr.GroupRelayList
 
 sealed interface ChatRoomDetailUIState {
     data class Loaded(
@@ -50,6 +52,41 @@ sealed interface ChatRoomDetailUIState {
          * really is a subgroup.
          */
         val parentChatRoomId: HexKey? = null,
+        /**
+         * The kind:0 the group signed about itself, or null while it has signed
+         * none.
+         *
+         * Sits under the room's identity and above its work, because that is what
+         * it is: the name and the picture the rest of nostr sees on the key the
+         * signing key row names. Null is an ordinary state and the screen says so
+         * -- a group has an identity from the moment it has a key and describes it
+         * whenever somebody gets round to it.
+         */
+        val groupNostrProfile: GroupNostrProfile? = null,
+        /**
+         * Where the group has said it lives on nostr, one entry per relay set.
+         *
+         * Beside the profile because they are the same kind of fact -- the group's
+         * own account of itself, signed by the group -- and read in the same breath
+         * by anybody checking whether the group is reachable.
+         *
+         * Empty only in a room that has none of this to say. Every other case has
+         * four entries, some of them unsigned; see `ChatRepository.groupRelayLists`.
+         */
+        val groupRelayLists: List<GroupRelayList> = emptyList(),
+        /**
+         * Whether this device could sign a profile for the group.
+         *
+         * The same capability [canAddSubgroup] wants, and wanted for the same
+         * reason: writing the group's profile is a signature by the group, and
+         * `FrostSigningManager.proposeSigningBatch` throws for a device holding no
+         * share of the key. It is not about permission -- any member with a share
+         * may propose -- and the quorum is what decides.
+         *
+         * A NIP-17 room is excluded by the same condition, since it has no key of
+         * its own to sign as and so no nostr identity to describe.
+         */
+        val canEditNostrProfile: Boolean = false,
         /**
          * Whether this device could open a subgroup here at all.
          *

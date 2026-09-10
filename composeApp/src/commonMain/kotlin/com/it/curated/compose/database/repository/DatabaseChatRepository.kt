@@ -9,6 +9,9 @@ import com.it.curated.compose.managers.FrostSigningManager
 import com.it.curated.compose.managers.GroupKeyStateManager
 import com.it.curated.compose.managers.MarmotGroupCreation
 import com.it.curated.compose.managers.SubgroupManager
+import com.it.curated.compose.nostr.GroupNostrProfile
+import com.it.curated.compose.nostr.GroupRelayList
+import com.it.curated.compose.nostr.GroupRelaySet
 import com.it.curated.compose.database.model.ChatMessage
 import com.it.curated.compose.database.model.ChatRoom
 import com.it.curated.compose.database.model.GiftWrapPayload
@@ -25,6 +28,7 @@ import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
 import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
+import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip01Core.relay.normalizer.NormalizedRelayUrl
 import com.vitorpamplona.quartz.nip01Core.signers.EventTemplate
 import com.vitorpamplona.quartz.nip01Core.signers.NostrSignerSync
@@ -118,6 +122,39 @@ class DatabaseChatRepository(
     } catch (e: Throwable) {
         logger.e("Error reading the parent of $chatRoomId", e)
         null
+    }
+
+    override suspend fun groupNostrProfile(chatRoomId: String): GroupNostrProfile? = try {
+        GroupNostrProfile.newestAmong(
+            signedEvents = database.groupSignedEventDao()
+                .getByChatRoomIdAndKind(chatRoomId, MetadataEvent.KIND),
+            chatRoomId = chatRoomId,
+        )
+    } catch (e: Throwable) {
+        // Reading one parses content off the wire and checks a signature, and a
+        // room that shows no profile is wrong and survivable where one that will
+        // not open is neither -- the same trade the readings above make.
+        logger.e("Error reading the nostr profile of $chatRoomId", e)
+        null
+    }
+
+    override suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList> = try {
+        // One query per set rather than one for the room: the four kinds are
+        // indexed and a room's whole signed history is every artifact, chunk and
+        // translation it has ever agreed.
+        GroupRelaySet.entries.map { set ->
+            GroupRelayList.newestAmong(
+                signedEvents = database.groupSignedEventDao()
+                    .getByChatRoomIdAndKind(chatRoomId, set.kind),
+                chatRoomId = chatRoomId,
+                set = set,
+            )
+        }
+    } catch (e: Throwable) {
+        logger.e("Error reading the relay lists of $chatRoomId", e)
+        // Four unsigned, empty sets: the screen draws "not set yet" rather than
+        // failing to draw, which is the trade every reading above makes.
+        GroupRelayList.allAmong(emptyList(), chatRoomId)
     }
 
     override suspend fun canSign(chatRoomId: String): Boolean = try {

@@ -9,6 +9,8 @@ import com.it.curated.compose.database.model.MarmotKeyPackage
 import com.it.curated.compose.managers.SharedKeyDerivation
 import com.it.curated.compose.managers.MarmotGroupCreation
 import com.it.curated.compose.managers.SubgroupManager
+import com.it.curated.compose.nostr.GroupNostrProfile
+import com.it.curated.compose.nostr.GroupRelayList
 import com.it.curated.compose.database.model.Participant
 import com.it.curated.compose.database.model.intermdiate.LocalChatMessage
 import com.it.curated.compose.database.model.intermdiate.LocalChatRoom
@@ -78,6 +80,27 @@ interface ChatRepository {
      * state and gets null here even when the room really is a subgroup.
      */
     suspend fun parentOf(chatRoomId: String): HexKey?
+
+    /**
+     * The kind:0 this group signed about itself, or null while it has signed
+     * none.
+     *
+     * The group's identity on nostr is the room's own id, so it has one to
+     * describe whether or not it ever has. Read off the group's signed events and
+     * verified there -- see `GroupNostrProfile` -- so a room shows the profile its
+     * own key signed or shows that it has none.
+     */
+    suspend fun groupNostrProfile(chatRoomId: String): GroupNostrProfile?
+
+    /**
+     * Where this group has said it lives on nostr: one entry per relay set, always
+     * all of them.
+     *
+     * A set the group has never agreed comes back unsigned and empty rather than
+     * missing, because "never said" is a state the screen has to show and a gap in
+     * a list is not one. See `GroupRelayList.isAgreed`.
+     */
+    suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList>
 
     /**
      * Whether this device holds a share of the group's key, and so could take
@@ -259,6 +282,11 @@ interface ChatRepository {
                 emptyList()
 
             override suspend fun parentOf(chatRoomId: String): HexKey? = null
+
+            override suspend fun groupNostrProfile(chatRoomId: String): GroupNostrProfile? = null
+
+            override suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList> =
+                GroupRelayList.allAmong(emptyList(), chatRoomId)
 
             override suspend fun canSign(chatRoomId: String): Boolean = false
 

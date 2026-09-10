@@ -18,6 +18,8 @@ import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.PersonAdd
@@ -69,6 +71,8 @@ import com.it.curated.compose.repository.NostrRepository
 import com.it.curated.compose.ui.composable.navigation.routes.ImplementationPendingRoute
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.navigation.routes.DkgRitualRoute
+import com.it.curated.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
+import com.it.curated.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import com.it.curated.compose.ui.composable.navigation.routes.ProposalListRoute
 import com.it.curated.compose.ui.composable.navigation.routes.SearchMemberToAddToChatRoomRoute
 import com.it.curated.compose.extensions.toFormattedTimeAndDateString
@@ -81,11 +85,26 @@ import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.model.ChatRoomDetailViewModel
 import com.it.curated.compose.ui.view.state.ChatRoomDetailUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import com.vitorpamplona.quartz.nip01Core.metadata.UserMetadata
 import com.it.curated.compose.ui.composable.navigation.routes.AddArtifactRoute
 import com.it.curated.compose.ui.composable.navigation.routes.AddDialectRoute
 import com.it.curated.compose.ui.composable.navigation.routes.ArtifactDetailRoute
 import com.it.curated.compose.ui.theme.spacing
 import curated.composeapp.generated.resources.run_by_members
+import curated.composeapp.generated.resources.nostr_profile
+import curated.composeapp.generated.resources.relays
+import curated.composeapp.generated.resources.edit_relays
+import curated.composeapp.generated.resources.not_set_yet
+import curated.composeapp.generated.resources.no_relays_in_this_list
+import curated.composeapp.generated.resources.relay_set_general
+import curated.composeapp.generated.resources.relay_set_messages
+import curated.composeapp.generated.resources.relay_set_search
+import curated.composeapp.generated.resources.relay_set_blocked
+import curated.composeapp.generated.resources.no_name_on_this_profile
+import curated.composeapp.generated.resources.edit_nostr_profile
+import curated.composeapp.generated.resources.signed_by_the_group_on
+import curated.composeapp.generated.resources.this_group_has_not_said_anything_about_itself
 import curated.composeapp.generated.resources.parent_group
 import curated.composeapp.generated.resources.a_subgroup
 import curated.composeapp.generated.resources.created_you_are_not_a_member
@@ -97,6 +116,9 @@ import com.it.curated.compose.ui.composable.navigation.routes.SelectSubgroupAdmi
 import com.it.curated.compose.ui.composable.navigation.routes.NostrEventDetailRoute
 import com.it.curated.compose.ui.composable.navigation.routes.ChatRoomDetailRoute
 import com.it.curated.compose.managers.SubgroupManager
+import com.it.curated.compose.nostr.GroupNostrProfile
+import com.it.curated.compose.nostr.GroupRelayList
+import com.it.curated.compose.nostr.GroupRelaySet
 import curated.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
 import curated.composeapp.generated.resources.add_artifact_to_library
@@ -312,6 +334,123 @@ fun ChatRoomDetailScreen(
 
                             item {
                                 HorizontalDivider()
+                            }
+
+                            // Under the room's identity and above its work, because
+                            // that is what it is: what the rest of nostr reads for
+                            // the key the signing key row names. The room's subject
+                            // and description above are this device's names for it;
+                            // this is the group's own, signed by the group.
+                            //
+                            // Marmot rooms only, and absent rather than empty in a
+                            // NIP-17 one. A NIP-17 room's id is not a key it can
+                            // sign as, so it has no nostr identity at all -- and a
+                            // section saying it has not described one yet would
+                            // promise something that is never coming.
+                            if (chatRoomDetailUIState.localChatRoom.chatRoom.mlsGroupState != null) {
+                                item {
+                                    Text(
+                                        text = stringResource(Res.string.nostr_profile),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+
+                                item {
+                                    chatRoomDetailUIState.groupNostrProfile?.let { groupNostrProfile ->
+                                        GroupNostrProfileCard(
+                                            groupNostrProfile = groupNostrProfile,
+                                            publicKey = chatRoomId
+                                        )
+                                    } ?: Text(
+                                        stringResource(
+                                            Res.string.this_group_has_not_said_anything_about_itself
+                                        )
+                                    )
+                                }
+
+                                // The profile is worth reading either way; proposing
+                                // one is a signature by the group, and
+                                // `proposeSigningBatch` throws for a device holding
+                                // no share of the key. Hidden rather than disabled,
+                                // the way the subgroup entry is.
+                                if (chatRoomDetailUIState.canEditNostrProfile) {
+                                    item {
+                                        TextButton(
+                                            onClick = {
+                                                onNavigateToRoute.invoke(
+                                                    EditGroupNostrProfileRoute(
+                                                        activeUserPublicKey = activeUserPublicKey,
+                                                        chatRoomId = chatRoomId,
+                                                        relayHint = relayHint
+                                                    )
+                                                )
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Badge,
+                                                contentDescription = Decorative
+                                            )
+
+                                            Spacer(
+                                                modifier = Modifier.width(
+                                                    MaterialTheme.spacing.space125
+                                                )
+                                            )
+
+                                            Text(stringResource(Res.string.edit_nostr_profile))
+                                        }
+                                    }
+                                }
+
+                                // Directly under the profile, because between them
+                                // they are the whole of the group's account of
+                                // itself on nostr: who it says it is, and where it
+                                // says it can be found. Same gate, same reasons.
+                                item {
+                                    Text(
+                                        text = stringResource(Res.string.relays),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+
+                                item {
+                                    GroupRelayListsCard(
+                                        relayLists = chatRoomDetailUIState.groupRelayLists
+                                    )
+                                }
+
+                                if (chatRoomDetailUIState.canEditNostrProfile) {
+                                    item {
+                                        TextButton(
+                                            onClick = {
+                                                onNavigateToRoute.invoke(
+                                                    EditGroupRelaysRoute(
+                                                        activeUserPublicKey = activeUserPublicKey,
+                                                        chatRoomId = chatRoomId,
+                                                        relayHint = relayHint
+                                                    )
+                                                )
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Dns,
+                                                contentDescription = Decorative
+                                            )
+
+                                            Spacer(
+                                                modifier = Modifier.width(
+                                                    MaterialTheme.spacing.space125
+                                                )
+                                            )
+
+                                            Text(stringResource(Res.string.edit_relays))
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    HorizontalDivider()
+                                }
                             }
 
                             item {
@@ -1057,6 +1196,135 @@ internal fun GroupKeyStateSheetContent(
  * without a paste losing the value.
  */
 /**
+ * What the group says about itself on nostr, as the group signed it.
+ *
+ * A preview rather than a profile screen: the name, the picture, the nostr address
+ * and the first lines of the group's own account of itself, which is what a member
+ * opening the group's details came here to check. The whole thing is one signed
+ * event and the proposal list is where it can be read out in full.
+ *
+ * **The picture and the name come from the metadata; the tint comes from the key.**
+ * [publicKey] is the room's id, which is the pubkey the group signs as, so a group
+ * with no picture yet still gets the colour it has everywhere else in the app.
+ *
+ * The signing date is here because a group's profile is standing state with no
+ * other clue to its age -- and because the alternative reading, that this arrived
+ * from a relay a moment ago, is exactly what has not happened. Nothing on this card
+ * has been published: see `GroupNostrProfile`.
+ */
+@Composable
+private fun GroupNostrProfileCard(
+    groupNostrProfile: GroupNostrProfile,
+    publicKey: HexKey
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        ListItem(
+            leadingContent = {
+                ProfileAvatar(
+                    publicKey = publicKey,
+                    picture = groupNostrProfile.picture(),
+                    name = groupNostrProfile.name()
+                )
+            },
+            headlineContent = {
+                Text(
+                    // Named rather than falling back to the pubkey: the signing key
+                    // row above already shows that, and showing it twice would say
+                    // the group has a name when it has not.
+                    text = groupNostrProfile.name()
+                        ?: stringResource(Res.string.no_name_on_this_profile),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            supportingContent = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)
+                ) {
+                    groupNostrProfile.nip05()?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    groupNostrProfile.about()?.let {
+                        Text(
+                            text = it,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Text(
+                        text = stringResource(
+                            Res.string.signed_by_the_group_on,
+                            groupNostrProfile.signedAt.toFormattedTimeAndDateString()
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        )
+    }
+}
+
+/**
+ * Where the group has said it lives on nostr, one line per relay list.
+ *
+ * One card holding four rows rather than four cards: they are read together -- the
+ * question is whether the group is reachable, not what any single list says -- and
+ * four cards of one line each on a screen this long is four dividers to scroll past
+ * for the same four facts.
+ *
+ * **A list the group has never agreed reads "not set yet", and an agreed empty one
+ * reads "no relays".** Those are different things: one is a group that has not got
+ * round to it, and the other is a group that decided. Collapsing them would hide a
+ * deliberate withdrawal behind an oversight.
+ */
+@Composable
+private fun GroupRelayListsCard(relayLists: List<GroupRelayList>) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        relayLists.forEach { list ->
+            ListItem(
+                leadingContent = {
+                    Icon(Icons.Default.Dns, contentDescription = Decorative)
+                },
+                headlineContent = {
+                    Text(text = stringResource(list.set.summaryLabel()))
+                },
+                supportingContent = {
+                    Text(
+                        text = when {
+                            !list.isAgreed -> stringResource(Res.string.not_set_yet)
+                            list.relays.isEmpty() ->
+                                stringResource(Res.string.no_relays_in_this_list)
+                            // Hosts rather than URLs: every one of them starts
+                            // `wss://`, so the scheme is the part that never
+                            // distinguishes two entries.
+                            else -> list.relays.joinToString { it.displayUrl() }
+                        },
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            )
+        }
+    }
+}
+
+/** The name of a relay list, for the summary on the group's screen. */
+private fun GroupRelaySet.summaryLabel() = when (this) {
+    GroupRelaySet.General -> Res.string.relay_set_general
+    GroupRelaySet.Messages -> Res.string.relay_set_messages
+    GroupRelaySet.Search -> Res.string.relay_set_search
+    GroupRelaySet.Blocked -> Res.string.relay_set_blocked
+}
+
+/**
  * One subgroup, as the parent's record and this device's rooms together have it.
  *
  * **The title comes from the room where there is one, and only otherwise from the
@@ -1238,7 +1506,10 @@ private fun ChatRoomMessagingScreenPreview() {
                             subject = "Message title",
                             description = "Description of a chat room so that members now why they are here.",
                             initialGiftWrapPayloadId = "sdfaer",
-                            mlsGroupState = null
+                            // A Marmot room, so the nostr profile section renders
+                            // at all -- it is hidden in a NIP-17 one, which has no
+                            // key to have an identity on nostr.
+                            mlsGroupState = "state"
                         ),
                         localParticipants = listOf(
                             LocalParticipant(
@@ -1266,7 +1537,29 @@ private fun ChatRoomMessagingScreenPreview() {
                         derivationPath = "m/9420/0/0",
                         announcedBy = "d".repeat(64),
                         announcedAt = Instant.fromEpochSeconds(1_700_000_000)
-                    )
+                    ),
+                    // A group that has described itself, so the section renders
+                    // with something in it rather than only in its empty state.
+                    // Built directly rather than read out of a signed event: the
+                    // reading checks a signature, and there is no real one here.
+                    groupNostrProfile = GroupNostrProfile(
+                        signedEvent = GroupSignedEvent(
+                            id = "e".repeat(64),
+                            chatRoomId = "publicKey",
+                            publicKey = "publicKey",
+                            kind = MetadataEvent.KIND,
+                            tags = emptyArray(),
+                            content = "",
+                            signature = "f".repeat(128),
+                            createdAt = Instant.fromEpochSeconds(1_700_000_000)
+                        ),
+                        metadata = UserMetadata().apply {
+                            displayName = "Translation collective"
+                            about = "A group translating hard books into Sesotho."
+                            nip05 = "group@example.com"
+                        }
+                    ),
+                    canEditNostrProfile = true
                 ),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,

@@ -74,6 +74,12 @@ class ChatRoomDetailViewModel(
                 // Initiate new chat... and navigate to new chat...
                 ChatRoomDetailUIState.Error("Missing chat room")
             } else {
+                // One read of the capability for the two things that need it. It
+                // walks the room's ceremonies looking for a share, so asking twice
+                // would do the same walk twice for one answer.
+                val canSign = localChatRoom.chatRoom.mlsGroupState != null &&
+                    chatRepository.canSign(chatRoomId)
+
                 ChatRoomDetailUIState.Loaded(
                     localChatRoom = localChatRoom,
                     artifacts = mantraRepository.getArtifacts(chatRoomId),
@@ -82,8 +88,10 @@ class ChatRoomDetailViewModel(
                     signedGroupKeyStateEvent = chatRepository.signedGroupKeyStateEvent(chatRoomId),
                     subgroups = chatRepository.subgroupsOf(chatRoomId),
                     parentChatRoomId = chatRepository.parentOf(chatRoomId),
-                    canAddSubgroup = localChatRoom.chatRoom.mlsGroupState != null &&
-                        chatRepository.canSign(chatRoomId),
+                    groupNostrProfile = chatRepository.groupNostrProfile(chatRoomId),
+                    groupRelayLists = chatRepository.groupRelayLists(chatRoomId),
+                    canEditNostrProfile = canSign,
+                    canAddSubgroup = canSign,
                 )
             }
         }

@@ -40,6 +40,8 @@ import com.it.curated.compose.ui.composable.DkgJoinApprovalScreen
 import com.it.curated.compose.ui.composable.DkgRitualScreen
 import com.it.curated.compose.ui.composable.DkgRound1ApprovalScreen
 import com.it.curated.compose.ui.composable.DkgRound2ApprovalScreen
+import com.it.curated.compose.ui.composable.EditGroupNostrProfileScreen
+import com.it.curated.compose.ui.composable.EditGroupRelaysScreen
 import com.it.curated.compose.ui.composable.HomeScreen
 import com.it.curated.compose.ui.composable.ImplementationPendingScreen
 import com.it.curated.compose.ui.composable.KeyPackageManagementScreen
@@ -122,6 +124,8 @@ import com.it.curated.compose.database.repository.DatabaseMantraRepository
 import com.it.curated.compose.ui.composable.AddArtifactScreen
 import com.it.curated.compose.ui.composable.navigation.routes.AddArtifactRoute
 import com.it.curated.compose.ui.composable.navigation.routes.AddDialectRoute
+import com.it.curated.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
+import com.it.curated.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import com.it.curated.compose.ui.composable.navigation.routes.FrostSigningRoute
 import com.it.curated.compose.ui.composable.navigation.routes.ProposalListRoute
 import com.it.curated.compose.ui.composable.navigation.routes.AddChapterRoute
@@ -965,6 +969,46 @@ fun CuratedNavHost(
                         navController.navigate(
                             route = actionRoute
                         )
+                    }
+                )
+            }
+            composable<EditGroupNostrProfileRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<EditGroupNostrProfileRoute>()
+
+                EditGroupNostrProfileScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    chatRepository = databaseChatRepository,
+                    frostSigningRepository = databaseFrostSigningRepository,
+                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
+                        // Replace the form so back returns to the group rather than
+                        // to an edit whose proposal has already gone out.
+                        navController.navigate(route = signingRoute) {
+                            popUpTo<EditGroupNostrProfileRoute> {
+                                inclusive = true
+                            }
+                        }
+                    }
+                )
+            }
+            composable<EditGroupRelaysRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<EditGroupRelaysRoute>()
+
+                EditGroupRelaysScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    chatRepository = databaseChatRepository,
+                    frostSigningRepository = databaseFrostSigningRepository,
+                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
+                        // Replace the editor so back returns to the group rather
+                        // than to lists whose proposal has already gone out.
+                        navController.navigate(route = signingRoute) {
+                            popUpTo<EditGroupRelaysRoute> {
+                                inclusive = true
+                            }
+                        }
                     }
                 )
             }
