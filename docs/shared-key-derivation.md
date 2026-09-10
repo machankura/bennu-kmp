@@ -66,10 +66,11 @@ be reordered or replayed at a different depth to reach the same key.
 `listOf(0L)` and `listOf(0L, 0L, 0L)` do not collide — there is a test for it.
 
 The `mantra/` prefix is deliberate and did not change when the app was rebranded to
-Curated. The string is an input to the hash, so renaming it derives different keys
-from the same threshold key — orphaning every room already created, and splitting
-Curated off from any Mantra peer in a shared group. A rename is a protocol fork and
-would need a `v2` tag, not an edit to this one.
+Curated, nor again when Curated was rebranded to Curare. The string is an input to the
+hash, so renaming it derives different keys from the same threshold key — orphaning
+every room already created, and splitting Curare off from any peer still running either
+older build. A rename is a protocol fork and would need a `v2` tag, not an edit to this
+one.
 
 ### What avoiding BIP32 also avoids
 

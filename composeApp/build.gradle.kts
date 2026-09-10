@@ -13,7 +13,7 @@ plugins {
     alias(libs.plugins.ksp)
     // No sqldelight plugin here on purpose. The fr.acinq.phoenix.db.sqldelight databases this
     // module used to generate are the same three lightning-kmp-app's :library generates from an
-    // identical copy of the .sq sources, and nothing under com.it.curated touches them. Generating
+    // identical copy of the .sq sources, and nothing under to.curare touches them. Generating
     // them on both sides put every generated class in the apk twice, which debug tolerates and
     // mergeDexRelease rejects as duplicate types. The library's copies are the ones that count.
 }
@@ -159,14 +159,18 @@ kotlin {
 }
 
 android {
-    namespace = "com.it.curated.android"
+    namespace = "to.curare.android"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     buildFeatures {
         buildConfig = true
     }
     defaultConfig {
-        applicationId = "com.it.curated"
+        // The store identity and the namespace are one value again. They were split when
+        // the app was com.it.curated so the base package could land verbatim as the
+        // applicationId; the rebrand collapsed them, so `BuildConfig` and the manifest's
+        // relative `android:name=".CurareApplication"` resolve against this same package.
+        applicationId = "to.curare.android"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 2
@@ -243,7 +247,7 @@ val m3Audit = tasks.register("m3Audit") {
 
     val script = rootProject.layout.projectDirectory.file("docs/scripts/m3-audit.sh").asFile
     val uiSources = rootProject.layout.projectDirectory
-        .dir("composeApp/src/commonMain/kotlin/com/it/curated/compose/ui")
+        .dir("composeApp/src/commonMain/kotlin/to/curare/compose/ui")
     val projectDirectory = rootProject.layout.projectDirectory.asFile
 
     inputs.file(script).withPropertyName("auditScript")
@@ -286,11 +290,11 @@ tasks.named("check") { dependsOn(m3Audit) }
 
 compose.desktop {
     application {
-        mainClass = "com.it.curated.desktop.MainKt"
+        mainClass = "to.curare.desktop.MainKt"
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "com.it.curated.desktop"
+            packageName = "to.curare.desktop"
             packageVersion = "1.0.0"
         }
     }

@@ -19,7 +19,7 @@ Usage: m3-title-case.py [--list]
 """
 import os, re, sys
 
-UI = 'composeApp/src/commonMain/kotlin/com/it/curated/compose/ui'
+UI = 'composeApp/src/commonMain/kotlin/to/curare/compose/ui'
 CATALOGUE = 'composeApp/src/commonMain/composeResources/values/strings.xml'
 
 SMALL = {'a', 'an', 'the', 'to', 'of', 'for', 'and', 'or', 'via',

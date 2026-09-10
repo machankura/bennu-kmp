@@ -11,7 +11,7 @@
       actual 334 strings sat inside composables.
 
       The launcher label is a separate resource, in androidMain/res/values/strings.xml,
-      which is what AndroidManifest.xml points at. Both now say "Curated".
+      which is what AndroidManifest.xml points at. Both now say "Curare".
 
       Externalising the 334 is the rest of phase 4 in
       docs/material-design-conformance.md. They land here.
@@ -20,7 +20,7 @@
       an em dash or a comma. The compose resources plugin reports that only as
       "XML file ... is not valid. Check the file content."
     -->
-    <string name="app_name">Curated</string>
+    <string name="app_name">Curare</string>
     <string name="add_a_dialect_the_group_can_translate_into">Add a dialect the group can translate into</string>
     <string name="add_artifact_to_library">Add artifact to library</string>
     <string name="add_artifact_to_the_group_library">Add artifact to the group library</string>
@@ -109,7 +109,7 @@
     <string name="how_many_members_will_it_take_to_sign">How many members will it take to sign?</string>
     <string name="i_have_saved_my_recovery_phrase_somewhere">I have saved my recovery phrase somewhere safe.</string>
     <string name="i_understand_that_if_i_lose_this_phone_and">I understand that if I lose this phone and my recovery phrase, I lose this profile and the funds in its wallet.</string>
-    <string name="if_you_are_new_to_torch_or_just_want_to">If you are new to Curated or just want to create a fresh profile</string>
+    <string name="if_you_are_new_to_torch_or_just_want_to">If you are new to Curare or just want to create a fresh profile</string>
     <string name="initial_version_label">Initial version label</string>
     <string name="input_npub_or_nip05">Input npub... or nip05</string>
     <string name="introduce_yourself">Introduce yourself</string>
@@ -141,7 +141,7 @@
     <string name="lose_this_phone_before_you_do_and_the">Lose this phone before you do, and the profile goes with it.</string>
     <string name="lock_prompt_coming_soon">Lock prompt coming soon.</string>
     <string name="malformed_note">Malformed note</string>
-    <string name="curated">Curated</string>
+    <string name="curare">Curare</string>
     <string name="members">Members</string>
     <string name="members_2">members</string>
     <string name="name">Name</string>
@@ -228,9 +228,9 @@
     <string name="this_device_does_not_hold_the_event">This device holds the group's reading of this, but not the signed event itself. Nothing here can be checked against a signature.</string>
     <string name="sign">Sign</string>
     <string name="sign_in">Sign in</string>
-    <string name="sign_in_is_not_yet_available_while_curated_is">Sign in is not yet available while Curated is in alpha testing.</string>
+    <string name="sign_in_is_not_yet_available_while_curare_is">Sign in is not yet available while Curare is in alpha testing.</string>
     <string name="sign_in_to_nsec">Sign in to nsec</string>
-    <string name="sign_in_to_torch_via_nsec_or_remote_signer">Sign in to Curated via nsec, or remote signer</string>
+    <string name="sign_in_to_torch_via_nsec_or_remote_signer">Sign in to Curare via nsec, or remote signer</string>
     <string name="sign_in_with_an_npub">Sign in with an npub</string>
     <string name="sign_out">Sign out</string>
     <string name="sign_with_the_group_s_key">Sign with the group's key</string>
@@ -255,7 +255,7 @@
     <string name="the_ceremony_was_abandoned">The ceremony was abandoned.</string>
     <string name="the_group_can_hold_one_key_together_split_so">The group can hold one key together, split so that no single member holds it. Signing with it takes a quorum.</string>
     <string name="the_group_has_a_shared_key">The group has a shared key.</string>
-    <string name="the_recovery_phrase_sometimes_called_a_seed">The recovery phrase (sometimes called a seed) is a list of 12 English words. It is the only way back to this profile: the key that signs as you, and the wallet that holds your coins, are both derived from it.\n\nOnly you have this phrase. Keep it private — nobody from Curated will ever ask you for it.\n\nDo not lose it. Write it down and keep it somewhere safe that is not this phone. If you lose both the phone and the phrase, this profile and its funds are gone for good.</string>
+    <string name="the_recovery_phrase_sometimes_called_a_seed">The recovery phrase (sometimes called a seed) is a list of 12 English words. It is the only way back to this profile: the key that signs as you, and the wallet that holds your coins, are both derived from it.\n\nOnly you have this phrase. Keep it private — nobody from Curare will ever ask you for it.\n\nDo not lose it. Write it down and keep it somewhere safe that is not this phone. If you lose both the phone and the phrase, this profile and its funds are gone for good.</string>
     <string name="these_are_your_keys_keep_them_safe_so_they">These are your keys. Keep them safe so they can keep unlocking this profile and its coins, even when you lose or change your phone.</string>
     <string name="this_artifact_has_no_version_for_a">This artifact has no version for a translation to be of.</string>
     <string name="this_artifact_has_no_version_for_a_chapter">This artifact has no version for a chapter to attach to.</string>
@@ -272,7 +272,7 @@
     <string name="this_will_be_the_display_name_for_your">This will be the display name for your profile and also important for search.</string>
     <string name="this_will_give_you_read_only_access_to_the">This will give you read only access to the profile.</string>
     <string name="this_will_give_you_write_access_to_the">This will give you write access to the profile.</string>
-    <string name="torch_will_be_broadcast_what_you_publish_to">Curated broadcasts what you publish to a distributed set of relays, so it stays decentralised.</string>
+    <string name="torch_will_be_broadcast_what_you_publish_to">Curare broadcasts what you publish to a distributed set of relays, so it stays decentralised.</string>
     <string name="translate_chunk">Translate chunk</string>
     <string name="translate_into_which_dialect">Translate into which dialect?</string>
     <string name="translated_text">Translated text</string>
@@ -353,7 +353,7 @@
     <string name="to_join_the_chat_room">to join the %1$s chat room.</string>
     <string name="translate">Translate %1$s</string>
     <string name="unsupported_event_kind_2">Unsupported event kind: %1$s</string>
-    <string name="was_created_but_couldn_t_be_added_yet_invite">%1$s was created, but %2$s couldn't be added yet. Invite them again from the chat once they're on Curated.</string>
+    <string name="was_created_but_couldn_t_be_added_yet_invite">%1$s was created, but %2$s couldn't be added yet. Invite them again from the chat once they're on Curare.</string>
     <string name="was_created_but_its_shared_key_ceremony">%1$s was created, but its shared key ceremony couldn't be started. Open the chat and start it from the group's details — until then the group has no key of its own.</string>
     <string name="words_characters">%1$s words · %2$s characters</string>
     <string name="word_position">#%1$s</string>

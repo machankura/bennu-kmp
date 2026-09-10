@@ -1,4 +1,4 @@
-rootProject.name = "Curated"
+rootProject.name = "Curare"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
