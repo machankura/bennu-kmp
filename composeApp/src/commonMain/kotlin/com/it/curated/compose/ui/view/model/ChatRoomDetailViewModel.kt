@@ -90,6 +90,7 @@ class ChatRoomDetailViewModel(
                     parentChatRoomId = chatRepository.parentOf(chatRoomId),
                     groupNostrProfile = chatRepository.groupNostrProfile(chatRoomId),
                     groupRelayLists = chatRepository.groupRelayLists(chatRoomId),
+                    groupPosts = chatRepository.groupPosts(chatRoomId),
                     canEditNostrProfile = canSign,
                     canAddSubgroup = canSign,
                 )

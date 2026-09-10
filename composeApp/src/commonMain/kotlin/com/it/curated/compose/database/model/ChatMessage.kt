@@ -21,6 +21,7 @@ import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import com.it.curated.compose.nostr.GroupNostrProfile
 import com.it.curated.compose.nostr.GroupRelaySet
 import com.vitorpamplona.quartz.nipC7Chats.ChatEvent
@@ -422,9 +423,21 @@ data class ChatMessage(
          * renders as a chat bubble, silently, looking exactly like somebody having
          * said "The group is now called Translation collective".
          */
+        /**
+         * The group signed something to say publicly, in its own name.
+         *
+         * A system line rather than a bubble, like the other two -- nobody said it,
+         * the group signed it -- and the line names the post rather than repeating
+         * it, because the post itself is on the group's screen where it can be read
+         * whole. A quote here would be the same words twice with the second copy
+         * unable to say who agreed to them.
+         */
+        const val TYPE_GROUP_POST_SIGNED = "groupPostSigned"
+
         val GROUP_IDENTITY_TYPES = setOf(
             TYPE_GROUP_PROFILE_SIGNED,
             TYPE_GROUP_RELAYS_SIGNED,
+            TYPE_GROUP_POST_SIGNED,
         )
 
         /**
@@ -977,6 +990,22 @@ data class ChatMessage(
             createdAt: Instant,
             groupSignedEventId: HexKey? = null,
         ): ChatMessage? {
+            // The last resort, named because one arm reaches it deliberately rather
+            // than by falling off the end: a kind:1 the room did not sign is a
+            // member's own note travelling through the room, and it has always
+            // rendered as this. See the `TextNoteEvent` arm.
+            fun unsupported() = ChatMessage(
+                giftWrapPayloadId = null,
+                messageType = "unsupported",
+                marmotGroupEventId = marmotGroupEventId,
+                marmotInnerEventId = marmotInnerEventId,
+                senderPublicKey = senderPublicKey,
+                isUserMessage = isUserMessage,
+                chatRoomId = groupId,
+                createdAt = createdAt,
+                content = event.toJson(),
+            )
+
             return when (event.kind) {
                 ChatEvent.KIND -> {
                     ChatMessage(
@@ -1429,6 +1458,41 @@ data class ChatMessage(
                     )
                 }
 
+                // The group saying something publicly, in its own name -- which
+                // is a different thing from a member saying something in the room.
+                // A room's messages are `ChatEvent`s; this is a kind:1 authored by
+                // the room's own key, so any reader can check the group said it and
+                // that no single member could have.
+                //
+                // Verified like the arms below and for the same reason: a rumor
+                // carries an empty signature and any pubkey its sender likes, so an
+                // author check alone would let one member put words in the group's
+                // mouth in its own transcript.
+                //
+                // **Unlike those arms, a kind:1 that fails falls through to
+                // `unsupported` rather than vanishing.** A member's kind:0 or relay
+                // list passing through a room is identity plumbing nobody sent on
+                // purpose and silence is the right treatment; a kind:1 is content,
+                // somebody meant it, and it has rendered as an unsupported event
+                // since before any of this existed. Dropping it here would be this
+                // change quietly deleting messages it has no business touching.
+                TextNoteEvent.KIND -> {
+                    val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
+                    if (!signed.verifies()) return unsupported()
+
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = TYPE_GROUP_POST_SIGNED,
+                        marmotGroupEventId = marmotGroupEventId,
+                        marmotInnerEventId = marmotInnerEventId,
+                        senderPublicKey = senderPublicKey,
+                        isUserMessage = isUserMessage,
+                        chatRoomId = groupId,
+                        createdAt = createdAt,
+                        content = "The group posted in its own name"
+                    )
+                }
+
                 // The group saying where it lives on nostr: which relays carry
                 // its work, take its messages, answer a search of it, and which it
                 // will not talk to.
@@ -1471,19 +1535,7 @@ data class ChatMessage(
                     )
                 }
 
-                else -> {
-                    ChatMessage(
-                        giftWrapPayloadId = null,
-                        messageType = "unsupported",
-                        marmotGroupEventId = marmotGroupEventId,
-                        marmotInnerEventId = marmotInnerEventId,
-                        senderPublicKey = senderPublicKey,
-                        isUserMessage = isUserMessage,
-                        chatRoomId = groupId,
-                        createdAt = createdAt,
-                        content = event.toJson(),
-                    )
-                }
+                else -> unsupported()
             }
         }
     }

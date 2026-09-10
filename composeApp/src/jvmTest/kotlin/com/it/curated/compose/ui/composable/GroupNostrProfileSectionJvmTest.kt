@@ -16,6 +16,7 @@ import com.it.curated.compose.database.model.GroupKeyState
 import com.it.curated.compose.database.model.GroupSignedEvent
 import com.it.curated.compose.database.model.intermdiate.LocalChatRoom
 import com.it.curated.compose.nostr.GroupNostrProfile
+import com.it.curated.compose.nostr.GroupPost
 import com.it.curated.compose.nostr.GroupRelay
 import com.it.curated.compose.nostr.GroupRelayList
 import com.it.curated.compose.nostr.GroupRelaySet
@@ -27,6 +28,7 @@ import com.it.curated.compose.ui.composable.widgets.ProvideSnackbarHost
 import com.it.curated.compose.ui.theme.CuratedTheme
 import com.it.curated.compose.ui.view.state.ChatRoomDetailUIState
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import com.vitorpamplona.quartz.nip01Core.metadata.UserMetadata
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -136,6 +138,58 @@ class GroupNostrProfileSectionJvmTest {
     }
 
     @Test
+    fun `a member holding no share of the key reads the posts and is offered no composer`() =
+        render(
+            state(
+                groupNostrProfile = profile,
+                posts = listOf(post("Something the group said", 1_700_000_000)),
+                canEditNostrProfile = false
+            )
+        ) {
+            // A post is the one thing here that is meant to be read by people who
+            // were not in the room, so a member without a share reads it like
+            // anybody else and simply cannot propose the next one.
+            onNodeWithText("Something the group said").assertIsDisplayed()
+            onNodeWithText("Add post").assertDoesNotExist()
+        }
+
+    @Test
+    fun `the posts sit under the relay lists and above the library`() = render(
+        state(
+            groupNostrProfile = profile,
+            relayLists = signedRelayLists(),
+            posts = listOf(post("The second thing", 1_700_000_900), post("The first thing", 1_700_000_000))
+        )
+    ) {
+        val relays = onNodeWithText("Relays").getBoundsInRoot().top
+        val posts = onNodeWithText("Posts").getBoundsInRoot().top
+        val library = onNodeWithText("Library").getBoundsInRoot().top
+
+        assertTrue(relays < posts, "the posts climbed above the relay lists")
+        assertTrue(posts < library, "the posts fell below the library")
+
+        // Newest first, and whole rather than previewed -- a post is the one thing
+        // on this screen that exists to be read.
+        val newest = onNodeWithText("The second thing").getBoundsInRoot().top
+        val oldest = onNodeWithText("The first thing").getBoundsInRoot().top
+        assertTrue(newest < oldest, "the posts were drawn oldest first")
+
+        // Under the group's name, not the member's. The whole point of signing a
+        // post as the group is that no member can be blamed for it.
+        onAllNodesWithText("Translation collective").assertCountEquals(3)
+        onNodeWithText("Add post").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a group that has posted nothing says so, and offers to post`() = render(
+        state(groupNostrProfile = profile, relayLists = signedRelayLists())
+    ) {
+        onNodeWithText("Posts").assertIsDisplayed()
+        onNodeWithText("This group hasn't posted anything yet.").assertIsDisplayed()
+        onNodeWithText("Add post").assertIsDisplayed()
+    }
+
+    @Test
     fun `a group that has said nothing says so, and offers to say something`() = render(
         state(groupNostrProfile = null)
     ) {
@@ -164,10 +218,12 @@ class GroupNostrProfileSectionJvmTest {
             .assertDoesNotExist()
         onNodeWithText("Edit Nostr profile").assertDoesNotExist()
 
-        // The relay lists go with it: they describe a nostr identity this room
-        // does not have.
+        // The relay lists and the posts go with it: all three describe a nostr
+        // identity this room does not have.
         onNodeWithText("Relays").assertDoesNotExist()
         onNodeWithText("Edit relays").assertDoesNotExist()
+        onNodeWithText("Posts").assertDoesNotExist()
+        onNodeWithText("Add post").assertDoesNotExist()
 
         // The rest of the screen is untouched, so the section's absence is an
         // absence rather than a screen that failed to draw.
@@ -207,9 +263,23 @@ class GroupNostrProfileSectionJvmTest {
         createdAt = Instant.fromEpochSeconds(1_700_000_000)
     )
 
+    private fun post(content: String, createdAt: Long) = GroupPost(
+        signedEvent = GroupSignedEvent(
+            id = createdAt.toString().padStart(64, 'b'),
+            chatRoomId = chatRoomId,
+            publicKey = chatRoomId,
+            kind = TextNoteEvent.KIND,
+            tags = emptyArray(),
+            content = content,
+            signature = "f".repeat(128),
+            createdAt = Instant.fromEpochSeconds(createdAt)
+        )
+    )
+
     private fun state(
         groupNostrProfile: GroupNostrProfile?,
         relayLists: List<GroupRelayList> = GroupRelayList.allAmong(emptyList(), chatRoomId),
+        posts: List<GroupPost> = emptyList(),
         canEditNostrProfile: Boolean = true,
         mlsGroupState: String? = "state"
     ) = ChatRoomDetailUIState.Loaded(
@@ -238,6 +308,7 @@ class GroupNostrProfileSectionJvmTest {
         ),
         groupNostrProfile = groupNostrProfile,
         groupRelayLists = relayLists,
+        groupPosts = posts,
         canEditNostrProfile = canEditNostrProfile
     )
 

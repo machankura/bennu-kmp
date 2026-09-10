@@ -446,4 +446,15 @@
     <string name="relay_set_blocked_purpose">Relays the group will not talk to.</string>
     <string name="relays_are_public_a_group_cannot_encrypt">A group signs and cannot decrypt, so every list here is public — including the blocked one, which most clients keep private.</string>
     <string name="signed_by_the_group_on_short">Signed %1$s</string>
+    <string name="posts">Posts</string>
+    <string name="add_post">Add post</string>
+    <string name="propose_post">Propose post</string>
+    <string name="this_group_has_not_posted_anything_yet">This group hasn't posted anything yet.</string>
+    <string name="what_should_the_group_say">What should the group say?</string>
+    <string name="the_group_signs_a_post_so_it_takes_a_quorum">The group signs a post, so it takes a quorum. It goes out in the group's name, not yours.</string>
+    <string name="this_group_has_no_shared_key_to_sign_a_post">This group has no shared key, so it cannot sign a post. Run a shared key ceremony first.</string>
+    <string name="a_post_needs_something_to_say">A post needs something to say.</string>
+    <string name="could_not_ask_the_group_to_sign_this_post">Couldn't ask the group to sign this post.</string>
+    <string name="posted_on">Posted %1$s</string>
+    <string name="a_reply">A reply</string>
 </resources>

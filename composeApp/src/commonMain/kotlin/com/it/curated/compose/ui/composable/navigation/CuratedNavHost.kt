@@ -41,6 +41,7 @@ import com.it.curated.compose.ui.composable.DkgRitualScreen
 import com.it.curated.compose.ui.composable.DkgRound1ApprovalScreen
 import com.it.curated.compose.ui.composable.DkgRound2ApprovalScreen
 import com.it.curated.compose.ui.composable.EditGroupNostrProfileScreen
+import com.it.curated.compose.ui.composable.AddGroupPostScreen
 import com.it.curated.compose.ui.composable.EditGroupRelaysScreen
 import com.it.curated.compose.ui.composable.HomeScreen
 import com.it.curated.compose.ui.composable.ImplementationPendingScreen
@@ -125,6 +126,7 @@ import com.it.curated.compose.ui.composable.AddArtifactScreen
 import com.it.curated.compose.ui.composable.navigation.routes.AddArtifactRoute
 import com.it.curated.compose.ui.composable.navigation.routes.AddDialectRoute
 import com.it.curated.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
+import com.it.curated.compose.ui.composable.navigation.routes.AddGroupPostRoute
 import com.it.curated.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import com.it.curated.compose.ui.composable.navigation.routes.FrostSigningRoute
 import com.it.curated.compose.ui.composable.navigation.routes.ProposalListRoute
@@ -1006,6 +1008,26 @@ fun CuratedNavHost(
                         // than to lists whose proposal has already gone out.
                         navController.navigate(route = signingRoute) {
                             popUpTo<EditGroupRelaysRoute> {
+                                inclusive = true
+                            }
+                        }
+                    }
+                )
+            }
+            composable<AddGroupPostRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<AddGroupPostRoute>()
+
+                AddGroupPostScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    chatRepository = databaseChatRepository,
+                    frostSigningRepository = databaseFrostSigningRepository,
+                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
+                        // Replace the composer so back returns to the group rather
+                        // than to a draft whose proposal has already gone out.
+                        navController.navigate(route = signingRoute) {
+                            popUpTo<AddGroupPostRoute> {
                                 inclusive = true
                             }
                         }

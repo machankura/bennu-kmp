@@ -10,6 +10,7 @@ import com.it.curated.compose.managers.GroupKeyStateManager
 import com.it.curated.compose.managers.MarmotGroupCreation
 import com.it.curated.compose.managers.SubgroupManager
 import com.it.curated.compose.nostr.GroupNostrProfile
+import com.it.curated.compose.nostr.GroupPost
 import com.it.curated.compose.nostr.GroupRelayList
 import com.it.curated.compose.nostr.GroupRelaySet
 import com.it.curated.compose.database.model.ChatMessage
@@ -29,6 +30,7 @@ import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import com.vitorpamplona.quartz.nip01Core.relay.normalizer.NormalizedRelayUrl
 import com.vitorpamplona.quartz.nip01Core.signers.EventTemplate
 import com.vitorpamplona.quartz.nip01Core.signers.NostrSignerSync
@@ -155,6 +157,17 @@ class DatabaseChatRepository(
         // Four unsigned, empty sets: the screen draws "not set yet" rather than
         // failing to draw, which is the trade every reading above makes.
         GroupRelayList.allAmong(emptyList(), chatRoomId)
+    }
+
+    override suspend fun groupPosts(chatRoomId: String): List<GroupPost> = try {
+        GroupPost.newestFirstAmong(
+            signedEvents = database.groupSignedEventDao()
+                .getByChatRoomIdAndKind(chatRoomId, TextNoteEvent.KIND),
+            chatRoomId = chatRoomId,
+        )
+    } catch (e: Throwable) {
+        logger.e("Error reading the posts of $chatRoomId", e)
+        emptyList()
     }
 
     override suspend fun canSign(chatRoomId: String): Boolean = try {

@@ -2,6 +2,7 @@ package com.it.curated.compose.ui.composable
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.LibraryBooks
@@ -71,6 +73,7 @@ import com.it.curated.compose.repository.NostrRepository
 import com.it.curated.compose.ui.composable.navigation.routes.ImplementationPendingRoute
 import com.it.curated.compose.ui.composable.navigation.routes.Route
 import com.it.curated.compose.ui.composable.navigation.routes.DkgRitualRoute
+import com.it.curated.compose.ui.composable.navigation.routes.AddGroupPostRoute
 import com.it.curated.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
 import com.it.curated.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import com.it.curated.compose.ui.composable.navigation.routes.ProposalListRoute
@@ -94,6 +97,11 @@ import com.it.curated.compose.ui.theme.spacing
 import curated.composeapp.generated.resources.run_by_members
 import curated.composeapp.generated.resources.nostr_profile
 import curated.composeapp.generated.resources.relays
+import curated.composeapp.generated.resources.posts
+import curated.composeapp.generated.resources.add_post
+import curated.composeapp.generated.resources.a_reply
+import curated.composeapp.generated.resources.posted_on
+import curated.composeapp.generated.resources.this_group_has_not_posted_anything_yet
 import curated.composeapp.generated.resources.edit_relays
 import curated.composeapp.generated.resources.not_set_yet
 import curated.composeapp.generated.resources.no_relays_in_this_list
@@ -117,6 +125,7 @@ import com.it.curated.compose.ui.composable.navigation.routes.NostrEventDetailRo
 import com.it.curated.compose.ui.composable.navigation.routes.ChatRoomDetailRoute
 import com.it.curated.compose.managers.SubgroupManager
 import com.it.curated.compose.nostr.GroupNostrProfile
+import com.it.curated.compose.nostr.GroupPost
 import com.it.curated.compose.nostr.GroupRelayList
 import com.it.curated.compose.nostr.GroupRelaySet
 import curated.composeapp.generated.resources.Res
@@ -444,6 +453,70 @@ fun ChatRoomDetailScreen(
                                             )
 
                                             Text(stringResource(Res.string.edit_relays))
+                                        }
+                                    }
+                                }
+
+                                // Under the relay lists, because these are what the
+                                // lists are *for*: the profile says who the group
+                                // is, the relays say where to find it, and these are
+                                // what a reader would find there. Still above the
+                                // library, which is the group's work rather than its
+                                // voice.
+                                item {
+                                    Text(
+                                        text = stringResource(Res.string.posts),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+
+                                if (chatRoomDetailUIState.groupPosts.isEmpty()) {
+                                    item {
+                                        Text(
+                                            stringResource(
+                                                Res.string.this_group_has_not_posted_anything_yet
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    items(
+                                        items = chatRoomDetailUIState.groupPosts,
+                                        key = { post -> post.signedEvent.id }
+                                    ) { post ->
+                                        GroupPostCard(
+                                            post = post,
+                                            publicKey = chatRoomId,
+                                            groupNostrProfile =
+                                                chatRoomDetailUIState.groupNostrProfile
+                                        )
+                                    }
+                                }
+
+                                if (chatRoomDetailUIState.canEditNostrProfile) {
+                                    item {
+                                        TextButton(
+                                            onClick = {
+                                                onNavigateToRoute.invoke(
+                                                    AddGroupPostRoute(
+                                                        activeUserPublicKey = activeUserPublicKey,
+                                                        chatRoomId = chatRoomId,
+                                                        relayHint = relayHint
+                                                    )
+                                                )
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Campaign,
+                                                contentDescription = Decorative
+                                            )
+
+                                            Spacer(
+                                                modifier = Modifier.width(
+                                                    MaterialTheme.spacing.space125
+                                                )
+                                            )
+
+                                            Text(stringResource(Res.string.add_post))
                                         }
                                     }
                                 }
@@ -1322,6 +1395,78 @@ private fun GroupRelaySet.summaryLabel() = when (this) {
     GroupRelaySet.Messages -> Res.string.relay_set_messages
     GroupRelaySet.Search -> Res.string.relay_set_search
     GroupRelaySet.Blocked -> Res.string.relay_set_blocked
+}
+
+/**
+ * One thing the group said, as the group signed it.
+ *
+ * The whole note rather than a preview. A post is short by construction -- kind:1
+ * with no long-form arm behind it -- and truncating the one kind of content on this
+ * screen that exists to be *read* would mean opening something to see a paragraph.
+ *
+ * **The byline is the group's**, taken from its profile where it has one and from
+ * the room's own id where it has not. It is worth spelling out because a post is
+ * the one thing here a reader might otherwise attribute to whichever member
+ * proposed it -- and the point of signing it as the group is that they cannot.
+ *
+ * A reply is marked as one. Nothing in this app writes replies, so the mark is for
+ * an event that arrived some other way; drawing one as an announcement would put
+ * half a conversation on a group's page with no sign that it was half.
+ */
+@Composable
+private fun GroupPostCard(
+    post: GroupPost,
+    publicKey: HexKey,
+    groupNostrProfile: GroupNostrProfile?
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(MaterialTheme.spacing.containerPadding),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ProfileAvatar(
+                    size = MaterialTheme.spacing.space400,
+                    publicKey = publicKey,
+                    picture = groupNostrProfile?.picture(),
+                    name = groupNostrProfile?.name()
+                )
+
+                Spacer(modifier = Modifier.width(MaterialTheme.spacing.itemGap))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = groupNostrProfile?.name() ?: publicKey.take(16).inComparableGroups(),
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = stringResource(
+                            Res.string.posted_on,
+                            post.postedAt.toFormattedTimeAndDateString()
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (!post.isNewThread()) {
+                    Text(
+                        text = stringResource(Res.string.a_reply),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Text(
+                text = post.content,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
 }
 
 /**

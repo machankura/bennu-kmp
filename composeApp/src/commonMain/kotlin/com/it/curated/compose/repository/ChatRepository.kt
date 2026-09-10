@@ -10,6 +10,7 @@ import com.it.curated.compose.managers.SharedKeyDerivation
 import com.it.curated.compose.managers.MarmotGroupCreation
 import com.it.curated.compose.managers.SubgroupManager
 import com.it.curated.compose.nostr.GroupNostrProfile
+import com.it.curated.compose.nostr.GroupPost
 import com.it.curated.compose.nostr.GroupRelayList
 import com.it.curated.compose.database.model.Participant
 import com.it.curated.compose.database.model.intermdiate.LocalChatMessage
@@ -101,6 +102,16 @@ interface ChatRepository {
      * a list is not one. See `GroupRelayList.isAgreed`.
      */
     suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList>
+
+    /**
+     * The kind:1s this group signed, newest first.
+     *
+     * The group speaking as itself, which is a different thing from a member
+     * speaking in the room -- the transcript is the second. Unlike the profile and
+     * the relay lists these accumulate rather than replace, so this is a list and
+     * an empty one means the group has said nothing publicly.
+     */
+    suspend fun groupPosts(chatRoomId: String): List<GroupPost>
 
     /**
      * Whether this device holds a share of the group's key, and so could take
@@ -287,6 +298,8 @@ interface ChatRepository {
 
             override suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList> =
                 GroupRelayList.allAmong(emptyList(), chatRoomId)
+
+            override suspend fun groupPosts(chatRoomId: String): List<GroupPost> = emptyList()
 
             override suspend fun canSign(chatRoomId: String): Boolean = false
 

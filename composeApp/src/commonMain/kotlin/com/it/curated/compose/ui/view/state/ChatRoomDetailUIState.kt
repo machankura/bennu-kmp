@@ -8,6 +8,7 @@ import com.it.curated.compose.database.model.MantraArtifact
 import com.it.curated.compose.database.model.MantraDialect
 import com.it.curated.compose.database.model.intermdiate.LocalChatRoom
 import com.it.curated.compose.nostr.GroupNostrProfile
+import com.it.curated.compose.nostr.GroupPost
 import com.it.curated.compose.nostr.GroupRelayList
 
 sealed interface ChatRoomDetailUIState {
@@ -74,6 +75,15 @@ sealed interface ChatRoomDetailUIState {
          * four entries, some of them unsigned; see `ChatRepository.groupRelayLists`.
          */
         val groupRelayLists: List<GroupRelayList> = emptyList(),
+        /**
+         * What the group has said publicly, as itself, newest first.
+         *
+         * Under the relay lists because it is the thing they are *for*: the profile
+         * says who the group is, the relay lists say where to find it, and these
+         * are what a reader would find there. Empty in a group that has said
+         * nothing, which is every group until somebody proposes one.
+         */
+        val groupPosts: List<GroupPost> = emptyList(),
         /**
          * Whether this device could sign a profile for the group.
          *
