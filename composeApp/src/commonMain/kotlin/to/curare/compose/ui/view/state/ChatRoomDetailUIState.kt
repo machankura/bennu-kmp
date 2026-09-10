@@ -4,8 +4,6 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import to.curare.compose.database.model.GroupKeyState
 import to.curare.compose.managers.SubgroupManager
 import to.curare.compose.database.model.GroupSignedEvent
-import to.curare.compose.database.model.MantraArtifact
-import to.curare.compose.database.model.MantraDialect
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.nostr.GroupNostrProfile
 import to.curare.compose.nostr.GroupPost
@@ -14,8 +12,6 @@ import to.curare.compose.nostr.GroupRelayList
 sealed interface ChatRoomDetailUIState {
     data class Loaded(
         val localChatRoom: LocalChatRoom,
-        val artifacts: List<MantraArtifact> = emptyList(),
-        val dialects: List<MantraDialect> = emptyList(),
         /**
          * What the group has said this room signs with, or null while it has
          * said nothing.

@@ -78,20 +78,20 @@ class GroupNostrProfileSectionJvmTest {
     )
 
     @Test
-    fun `the profile sits under the signing key and above the library`() = render(
+    fun `the profile sits under the signing key and above the group's work`() = render(
         state(groupNostrProfile = profile)
     ) {
         val signingKey = onNodeWithText("Signing key").getBoundsInRoot().top
         val nostrProfile = onNodeWithText("Nostr profile").getBoundsInRoot().top
-        val library = onNodeWithText("Library").getBoundsInRoot().top
+        val subgroups = onNodeWithText("Subgroups").getBoundsInRoot().top
 
         assertTrue(
             signingKey < nostrProfile,
             "the nostr profile section climbed above the signing key row"
         )
         assertTrue(
-            nostrProfile < library,
-            "the nostr profile section fell below the library"
+            nostrProfile < subgroups,
+            "the nostr profile section fell below the group's work"
         )
 
         onNodeWithText("Translation collective").assertIsDisplayed()
@@ -99,15 +99,15 @@ class GroupNostrProfileSectionJvmTest {
     }
 
     @Test
-    fun `the relay lists sit under the profile and above the library`() = render(
+    fun `the relay lists sit under the profile and above the group's work`() = render(
         state(groupNostrProfile = profile, relayLists = signedRelayLists())
     ) {
         val nostrProfile = onNodeWithText("Nostr profile").getBoundsInRoot().top
         val relays = onNodeWithText("Relays").getBoundsInRoot().top
-        val library = onNodeWithText("Library").getBoundsInRoot().top
+        val subgroups = onNodeWithText("Subgroups").getBoundsInRoot().top
 
         assertTrue(nostrProfile < relays, "the relay lists climbed above the profile")
-        assertTrue(relays < library, "the relay lists fell below the library")
+        assertTrue(relays < subgroups, "the relay lists fell below the group's work")
 
         // Every set gets a row whatever the group has said, and the two absences
         // read differently: one has never been agreed, the other was agreed empty.
@@ -154,7 +154,7 @@ class GroupNostrProfileSectionJvmTest {
         }
 
     @Test
-    fun `the posts sit under the relay lists and above the library`() = render(
+    fun `the posts sit under the relay lists and above the group's work`() = render(
         state(
             groupNostrProfile = profile,
             relayLists = signedRelayLists(),
@@ -163,10 +163,10 @@ class GroupNostrProfileSectionJvmTest {
     ) {
         val relays = onNodeWithText("Relays").getBoundsInRoot().top
         val posts = onNodeWithText("Posts").getBoundsInRoot().top
-        val library = onNodeWithText("Library").getBoundsInRoot().top
+        val subgroups = onNodeWithText("Subgroups").getBoundsInRoot().top
 
         assertTrue(relays < posts, "the posts climbed above the relay lists")
-        assertTrue(posts < library, "the posts fell below the library")
+        assertTrue(posts < subgroups, "the posts fell below the group's work")
 
         // Newest first, and whole rather than previewed -- a post is the one thing
         // on this screen that exists to be read.
@@ -227,7 +227,7 @@ class GroupNostrProfileSectionJvmTest {
 
         // The rest of the screen is untouched, so the section's absence is an
         // absence rather than a screen that failed to draw.
-        onNodeWithText("Library").assertIsDisplayed()
+        onNodeWithText("Subgroups").assertIsDisplayed()
     }
 
     /**

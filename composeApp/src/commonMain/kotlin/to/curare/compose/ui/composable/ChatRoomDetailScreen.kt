@@ -23,10 +23,7 @@ import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Draw
-import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Schema
-import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Unsubscribe
 import androidx.compose.material.icons.filled.WaterfallChart
 import androidx.compose.material3.ButtonDefaults
@@ -90,9 +87,6 @@ import to.curare.compose.ui.view.state.ChatRoomDetailUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip01Core.metadata.UserMetadata
-import to.curare.compose.ui.composable.navigation.routes.AddArtifactRoute
-import to.curare.compose.ui.composable.navigation.routes.AddDialectRoute
-import to.curare.compose.ui.composable.navigation.routes.ArtifactDetailRoute
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.run_by_members
 import curare.composeapp.generated.resources.nostr_profile
@@ -130,21 +124,12 @@ import to.curare.compose.nostr.GroupRelayList
 import to.curare.compose.nostr.GroupRelaySet
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
-import curare.composeapp.generated.resources.add_artifact_to_library
-import curare.composeapp.generated.resources.add_dialect
-import curare.composeapp.generated.resources.create_project
 import curare.composeapp.generated.resources.delete_group
-import curare.composeapp.generated.resources.dialects
 import curare.composeapp.generated.resources.direct_message_detail
 import curare.composeapp.generated.resources.direct_message_functionality_will_be_here
 import curare.composeapp.generated.resources.invite_new_member
 import curare.composeapp.generated.resources.leave_group
-import curare.composeapp.generated.resources.library
 import curare.composeapp.generated.resources.members_2
-import curare.composeapp.generated.resources.no_artifacts_exists_in_this_groups_library
-import curare.composeapp.generated.resources.no_dialects_have_been_defined_in_this_group_2
-import curare.composeapp.generated.resources.no_projects_exists_in_this_group
-import curare.composeapp.generated.resources.projects
 import curare.composeapp.generated.resources.proposals
 import curare.composeapp.generated.resources.reindex_events
 import curare.composeapp.generated.resources.shared_key
@@ -460,9 +445,7 @@ fun ChatRoomDetailScreen(
                                 // Under the relay lists, because these are what the
                                 // lists are *for*: the profile says who the group
                                 // is, the relays say where to find it, and these are
-                                // what a reader would find there. Still above the
-                                // library, which is the group's work rather than its
-                                // voice.
+                                // what a reader would find there.
                                 item {
                                     Text(
                                         text = stringResource(Res.string.posts),
@@ -524,199 +507,6 @@ fun ChatRoomDetailScreen(
                                 item {
                                     HorizontalDivider()
                                 }
-                            }
-
-                            item {
-                                // Artifacts
-                                Text(
-                                    text = stringResource(Res.string.library),
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
-
-                            if (chatRoomDetailUIState.artifacts.isEmpty()) {
-                                item {
-                                    Text(stringResource(Res.string.no_artifacts_exists_in_this_groups_library))
-                                }
-                            } else {
-                                items(
-                                    items = chatRoomDetailUIState.artifacts,
-                                    key = { artifact -> artifact.id }
-                                ) { artifact ->
-                                    Card(
-                                        onClick = {
-                                            onNavigateToRoute.invoke(
-                                                ArtifactDetailRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    artifactId = artifact.id,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint
-                                                )
-                                            )
-                                        }
-                                    ) {
-                                        ListItem(
-                                            leadingContent = {
-                                                Icon(
-                                                    Icons.Default.LibraryBooks,
-                                                    contentDescription = "Artifact"
-                                                )
-                                            },
-                                            trailingContent = {
-                                                Icon(
-                                                    Icons.Default.ChevronRight,
-                                                    contentDescription = "View artifact"
-                                                )
-                                            },
-                                            headlineContent = {
-                                                Text(text = artifact.name)
-                                            },
-                                            supportingContent = {
-                                                Text(text = artifact.url)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            item {
-                                TextButton(
-                                    onClick = {
-                                        // Navigate to the invite user screen...
-                                        onNavigateToRoute.invoke(
-                                            AddArtifactRoute(
-                                                chatRoomId = chatRoomId,
-                                                activeUserPublicKey = activeUserPublicKey,
-                                                relayHint = relayHint
-                                            )
-                                        )
-                                    }
-                                ) {
-
-                                    Icon(
-                                        Icons.Default.LibraryBooks,
-                                        contentDescription = "Add new artifact"
-                                    )
-
-                                    Spacer(
-                                        modifier = Modifier.width(MaterialTheme.spacing.space125)
-                                    )
-
-                                    Text(stringResource(Res.string.add_artifact_to_library))
-                                }
-                            }
-
-                            item {
-                                HorizontalDivider()
-                            }
-
-                            item {
-                                // Dialects
-                                Text(
-                                    text = stringResource(Res.string.dialects),
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
-
-                            if (chatRoomDetailUIState.dialects.isEmpty()) {
-                                item {
-                                    Text(stringResource(Res.string.no_dialects_have_been_defined_in_this_group_2))
-                                }
-                            } else {
-                                items(
-                                    items = chatRoomDetailUIState.dialects,
-                                    key = { dialect -> dialect.id }
-                                ) { dialect ->
-                                    Card {
-                                        ListItem(
-                                            leadingContent = {
-                                                Icon(
-                                                    Icons.Default.Translate,
-                                                    contentDescription = "Dialect"
-                                                )
-                                            },
-                                            headlineContent = {
-                                                Text(text = dialect.name)
-                                            },
-                                            supportingContent = {
-                                                Text(text = "${dialect.language} \u00b7 ${dialect.country}")
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            item {
-                                TextButton(
-                                    onClick = {
-                                        onNavigateToRoute.invoke(
-                                            AddDialectRoute(
-                                                chatRoomId = chatRoomId,
-                                                activeUserPublicKey = activeUserPublicKey,
-                                                relayHint = relayHint
-                                            )
-                                        )
-                                    }
-                                ) {
-
-                                    Icon(
-                                        Icons.Default.Translate,
-                                        contentDescription = "Add new dialect"
-                                    )
-
-                                    Spacer(
-                                        modifier = Modifier.width(MaterialTheme.spacing.space125)
-                                    )
-
-                                    Text(stringResource(Res.string.add_dialect))
-                                }
-                            }
-
-                            item {
-                                HorizontalDivider()
-                            }
-
-                            // TODO: Add projects...
-
-                            item {
-                                // Artifacts
-                                Text(
-                                    text = stringResource(Res.string.projects),
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
-
-                            item {
-                                Text(stringResource(Res.string.no_projects_exists_in_this_group))
-                            }
-
-                            item {
-                                TextButton(
-                                    onClick = {
-                                        // Navigate to the invite user screen...
-                                        onNavigateToRoute.invoke(
-                                            ImplementationPendingRoute(
-                                                "Add new project"
-                                            )
-                                        )
-                                    }
-                                ) {
-
-                                    Icon(
-                                        Icons.Default.Schema,
-                                        contentDescription = "create new projec"
-                                    )
-
-                                    Spacer(
-                                        modifier = Modifier.width(MaterialTheme.spacing.space125)
-                                    )
-
-                                    Text(stringResource(Res.string.create_project))
-                                }
-                            }
-
-                            item {
-                                HorizontalDivider()
                             }
 
                             item {
