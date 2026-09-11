@@ -10,6 +10,7 @@ import to.curare.compose.managers.SharedKeyDerivation
 import to.curare.compose.managers.MarmotGroupCreation
 import to.curare.compose.managers.SubgroupManager
 import to.curare.compose.nostr.GroupNostrProfile
+import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.GroupPost
 import to.curare.compose.nostr.GroupRelayList
 import to.curare.compose.database.model.Participant
@@ -112,6 +113,17 @@ interface ChatRepository {
      * an empty one means the group has said nothing publicly.
      */
     suspend fun groupPosts(chatRoomId: String): List<GroupPost>
+
+    /**
+     * The curated schemas this group signed -- the lists it curates -- one per
+     * identifier, most recently signed first.
+     *
+     * Kind 31889 is addressable, so an edit is a newer event under the same
+     * identifier and the newest wins per list, the way the profile does; two
+     * identifiers are two lists and both come back. Empty in a group that
+     * curates nothing, which is every group until somebody proposes one.
+     */
+    suspend fun groupCuratedSchemas(chatRoomId: String): List<GroupCuratedSchema>
 
     /**
      * Whether this device holds a share of the group's key, and so could take
@@ -300,6 +312,10 @@ interface ChatRepository {
                 GroupRelayList.allAmong(emptyList(), chatRoomId)
 
             override suspend fun groupPosts(chatRoomId: String): List<GroupPost> = emptyList()
+
+            override suspend fun groupCuratedSchemas(
+                chatRoomId: String
+            ): List<GroupCuratedSchema> = emptyList()
 
             override suspend fun canSign(chatRoomId: String): Boolean = false
 

@@ -9,17 +9,23 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import to.curare.compose.database.model.ChatRoom
 import to.curare.compose.database.model.GroupKeyState
 import to.curare.compose.database.model.GroupSignedEvent
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
+import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.GroupNostrProfile
 import to.curare.compose.nostr.GroupPost
 import to.curare.compose.nostr.GroupRelay
 import to.curare.compose.nostr.GroupRelayList
 import to.curare.compose.nostr.GroupRelaySet
+import to.curare.compose.nostr.curated.CuratedField
+import to.curare.compose.nostr.curated.CuratedSchema
+import to.curare.compose.nostr.curated.CuratedSchemaEvent
+import to.curare.compose.nostr.curated.CuratedVisibility
 import com.vitorpamplona.quartz.nip01Core.relay.normalizer.RelayUrlNormalizer
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.MantraRepository
@@ -190,6 +196,63 @@ class GroupNostrProfileSectionJvmTest {
     }
 
     @Test
+    fun `the curated schemas sit under the posts and above the group's work`() = render(
+        state(
+            groupNostrProfile = profile,
+            relayLists = signedRelayLists(),
+            posts = listOf(post("Something the group said", 1_700_000_000)),
+            schemas = listOf(
+                schema("films", "Films worth translating", 1_700_000_900),
+                schema("books", "Books worth translating", 1_700_000_000)
+            )
+        )
+    ) {
+        val posts = onNodeWithText("Posts").getBoundsInRoot().top
+        val schemas = onNodeWithText("Curated schemas").getBoundsInRoot().top
+        val subgroups = onNodeWithText("Subgroups").getBoundsInRoot().top
+
+        assertTrue(posts < schemas, "the curated schemas climbed above the posts")
+        assertTrue(schemas < subgroups, "the curated schemas fell below the group's work")
+
+        // Most recently signed first, one card per list.
+        val newest = onNodeWithText("Films worth translating").getBoundsInRoot().top
+        val oldest = onNodeWithText("Books worth translating").getBoundsInRoot().top
+        assertTrue(newest < oldest, "the schemas were drawn oldest first")
+
+        // What an entry asks for, and who may suggest one.
+        onAllNodesWithText("Fields: Identifier, Title", substring = true).assertCountEquals(2)
+        onAllNodesWithText("Public · ", substring = true).assertCountEquals(2)
+        onNodeWithText("Add schema").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a group that curates nothing says so, and offers to add a schema`() = render(
+        state(groupNostrProfile = profile, relayLists = signedRelayLists())
+    ) {
+        onNodeWithText("Curated schemas").assertIsDisplayed()
+        onNodeWithText("This group hasn't published a curated schema yet.", substring = true)
+            .assertIsDisplayed()
+        onNodeWithText("Add schema").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a member holding no share of the key reads the schemas and is offered no editor`() =
+        render(
+            state(
+                groupNostrProfile = profile,
+                schemas = listOf(schema("films", "Films worth translating", 1_700_000_000)),
+                canEditNostrProfile = false
+            )
+        ) {
+            // A schema exists to be read by people who were never in the room, so
+            // a member without a share reads it like anybody else and simply
+            // cannot propose a revision -- neither a new one nor an edit.
+            onNodeWithText("Films worth translating").assertIsDisplayed()
+            onNodeWithText("Add schema").assertDoesNotExist()
+            onNodeWithContentDescription("Edit schema").assertDoesNotExist()
+        }
+
+    @Test
     fun `a group that has said nothing says so, and offers to say something`() = render(
         state(groupNostrProfile = null)
     ) {
@@ -218,12 +281,14 @@ class GroupNostrProfileSectionJvmTest {
             .assertDoesNotExist()
         onNodeWithText("Edit Nostr profile").assertDoesNotExist()
 
-        // The relay lists and the posts go with it: all three describe a nostr
-        // identity this room does not have.
+        // The relay lists, the posts and the schemas go with it: all four
+        // describe a nostr identity this room does not have.
         onNodeWithText("Relays").assertDoesNotExist()
         onNodeWithText("Edit relays").assertDoesNotExist()
         onNodeWithText("Posts").assertDoesNotExist()
         onNodeWithText("Add post").assertDoesNotExist()
+        onNodeWithText("Curated schemas").assertDoesNotExist()
+        onNodeWithText("Add schema").assertDoesNotExist()
 
         // The rest of the screen is untouched, so the section's absence is an
         // absence rather than a screen that failed to draw.
@@ -276,10 +341,37 @@ class GroupNostrProfileSectionJvmTest {
         )
     )
 
+    /**
+     * A list the group curates, built rather than read out of a signed event:
+     * the reading checks a real signature, and this test is about the screen.
+     */
+    private fun schema(identifier: String, name: String, createdAt: Long) = GroupCuratedSchema(
+        signedEvent = GroupSignedEvent(
+            id = createdAt.toString().padStart(64, 'c'),
+            chatRoomId = chatRoomId,
+            publicKey = chatRoomId,
+            kind = CuratedSchemaEvent.KIND,
+            tags = emptyArray(),
+            content = "",
+            signature = "f".repeat(128),
+            createdAt = Instant.fromEpochSeconds(createdAt)
+        ),
+        schema = CuratedSchema(
+            identifier = identifier,
+            title = "$name suggestion",
+            name = name,
+            description = "Things the group would translate, with a link to each.",
+            visibility = CuratedVisibility.Public,
+            fields = listOf(CuratedField.IDENTIFIER, CuratedField.TITLE),
+            relays = listOf("wss://relay.one.example")
+        )
+    )
+
     private fun state(
         groupNostrProfile: GroupNostrProfile?,
         relayLists: List<GroupRelayList> = GroupRelayList.allAmong(emptyList(), chatRoomId),
         posts: List<GroupPost> = emptyList(),
+        schemas: List<GroupCuratedSchema> = emptyList(),
         canEditNostrProfile: Boolean = true,
         mlsGroupState: String? = "state"
     ) = ChatRoomDetailUIState.Loaded(
@@ -309,6 +401,7 @@ class GroupNostrProfileSectionJvmTest {
         groupNostrProfile = groupNostrProfile,
         groupRelayLists = relayLists,
         groupPosts = posts,
+        groupCuratedSchemas = schemas,
         canEditNostrProfile = canEditNostrProfile
     )
 

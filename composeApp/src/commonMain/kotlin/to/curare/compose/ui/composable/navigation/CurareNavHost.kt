@@ -42,6 +42,7 @@ import to.curare.compose.ui.composable.DkgRound1ApprovalScreen
 import to.curare.compose.ui.composable.DkgRound2ApprovalScreen
 import to.curare.compose.ui.composable.EditGroupNostrProfileScreen
 import to.curare.compose.ui.composable.AddGroupPostScreen
+import to.curare.compose.ui.composable.EditGroupCuratedSchemaScreen
 import to.curare.compose.ui.composable.EditGroupRelaysScreen
 import to.curare.compose.ui.composable.HomeScreen
 import to.curare.compose.ui.composable.ImplementationPendingScreen
@@ -127,6 +128,7 @@ import to.curare.compose.ui.composable.navigation.routes.AddArtifactRoute
 import to.curare.compose.ui.composable.navigation.routes.AddDialectRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
 import to.curare.compose.ui.composable.navigation.routes.AddGroupPostRoute
+import to.curare.compose.ui.composable.navigation.routes.EditGroupCuratedSchemaRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import to.curare.compose.ui.composable.navigation.routes.FrostSigningRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposalListRoute
@@ -1028,6 +1030,27 @@ fun CurareNavHost(
                         // than to a draft whose proposal has already gone out.
                         navController.navigate(route = signingRoute) {
                             popUpTo<AddGroupPostRoute> {
+                                inclusive = true
+                            }
+                        }
+                    }
+                )
+            }
+            composable<EditGroupCuratedSchemaRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<EditGroupCuratedSchemaRoute>()
+
+                EditGroupCuratedSchemaScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    identifier = route.identifier,
+                    chatRepository = databaseChatRepository,
+                    frostSigningRepository = databaseFrostSigningRepository,
+                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
+                        // Replace the editor so back returns to the group rather
+                        // than to a schema whose proposal has already gone out.
+                        navController.navigate(route = signingRoute) {
+                            popUpTo<EditGroupCuratedSchemaRoute> {
                                 inclusive = true
                             }
                         }

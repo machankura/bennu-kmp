@@ -2,6 +2,7 @@ package to.curare.compose.text
 
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import to.curare.compose.managers.SharedKeyDerivation
+import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.frost.GroupKeyStateEvent
 import to.curare.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import to.curare.compose.nostr.nip30303.ArtifactEvent
@@ -153,6 +154,22 @@ object ProposedEvent {
                     .takeIf { it > 0 }
                     ?.let { "run by $it members" }
             ).joinToString(" · ")
+        )
+
+        // A list the group would curate. A member signing this is agreeing to
+        // take suggestions from whoever the visibility admits and to be the one
+        // key that accepts them, so the summary is the list's name, who may
+        // suggest, and how much an entry asks for -- the content is only the
+        // description, which the detail screen shows whole.
+        CuratedSchemaEvent.KIND -> Summary(
+            label = "Curated schema",
+            detail = CuratedSchemaEvent.read(event.tags, event.content).let { schema ->
+                listOfNotNull(
+                    schema.displayName().ifBlank { null },
+                    schema.visibility?.value,
+                    schema.fields.size.let { "$it ${if (it == 1) "field" else "fields"}" }
+                ).joinToString(" · ")
+            }
         )
 
         else -> Summary(label = "Event of kind ${event.kind}", detail = event.content)

@@ -22,7 +22,9 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
+import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.GroupNostrProfile
+import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.GroupRelaySet
 import com.vitorpamplona.quartz.nipC7Chats.ChatEvent
 import to.curare.compose.nostr.dkg.DkgRitualEvents
@@ -434,10 +436,22 @@ data class ChatMessage(
          */
         const val TYPE_GROUP_POST_SIGNED = "groupPostSigned"
 
+        /**
+         * The group signed the schema of a list it curates.
+         *
+         * A system line like the other three, and it names the list rather than
+         * describing the schema: what a reader of the room needs to know is that
+         * the group now curates -- or has changed the form for -- a list called
+         * so-and-so, and the schema itself is on the group's screen where its
+         * fields can be read.
+         */
+        const val TYPE_GROUP_SCHEMA_SIGNED = "groupSchemaSigned"
+
         val GROUP_IDENTITY_TYPES = setOf(
             TYPE_GROUP_PROFILE_SIGNED,
             TYPE_GROUP_RELAYS_SIGNED,
             TYPE_GROUP_POST_SIGNED,
+            TYPE_GROUP_SCHEMA_SIGNED,
         )
 
         /**
@@ -1532,6 +1546,36 @@ data class ChatMessage(
                         chatRoomId = groupId,
                         createdAt = createdAt,
                         content = "The group signed its ${set.name.lowercase()} relay list"
+                    )
+                }
+
+                // The group defining a list it curates: the kind 31889 that
+                // suggestions from anyone reply to and only the group's own key can
+                // accept into the list.
+                //
+                // Verified and parsed, and null on either failing, the way the
+                // profile arm is. A rumor of this kind from a member is not the
+                // group curating anything, and a schema the room signed but that no
+                // client could act on -- no visibility, no fields -- is not worth a
+                // line saying it did. `GroupCuratedSchema` refuses the same event
+                // on the group's screen, so the transcript and the screen agree.
+                CuratedSchemaEvent.KIND -> {
+                    val curated = GroupCuratedSchema.of(
+                        signedEvent = GroupSignedEvent.fromEvent(event, chatRoomId = groupId),
+                        chatRoomId = groupId,
+                    ) ?: return null
+
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = TYPE_GROUP_SCHEMA_SIGNED,
+                        marmotGroupEventId = marmotGroupEventId,
+                        marmotInnerEventId = marmotInnerEventId,
+                        senderPublicKey = senderPublicKey,
+                        isUserMessage = isUserMessage,
+                        chatRoomId = groupId,
+                        createdAt = createdAt,
+                        content = "The group signed the curated schema for " +
+                            curated.schema.displayName()
                     )
                 }
 

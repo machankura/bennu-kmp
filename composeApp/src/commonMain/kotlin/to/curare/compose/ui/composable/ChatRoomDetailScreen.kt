@@ -20,6 +20,9 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Ballot
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Draw
@@ -71,6 +74,7 @@ import to.curare.compose.ui.composable.navigation.routes.ImplementationPendingRo
 import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.composable.navigation.routes.DkgRitualRoute
 import to.curare.compose.ui.composable.navigation.routes.AddGroupPostRoute
+import to.curare.compose.ui.composable.navigation.routes.EditGroupCuratedSchemaRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposalListRoute
@@ -94,6 +98,10 @@ import curare.composeapp.generated.resources.relays
 import curare.composeapp.generated.resources.posts
 import curare.composeapp.generated.resources.add_post
 import curare.composeapp.generated.resources.a_reply
+import curare.composeapp.generated.resources.curated_schemas
+import curare.composeapp.generated.resources.this_group_has_not_published_a_curated_schema_yet
+import curare.composeapp.generated.resources.add_schema
+import curare.composeapp.generated.resources.fields_colon
 import curare.composeapp.generated.resources.posted_on
 import curare.composeapp.generated.resources.this_group_has_not_posted_anything_yet
 import curare.composeapp.generated.resources.edit_relays
@@ -118,6 +126,7 @@ import to.curare.compose.ui.composable.navigation.routes.SelectSubgroupAdminsRou
 import to.curare.compose.ui.composable.navigation.routes.NostrEventDetailRoute
 import to.curare.compose.ui.composable.navigation.routes.ChatRoomDetailRoute
 import to.curare.compose.managers.SubgroupManager
+import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.GroupNostrProfile
 import to.curare.compose.nostr.GroupPost
 import to.curare.compose.nostr.GroupRelayList
@@ -500,6 +509,90 @@ fun ChatRoomDetailScreen(
                                             )
 
                                             Text(stringResource(Res.string.add_post))
+                                        }
+                                    }
+                                }
+
+                                // Under the posts, because a schema is the other
+                                // thing a group publishes for strangers to answer:
+                                // a post is the group speaking, a schema is the
+                                // group asking -- for entries to a list it will
+                                // then curate, by quorum, under the same key. It
+                                // closes the identity block because everything in
+                                // that block is signed by that key and read by
+                                // people who were never in the room.
+                                item {
+                                    Text(
+                                        text = stringResource(Res.string.curated_schemas),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+
+                                if (chatRoomDetailUIState.groupCuratedSchemas.isEmpty()) {
+                                    item {
+                                        Text(
+                                            stringResource(
+                                                Res.string.this_group_has_not_published_a_curated_schema_yet
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    items(
+                                        items = chatRoomDetailUIState.groupCuratedSchemas,
+                                        key = { curated -> curated.signedEvent.id }
+                                    ) { curated ->
+                                        GroupCuratedSchemaCard(
+                                            curatedSchema = curated,
+                                            // Into the editor for a member who
+                                            // could propose a revision, and a plain
+                                            // card for one who could not: the same
+                                            // gate as every button in this block,
+                                            // applied to the card because each
+                                            // schema is edited on its own.
+                                            onEdit = if (chatRoomDetailUIState.canEditNostrProfile) {
+                                                {
+                                                    onNavigateToRoute.invoke(
+                                                        EditGroupCuratedSchemaRoute(
+                                                            activeUserPublicKey = activeUserPublicKey,
+                                                            chatRoomId = chatRoomId,
+                                                            relayHint = relayHint,
+                                                            identifier = curated.identifier
+                                                        )
+                                                    )
+                                                }
+                                            } else {
+                                                null
+                                            }
+                                        )
+                                    }
+                                }
+
+                                if (chatRoomDetailUIState.canEditNostrProfile) {
+                                    item {
+                                        TextButton(
+                                            onClick = {
+                                                onNavigateToRoute.invoke(
+                                                    EditGroupCuratedSchemaRoute(
+                                                        activeUserPublicKey = activeUserPublicKey,
+                                                        chatRoomId = chatRoomId,
+                                                        relayHint = relayHint,
+                                                        identifier = null
+                                                    )
+                                                )
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.PlaylistAdd,
+                                                contentDescription = Decorative
+                                            )
+
+                                            Spacer(
+                                                modifier = Modifier.width(
+                                                    MaterialTheme.spacing.space125
+                                                )
+                                            )
+
+                                            Text(stringResource(Res.string.add_schema))
                                         }
                                     }
                                 }
@@ -1256,6 +1349,92 @@ private fun GroupPostCard(
                 style = MaterialTheme.typography.bodyMedium
             )
         }
+    }
+}
+
+/**
+ * One list the group curates, as the schema it signed for it.
+ *
+ * Named by the list -- the domain where it claims one, else the name -- because
+ * that is what a suggester sees the list called; the title under it is the label
+ * the event carries. The fields are listed by label rather than counted, since
+ * what a reader wants to know about a list is what an entry in it asks for, and
+ * "13 fields" answers a different question.
+ *
+ * The visibility is on the last line beside the date, because who may suggest is
+ * the one fact on the card a member might act on -- a closed list is one they
+ * would have to be named on.
+ *
+ * [onEdit] null draws a card that cannot be opened. It is the section's gate
+ * applied per card: a schema is edited on its own, so the way in has to be on it.
+ */
+@Composable
+private fun GroupCuratedSchemaCard(
+    curatedSchema: GroupCuratedSchema,
+    onEdit: (() -> Unit)?
+) {
+    val content: @Composable () -> Unit = {
+        ListItem(
+            leadingContent = {
+                Icon(Icons.Default.Ballot, contentDescription = Decorative)
+            },
+            trailingContent = onEdit?.let {
+                { Icon(Icons.Default.Edit, contentDescription = "Edit schema") }
+            },
+            headlineContent = {
+                Text(
+                    text = curatedSchema.schema.displayName(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            supportingContent = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)
+                ) {
+                    Text(
+                        text = curatedSchema.schema.title,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = curatedSchema.schema.description,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = stringResource(
+                            Res.string.fields_colon,
+                            curatedSchema.schema.fields.joinToString { it.labelOrName() }
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = listOfNotNull(
+                            curatedSchema.schema.visibility?.let { stringResource(it.label()) },
+                            stringResource(
+                                Res.string.signed_by_the_group_on,
+                                curatedSchema.signedAt.toFormattedTimeAndDateString()
+                            )
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        )
+    }
+
+    if (onEdit != null) {
+        Card(modifier = Modifier.fillMaxWidth(), onClick = onEdit) { content() }
+    } else {
+        Card(modifier = Modifier.fillMaxWidth()) { content() }
     }
 }
 
