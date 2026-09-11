@@ -253,6 +253,29 @@ class GroupNostrProfileSectionJvmTest {
         }
 
     @Test
+    fun `a member holding a share of the key may propose any event the block can show`() = render(
+        state(groupNostrProfile = profile, relayLists = signedRelayLists())
+    ) {
+        // Last in the identity block: after the schemas and before the divider,
+        // because it is about the whole block rather than any one section of it.
+        val schemas = onNodeWithText("Curated schemas").getBoundsInRoot().top
+        val propose = onNodeWithText("Propose event").getBoundsInRoot().top
+        val subgroups = onNodeWithText("Subgroups").getBoundsInRoot().top
+
+        assertTrue(schemas < propose, "the paste entry climbed above the schemas")
+        assertTrue(propose < subgroups, "the paste entry fell out of the identity block")
+    }
+
+    @Test
+    fun `a member holding no share of the key is offered no paste`() = render(
+        state(groupNostrProfile = profile, canEditNostrProfile = false)
+    ) {
+        // The same gate as every button in the block: proposing is a signature by
+        // the group, and `proposeSigning` throws for a device holding no share.
+        onNodeWithText("Propose event").assertDoesNotExist()
+    }
+
+    @Test
     fun `a group that has said nothing says so, and offers to say something`() = render(
         state(groupNostrProfile = null)
     ) {
@@ -289,6 +312,7 @@ class GroupNostrProfileSectionJvmTest {
         onNodeWithText("Add post").assertDoesNotExist()
         onNodeWithText("Curated schemas").assertDoesNotExist()
         onNodeWithText("Add schema").assertDoesNotExist()
+        onNodeWithText("Propose event").assertDoesNotExist()
 
         // The rest of the screen is untouched, so the section's absence is an
         // absence rather than a screen that failed to draw.

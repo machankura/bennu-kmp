@@ -559,4 +559,21 @@
     <string name="field_type_year">Year</string>
     <string name="field_type_duration">Duration in seconds</string>
     <string name="field_type_number">Number</string>
+    <string name="propose_event">Propose event</string>
+    <string name="paste_an_unsigned_event_for_the_group_to_sign">Paste an unsigned Nostr event for the group to sign. It is filed by kind: a profile (kind 0), a post (kind 1), a relay list, or a curated schema (kind 31889).</string>
+    <string name="the_group_signs_an_event_so_it_takes_a_quorum">The group signs it, so it takes a quorum. The author is the group and the time is now, whatever the paste says about either.</string>
+    <string name="this_group_has_no_shared_key_to_sign_an_event">This group has no shared key, so it cannot sign an event. Run a shared key ceremony first.</string>
+    <string name="could_not_ask_the_group_to_sign_this_event">Couldn't ask the group to sign this event.</string>
+    <string name="unsigned_event">Unsigned event</string>
+    <string name="eg_kind_1_tags_content">{"kind": 1, "tags": [], "content": "…"}</string>
+    <string name="what_the_group_would_sign">What the group would sign</string>
+    <string name="kind_n">Kind %1$s</string>
+    <string name="that_is_not_json">That isn't JSON.</string>
+    <string name="an_event_is_a_json_object">An event is a JSON object with a kind, tags and content.</string>
+    <string name="an_event_needs_a_kind">An event needs a kind.</string>
+    <string name="kind_n_has_nowhere_to_go_on_this_screen">Kind %1$s has nowhere to go on the group's screen. It can file kinds %2$s.</string>
+    <string name="tags_must_be_a_list_of_lists_of_strings">Tags must be a list of lists of strings.</string>
+    <string name="content_must_be_text">Content must be text.</string>
+    <string name="the_content_is_not_a_profile">The content isn't a profile. A kind 0 carries a JSON object of profile fields.</string>
+    <string name="this_schema_cannot_be_signed_as_it_is">This schema can't be signed as it is:</string>
 </resources>

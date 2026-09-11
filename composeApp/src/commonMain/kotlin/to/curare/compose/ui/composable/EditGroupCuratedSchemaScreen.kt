@@ -875,7 +875,7 @@ private fun CuratedFieldType.label(): StringResource = when (this) {
  * sentence and the check cannot disagree about the number.
  */
 @Composable
-private fun CuratedSchemaProblem.message(): String = when (this) {
+internal fun CuratedSchemaProblem.message(): String = when (this) {
     CuratedSchemaProblem.IdentifierMissing -> stringResource(Res.string.an_identifier_is_required)
     CuratedSchemaProblem.IdentifierTooLong -> stringResource(
         Res.string.the_identifier_must_be_at_most_n_characters,

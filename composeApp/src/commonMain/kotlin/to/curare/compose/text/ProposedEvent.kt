@@ -1,7 +1,10 @@
 package to.curare.compose.text
 
 import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import to.curare.compose.managers.SharedKeyDerivation
+import to.curare.compose.nostr.GroupRelaySet
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.frost.GroupKeyStateEvent
 import to.curare.compose.nostr.subgroup.SubgroupBirthCertificateEvent
@@ -155,6 +158,39 @@ object ProposedEvent {
                     ?.let { "run by $it members" }
             ).joinToString(" · ")
         )
+
+        // The group's own profile. Named by what the group would be called and
+        // what it would say about itself, which is the whole of what is being
+        // decided; the JSON in the content is the one thing a signer should not
+        // have to read to find that out.
+        MetadataEvent.KIND -> Summary(
+            label = "Nostr profile",
+            detail = MetadataEvent(
+                event.id, event.pubKey, event.createdAt, event.tags, event.content, event.sig
+            ).contactMetaData()?.let { metadata ->
+                listOfNotNull(
+                    metadata.anyName()?.takeIf { it.isNotBlank() },
+                    metadata.about?.takeIf { it.isNotBlank() }
+                ).joinToString(" · ").ifEmpty { "An empty profile" }
+            } ?: "Unreadable profile"
+        )
+
+        // A post in the group's name. The words are what is being decided, so
+        // they are the detail rather than a count of them -- the same call the
+        // translated-passage arm makes.
+        TextNoteEvent.KIND -> Summary(label = "Post", detail = event.content)
+
+        // One of the group's relay lists, shown as hosts: every entry in one
+        // starts wss://, so the scheme is the part that never tells two apart.
+        // An empty one is a list the group is withdrawing, and says so.
+        in GroupRelaySet.KINDS -> {
+            val set = GroupRelaySet.entries.first { it.kind == event.kind }
+
+            Summary(
+                label = "${set.name} relay list",
+                detail = set.parse(event.tags).joinToString { it.displayUrl() }.ifEmpty { "No relays" }
+            )
+        }
 
         // A list the group would curate. A member signing this is agreeing to
         // take suggestions from whoever the visibility admits and to be the one
