@@ -282,6 +282,57 @@ class GroupNostrProfileSectionJvmTest {
     }
 
     @Test
+    fun `every signed event in the block offers a broadcast, under its own card`() = render(
+        state(
+            groupNostrProfile = profile,
+            relayLists = signedRelayLists(),
+            posts = listOf(post("Something the group said", 1_700_000_000)),
+            schemas = listOf(schema("films", "Films worth translating", 1_700_000_900))
+        )
+    ) {
+        // One per signed event: the profile, the two relay lists the group has
+        // agreed -- the withdrawn one included, since a withdrawal is a statement
+        // relays still holding the old list need to hear -- the post and the
+        // schema. Not the two lists the group has never agreed, which are not
+        // events.
+        val buttons = onAllNodesWithText("Broadcast")
+        buttons.assertCountEquals(5)
+
+        // Under the card it sends, in the order the block lays them out. The
+        // profile card is found by its address, since its name is also the
+        // post's byline.
+        val profileCard = onNodeWithText("group@example.com").getBoundsInRoot().top
+        val relays = onNodeWithText("Relays").getBoundsInRoot().top
+        val general = onNodeWithText("General").getBoundsInRoot().top
+        val blocked = onNodeWithText("Blocked").getBoundsInRoot().top
+        val postCard = onNodeWithText("Something the group said").getBoundsInRoot().top
+        val schemaCard = onNodeWithText("Films worth translating").getBoundsInRoot().top
+        val tops = (0 until 5).map { buttons[it].getBoundsInRoot().top }
+
+        assertTrue(profileCard < tops[0] && tops[0] < relays, "the profile's broadcast is not under its card")
+        assertTrue(general < tops[1] && tops[1] < blocked, "the general list's broadcast is not under its row")
+        assertTrue(blocked < tops[2] && tops[2] < postCard, "the blocked list's broadcast is not under its row")
+        assertTrue(postCard < tops[3] && tops[3] < schemaCard, "the post's broadcast is not under its card")
+        assertTrue(schemaCard < tops[4], "the schema's broadcast is not under its card")
+    }
+
+    @Test
+    fun `a member holding no share of the key may still broadcast what the group signed`() = render(
+        state(
+            groupNostrProfile = profile,
+            relayLists = signedRelayLists(),
+            posts = listOf(post("Something the group said", 1_700_000_000)),
+            canEditNostrProfile = false
+        )
+    ) {
+        // Sending what is already signed takes no share of the key -- the
+        // signature is the group's whoever repeats it -- so this is the one
+        // action in the block, with the queue, that the gate does not cover.
+        onAllNodesWithText("Broadcast").assertCountEquals(4)
+        onNodeWithText("Edit Nostr profile").assertDoesNotExist()
+    }
+
+    @Test
     fun `a member holding a share of the key may propose any event the block can show`() = render(
         state(groupNostrProfile = profile, relayLists = signedRelayLists())
     ) {
@@ -342,6 +393,7 @@ class GroupNostrProfileSectionJvmTest {
         onNodeWithText("Curated schemas").assertDoesNotExist()
         onNodeWithText("Add schema").assertDoesNotExist()
         onNodeWithText("Propose event").assertDoesNotExist()
+        onAllNodesWithText("Broadcast").assertCountEquals(0)
 
         // The rest of the screen is untouched, so the section's absence is an
         // absence rather than a screen that failed to draw.

@@ -925,9 +925,11 @@ object FrostSigningManager {
         // signature by now, so each applies the result itself rather than
         // waiting to be sent something it can already build -- the same
         // reasoning the transcript lines are written on. Nothing goes on the
-        // wire: a signed event authored by the threshold key cannot travel as
-        // an inner event anyway, because the outbound pipeline re-authors
-        // rumors as their sender and would strip the group's signature off.
+        // wire from here: a signed event authored by the threshold key cannot
+        // travel as an inner event anyway, because the outbound pipeline
+        // re-authors rumors as their sender and would strip the group's
+        // signature off. Sending one to relays is a member's separate act,
+        // from `BroadcastGroupSignedEventScreen`, off the recorded row.
         signedEvents.forEach { applySignedEvent(database, session, it, recorded) }
 
         announce(

@@ -28,13 +28,18 @@ import to.curare.compose.nostr.frost.GroupKeyStateEvent
  *
  * ### Why the whole event, and not a pointer to one
  *
- * There is nothing to point at. A group-signed event never travels on the wire
- * as itself -- the outbound pipeline re-authors rumors as their sender and would
- * strip the signature off -- so it is not a `NostrEvent`, and it is not a
- * `MarmotInnerEvent` either, since no member sent it. Every device derives it
+ * There is nothing to point at. A group-signed event never travels between
+ * members as itself -- the outbound pipeline re-authors rumors as their sender
+ * and would strip the signature off -- so it is not a `NostrEvent`, and it is not
+ * a `MarmotInnerEvent` either, since no member sent it. Every device derives it
  * from a signing session it took part in, or is handed it in a chronicle. The
  * columns are `NostrEvent`'s so that what is stored is an event rather than a
  * summary of one, which is what makes [verifies] answerable from the row alone.
+ *
+ * The one way one reaches a relay is a member sending it there by hand, from
+ * `BroadcastGroupSignedEventScreen`, and that path serialises the row straight
+ * to the pool without ever making a `NostrEvent` of it -- see
+ * `BroadcastGroupSignedEventViewModel` for why a row would be the wrong shape.
  *
  * ### The derivation path
  *

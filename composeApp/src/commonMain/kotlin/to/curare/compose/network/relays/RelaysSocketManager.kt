@@ -32,7 +32,7 @@ class RelaysSocketManager(
     private val nostrSocketClientFactory: to.curare.compose.network.sockets.NostrSocketClientFactory,
     private val cachingImportRepository: to.curare.compose.repository.CachingImportRepository,
     private val relayRepository: to.curare.compose.repository.RelayRepository,
-) : LiveSubscriptionTransport {
+) : LiveSubscriptionTransport, EventPublishTransport {
     val logger = Logger.withTag("RelaysSocketManager")
     private val scope = CoroutineScope(Dispatchers.IO)
     private val relayPoolsMutex = Mutex()
@@ -116,7 +116,7 @@ class RelaysSocketManager(
     }
 
     @Throws(to.curare.compose.exceptions.NostrPublishException::class)
-    suspend fun publishEvent(nostrEvent: to.curare.compose.database.model.NostrEvent, relays: Set<to.curare.compose.network.dto.RelayDTO>): Flow<NostrPublishResult> {
+    override suspend fun publishEvent(nostrEvent: to.curare.compose.database.model.NostrEvent, relays: Set<to.curare.compose.network.dto.RelayDTO>): Flow<NostrPublishResult> {
         logger.d("publishEvent: $nostrEvent")
         return relayPool.publishEvent(
             nostrEvent = nostrEvent,

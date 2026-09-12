@@ -30,11 +30,12 @@ import com.vitorpamplona.quartz.nip17Dm.settings.tags.RelayTag as Nip17RelayTag
  * reasons `GroupNostrProfile` gives at length: a group-signed event is not a
  * `NostrEvent`, and only an event the room itself authored is the group speaking.
  *
- * ### Nothing here has reached a relay either
+ * ### Nothing here reaches a relay by being signed
  *
  * The lists say where the group's work *should* go; sending it there is a separate
- * job this does not do. See `GroupNostrProfile`, which carries the same caveat for
- * the same reason.
+ * act, taken by a member one event at a time from `BroadcastGroupSignedEventScreen`,
+ * and the General list is what that screen fills its relay picker from. See
+ * `GroupNostrProfile`, which carries the same caveat for the same reason.
  *
  * ### Public tags only, and not by preference
  *

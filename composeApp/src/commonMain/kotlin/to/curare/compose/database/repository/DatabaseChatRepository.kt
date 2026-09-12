@@ -183,6 +183,13 @@ class DatabaseChatRepository(
         emptyList()
     }
 
+    override suspend fun groupSignedEvent(chatRoomId: String, id: HexKey): GroupSignedEvent? = try {
+        database.groupSignedEventDao().getById(id)?.takeIf { it.chatRoomId == chatRoomId }
+    } catch (e: Throwable) {
+        logger.e("Error reading the signed event $id of $chatRoomId", e)
+        null
+    }
+
     override suspend fun canSign(chatRoomId: String): Boolean = try {
         FrostSigningManager.canSign(database, chatRoomId)
     } catch (e: Throwable) {
