@@ -43,6 +43,7 @@ import to.curare.compose.ui.composable.DkgRound2ApprovalScreen
 import to.curare.compose.ui.composable.EditGroupNostrProfileScreen
 import to.curare.compose.ui.composable.AddGroupPostScreen
 import to.curare.compose.ui.composable.EditGroupCuratedSchemaScreen
+import to.curare.compose.ui.composable.CuratedSuggestionListScreen
 import to.curare.compose.ui.composable.ProposeGroupEventScreen
 import to.curare.compose.ui.composable.EditGroupRelaysScreen
 import to.curare.compose.ui.composable.HomeScreen
@@ -130,6 +131,7 @@ import to.curare.compose.ui.composable.navigation.routes.AddDialectRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
 import to.curare.compose.ui.composable.navigation.routes.AddGroupPostRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupCuratedSchemaRoute
+import to.curare.compose.ui.composable.navigation.routes.CuratedSuggestionListRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import to.curare.compose.ui.composable.navigation.routes.FrostSigningRoute
@@ -1056,6 +1058,21 @@ fun CurareNavHost(
                                 inclusive = true
                             }
                         }
+                    }
+                )
+            }
+            composable<CuratedSuggestionListRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<CuratedSuggestionListRoute>()
+
+                CuratedSuggestionListScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    identifier = route.identifier,
+                    nostrRepository = databaseNostrRepository,
+                    chatRepository = databaseChatRepository,
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
