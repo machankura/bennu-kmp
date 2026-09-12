@@ -45,6 +45,7 @@ import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.view.state.ActiveProfileUIState
 import to.curare.compose.ui.view.state.HomeScreenUIState
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
 /**
  * The inventory in Phase 5 of docs/npub-sign-in.md, as assertions.
@@ -154,6 +155,36 @@ class ReadOnlyEntrancesJvmTest {
         onNodeWithText("Use a different key?", useUnmergedTree = true).assertIsDisplayed()
     }
 
+    // --- Not found: the third exit, when there is another profile to go to ---
+
+    @Test
+    fun `with another profile on the device the not-found state offers to switch, for either kind`() = runDesktopComposeUiTest(400, 1200) {
+        var switched = 0
+        setContent { AsIdentity(canSign = false) { NotFound(onSwitchProfile = { switched++ }) } }
+
+        onNodeWithText("Switch profile", useUnmergedTree = true).performClick()
+        assertEquals(1, switched)
+        // The read-only exit is still there beside it; switching does not forget.
+        onNodeWithText("Use a different key", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a signing identity that was not found is offered the switch above the set-up form`() = runDesktopComposeUiTest(400, 1200) {
+        setContent { AsIdentity(canSign = true) { NotFound(onSwitchProfile = {}) } }
+
+        onNodeWithText("Switch profile", useUnmergedTree = true).assertIsDisplayed()
+        // The heading and the button both say it; either is enough to know the form is there.
+        onAllNodesWithText("Set up a profile", useUnmergedTree = true).onFirst().assertIsDisplayed()
+    }
+
+    @Test
+    fun `with one profile on the device there is nothing to switch to`() = runDesktopComposeUiTest(400, 1200) {
+        setContent { AsIdentity(canSign = false) { NotFound(onSwitchProfile = null) } }
+
+        onNodeWithText("Use a different key", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithText("Switch profile", useUnmergedTree = true).assertDoesNotExist()
+    }
+
     // --- harness ---
 
     private val readOnlyIdentity = MutableStateFlow<Identity?>(
@@ -174,11 +205,12 @@ class ReadOnlyEntrancesJvmTest {
     )
 
     @Composable
-    private fun NotFound() {
+    private fun NotFound(onSwitchProfile: (() -> Unit)? = null) {
         UnsyncedProfileScreen(
             unsyncedProfilePublicKey = publicKey,
             nostrRepository = NotFoundAccount,
             signOut = signOutDependencies,
+            onSwitchProfile = onSwitchProfile,
         )
     }
 

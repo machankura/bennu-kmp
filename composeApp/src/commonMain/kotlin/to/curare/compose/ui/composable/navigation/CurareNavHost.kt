@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -781,10 +782,16 @@ fun CurareNavHost(
             }
             composable<UnsyncedProfileRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<UnsyncedProfileRoute>()
+                val identities by sovereignWalletViewModel.availableIdentities.collectAsState()
                 UnsyncedProfileScreen(
                     unsyncedProfilePublicKey = route.publicKey,
                     nostrRepository = databaseNostrRepository,
                     signOut = signOutOfReadOnlyIdentity,
+                    // Another profile to go to, when there is one; the switcher has a back
+                    // button, so this screen is still there if the user changes their mind.
+                    onSwitchProfile = if (identities.size > 1) {
+                        { navController.navigate(route = ProfilesRoute) }
+                    } else null,
                 )
             }
             composable<UnqueuedProfileSynchronizationRoute> { backStackEntry ->

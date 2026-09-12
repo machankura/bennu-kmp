@@ -43,6 +43,7 @@ import curare.composeapp.generated.resources.set_up_a_profile
 import curare.composeapp.generated.resources.try_again
 import curare.composeapp.generated.resources.use_a_different_key
 import curare.composeapp.generated.resources.use_a_different_key_question
+import curare.composeapp.generated.resources.switch_profile
 import curare.composeapp.generated.resources.could_not_sign_out_please_try_again
 import to.curare.compose.ui.composable.widgets.dialogs.SignOutOfReadOnlyDialog
 import to.curare.compose.ui.composable.widgets.rememberNotifier
@@ -82,6 +83,10 @@ fun UnsyncedProfileScreen(
     // act as signing out, reached from the other end of the identity's life. Null where
     // there is no identity to leave (previews), in which case that kind has no exit here.
     signOut: SignOutDependencies? = null,
+    // The third exit, for every kind: another profile on the device to go to instead.
+    // Null when there is none, in which case the row is not drawn. The identity that was
+    // not found stays listed; forgetting it remains a separate decision.
+    onSwitchProfile: (() -> Unit)? = null,
 ) {
     val viewModel: UnsyncedProfileViewModel = viewModel(
         factory = UnsyncedProfileViewModel.factory(
@@ -132,6 +137,7 @@ fun UnsyncedProfileScreen(
                     viewModel = viewModel,
                     unsignedNostrEventId = state.unsignedNostrEventId,
                     onUseADifferentKey = signOutViewModel?.let { { it.askToSignOut() } },
+                    onSwitchProfile = onSwitchProfile,
                 )
             }
         }
@@ -190,6 +196,8 @@ private fun NotFound(
     unsignedNostrEventId: Long,
     /** Shown only where the set-up form is not; null when there is no identity to leave. */
     onUseADifferentKey: (() -> Unit)?,
+    /** Shown for every kind, when there is another profile to go to. */
+    onSwitchProfile: (() -> Unit)?,
 ) {
     val nameField = viewModel.formState.nameField.textFieldState
     val biographyField = viewModel.formState.biographyField.textFieldState
@@ -221,6 +229,19 @@ private fun NotFound(
             text = stringResource(Res.string.it_may_be_new_or_it_may_live_on_relays_we),
             style = MaterialTheme.typography.bodyMedium,
         )
+
+        // With other profiles on the device, a way to one of them -- for every kind, since
+        // the wait is the same whichever kind is waiting. See docs/multiple-profiles.md,
+        // Phase 7.
+        if (onSwitchProfile != null) {
+            TextButton(
+                modifier = Modifier.align(Alignment.End),
+                enabled = !isActionPending,
+                onClick = onSwitchProfile,
+            ) {
+                Text(text = stringResource(Res.string.switch_profile))
+            }
+        }
 
         // Setting a profile up is signing a kind 0, which a read-only identity cannot do.
         // The form is not offered to it -- and then this state would have no exit: the
