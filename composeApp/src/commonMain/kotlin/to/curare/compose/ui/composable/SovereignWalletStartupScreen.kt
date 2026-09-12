@@ -135,7 +135,7 @@ fun SovereignWalletStartupScreen(
                                             walletsMetadata = availableWalletMetadata,
                                             activeWalletId = null,
                                             onWalletClick = {
-                                                sovereignWalletViewModel.switchToWallet(
+                                                sovereignWalletViewModel.switchToIdentity(
                                                     it.id
                                                 ); loadingIdentity = it
                                             },

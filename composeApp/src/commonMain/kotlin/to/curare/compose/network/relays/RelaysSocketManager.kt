@@ -2,7 +2,6 @@ package to.curare.compose.network.relays
 
 import to.curare.compose.network.dto.mapToRelayDTO
 import co.touchlab.kermit.Logger
-import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.relay.commands.toRelay.CloseCmd
 import com.vitorpamplona.quartz.nip01Core.relay.commands.toRelay.ReqCmd
 import com.vitorpamplona.quartz.nip77Negentropy.NegCloseCmd
@@ -13,7 +12,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -32,9 +30,10 @@ class RelaysSocketManager(
     private val nostrSocketClientFactory: to.curare.compose.network.sockets.NostrSocketClientFactory,
     private val cachingImportRepository: to.curare.compose.repository.CachingImportRepository,
     private val relayRepository: to.curare.compose.repository.RelayRepository,
+    /** Injectable so that a test can drive the identity observer on a dispatcher it controls. */
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
 ) : LiveSubscriptionTransport, EventPublishTransport {
     val logger = Logger.withTag("RelaysSocketManager")
-    private val scope = CoroutineScope(Dispatchers.IO)
     private val relayPoolsMutex = Mutex()
 
     /**
@@ -56,35 +55,36 @@ class RelaysSocketManager(
         observeActiveUserId()
     }
 
-    private val observeRelayJobs =  mutableMapOf<HexKey, Job>()
-
+    /**
+     * Follows the active identity's relay list into the pool, as a child of `collectLatest`
+     * so that the next identity cancels it -- the shape the pumps and the notary already
+     * have.
+     *
+     * It used to be a job per pubkey on [scope], replaced only when the *same* pubkey came
+     * round again, which meant a switch left the previous identity's observer running:
+     * two observers feeding [updateRelayPools], and the one pool following whichever relay
+     * list emitted last. A null identity closes nothing -- the pool is shared by pumps a
+     * null identity has already cancelled -- and the next identity's list replaces it
+     * through `changeRelays`, as it always did.
+     */
     private fun observeActiveUserId() =
         scope.launch {
             activeIdentityStateFlow.collectLatest { identity ->
-                if (identity == null) {
-                    // TODO: Cancel all pending jobs?
-                }
-                // The identity carries its pubkey, so this no longer waits on the node's key
-                // manager to fill in. The relay observer is still a job on `scope` keyed by
-                // pubkey and replaced per pubkey, exactly as before.
-                identity?.nostrPublicKey?.let { pubkey ->
-                    observeRelayJobs[pubkey]?.cancel()
-                    observeRelayJobs[pubkey] = observeRelays(pubkey)
+                val publicKey = identity?.nostrPublicKey ?: return@collectLatest
+                try {
+                    relayRepository.observePublicKeyRelays(publicKey = publicKey).collect { relays ->
+                        val userRelays = relays.filter { it.type == "user" }.map { it.mapToRelayDTO() }
+                        updateRelayPools(regularRelays = userRelays)
+                    }
+                } catch (error: CancellationException) {
+                    logger.d { "Relay observation for $publicKey cancelled" }
+                    throw error
                 }
             }
         }
 
-    private fun observeRelays(publicKey: String): Job =
-        scope.launch {
-            try {
-                relayRepository.observePublicKeyRelays(publicKey = publicKey).collect { relays ->
-                    val userRelays = relays.filter { it.type == "user" }.map { it.mapToRelayDTO() }
-                    updateRelayPools(regularRelays = userRelays)
-                }
-            } catch (error: CancellationException) {
-                logger.w(throwable = error) { "Relay observation cancelled" }
-            }
-        }
+    /** The urls the pool currently holds. For the switch test; nothing in the app reads it. */
+    val relayUrls: Set<String> get() = relayPool.relays.map { it.url }.toSet()
 
     private suspend fun updateRelayPools(regularRelays: List<to.curare.compose.network.dto.RelayDTO>?) {
         relayPoolsMutex.withLock {

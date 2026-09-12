@@ -15,6 +15,10 @@ actual fun updateBusinessActiveInUI(walletId: WalletId) {
     BusinessManager.updateBusinessActiveInUI(walletId)
 }
 
+actual fun stopPlatformBusiness(walletId: WalletId) {
+    BusinessManager.stopBusiness(walletId)
+}
+
 actual fun loadAndDecryptSeed(phoenixGlobal: PhoenixGlobal): DecryptSeedResult {
     return SeedManager.loadAndDecrypt(
         phoenixGlobal

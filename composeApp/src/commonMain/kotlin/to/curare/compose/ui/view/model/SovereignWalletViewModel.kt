@@ -57,6 +57,13 @@ sealed class WritingSeedState {
 }
 
 expect fun updateBusinessActiveInUI(walletId: WalletId)
+
+/**
+ * Stops the node running for [walletId], if one is. The inverse of what the startup
+ * screen's mnemonic branch starts; an `expect` for the reason [updateBusinessActiveInUI]
+ * is, which is that `BusinessManager` is a per-platform object.
+ */
+expect fun stopPlatformBusiness(walletId: WalletId)
 expect fun loadAndDecryptSeed(phoenixGlobal: PhoenixGlobal): DecryptSeedResult
 
 expect fun getAvailableWalletsMeta(phoenixGlobal: PhoenixGlobal): Flow<Map<WalletId, UserWalletMetadata>>
@@ -74,6 +81,8 @@ expect suspend fun saveAvailableWalletMeta(
 class SovereignWalletViewModel(
     val phoenixGlobal: PhoenixGlobal,
     // We might end up only using the machankuraWalletRepository in the future where we send the walletId in each request.
+    /** Injected so that a switch can be pinned in a test without a node to stop. */
+    private val stopBusiness: (WalletId) -> Unit = ::stopPlatformBusiness,
 ): ViewModel() {
     private val log = Logger.withTag("SovereignWalletViewModel")
 
@@ -331,10 +340,33 @@ class SovereignWalletViewModel(
 //        }
 //    }
 
-    /** Clears the active identity and signals the startup screen to load the given [walletId]. */
-    fun switchToWallet(walletId: WalletId) {
-        _desiredWalletId.value = walletId
+    /**
+     * Makes [id] the identity to open next and clears the active one, which is the whole
+     * of a switch: the navigation observer sends a null identity to startup, startup
+     * opens [id] through the lock gate, and the machine routes it from its account.
+     * Everything reading [activeIdentity] is cancelled by the null and rebuilt by the
+     * activation -- the notary, the pumps, the live subscriptions, the relay observer.
+     * See docs/multiple-profiles.md, Phase 2.
+     *
+     * [startWalletImmediately] goes back to true: a switch is the user saying which one,
+     * and the flag was only ever the user saying *show me the list*. Nothing set it back
+     * before because nothing could switch.
+     *
+     * The identity is cleared **before** the node is stopped: clearing cancels every
+     * collector that could reach the business, so the stop finds nothing reading it.
+     * The test is `business != null`, not the kind -- whether the profile being left has
+     * a node behind it is the fact, and the kind is how it currently comes to be true.
+     * `previous.id` is the wallet's id when a wallet is attached, which is why the
+     * manager can take it.
+     */
+    fun switchToIdentity(id: WalletId) {
+        val previous = _activeIdentity.value
+        _desiredWalletId.value = id
+        startWalletImmediately.value = true
         _activeIdentity.value = null
+        if (previous?.business != null) {
+            viewModelScope.launch(Dispatchers.IO) { stopBusiness(previous.id) }
+        }
     }
 
     /** Clears the active identity. It does not affect [desiredWalletId]. The UI may still auto-open a specific wallet, if [desiredWalletId] is not null. */

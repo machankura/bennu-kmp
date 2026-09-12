@@ -547,7 +547,7 @@ fun CurareNavHost(
 
                                 sovereignWalletViewModel.loadSovereignData(walletId)
                                 sovereignWalletViewModel.listIdentities {
-                                    sovereignWalletViewModel.switchToWallet(walletId)
+                                    sovereignWalletViewModel.switchToIdentity(walletId)
                                     navController.navigate(
                                         route = SovereignWalletStartupRoute
                                     )
@@ -743,10 +743,17 @@ fun CurareNavHost(
                     // startup. Startup finds the new identity, activates it, and the navigation
                     // machine takes it from the placeholder account the sign-in planted. The
                     // form is popped so that back does not return to a field holding a secret.
+                    //
+                    // The navigate here looks redundant with the observer's -- switching clears
+                    // the identity, and a null identity is StartupPhoenix, which the observer
+                    // above navigates to with the same popUpTo(0). It is not: the navigation
+                    // state is a StateFlow, and an update to a state equal to the current one
+                    // emits nothing. This is what guarantees the stack moves even on the day
+                    // the state does not. Leave both.
                     onSignedIn = { walletId ->
                         sovereignWalletViewModel.loadSovereignData(walletId)
                         sovereignWalletViewModel.listIdentities {
-                            sovereignWalletViewModel.switchToWallet(walletId)
+                            sovereignWalletViewModel.switchToIdentity(walletId)
                             navController.navigate(
                                 route = SovereignWalletStartupRoute
                             ) {
