@@ -15,6 +15,7 @@ import fr.acinq.phoenix.PhoenixGlobal
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.phoenix.data.DecryptNostrCredentialsResult
+import fr.acinq.phoenix.data.DecryptNostrKeysResult
 import fr.acinq.phoenix.data.DecryptSeedResult
 import fr.acinq.phoenix.data.ElectrumConfig
 import fr.acinq.phoenix.data.ListWalletState
@@ -213,6 +214,27 @@ class SovereignWalletViewModel(
                 }
                 is DecryptSeedResult.Failure.SeedFileNotFound -> emptyMap()
                 is DecryptSeedResult.Success -> result.userWalletsMap
+            }
+
+            // Before the read, and here rather than in the reader: a listing that writes
+            // would be a surprise, and this runs from init, before anything else touches
+            // either file. An old file that cannot be read is left alone and reported the
+            // way an unreadable credentials file is, so the user sees the error rather
+            // than silently losing every imported identity.
+            when (val migration = NostrCredentialManager.migrateFromNostrKeys(phoenixGlobal)) {
+                is NostrCredentialManager.MigrationResult.Migrated -> log.i { "migrated ${migration.count} nostr key(s) into the credentials file" }
+                is NostrCredentialManager.MigrationResult.NotNeeded -> Unit
+                is NostrCredentialManager.MigrationResult.Failed -> {
+                    log.e { "nostr-keys.dat could not be migrated: ${migration.failure}" }
+                    _listWalletState.value = when (val failure = migration.failure) {
+                        is DecryptNostrKeysResult.Failure.SerializationError -> ListWalletState.Error.Serialization
+                        is DecryptNostrKeysResult.Failure.DecryptionError -> ListWalletState.Error.DecryptionError.GeneralException(failure.cause)
+                        is DecryptNostrKeysResult.Failure.KeyStoreFailure -> ListWalletState.Error.DecryptionError.KeystoreFailure(failure.cause)
+                        is DecryptNostrKeysResult.Failure.FileUnreadable,
+                        is DecryptNostrKeysResult.Failure.FileNotFound -> ListWalletState.Error.Generic(null)
+                    }
+                    return@launch
+                }
             }
 
             val credentials: Map<HexKey, NostrCredential> = when (val result = NostrCredentialManager.loadAndDecrypt(phoenixGlobal)) {

@@ -445,6 +445,17 @@ abstract class NostrDao(
                 return@let
             }
 
+            if (activeKeyPair.privKey == null) {
+                // Addressed to us, and we cannot open it: a read-only identity. Keep the
+                // event and the wrap, as the branch above does for wraps addressed to
+                // someone else; the key that opens this one may be signed in later. Without
+                // this, the unseal below would run with a key nobody has and throw, and
+                // the throw would take the event with it.
+                logger.d("GiftWrap ${nostrEvent.id} is addressed to us, but this identity holds no key")
+
+                return@let
+            }
+
             giftWrapMessage.decryptGiftWrapSeal(
                 activeKeyPair
             ).let { giftWrapSeal ->

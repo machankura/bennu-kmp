@@ -1,6 +1,8 @@
 package to.curare.compose.identity
 
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
+import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import fr.acinq.bitcoin.Crypto
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.bitcoin.XonlyPublicKey
@@ -134,6 +136,22 @@ data class Identity(
         )
     }
 }
+
+/**
+ * The one place a quartz [KeyPair] is built from an identity.
+ *
+ * With a secret, quartz recomputes the public key from it and the second argument is a
+ * cross-check. Without one it is quartz's read-only constructor, which its own source
+ * comments as "this is a read-only account". What it must never be is
+ * `KeyPair(privKey = null)` with nothing else: that is quartz's *make me a new key*, and
+ * a read-only pair forwarded into it would try to open the user's gift wraps with a key
+ * nobody has, fail, and look in the logs like a decryption failure. This helper exists so
+ * that the trap has one place to be avoided.
+ */
+fun Identity.toKeyPair(): KeyPair = KeyPair(
+    privKey = nostrPrivateKey?.value?.toByteArray(),
+    pubKey = nostrPublicKey.hexToByteArray(),
+)
 
 /**
  * The [WalletId] of an identity that has no node id to hash.
