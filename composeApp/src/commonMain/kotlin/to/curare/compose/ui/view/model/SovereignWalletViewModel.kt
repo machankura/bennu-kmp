@@ -158,7 +158,7 @@ class SovereignWalletViewModel(
         val dataStoreManager = DataStoreManager(business)
 
         setActiveIdentity(
-            Identity(
+            Identity.signing(
                 id = walletId,
                 kind = IdentityKind.Mnemonic,
                 nostrPrivateKey = keyManager.nostrPrivateKey(),

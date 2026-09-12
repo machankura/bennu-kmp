@@ -126,7 +126,7 @@ class NsecRestoreRoundTripJvmTest {
 
         // 3. What the startup screen's NostrSecret branch does: an identity, no node.
         val dataStoreManager = DataStoreManager(phoenixGlobal.ctx, chain = NodeParamsManager.chain)
-        val identity = Identity(
+        val identity = Identity.signing(
             id = stored.id,
             kind = IdentityKind.NostrSecret,
             nostrPrivateKey = stored.privateKey,

@@ -6,6 +6,7 @@ import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.phoenix.managers.nostrPublicKeyHex
 import fr.acinq.phoenix.utils.preferences.InternalPrefs
 import fr.acinq.phoenix.utils.preferences.UserPrefs
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,10 @@ import to.curare.compose.ui.composable.navigation.routes.SovereignWalletStartupR
 import to.curare.compose.ui.view.state.NavigationUIState
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 /**
@@ -65,13 +70,21 @@ class NavigationIdentityRoutingJvmTest {
         temporaryFolder.newFolder().resolve("$name.preferences_pb").path.toPath()
     }
 
-    private fun nostrSecretIdentity() = Identity(
+    private fun nostrSecretIdentity() = Identity.signing(
         id = privateKey.publicKey().xOnly().toWalletId(),
         kind = IdentityKind.NostrSecret,
         nostrPrivateKey = privateKey,
         userPrefs = UserPrefs(prefsStore("user")),
         internalPrefs = InternalPrefs(prefsStore("internal")),
         business = null,
+    )
+
+    /** The same key, held as a public key only: same id, no secret, no node. */
+    private fun readOnlyIdentity() = Identity.readOnly(
+        id = privateKey.publicKey().xOnly().toWalletId(),
+        nostrPublicKey = privateKey.nostrPublicKeyHex(),
+        userPrefs = UserPrefs(prefsStore("user")),
+        internalPrefs = InternalPrefs(prefsStore("internal")),
     )
 
     /** Everything `observeProfile` reads, and nothing else; every other member throws. */
@@ -175,5 +188,108 @@ class NavigationIdentityRoutingJvmTest {
             NavigationUIState.ProfileLoaded(publicKey = identity.nostrPublicKey),
             viewModel.navigationUIState.value,
         )
+    }
+
+    /**
+     * A read-only identity is the same identity minus the secret: same public key, same
+     * id, and the machine routes it by its account exactly as it routes the nsec.
+     */
+    @Test
+    fun `a read-only identity has the id and public key its secret would, and cannot sign`() {
+        val readOnly = readOnlyIdentity()
+        val signing = nostrSecretIdentity()
+
+        assertEquals(signing.nostrPublicKey, readOnly.nostrPublicKey)
+        assertEquals(signing.id, readOnly.id)
+        assertNull(readOnly.nostrPrivateKey)
+        assertNull(readOnly.business)
+        assertFalse(readOnly.canSign)
+        assertTrue(signing.canSign)
+        assertEquals(IdentityKind.NostrPublic, readOnly.kind)
+    }
+
+    @Test
+    fun `a read-only identity is routed by its account, like any other`() {
+        val identity = readOnlyIdentity()
+        val scope = CoroutineScope(Job())
+        val viewModel = NavigationViewModel(
+            activeIdentityStateFlow = MutableStateFlow<Identity?>(identity),
+            initialNavigationUIState = stranded,
+            nostrRepository = Device(listOf(syncedAccount(identity.nostrPublicKey))),
+            scope = scope,
+        )
+
+        try {
+            val destination = runBlocking {
+                withTimeout(15_000) { viewModel.navigationUIState.first { it != stranded } }
+            }
+
+            assertEquals(
+                NavigationUIState.ProfileLoaded(publicKey = identity.nostrPublicKey),
+                destination,
+                "a read-only identity was not routed by its account",
+            )
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /**
+     * The two checks that make [Identity.nostrPublicKey] safe to be a field. Without
+     * them a data class would accept a key filed under someone else's public key, or a
+     * "read-only" identity that could in fact sign.
+     */
+    @Test
+    fun `an identity whose kind and key disagree is refused, and so is one whose key does not derive its public key`() {
+        val prefs = UserPrefs(prefsStore("user"))
+        val internal = InternalPrefs(prefsStore("internal"))
+
+        // A secret filed under a public key it does not derive.
+        assertFailsWith<IllegalArgumentException> {
+            Identity(
+                id = privateKey.publicKey().xOnly().toWalletId(),
+                kind = IdentityKind.NostrSecret,
+                nostrPublicKey = "a".repeat(64),
+                nostrPrivateKey = privateKey,
+                userPrefs = prefs,
+                internalPrefs = internal,
+                business = null,
+            )
+        }
+        // A read-only kind that nonetheless carries a key.
+        assertFailsWith<IllegalArgumentException> {
+            Identity(
+                id = privateKey.publicKey().xOnly().toWalletId(),
+                kind = IdentityKind.NostrPublic,
+                nostrPublicKey = privateKey.nostrPublicKeyHex(),
+                nostrPrivateKey = privateKey,
+                userPrefs = prefs,
+                internalPrefs = internal,
+                business = null,
+            )
+        }
+        // A signing kind with no key to sign with.
+        assertFailsWith<IllegalArgumentException> {
+            Identity(
+                id = privateKey.publicKey().xOnly().toWalletId(),
+                kind = IdentityKind.NostrSecret,
+                nostrPublicKey = privateKey.nostrPublicKeyHex(),
+                nostrPrivateKey = null,
+                userPrefs = prefs,
+                internalPrefs = internal,
+                business = null,
+            )
+        }
+        // And the factory refuses to build a "signing" read-only identity at all.
+        assertFailsWith<IllegalArgumentException> {
+            Identity.signing(
+                id = privateKey.publicKey().xOnly().toWalletId(),
+                kind = IdentityKind.NostrPublic,
+                nostrPrivateKey = privateKey,
+                userPrefs = prefs,
+                internalPrefs = internal,
+                business = null,
+            )
+        }
     }
 }

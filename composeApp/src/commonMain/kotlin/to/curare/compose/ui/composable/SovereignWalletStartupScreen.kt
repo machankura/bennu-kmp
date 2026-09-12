@@ -189,7 +189,7 @@ fun SovereignWalletStartupScreen(
                                                         // recomposes into the `activeIdentity != null` branch
                                                         // above, which is what reports the startup.
                                                         sovereignWalletViewModel.setActiveIdentity(
-                                                            Identity(
+                                                            Identity.signing(
                                                                 id = identity.id,
                                                                 kind = IdentityKind.NostrSecret,
                                                                 nostrPrivateKey = identity.privateKey,

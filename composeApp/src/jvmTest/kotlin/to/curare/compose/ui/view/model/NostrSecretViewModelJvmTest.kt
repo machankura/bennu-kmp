@@ -68,7 +68,7 @@ class NostrSecretViewModelJvmTest {
         temporaryFolder.newFolder().resolve("$name.preferences_pb").path.toPath()
     }
 
-    private fun identity() = Identity(
+    private fun identity() = Identity.signing(
         id = privateKey.publicKey().xOnly().toWalletId(),
         kind = IdentityKind.NostrSecret,
         nostrPrivateKey = privateKey,
