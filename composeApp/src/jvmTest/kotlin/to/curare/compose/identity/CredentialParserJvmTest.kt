@@ -1,8 +1,10 @@
 package to.curare.compose.identity
 
+import to.curare.compose.extensions.hexToNpubHrp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 
 /**
  * Every row of the sign-in screen's table, in and out.
@@ -72,9 +74,33 @@ class CredentialParserJvmTest {
     }
 
     @Test
-    fun `a public key is named for what it is`() {
-        assertEquals(CredentialProblem.PublicKeyOnly, refused(npub))
-        assertEquals(CredentialProblem.PublicKeyOnly, refused("nostr:$npub"))
+    fun `an npub, a nostr-prefixed npub and the upper-cased form all name the same public key`() {
+        for (input in listOf(npub, "nostr:$npub", npub.uppercase())) {
+            val credential = assertIs<SignInCredential.NostrPublicKey>(recognised(input), "for '$input'")
+            assertEquals(publicKey, credential.nostrPublicKey)
+        }
+    }
+
+    /**
+     * Sixty-four hex characters are a secret and stay one: a private key and an x-only
+     * public key are the same size, and the parser cannot tell them apart -- nor may it
+     * guess, since an x coordinate is almost always also a valid scalar and the guess
+     * would never fire. The public key of the vector, pasted as hex, is a *different*
+     * secret whose npub the confirm step shows.
+     */
+    @Test
+    fun `sixty-four hex characters are still a secret, even when they are a public key`() {
+        val credential = assertIs<SignInCredential.NostrSecret>(recognised(publicKey))
+        assertNotEquals(publicKey, credential.nostrPublicKey)
+    }
+
+    @Test
+    fun `an npub that does not decode, or names no point on the curve, is an invalid key`() {
+        assertEquals(CredentialProblem.InvalidKey, refused(npub.dropLast(1) + "q"))
+        // The field prime, bech32-encoded under npub: sixty-four hex characters that are
+        // not an x coordinate.
+        val notOnTheCurve = "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f".hexToNpubHrp()
+        assertEquals(CredentialProblem.InvalidKey, refused(notOnTheCurve))
     }
 
     @Test

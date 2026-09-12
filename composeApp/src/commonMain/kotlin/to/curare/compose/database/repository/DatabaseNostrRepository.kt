@@ -258,6 +258,17 @@ class DatabaseNostrRepository(
     override suspend fun signInToProfile(
         publicKey: HexKey
     ) {
+        // Idempotent by pubkey. Until the read-only kind, nothing called this twice for
+        // one key -- the writers refused a second sign-in before it got here. Pasting the
+        // nsec of a key held read-only is the first path that signs in a pubkey whose
+        // account already exists, and a second placeholder would be two kind-0 rows for
+        // one pubkey: two accounts disagreeing about which is this one, the failure
+        // `setUpProfileForExistingKey`'s own comment describes.
+        if (database.unsignedNostrEventDao().getLocalAccounts().any { it.unsignedNostrEvent?.pubKey == publicKey }) {
+            logger.d("signInToProfile: $publicKey already has an account here, nothing to plant")
+            return
+        }
+
         val profileEventTemplate = MetadataEvent.createNew()
 
         saveUnsignedNostrEvent(

@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import co.touchlab.kermit.Logger
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.phoenix.data.WalletId
 import kotlinx.coroutines.CancellationException
@@ -25,14 +26,15 @@ import to.curare.compose.ui.view.state.SignInToProfileUIState
 import to.curare.compose.ui.view.state.form.SignInToProfileFormState
 
 /**
- * Signs in with a secret the user already has: a recovery phrase or an nsec.
+ * Signs in with something the user already has: a recovery phrase, an nsec, or -- to
+ * look and not sign -- an npub.
  *
- * The two writers are injected as functions rather than reached for, so the commit can
- * be driven in a test without a key store, and because the recovery-phrase writer is
- * `SovereignWalletViewModel.writeSeed`, which lives in another view model and drives a
- * state machine of its own.
+ * The three writers are injected as functions rather than reached for, so the commit
+ * can be driven in a test without a key store, and because the recovery-phrase writer
+ * is `SovereignWalletViewModel.writeSeed`, which lives in another view model and drives
+ * a state machine of its own.
  *
- * What this does not do is decide where the user goes next. It writes the secret, plants
+ * What this does not do is decide where the user goes next. It writes the credential, plants
  * the placeholder account, and hands the new id to [onSignedIn]; the nav host re-lists
  * identities, selects that one and goes to startup, which is the same tail the create
  * flow uses. The **order** inside [commit] is load-bearing: the account has to be in the
@@ -43,6 +45,7 @@ import to.curare.compose.ui.view.state.form.SignInToProfileFormState
 class SignInToProfileViewModel(
     private val nostrRepository: NostrRepository,
     private val writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrCredentialResult,
+    private val writeNostrPublicKey: suspend (HexKey) -> IdentityWriter.WriteNostrCredentialResult,
     private val writeRecoveryPhrase: (
         words: List<String>,
         onWritten: (WalletId) -> Unit,
@@ -57,6 +60,7 @@ class SignInToProfileViewModel(
         fun factory(
             nostrRepository: NostrRepository,
             writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrCredentialResult,
+            writeNostrPublicKey: suspend (HexKey) -> IdentityWriter.WriteNostrCredentialResult,
             writeRecoveryPhrase: (
                 words: List<String>,
                 onWritten: (WalletId) -> Unit,
@@ -67,6 +71,7 @@ class SignInToProfileViewModel(
                 SignInToProfileViewModel(
                     nostrRepository = nostrRepository,
                     writeNostrKey = writeNostrKey,
+                    writeNostrPublicKey = writeNostrPublicKey,
                     writeRecoveryPhrase = writeRecoveryPhrase,
                 )
             }
@@ -102,25 +107,30 @@ class SignInToProfileViewModel(
         data class Failed(val problem: CredentialProblem) : Outcome
     }
 
+    private suspend fun write(what: String, writer: suspend () -> IdentityWriter.WriteNostrCredentialResult): Outcome = try {
+        when (val result = writer()) {
+            is IdentityWriter.WriteNostrCredentialResult.Written -> Outcome.SignedIn(result.id)
+            is IdentityWriter.WriteNostrCredentialResult.AlreadyExists -> Outcome.Failed(CredentialProblem.AlreadyOnThisDevice)
+            is IdentityWriter.WriteNostrCredentialResult.CannotLoadKeys -> Outcome.Failed(CredentialProblem.CouldNotWrite)
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logger.e("could not write the $what", e)
+        Outcome.Failed(CredentialProblem.CouldNotWrite)
+    }
+
     /**
-     * Writes the credential's secret to its store, then plants the placeholder account
-     * that tells the navigation machine this pubkey has a history to fetch rather than a
-     * profile to create. Suspends until both are done or one has failed.
+     * Writes the credential to its store, then plants the placeholder account that tells
+     * the navigation machine this pubkey has a history to fetch rather than a profile to
+     * create. Suspends until both are done or one has failed. The plant is idempotent by
+     * pubkey, which is what lets the nsec of a key held read-only sign in over it.
      */
     suspend fun commit(credential: SignInCredential): Outcome {
         val written: Outcome = when (credential) {
-            is SignInCredential.NostrSecret -> try {
-                when (val result = writeNostrKey(credential.privateKey)) {
-                    is IdentityWriter.WriteNostrCredentialResult.Written -> Outcome.SignedIn(result.id)
-                    is IdentityWriter.WriteNostrCredentialResult.AlreadyExists -> Outcome.Failed(CredentialProblem.AlreadyOnThisDevice)
-                    is IdentityWriter.WriteNostrCredentialResult.CannotLoadKeys -> Outcome.Failed(CredentialProblem.CouldNotWrite)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                logger.e("could not write the nostr key", e)
-                Outcome.Failed(CredentialProblem.CouldNotWrite)
-            }
+            is SignInCredential.NostrSecret -> write("nostr key") { writeNostrKey(credential.privateKey) }
+
+            is SignInCredential.NostrPublicKey -> write("nostr public key") { writeNostrPublicKey(credential.nostrPublicKey) }
 
             is SignInCredential.RecoveryPhrase -> {
                 // Callback-shaped writer, awaited: the seed writer drives WritingSeedState and
