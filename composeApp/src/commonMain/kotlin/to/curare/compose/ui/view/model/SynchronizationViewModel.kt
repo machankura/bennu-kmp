@@ -50,9 +50,11 @@ import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import to.curare.compose.nostr.SignInSync
 import kotlinx.coroutines.sync.withPermit
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -278,6 +280,7 @@ class SynchronizationViewModel(
                                                     activeKeyPair = keyPair
                                                     // TODO: + Relays.eventPublishRelaySet.map { normalizedRelayUrl -> normalizedRelayUrl.url }
                                                 )
+                                                followSignInHop(it, synchronizeNostrEventRequest)
                                             }
                                         }
                                     }
@@ -292,6 +295,7 @@ class SynchronizationViewModel(
                                                 activeKeyPair = keyPair
                                                 // TODO: + Relays.eventPublishRelaySet.map { normalizedRelayUrl -> normalizedRelayUrl.url }
                                             )
+                                            followSignInHop(nostrEvent, synchronizeNostrEventRequest)
                                         }
                                     }
                                     is NostrIncomingMessage.EoseMessage -> {
@@ -329,6 +333,16 @@ class SynchronizationViewModel(
                                         synchronizeNostrEventRequest.relayURL
                                     )
                                 }
+                                // And write down that the relay has finished, on every exit
+                                // too. Before this a request that got EOSE with nothing stayed
+                                // at `sent` for good, and "still searching" and "searched,
+                                // found nothing" were the same row -- which is why the screen
+                                // waiting on a sign-in sync could never say the second thing.
+                                // Conditional on `sent` in the DAO: an event handler that has
+                                // already moved the row to `processed` wins.
+                                runCatching {
+                                    nostrRepository.synchronizeNostrEventRequestCompleted(synchronizeNostrEventRequest)
+                                }.onFailure { logger.e("Failed to record sync completion", it) }
                             }
                         }
                       }
@@ -336,6 +350,44 @@ class SynchronizationViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Sign-in syncs this session has already followed a hop for, by account. Every
+     * bootstrap relay that holds the user's kind 10002 answers with it, and one hop per
+     * account is enough.
+     */
+    private val signInHopsFollowed = mutableSetOf<Long>()
+    private val signInHopsMutex = Mutex()
+
+    /**
+     * The one hop the sign-in sync follows. A level-0 request that brings back the user's
+     * own kind 10002 is asked again, at level 1, at the relays that list says they write
+     * to, less the bootstrap set already asked. That is the outbox model doing what it is
+     * for: the indexers know *where* the user publishes, and the user's own relays are
+     * where the rest of their lists are authoritative. One hop only -- a level-1 request
+     * never re-enters here -- because past the user's own relays lies the feed, not the
+     * profile.
+     */
+    private suspend fun followSignInHop(
+        nostrEvent: to.curare.compose.database.model.NostrEvent,
+        request: to.curare.compose.database.model.SynchronizeNostrEventRequest,
+    ) {
+        if (request.purpose != SignInSync.PURPOSE || request.level != 0) return
+        if (nostrEvent.kind != AdvertisedRelayListEvent.KIND) return
+        val unsignedNostrEventId = request.unsignedNostrEventId ?: return
+        val author = request.synchronizationFilters.firstOrNull()?.authors?.firstOrNull() ?: return
+        if (!nostrEvent.pubKey.equals(author, ignoreCase = true)) return
+
+        val relays = SignInSync.writeRelaysOf(nostrEvent.tags, alreadyAsked = SignInSync.bootstrapRelays)
+        if (relays.isEmpty()) return
+        val isFirst = signInHopsMutex.withLock { signInHopsFollowed.add(unsignedNostrEventId) }
+        if (!isFirst) return
+
+        logger.i { "Following the sign-in relay list of $author to ${relays.size} relay(s)" }
+        nostrRepository.queueSynchronizeNostrEvent(
+            SignInSync.requests(unsignedNostrEventId, author, relays, level = 1)
+        )
     }
 
     private suspend fun observePendingNegentropySynchronizeRequests(

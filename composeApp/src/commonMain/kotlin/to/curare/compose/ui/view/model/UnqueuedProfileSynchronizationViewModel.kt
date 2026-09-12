@@ -8,18 +8,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import co.touchlab.kermit.Logger
-import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
-import com.vitorpamplona.quartz.nip02FollowList.ContactListEvent
-import com.vitorpamplona.quartz.nip17Dm.settings.ChatMessageRelayListEvent
-import com.vitorpamplona.quartz.nip28PublicChat.list.ChannelListEvent
-import com.vitorpamplona.quartz.nip50Search.SearchRelayListEvent
-import com.vitorpamplona.quartz.nip51Lists.relayLists.IndexerRelayListEvent
-import com.vitorpamplona.quartz.nip51Lists.relayLists.RelayFeedsListEvent
-import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import to.curare.compose.nostr.SignInSync
 
 class UnqueuedProfileSynchronizationViewModel(
     val unsignedNostrEventId: Long,
@@ -48,6 +41,11 @@ class UnqueuedProfileSynchronizationViewModel(
 
     val isActionPending: MutableState<Boolean> = mutableStateOf(false)
 
+    /**
+     * Asks the bootstrap relays -- the indexers, and ours -- for everything this pubkey
+     * has published about itself. The relay list that comes back is followed one hop by
+     * the sync pump; see [SignInSync].
+     */
     fun queueSynchronization() {
         logger.d { "queueSynchronization" }
         viewModelScope.launch(Dispatchers.IO) {
@@ -55,30 +53,12 @@ class UnqueuedProfileSynchronizationViewModel(
             delay(2_000)
 
             nostrRepository.queueSynchronizeNostrEvent(
-                to.curare.compose.nostr.Relays.DefaultDMRelayList.map { normalizedRelayUrl ->
-                    to.curare.compose.database.model.SynchronizeNostrEventRequest(
-                        purpose = "sign-in",
-                        synchronizationFilters = arrayOf(
-                            to.curare.compose.database.model.types.SynchronizationFilter(
-                                authors = arrayOf(profilePublicKey),
-                                kinds = arrayOf(
-                                    MetadataEvent.KIND,
-                                    ContactListEvent.KIND,
-                                    AdvertisedRelayListEvent.KIND,
-                                    ChatMessageRelayListEvent.KIND,
-                                    SearchRelayListEvent.KIND,
-                                    IndexerRelayListEvent.KIND,
-                                    ChannelListEvent.KIND,
-                                    RelayFeedsListEvent.KIND
-                                )
-                            )
-                        ),
-                        unsignedNostrEventId = unsignedNostrEventId,
-                        relayURL = normalizedRelayUrl.url,
-                        level = 0
-                    )
-                }
-
+                SignInSync.requests(
+                    unsignedNostrEventId = unsignedNostrEventId,
+                    publicKey = profilePublicKey,
+                    relays = SignInSync.bootstrapRelays,
+                    level = 0,
+                )
             )
         }
 

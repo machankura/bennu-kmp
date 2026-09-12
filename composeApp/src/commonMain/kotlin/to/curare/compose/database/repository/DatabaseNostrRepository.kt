@@ -124,6 +124,46 @@ class DatabaseNostrRepository(
     ) {
         logger.d("createNewProfile: $publicKey")
 
+        saveUnsignedNostrEvents(bootstrapUnsignedEvents(publicKey, name, biography))
+
+        onCompletion.invoke()
+    }
+
+    override suspend fun setUpProfileForExistingKey(
+        publicKey: HexKey,
+        placeholderUnsignedNostrEventId: Long,
+        name: String?,
+        biography: String?,
+    ) {
+        logger.d("setUpProfileForExistingKey: $publicKey")
+
+        val events = bootstrapUnsignedEvents(publicKey, name, biography)
+        val profile = events.first { it.kind == MetadataEvent.KIND }
+
+        // The placeholder row is *replaced*, under its own id, rather than joined by a
+        // second kind 0: `getLocalAccounts` is every kind-0 row, and two for one pubkey
+        // would be two accounts disagreeing about which is this one. Its `signedAt` goes
+        // back to null so the notary signs it, and the sync requests that hang off the id
+        // stay where they are as the record of the search that found nothing.
+        database.unsignedNostrEventDao().upsert(
+            profile.copy(
+                id = placeholderUnsignedNostrEventId,
+                signedAt = null,
+            )
+        )
+        saveUnsignedNostrEvents(events.filterNot { it.kind == MetadataEvent.KIND })
+    }
+
+    /**
+     * What a key gets when it first becomes a profile here: the kind 0, a contact list
+     * that follows itself, and the relay lists the app reads, all pointed at the defaults.
+     * The kind 0 is first.
+     */
+    private fun bootstrapUnsignedEvents(
+        publicKey: HexKey,
+        name: String?,
+        biography: String?,
+    ): List<UnsignedNostrEvent> {
         val profileEventTemplate = MetadataEvent.createNew(
             name = name,
             about = biography,
@@ -207,9 +247,7 @@ class DatabaseNostrRepository(
             )
         )
 
-        saveUnsignedNostrEvents(unsignedNostrEvents)
-
-        onCompletion.invoke()
+        return unsignedNostrEvents
     }
 
     override suspend fun signInToProfile(
@@ -492,6 +530,14 @@ class DatabaseNostrRepository(
                 status = "sent",
                 updatedAt = Clock.System.now()
             )
+        )
+    }
+
+    override suspend fun synchronizeNostrEventRequestCompleted(synchronizeNostrEventRequest: to.curare.compose.database.model.SynchronizeNostrEventRequest) {
+        database.synchronizeNostrEventRequestDao().markCompleteIfSent(
+            id = synchronizeNostrEventRequest.id,
+            status = to.curare.compose.nostr.SignInSync.STATUS_COMPLETE,
+            updatedAt = Clock.System.now(),
         )
     }
 

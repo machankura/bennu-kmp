@@ -20,6 +20,15 @@ interface SynchronizeNostrEventRequestDao {
     @Upsert
     suspend fun upsert(synchronizeNostrEventRequest: to.curare.compose.database.model.SynchronizeNostrEventRequest)
 
+    /**
+     * Records that the relay has said everything it has, *if* nothing arrived: a request
+     * an event has already moved to `processed` stays there. Conditional in SQL rather
+     * than read-then-write because the event handling that writes `processed` runs in
+     * its own coroutine and can land after the subscription has closed.
+     */
+    @Query("UPDATE SynchronizeNostrEventRequest SET status = :status, updatedAt = :updatedAt WHERE id = :id AND status = 'sent'")
+    suspend fun markCompleteIfSent(id: String, status: String, updatedAt: kotlin.time.Instant): Int
+
     @Insert
     suspend fun insert(synchronizeNostrEventRequests: List<to.curare.compose.database.model.SynchronizeNostrEventRequest>)
 }

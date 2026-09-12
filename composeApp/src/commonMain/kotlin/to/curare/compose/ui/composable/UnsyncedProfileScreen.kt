@@ -5,69 +5,218 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.PersonSearch
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import to.curare.compose.ui.theme.spacing
+import androidx.lifecycle.viewmodel.compose.viewModel
 import curare.composeapp.generated.resources.Res
-import org.jetbrains.compose.resources.stringResource
+import curare.composeapp.generated.resources.enter_a_name_for_the_profile
+import curare.composeapp.generated.resources.enter_the_name_you_want_to_use_for_your_2
+import curare.composeapp.generated.resources.introduce_yourself
+import curare.composeapp.generated.resources.it_may_be_new_or_it_may_live_on_relays_we
+import curare.composeapp.generated.resources.name_eg_alan_turing
+import curare.composeapp.generated.resources.set_up_a_profile
+import curare.composeapp.generated.resources.try_again
 import curare.composeapp.generated.resources.we_are_looking_for_your_profile_on_as_many
 import curare.composeapp.generated.resources.we_are_searching_the_internet_to_find_your
-import androidx.compose.material3.SnackbarHost
+import curare.composeapp.generated.resources.we_could_not_find_a_profile_for_this_key
+import curare.composeapp.generated.resources.what_should_people_know_about_you
+import org.jetbrains.compose.resources.stringResource
+import to.curare.compose.repository.NostrRepository
+import to.curare.compose.ui.composable.widgets.Decorative
+import to.curare.compose.ui.composable.widgets.EmptyState
+import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
-import to.curare.compose.ui.theme.readableContent
+import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
+import to.curare.compose.ui.theme.readableContent
+import to.curare.compose.ui.theme.spacing
+import to.curare.compose.ui.view.model.UnsyncedProfileViewModel
+import to.curare.compose.ui.view.state.UnsyncedProfileUIState
 
+/**
+ * Waiting for a sign-in sync -- and, since Phase 5 of docs/nsec-sign-in.md, able to say
+ * when the wait is over with nothing to show for it. Before that the spinner below was
+ * the whole screen and had no exit: a key made in a client that never wrote a kind 0
+ * sat under "searching" for good.
+ */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun UnsyncedProfileScreen(
-    unsyncedProfilePublicKey: String
+    unsyncedProfilePublicKey: String,
+    nostrRepository: NostrRepository,
 ) {
-    Scaffold(snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) }) { innerPadding ->
-        Column(
-            modifier = Modifier.padding(innerPadding)
-            .readableContent()
-        ) {
+    val viewModel: UnsyncedProfileViewModel = viewModel(
+        factory = UnsyncedProfileViewModel.factory(
+            publicKey = unsyncedProfilePublicKey,
+            nostrRepository = nostrRepository,
+        )
+    )
+    val uiState by viewModel.uiState.collectAsState()
 
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(
-                    MaterialTheme.spacing.space125
-                ),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space250)
-            ) {
-
-                Spacer(
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = stringResource(Res.string.we_are_searching_the_internet_to_find_your),
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center
-                )
-
-                Text(
-                    text = stringResource(Res.string.we_are_looking_for_your_profile_on_as_many),
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center
-                )
-
-                to.curare.compose.ui.composable.widgets.LoadingDataIndicator(
-                    fillScreen = false
-                )
-
-                Spacer(
-                    modifier = Modifier.weight(2f)
+    // imePadding for the not-found form's fields.
+    Scaffold(
+        modifier = Modifier.imePadding(),
+        snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
+    ) { innerPadding ->
+        ScreenStateTransition(
+            state = uiState,
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            label = "unsynced profile",
+        ) { state ->
+            when (state) {
+                is UnsyncedProfileUIState.Searching -> Searching()
+                is UnsyncedProfileUIState.NotFound -> NotFound(
+                    viewModel = viewModel,
+                    unsignedNostrEventId = state.unsignedNostrEventId,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun Searching() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .readableContent()
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(
+                MaterialTheme.spacing.space125
+            ),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space250)
+        ) {
+
+            Spacer(
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = stringResource(Res.string.we_are_searching_the_internet_to_find_your),
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center
+            )
+
+            Text(
+                text = stringResource(Res.string.we_are_looking_for_your_profile_on_as_many),
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center
+            )
+
+            LoadingDataIndicator(
+                fillScreen = false
+            )
+
+            Spacer(
+                modifier = Modifier.weight(2f)
+            )
+        }
+    }
+}
+
+/**
+ * Every relay asked has answered and none had a profile. Two ways out: ask again, or
+ * give the key that is already on this device a profile -- the six-event bootstrap a
+ * fresh key gets, without a fresh key.
+ */
+@Composable
+private fun NotFound(
+    viewModel: UnsyncedProfileViewModel,
+    unsignedNostrEventId: Long,
+) {
+    val nameField = viewModel.formState.nameField.textFieldState
+    val biographyField = viewModel.formState.biographyField.textFieldState
+    val nameMissing = viewModel.nameMissing.value
+    val isActionPending = viewModel.isActionPending.value
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .readableContent()
+            .padding(MaterialTheme.spacing.screenMargin),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sectionGap),
+    ) {
+        EmptyState(
+            message = stringResource(Res.string.we_could_not_find_a_profile_for_this_key),
+            icon = Icons.Default.PersonSearch,
+            action = {
+                TextButton(
+                    enabled = !isActionPending,
+                    onClick = { viewModel.tryAgain(unsignedNostrEventId) },
+                ) {
+                    Text(stringResource(Res.string.try_again))
+                }
+            },
+        )
+
+        Text(
+            text = stringResource(Res.string.it_may_be_new_or_it_may_live_on_relays_we),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        Text(
+            text = stringResource(Res.string.set_up_a_profile),
+            style = MaterialTheme.typography.titleMedium,
+        )
+
+        TextField(
+            modifier = Modifier.fillMaxWidth(),
+            state = nameField,
+            isError = nameMissing,
+            supportingText = if (nameMissing) {
+                { Text(text = stringResource(Res.string.enter_a_name_for_the_profile)) }
+            } else null,
+            lineLimits = TextFieldLineLimits.SingleLine,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            label = { Text(text = stringResource(Res.string.name_eg_alan_turing), maxLines = 1) },
+            placeholder = { Text(text = stringResource(Res.string.enter_the_name_you_want_to_use_for_your_2), maxLines = 1) },
+            // The label names the field; the icon only decorates it.
+            leadingIcon = { Icon(Icons.Default.Badge, contentDescription = Decorative) },
+        )
+
+        TextField(
+            modifier = Modifier.fillMaxWidth(),
+            state = biographyField,
+            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 4),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            label = { Text(text = stringResource(Res.string.introduce_yourself), maxLines = 1) },
+            placeholder = { Text(text = stringResource(Res.string.what_should_people_know_about_you), maxLines = 1) },
+            leadingIcon = { Icon(Icons.Default.Description, contentDescription = Decorative) },
+        )
+
+        Button(
+            modifier = Modifier.align(Alignment.End),
+            enabled = !isActionPending,
+            onClick = { viewModel.setUpProfile(unsignedNostrEventId) },
+        ) {
+            Text(text = stringResource(Res.string.set_up_a_profile))
         }
     }
 }
@@ -80,7 +229,8 @@ private fun UnsyncedProfileScreenPreview() {
             modifier = Modifier.fillMaxSize()
         ) {
             UnsyncedProfileScreen(
-                unsyncedProfilePublicKey = "npub is for living."
+                unsyncedProfilePublicKey = "a".repeat(64),
+                nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
             )
         }
     }
