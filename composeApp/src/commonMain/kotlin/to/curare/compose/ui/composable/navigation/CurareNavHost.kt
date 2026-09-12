@@ -48,6 +48,11 @@ import to.curare.compose.ui.composable.BroadcastGroupSignedEventScreen
 import to.curare.compose.ui.composable.CuratedSuggestionListScreen
 import to.curare.compose.ui.composable.ProposeGroupEventScreen
 import to.curare.compose.ui.composable.EditGroupRelaysScreen
+import to.curare.compose.ui.composable.GroupNostrProfileScreen
+import to.curare.compose.ui.composable.GroupRelaysScreen
+import to.curare.compose.ui.composable.GroupPostsScreen
+import to.curare.compose.ui.composable.GroupCuratedSchemasScreen
+import to.curare.compose.ui.composable.GroupCuratedEntriesScreen
 import to.curare.compose.ui.composable.HomeScreen
 import to.curare.compose.ui.composable.ImplementationPendingScreen
 import to.curare.compose.ui.composable.KeyPackageManagementScreen
@@ -140,6 +145,11 @@ import to.curare.compose.ui.composable.navigation.routes.BroadcastGroupSignedEve
 import to.curare.compose.ui.composable.navigation.routes.CuratedSuggestionListRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
+import to.curare.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
+import to.curare.compose.ui.composable.navigation.routes.GroupRelaysRoute
+import to.curare.compose.ui.composable.navigation.routes.GroupPostsRoute
+import to.curare.compose.ui.composable.navigation.routes.GroupCuratedSchemasRoute
+import to.curare.compose.ui.composable.navigation.routes.GroupCuratedEntriesRoute
 import to.curare.compose.ui.composable.navigation.routes.FrostSigningRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposalListRoute
 import to.curare.compose.ui.composable.navigation.routes.AddChapterRoute
@@ -1074,6 +1084,86 @@ fun CurareNavHost(
                         navController.navigate(
                             route = actionRoute
                         )
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<GroupNostrProfileRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<GroupNostrProfileRoute>()
+
+                GroupNostrProfileScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    chatRepository = databaseChatRepository,
+                    onNavigateToRoute = { actionRoute ->
+                        navController.navigate(route = actionRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<GroupRelaysRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<GroupRelaysRoute>()
+
+                GroupRelaysScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    chatRepository = databaseChatRepository,
+                    onNavigateToRoute = { actionRoute ->
+                        navController.navigate(route = actionRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<GroupPostsRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<GroupPostsRoute>()
+
+                GroupPostsScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    chatRepository = databaseChatRepository,
+                    onNavigateToRoute = { actionRoute ->
+                        navController.navigate(route = actionRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<GroupCuratedSchemasRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<GroupCuratedSchemasRoute>()
+
+                GroupCuratedSchemasScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    chatRepository = databaseChatRepository,
+                    onNavigateToRoute = { actionRoute ->
+                        navController.navigate(route = actionRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<GroupCuratedEntriesRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<GroupCuratedEntriesRoute>()
+
+                GroupCuratedEntriesScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    chatRepository = databaseChatRepository,
+                    onNavigateToRoute = { actionRoute ->
+                        navController.navigate(route = actionRoute)
                     },
                     onNavigateBack = {
                         navController.popBackStack()

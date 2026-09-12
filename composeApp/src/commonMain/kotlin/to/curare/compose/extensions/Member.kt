@@ -10,6 +10,23 @@ private const val SHORTENED_PUBLIC_KEY_LENGTH = 8
 fun HexKey.shortened(): String = take(SHORTENED_PUBLIC_KEY_LENGTH)
 
 /**
+ * A long hex value in groups of eight, which is what makes it readable and what
+ * lets it wrap at all.
+ *
+ * Both halves matter. A 64-character key is compared against another member's
+ * screen a character at a time, and the eye loses its place in an undivided run
+ * of hex -- the same reason a fingerprint or an account number is grouped.
+ *
+ * And a run of hex has no space in it, so Compose has nowhere to break the line:
+ * it lays the whole thing out on one and lets it run off the side of the sheet,
+ * where the end of the key cannot be read at all. The spaces are the break
+ * opportunities. Nothing is copied from these -- the copy button takes the
+ * signed event, which is not grouped -- so the display can be shaped for reading
+ * without a paste losing the value.
+ */
+fun HexKey.inComparableGroups(): String = chunked(8).joinToString(" ")
+
+/**
  * What to call the member behind this public key on screen.
  *
  * Resolved from the profiles joined onto the room rather than stored anywhere, so

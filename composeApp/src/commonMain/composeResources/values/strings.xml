@@ -394,6 +394,8 @@
     <string name="open">Open</string>
     <string name="nostr_profile">Nostr profile</string>
     <string name="this_group_has_not_said_anything_about_itself">This group hasn't said anything about itself on Nostr yet.</string>
+    <!-- The row on the group's screen that opens the profile, when there is none to name. -->
+    <string name="not_described_yet">Not described yet</string>
     <string name="edit_nostr_profile">Edit Nostr profile</string>
     <string name="propose_nostr_profile">Propose Nostr profile</string>
     <string name="what_the_group_says_about_itself_on_nostr">What the group says about itself on Nostr</string>
@@ -417,6 +419,8 @@
     <string name="edit_relays">Edit relays</string>
     <string name="not_set_yet">Not set yet</string>
     <string name="no_relays_in_this_list">No relays in this list</string>
+    <!-- The row on the group's screen that opens the relay lists: how many of the four the group has signed. -->
+    <string name="n_of_m_relay_lists_agreed">%1$s of %2$s lists agreed</string>
     <string name="where_the_group_lives_on_nostr">Where the group lives on Nostr</string>
     <string name="the_group_signs_each_list_so_it_takes_a_quorum">The group signs each list, so it takes a quorum. Only the lists you change are proposed.</string>
     <string name="this_group_has_no_shared_key_to_sign_relays">This group has no shared key, so it cannot sign a relay list. Run a shared key ceremony first.</string>
@@ -444,6 +448,10 @@
     <string name="add_post">Add post</string>
     <string name="propose_post">Propose post</string>
     <string name="this_group_has_not_posted_anything_yet">This group hasn't posted anything yet.</string>
+    <!-- The row on the group's screen that opens the posts. -->
+    <string name="no_posts_yet">No posts yet</string>
+    <string name="one_post">1 post</string>
+    <string name="n_posts">%1$s posts</string>
     <string name="what_should_the_group_say">What should the group say?</string>
     <string name="the_group_signs_a_post_so_it_takes_a_quorum">The group signs a post, so it takes a quorum. It goes out in the group's name, not yours.</string>
     <string name="this_group_has_no_shared_key_to_sign_a_post">This group has no shared key, so it cannot sign a post. Run a shared key ceremony first.</string>
@@ -453,6 +461,10 @@
     <string name="a_reply">A reply</string>
     <string name="curated_schemas">Curated schemas</string>
     <string name="this_group_has_not_published_a_curated_schema_yet">This group hasn't published a curated schema yet. A schema defines a list anyone can suggest entries to and only the group can curate.</string>
+    <!-- The row on the group's screen that opens the schemas. -->
+    <string name="no_schemas_yet">No schemas yet</string>
+    <string name="one_schema">1 schema</string>
+    <string name="n_schemas">%1$s schemas</string>
     <string name="add_schema">Add schema</string>
     <string name="edit_schema">Edit schema</string>
     <string name="propose_schema">Propose schema</string>
@@ -614,6 +626,10 @@
     <!-- The group's screen: the entries it has accepted into the lists it curates. -->
     <string name="curated_entries">Curated entries</string>
     <string name="this_group_has_not_accepted_anything_into_a_list_yet">This group hasn't accepted anything into a list yet. An entry a quorum signs is shown here, and reaches the list's readers once it is broadcast.</string>
+    <!-- The row on the group's screen that opens the entries. -->
+    <string name="no_entries_yet">No entries yet</string>
+    <string name="one_entry">1 entry</string>
+    <string name="n_entries">%1$s entries</string>
     <string name="in_list">In %1$s</string>
     <string name="suggested_by">Suggested by %1$s</string>
     <!-- Broadcasting one event the group signed to relays a member picks. -->
