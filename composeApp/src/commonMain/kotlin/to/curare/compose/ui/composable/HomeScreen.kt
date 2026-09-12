@@ -301,6 +301,8 @@ fun HomeScreen(
                                         // created and has an id at last.
                                         onNavigateToRouteAndPopUpInclusive = onOpenChatRoom,
                                         onNavigateToRoute = onNavigateToRoute,
+                                        // The list is beside it; there is nothing to pop.
+                                        onNavigateBack = null,
                                     )
                                     }
                                 }

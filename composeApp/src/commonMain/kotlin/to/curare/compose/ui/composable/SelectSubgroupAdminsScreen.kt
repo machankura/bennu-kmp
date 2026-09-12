@@ -59,6 +59,7 @@ import to.curare.compose.ui.composable.widgets.Decorative
 import to.curare.compose.ui.composable.widgets.ErrorState
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.profile.ProfileAvatar
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -84,7 +85,8 @@ fun SelectSubgroupAdminsScreen(
     activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
-    onNavigateToRoute: (Route) -> Unit
+    onNavigateToRoute: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val viewModel: SelectSubgroupAdminsViewModel = viewModel(
         factory = SelectSubgroupAdminsViewModel.factory(
@@ -115,7 +117,10 @@ fun SelectSubgroupAdminsScreen(
             is SelectSubgroupAdminsUIState.Loaded -> Scaffold(
                 snackbarHost = { SnackbarHost(snackbarHostState) },
                 topBar = {
-                    TopAppBar(title = { Text(stringResource(Res.string.new_subgroup)) })
+                    TopAppBar(
+                        title = { Text(stringResource(Res.string.new_subgroup)) },
+                        navigationIcon = { NavigateBackButton(onNavigateBack) },
+                    )
                 },
                 floatingActionButton = {
                     ExtendedFloatingActionButton(
@@ -334,7 +339,8 @@ private fun SelectSubgroupAdminsScreenPreview() {
                 activeIdentityStateFlow = kotlinx.coroutines.flow.MutableStateFlow(null),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
-                onNavigateToRoute = {}
+                onNavigateToRoute = {},
+                onNavigateBack = {},
             )
         }
     }

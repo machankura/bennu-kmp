@@ -68,6 +68,7 @@ import to.curare.compose.ui.composable.widgets.EmptyState
 import to.curare.compose.ui.composable.widgets.ErrorState
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.rememberNotifier
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -133,6 +134,7 @@ fun EditGroupRelaysScreen(
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val editGroupRelaysViewModel: EditGroupRelaysViewModel = viewModel(
         factory = EditGroupRelaysViewModel.factory(
@@ -192,7 +194,8 @@ fun EditGroupRelaysScreen(
                         TopAppBar(
                             title = {
                                 editGroupRelaysUIState.localChatRoom.RenderChatRoomTitleText()
-                            }
+                            },
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     },
                     bottomBar = {
@@ -570,7 +573,8 @@ private fun EditGroupRelaysScreenPreview() {
                 ),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
-                onNavigateToRouteAndPopUpInclusive = {}
+                onNavigateToRouteAndPopUpInclusive = {},
+                onNavigateBack = {},
             )
         }
     }

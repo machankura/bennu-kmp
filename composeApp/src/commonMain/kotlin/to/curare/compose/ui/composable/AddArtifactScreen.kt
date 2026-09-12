@@ -84,6 +84,7 @@ import curare.composeapp.generated.resources.source_dialect
 import curare.composeapp.generated.resources.url
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -101,6 +102,7 @@ fun AddArtifactScreen(
     frostSigningRepository: FrostSigningRepository,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
     onNavigateToRoute: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val addArtifactViewModel: AddArtifactViewModel = viewModel(
         factory = AddArtifactViewModel.factory(
@@ -160,9 +162,7 @@ fun AddArtifactScreen(
                             title = {
                                 addArtifactUIState.localChatRoom.RenderChatRoomTitleText()
                             },
-                            actions = {
-
-                            }
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     },
                     bottomBar = {
@@ -430,7 +430,8 @@ private fun AddArtifactScreenPreview() {
                 mantraRepository = MantraRepository.NO_OP_MANTRA_REPOSITORY,
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
                 onNavigateToRouteAndPopUpInclusive = {},
-                onNavigateToRoute = {}
+                onNavigateToRoute = {},
+                onNavigateBack = {},
             )
         }
     }

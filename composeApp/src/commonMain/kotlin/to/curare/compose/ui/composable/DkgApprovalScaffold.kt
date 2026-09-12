@@ -45,6 +45,7 @@ import curare.composeapp.generated.resources.back
 import curare.composeapp.generated.resources.not_now
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 
 /**
@@ -92,7 +93,10 @@ internal fun DkgApprovalScaffold(
         snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
         topBar = {
             TopAppBar(
-                title = { Text(text = title, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                title = { Text(text = title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                // The same leave as "Not now" below, reachable from the loading and error
+                // states too -- which have no other way off the screen on desktop.
+                navigationIcon = { NavigateBackButton(onDone) },
             )
         }
     ) { padding ->

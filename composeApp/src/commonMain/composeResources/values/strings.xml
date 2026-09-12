@@ -679,4 +679,6 @@
     <string name="you_have_not_backed_up_your_nostr_secret_key">You have not backed up your nostr secret key</string>
     <string name="these_are_your_keys_keep_them_safe_no_wallet">These are your keys. Keep them safe so they can keep unlocking this profile, even when you lose or change your phone.</string>
     <string name="you_said_you_stored_it">You said you stored it</string>
+    <!-- The bar on the note composer, which had no bar before it had a back button. -->
+    <string name="new_note">New note</string>
 </resources>

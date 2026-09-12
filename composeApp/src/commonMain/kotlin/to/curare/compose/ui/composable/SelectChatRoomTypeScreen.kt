@@ -71,6 +71,7 @@ import curare.composeapp.generated.resources.was_created_but_its_shared_key_cere
 import curare.composeapp.generated.resources.you_and_others
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -92,6 +93,7 @@ fun SelectChatRoomTypeScreen(
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
     onNavigateToRoute: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val selectChatRoomTypeViewModel: SelectChatRoomTypeViewModel = viewModel(
         factory = SelectChatRoomTypeViewModel.factory(
@@ -142,7 +144,8 @@ fun SelectChatRoomTypeScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                            }
+                            },
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     },
                     bottomBar = {
@@ -494,7 +497,8 @@ private fun SelectChatRoomTypeScreenPreview() {
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
-                onNavigateToRoute = {}
+                onNavigateToRoute = {},
+                onNavigateBack = {},
             )
         }
     }

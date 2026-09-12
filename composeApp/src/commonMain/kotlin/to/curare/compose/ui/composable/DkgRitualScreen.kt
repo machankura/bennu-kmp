@@ -114,6 +114,7 @@ import curare.composeapp.generated.resources.of_members_will_be_needed_to_sign_w
 import curare.composeapp.generated.resources.shared_key_for
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -139,6 +140,7 @@ fun DkgRitualScreen(
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
     onNavigateToRoute: (Route) -> Unit = {},
+    onNavigateBack: () -> Unit,
 ) {
     val dkgRitualViewModel: DkgRitualViewModel = viewModel(
         factory = DkgRitualViewModel.factory(
@@ -179,7 +181,8 @@ fun DkgRitualScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                            }
+                            },
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     },
                     bottomBar = {
@@ -884,7 +887,8 @@ private fun DkgRitualScreenPreview() {
                 ),
                 activeIdentityStateFlow = MutableStateFlow(null),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY
+                dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
+                onNavigateBack = {},
             )
         }
     }

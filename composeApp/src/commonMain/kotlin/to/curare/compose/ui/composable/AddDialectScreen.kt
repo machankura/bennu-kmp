@@ -68,6 +68,7 @@ import curare.composeapp.generated.resources.language
 import curare.composeapp.generated.resources.propose_dialect
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -84,6 +85,7 @@ fun AddDialectScreen(
     frostSigningRepository: FrostSigningRepository,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
     onNavigateToRoute: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val addDialectViewModel: AddDialectViewModel = viewModel(
         factory = AddDialectViewModel.factory(
@@ -131,9 +133,7 @@ fun AddDialectScreen(
                             title = {
                                 addDialectUIState.localChatRoom.RenderChatRoomTitleText()
                             },
-                            actions = {
-
-                            }
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     },
                     bottomBar = {
@@ -364,7 +364,8 @@ private fun AddDialectScreenPreview() {
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
                 onNavigateToRouteAndPopUpInclusive = {},
-                onNavigateToRoute = {}
+                onNavigateToRoute = {},
+                onNavigateBack = {},
             )
         }
     }

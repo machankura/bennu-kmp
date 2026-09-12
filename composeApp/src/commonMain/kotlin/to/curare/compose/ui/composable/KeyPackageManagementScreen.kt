@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.LockReset
 import androidx.compose.material.icons.filled.Unpublished
@@ -59,6 +58,7 @@ import curare.composeapp.generated.resources.key_package_published
 import curare.composeapp.generated.resources.key_package_rotated
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.ConformancePreviews
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
@@ -102,18 +102,7 @@ fun KeyPackageManagementScreen(
                                     text = stringResource(Res.string.key_package_management)
                                 )
                             },
-                            navigationIcon = {
-                                IconButton(
-                                    onClick = {
-                                        onNavigateBack.invoke()
-                                    }
-                                ) {
-                                    Icon(
-                                        Icons.Default.ArrowBack,
-                                        contentDescription = "Back"
-                                    )
-                                }
-                            }
+                            navigationIcon = { NavigateBackButton(onNavigateBack) }
                         )
                     }
                 ) { innerPadding ->

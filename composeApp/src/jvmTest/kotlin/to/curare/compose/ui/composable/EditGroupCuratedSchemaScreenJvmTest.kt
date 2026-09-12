@@ -226,7 +226,8 @@ class EditGroupCuratedSchemaScreenJvmTest {
                             chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                             frostSigningRepository =
                                 FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
-                            onNavigateToRouteAndPopUpInclusive = {}
+                            onNavigateToRouteAndPopUpInclusive = {},
+                            onNavigateBack = {},
                         )
                     }
                 }

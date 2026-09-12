@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -23,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,14 +62,16 @@ import curare.composeapp.generated.resources.you_are_about_to_create_a_nostr_pro
 import curare.composeapp.generated.resources.you_will_be_in_full_control_of_this_profile
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.ConformancePreviews
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun CreateProfileScreen(
     initialCreateProfileUIState: CreateProfileUIState = CreateProfileUIState.Declaration,
     onNavigateToEndThis: () -> Unit,
+    onNavigateBack: () -> Unit,
     nostrRepository: to.curare.compose.repository.NostrRepository,
     marmotRepository: MarmotRepository,
     writeSeed: (mnemonics: List<String>, onSeedWritten: () -> Unit, onSeedWriteError: () -> Unit) -> Unit
@@ -83,7 +87,18 @@ fun CreateProfileScreen(
     // keyboard covers whatever is being typed into.
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
-        modifier = Modifier.imePadding()) { innerPadding ->
+        modifier = Modifier.imePadding(),
+        topBar = {
+            // The name is in the bar, as it is on the sign-in screen beside this one on
+            // the landing page, and the steps below no longer repeat it as a headline.
+            // Back pops to the landing page; nothing is written until the last step
+            // confirms, so there is nothing to lose by leaving.
+            TopAppBar(
+                title = { Text(stringResource(Res.string.create_profile)) },
+                navigationIcon = { NavigateBackButton(onNavigateBack) },
+            )
+        },
+    ) { innerPadding ->
         Column(
             modifier = Modifier.padding(innerPadding)
             .readableContent()
@@ -99,12 +114,6 @@ fun CreateProfileScreen(
 
                 when (val createAccountUIState = createProfileViewModel.createProfileUIState.value) {
                     is CreateProfileUIState.Declaration -> {
-
-                        Text(
-                            stringResource(Res.string.create_profile),
-                            style = MaterialTheme.typography.headlineSmall
-                        )
-
                         Text(
                             stringResource(Res.string.you_are_about_to_create_a_nostr_profile),
                             style = MaterialTheme.typography.bodyMedium,
@@ -133,11 +142,6 @@ fun CreateProfileScreen(
                         }
                     }
                     is CreateProfileUIState.InputPrompt -> {
-                        Text(
-                            stringResource(Res.string.create_profile),
-                            style = MaterialTheme.typography.headlineSmall
-                        )
-
                         TextField(
                             modifier = Modifier.fillMaxWidth(),
                             state = createProfileViewModel.createProfileFormState.nameField.textFieldState,
@@ -438,6 +442,7 @@ fun CreateAccountScreenPreview() {
 //                        )
 //                    ),
                 onNavigateToEndThis = {},
+                onNavigateBack = {},
                 writeSeed = { _, _, _ -> },
                 nostrRepository = to.curare.compose.repository.NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 marmotRepository = MarmotRepository.NO_OP_MARMOT_KEY_PACKAGE_BUNDLE

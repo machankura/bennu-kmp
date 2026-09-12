@@ -104,6 +104,7 @@ import to.curare.compose.ui.composable.widgets.Decorative
 import to.curare.compose.ui.composable.widgets.ErrorState
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.dialogs.ModalBottomSheet
 import to.curare.compose.ui.composable.widgets.rememberNotifier
@@ -268,6 +269,7 @@ fun EditGroupCuratedSchemaScreen(
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val editGroupCuratedSchemaViewModel: EditGroupCuratedSchemaViewModel = viewModel(
         factory = EditGroupCuratedSchemaViewModel.factory(
@@ -344,7 +346,8 @@ fun EditGroupCuratedSchemaScreen(
                         TopAppBar(
                             title = {
                                 editGroupCuratedSchemaUIState.localChatRoom.RenderChatRoomTitleText()
-                            }
+                            },
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     },
                     bottomBar = {
@@ -1514,7 +1517,8 @@ private fun EditGroupCuratedSchemaScreenPreview() {
                 ),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
-                onNavigateToRouteAndPopUpInclusive = {}
+                onNavigateToRouteAndPopUpInclusive = {},
+                onNavigateBack = {},
             )
         }
     }

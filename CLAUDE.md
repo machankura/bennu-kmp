@@ -132,6 +132,28 @@ ScreenStateTransition(viewModel.uiState) { uiState ->
 It only works where the `when` is the composable's whole body — `AnimatedContent` is a
 layout node, so wrapping one inside a `Column` takes its branches out of `ColumnScope`.
 
+## A pushed screen has a way back
+
+```kotlin
+TopAppBar(
+    title = { Text(stringResource(Res.string.add_post)) },
+    navigationIcon = { NavigateBackButton(onNavigateBack) },   // yes
+)
+TopAppBar(title = { … })                                       // no, on a pushed screen
+```
+
+A screen reached by `navController.navigate(...)` takes an `onNavigateBack: () -> Unit`
+and puts `NavigateBackButton` in its app bar's leading slot; the host passes
+`popBackStack()`. Android has a system back and iOS an edge swipe, but the desktop target
+has neither, and a pushed screen with no button there is a dead end. Twenty-two were.
+
+The button is *only* for pushed screens. The three top-level destinations have the
+navigation bar instead, and a screen that cleared the stack to get there -- onboarding,
+the loading gate -- has nothing under it to pop to. Where one composable is reached both
+ways, the callback is nullable and the caller decides: `ChatRoomMessagingScreen` is a
+destination on a phone and the home screen's detail pane in a wide window, and in the
+pane the list beside it is the way back.
+
 ## Layout adapts to the window, not to the composable
 
 ```kotlin

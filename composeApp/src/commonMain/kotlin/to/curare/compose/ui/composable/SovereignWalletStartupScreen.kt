@@ -70,7 +70,9 @@ fun SovereignWalletStartupScreen(
             }
             is ListWalletState.Error -> {
                 ImplementationPendingScreen(
-                    "Failed to load wallet data",
+                    text = "Failed to load wallet data",
+                    // Drawn inside the startup gate, which is the root of the stack.
+                    onNavigateBack = null,
                 )
             }
             is ListWalletState.Success -> {
