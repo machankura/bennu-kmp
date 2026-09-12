@@ -353,6 +353,20 @@ class SovereignWalletViewModel(
         )
     }
 
+    /**
+     * Writes a bare nostr key as a new identity, with the same initialisation options
+     * [writeSeed] applies. Suspends; the caller is the sign-in view model's coroutine.
+     */
+    suspend fun writeNostrKey(privateKey: PrivateKey): IdentityWriter.WriteNostrKeyResult =
+        IdentityWriter.writeNostrKey(
+            log = log,
+            phoenixGlobal = phoenixGlobal,
+            globalPrefs = getGlobalPrefs(),
+            privateKey = privateKey,
+            isTorEnabled = isTorEnabled.value,
+            customElectrumServer = customElectrumServer.value,
+        )
+
     companion object {
         private const val TAG = "SovereignWalletViewModel"
         fun factory(

@@ -91,7 +91,6 @@
     <string name="encrypt_and_back_your_recovery_information">Encrypt and back your recovery information up to your Google Drive or iCloud.</string>
     <string name="enter_the_name_you_want_to_use_for_your">Enter the name you want to use for your group</string>
     <string name="enter_the_name_you_want_to_use_for_your_2">Enter the name you want to use for your profile</string>
-    <string name="enter_the_nsec_or_npub_read_only_that_you">Enter the nsec or npub (read only) that you want to sign in as</string>
     <string name="enter_the_translation_for_this_chunk">Enter the translation for this chunk</string>
     <string name="events_are_indexed_so_that_we_can_deliver_a">Events are indexed so that we can deliver a premium local first experience.</string>
     <string name="everything_else">Everything else</string>
@@ -168,7 +167,6 @@
     <string name="no_versions">No versions.</string>
     <string name="not_now">Not now</string>
     <string name="nothing_was_created_and_no_key_exists_it_is">Nothing was created and no key exists. It is safe to run it again.</string>
-    <string name="nsec_npub_nip_05_static_address">nsec, npub, nip-05 (static address)</string>
     <string name="open_chat">Open chat</string>
     <string name="original">Original</string>
     <string name="original_text">Original text</string>
@@ -228,10 +226,6 @@
     <string name="this_device_does_not_hold_the_event">This device holds the group's reading of this, but not the signed event itself. Nothing here can be checked against a signature.</string>
     <string name="sign">Sign</string>
     <string name="sign_in">Sign in</string>
-    <string name="sign_in_is_not_yet_available_while_curare_is">Sign in is not yet available while Curare is in alpha testing.</string>
-    <string name="sign_in_to_nsec">Sign in to nsec</string>
-    <string name="sign_in_to_torch_via_nsec_or_remote_signer">Sign in to Curare via nsec, or remote signer</string>
-    <string name="sign_in_with_an_npub">Sign in with an npub</string>
     <string name="sign_out">Sign out</string>
     <string name="sign_with_the_group_s_key">Sign with the group's key</string>
     <string name="signed_their_part">Signed their part</string>
@@ -576,4 +570,24 @@
     <string name="content_must_be_text">Content must be text.</string>
     <string name="the_content_is_not_a_profile">The content isn't a profile. A kind 0 carries a JSON object of profile fields.</string>
     <string name="this_schema_cannot_be_signed_as_it_is">This schema can't be signed as it is:</string>
+    <!-- Sign in: docs/nsec-sign-in.md, phase 4. -->
+    <string name="a_password_protected_key_ncryptsec_is_not">A password-protected key (ncryptsec) is not supported yet. Decrypt it in the app it came from and paste the nsec.</string>
+    <string name="an_npub_is_a_public_key_curare_needs_the">An npub is a public key. Curare needs the secret key, the nsec, to sign as you.</string>
+    <string name="enter_a_recovery_phrase_or_an_nsec_to_sign_in">Enter a recovery phrase or an nsec to sign in.</string>
+    <string name="paste">Paste</string>
+    <string name="recognised_as_a_nostr_secret_key_no_wallet">Recognised as a nostr secret key. No wallet comes with it.</string>
+    <string name="recognised_as_a_recovery_phrase_it_also">Recognised as a recovery phrase. It also restores the wallet.</string>
+    <string name="recovery_phrase_or_nsec">Recovery phrase or nsec</string>
+    <string name="sign_in_with_a_recovery_phrase_or_an_nsec">Sign in with a recovery phrase or an nsec</string>
+    <string name="signed_in">Signed in</string>
+    <string name="signing_you_in">Signing you in…</string>
+    <string name="that_is_not_a_recovery_phrase_or_a_nostr_key">That is not a recovery phrase or a nostr key.</string>
+    <string name="that_nostr_secret_key_is_not_valid">That nostr secret key is not valid.</string>
+    <string name="that_recovery_phrase_is_not_valid_check">That recovery phrase is not valid. Check each word and the order.</string>
+    <string name="the_key_could_not_be_saved_on_this_device">The key could not be saved on this device.</string>
+    <string name="the_words_or_the_key_never_leave_this_device">Whatever you paste stays on this device. Curare checks it, shows you the profile it opens, and writes nothing until you confirm.</string>
+    <string name="this_key_is_already_on_this_device">This key is already on this device.</string>
+    <string name="twelve_words_or_nsec1">Twelve words, or nsec1…</string>
+    <string name="use_a_different_key">Use a different key</string>
+    <string name="you_are_signing_in_as">You are signing in as</string>
 </resources>

@@ -662,7 +662,36 @@ fun CurareNavHost(
                 )
             }
             composable<SignInRoute> {
-                SignInToProfileScreen()
+                SignInToProfileScreen(
+                    nostrRepository = databaseNostrRepository,
+                    writeNostrKey = { privateKey -> sovereignWalletViewModel.writeNostrKey(privateKey) },
+                    writeRecoveryPhrase = { words, onWritten, onError ->
+                        sovereignWalletViewModel.writeSeed(
+                            words,
+                            isRestoringWallet = true,
+                            onSeedWritten = onWritten,
+                            onSeedWriteError = onError,
+                        )
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    },
+                    // The tail the create flow uses after writeSeed: re-list, select, go to
+                    // startup. Startup finds the new identity, activates it, and the navigation
+                    // machine takes it from the placeholder account the sign-in planted. The
+                    // form is popped so that back does not return to a field holding a secret.
+                    onSignedIn = { walletId ->
+                        sovereignWalletViewModel.loadSovereignData(walletId)
+                        sovereignWalletViewModel.listIdentities {
+                            sovereignWalletViewModel.switchToWallet(walletId)
+                            navController.navigate(
+                                route = SovereignWalletStartupRoute
+                            ) {
+                                popUpTo(0)
+                            }
+                        }
+                    },
+                )
             }
             composable<UnsignedProfileRoute> { backStackEntry ->
                 backStackEntry.toRoute<UnsignedProfileRoute>()
