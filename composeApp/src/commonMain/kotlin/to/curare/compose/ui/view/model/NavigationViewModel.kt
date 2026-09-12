@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
@@ -65,7 +64,22 @@ class NavigationViewModel(
     }
 
     suspend fun loadNostrProfile(startupRoute: SovereignWalletStartupRoute? = null) {
-        val activeUserPublicKey = nostrRepository.getLocalAccounts().firstOrNull()?.profile?.publicKey
+        // Which account is "ours" is the active identity's to say, when there is one: with
+        // two identities on the device, the first kind-0 row is the wrong one half the time.
+        // Matched on the unsigned event's pubKey, not `profile.publicKey` -- the Profile row is
+        // what the notary upserts when it *signs* the kind 0, so an account planted by
+        // `signInToProfile` (or one created moments ago and not yet signed) has none, and
+        // reading through it answered `Landing` for a key that had just been imported while
+        // `observeProfile`, reading the same rows, answered the sync screen. Two writers to
+        // one state, in whichever order the coroutines ran, and Landing pops the back stack.
+        val accounts = nostrRepository.getLocalAccounts()
+        val identity = activeIdentityStateFlow.value
+        val account = if (identity != null) {
+            accounts.firstOrNull { it.unsignedNostrEvent?.pubKey == identity.nostrPublicKey }
+        } else {
+            accounts.firstOrNull()
+        }
+        val activeUserPublicKey = account?.unsignedNostrEvent?.pubKey
 
         if (activeUserPublicKey == null) {
             // TODO: We can just go directly to startup witout fear...
@@ -81,12 +95,9 @@ class NavigationViewModel(
             // `observeLocalAccount`, which turned the whole call into a no-op for anyone who
             // already had an account: the caller had navigated to a loading screen first and then
             // nothing ever moved the user off it. Every path out of here must leave the navigation
-            // state pointing somewhere.
-            processLocalAccount(
-                nostrRepository.observeLocalAccount(
-                    publicKey = activeUserPublicKey
-                ).firstOrNull()
-            )
+            // state pointing somewhere. `getLocalAccounts` already joined the relations this
+            // reads, so the account goes straight in rather than being fetched a second time.
+            processLocalAccount(account)
         } else {
             _navigationUIState.getAndUpdate {
                 NavigationUIState.StartupPhoenix

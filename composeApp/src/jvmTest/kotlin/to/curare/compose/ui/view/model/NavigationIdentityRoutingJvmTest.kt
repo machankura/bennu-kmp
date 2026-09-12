@@ -27,6 +27,7 @@ import to.curare.compose.identity.Identity
 import to.curare.compose.identity.IdentityKind
 import to.curare.compose.identity.toWalletId
 import to.curare.compose.repository.NostrRepository
+import to.curare.compose.ui.composable.navigation.routes.SovereignWalletStartupRoute
 import to.curare.compose.ui.view.state.NavigationUIState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -148,5 +149,31 @@ class NavigationIdentityRoutingJvmTest {
         } finally {
             scope.cancel()
         }
+    }
+
+    /**
+     * The startup screen's own entrance, `loadNostrProfile(startupRoute)`, used to take
+     * the *first* kind-0 account on the device whichever identity was active. With one
+     * wallet that was harmless; with two it is the wrong account half the time, and an
+     * imported key is how a device gets its second identity.
+     */
+    @Test
+    fun `with two accounts on the device, the startup entrance reads the active identity's`() {
+        val identity = nostrSecretIdentity()
+        val someoneElse = "a".repeat(64)
+        val scope = CoroutineScope(Job())
+        val viewModel = NavigationViewModel(
+            activeIdentityStateFlow = MutableStateFlow<Identity?>(identity),
+            initialNavigationUIState = stranded,
+            nostrRepository = Device(listOf(syncedAccount(someoneElse), syncedAccount(identity.nostrPublicKey))),
+            scope = scope,
+        ).also { scope.cancel() }
+
+        runBlocking { viewModel.loadNostrProfile(SovereignWalletStartupRoute) }
+
+        assertEquals(
+            NavigationUIState.ProfileLoaded(publicKey = identity.nostrPublicKey),
+            viewModel.navigationUIState.value,
+        )
     }
 }

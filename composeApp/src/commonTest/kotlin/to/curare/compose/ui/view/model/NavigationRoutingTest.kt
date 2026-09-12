@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import to.curare.compose.database.GENESIS_AT
 import to.curare.compose.database.model.Profile
 import to.curare.compose.database.model.UnsignedNostrEvent
 import to.curare.compose.database.model.intermdiate.LocalAccount
@@ -95,6 +96,30 @@ class NavigationRoutingTest {
     )
 
     /**
+     * What `signInToProfile` plants for a key that already exists elsewhere: a kind 0
+     * stamped `GENESIS_AT` so the notary skips it, and nothing else -- no `Profile`
+     * row, which only the notary's signing writes, and no sync request yet.
+     */
+    private fun placeholderAccount() = LocalAccount(
+        unsignedNostrEvent = UnsignedNostrEvent(
+            id = 1,
+            pubKey = publicKey,
+            kind = 0,
+            tags = emptyArray(),
+            content = "{}",
+            signedAt = GENESIS_AT,
+            createdAt = at,
+            updatedAt = at,
+            savedAt = at,
+        ),
+        nostrEvent = null,
+        profile = null,
+        broadcastNostrEventRequest = null,
+        broadcastNostrEventReceipt = null,
+        synchronizeNostrEventRequests = emptyList(),
+    )
+
+    /**
      * The view model's `init` starts a wallet observer that would write to the
      * same state after its 2.1s wait. Cancelling the scope leaves that observer
      * parked in the wait, so what these read back came from the call under test.
@@ -160,5 +185,27 @@ class NavigationRoutingTest {
         // not the startup screen, and nothing downstream works before the node
         // is up, so the answer is to go and start it.
         assertEquals(NavigationUIState.StartupPhoenix, viewModel.navigationUIState.value)
+    }
+
+    /**
+     * `loadNostrProfile` used to read the account through `profile.publicKey`. A
+     * placeholder has no Profile, so that read was null and the answer was Landing --
+     * "go and make an account" -- for a key that had just been imported, while the
+     * identity observer, reading the same rows, answered the sync screen. Two writers
+     * to one state, and Landing pops the back stack.
+     */
+    @Test
+    fun `a key just imported is sent to fetch its profile, not to make one`() = runTest {
+        val viewModel = bootedOn(placeholderAccount())
+
+        viewModel.loadNostrProfile(SovereignWalletStartupRoute)
+
+        assertNotEquals(NavigationUIState.Landing, viewModel.navigationUIState.value)
+        assertEquals(
+            NavigationUIState.UnqueuedProfileSynchronization(
+                unsignedNostrEvent = placeholderAccount().unsignedNostrEvent!!
+            ),
+            viewModel.navigationUIState.value,
+        )
     }
 }

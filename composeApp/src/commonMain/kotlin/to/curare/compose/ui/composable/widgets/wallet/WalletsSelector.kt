@@ -44,22 +44,23 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import to.curare.compose.ui.composable.widgets.buttons.Clickable
-import fr.acinq.phoenix.data.UserWallet
 import fr.acinq.phoenix.data.WalletId
 import fr.acinq.phoenix.utils.preferences.GlobalPrefs
 import fr.acinq.phoenix.utils.preferences.UserWalletMetadata
 import fr.acinq.phoenix.utils.preferences.getByWalletIdOrDefault
+import to.curare.compose.extensions.hexToNpubHrp
+import to.curare.compose.identity.StoredIdentity
 import to.curare.compose.ui.theme.spacing
 
 @Composable
 fun WalletsSelector(
     modifier: Modifier = Modifier,
     globalPrefs: GlobalPrefs,
-    wallets: Map<WalletId, UserWallet>,
+    wallets: Map<WalletId, StoredIdentity>,
     walletsMetadata: Map<WalletId, UserWalletMetadata>,
     activeWalletId: WalletId?,
     canEdit: Boolean,
-    onWalletClick: (UserWallet) -> Unit,
+    onWalletClick: (StoredIdentity) -> Unit,
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
     topContent: @Composable (() -> Unit)? = null,
@@ -76,9 +77,9 @@ fun WalletsSelector(
         if (currentWallet != null) {
             item {
                 AvailableWalletView(
-                    userWallet = currentWallet,
+                    identity = currentWallet,
                     globalPrefs = globalPrefs,
-                    metadata = walletsMetadata.getByWalletIdOrDefault(currentWallet.walletId),
+                    metadata = walletsMetadata.getByWalletIdOrDefault(currentWallet.id),
                     isCurrent = true,
                     canEdit = canEdit,
                     onClick = { onWalletClick(currentWallet) }
@@ -88,14 +89,14 @@ fun WalletsSelector(
                 Spacer(Modifier.height(MaterialTheme.spacing.space100))
             }
         }
-        items(items = otherWalletsList) { (walletId, userWallet) ->
+        items(items = otherWalletsList) { (walletId, identity) ->
             AvailableWalletView(
-                userWallet = userWallet,
+                identity = identity,
                 globalPrefs = globalPrefs,
                 metadata = walletsMetadata.getByWalletIdOrDefault(walletId),
                 isCurrent = false,
                 canEdit = canEdit,
-                onClick = { onWalletClick(userWallet) }
+                onClick = { onWalletClick(identity) }
             )
             Spacer(Modifier.height(MaterialTheme.spacing.space100))
         }
@@ -105,11 +106,16 @@ fun WalletsSelector(
     }
 }
 
+/**
+ * The second line is the npub for both kinds. It used to be the node id, which an
+ * identity made from a bare key does not have -- and the npub is the identifier the rest
+ * of the app shows, and the one a user might actually recognise.
+ */
 @Composable
 private fun AvailableWalletView(
     modifier: Modifier = Modifier,
     globalPrefs: GlobalPrefs,
-    userWallet: UserWallet,
+    identity: StoredIdentity,
     metadata: UserWalletMetadata,
     isCurrent: Boolean,
     canEdit: Boolean,
@@ -122,7 +128,7 @@ private fun AvailableWalletView(
         )
 //        EditWalletDialog(
 //            onDismiss = { showWalletEditDialog = false },
-//            walletId = userWallet.walletId,
+//            walletId = identity.id,
 //            globalPrefs = globalPrefs,
 //            metadata = metadata,
 //        )
@@ -134,7 +140,7 @@ private fun AvailableWalletView(
             if (isCurrent) {
                 if (canEdit) showWalletEditDialog = true else return@Clickable
             } else {
-                onClick(userWallet.walletId)
+                onClick(identity.id)
             }
         },
         shape = RoundedCornerShape(16.dp),
@@ -152,7 +158,7 @@ private fun AvailableWalletView(
                 Column {
                     Text(text = metadata.nameOrDefault(), modifier = Modifier, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(MaterialTheme.spacing.space25))
-                    Text(text = userWallet.nodeId, modifier = Modifier, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.displayMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp))
+                    Text(text = identity.nostrPublicKey.hexToNpubHrp(), modifier = Modifier, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.displayMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp))
                 }
             }
             if (isCurrent && canEdit) {

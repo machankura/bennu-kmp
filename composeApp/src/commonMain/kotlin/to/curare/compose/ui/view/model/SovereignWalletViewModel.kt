@@ -12,12 +12,16 @@ import co.touchlab.kermit.Logger
 import fr.acinq.lightning.logging.error
 import fr.acinq.phoenix.PhoenixBusiness
 import fr.acinq.phoenix.PhoenixGlobal
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.phoenix.data.DecryptNostrKeysResult
 import fr.acinq.phoenix.data.DecryptSeedResult
 import fr.acinq.phoenix.data.ElectrumConfig
 import fr.acinq.phoenix.data.ListWalletState
 import fr.acinq.phoenix.data.UserWallet
 import fr.acinq.phoenix.data.WalletId
 import fr.acinq.phoenix.managers.DataStoreManager
+import fr.acinq.phoenix.managers.NostrKeyManager
 import fr.acinq.phoenix.managers.nostrPrivateKey
 import fr.acinq.phoenix.utils.preferences.GlobalPrefs
 import fr.acinq.phoenix.utils.preferences.UserWalletMetadata
@@ -35,6 +39,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import to.curare.compose.identity.Identity
 import to.curare.compose.identity.IdentityKind
+import to.curare.compose.identity.IdentityWriter
+import to.curare.compose.identity.StoredIdentity
 
 sealed class WritingSeedState {
     data object Init : WritingSeedState()
@@ -71,15 +77,19 @@ class SovereignWalletViewModel(
     // A StateFlow, not a `mutableStateOf`, and it has to stay one. This view model is built by
     // `viewModel()` during composition, so a Compose state created in its constructor is created
     // inside that composition's snapshot -- and a write from another thread that lands before the
-    // composition is applied is discarded. `listAvailableWallets` runs from `init` and, on a device
+    // composition is applied is discarded. `listIdentities` runs from `init` and, on a device
     // with no seed file, answers in about four milliseconds, which is squarely inside that window:
     // the write to Success was lost and the app sat on "Decrypting..." for ever. A StateFlow has no
     // snapshot to belong to, so the same write from the same thread at the same moment is seen.
     private val _listWalletState = MutableStateFlow<ListWalletState>(ListWalletState.Init)
     val listWalletState = _listWalletState.asStateFlow()
 
-    private val _availableWallets = MutableStateFlow<Map<WalletId, UserWallet>>(emptyMap())
-    val availableWallets = _availableWallets.asStateFlow()
+    /**
+     * Every identity this device holds a secret for, from both stores -- `seed.dat` and
+     * `nostr-keys.dat` -- keyed by the id the preferences and metadata use.
+     */
+    private val _availableIdentities = MutableStateFlow<Map<WalletId, StoredIdentity>>(emptyMap())
+    val availableIdentities = _availableIdentities.asStateFlow()
 
     private val _desiredWalletId = MutableStateFlow<WalletId?>(null)
     val desiredWalletId = _desiredWalletId.asStateFlow()
@@ -123,7 +133,7 @@ class SovereignWalletViewModel(
 
 
     init {
-        listAvailableWallets(onDone = {})
+        listIdentities(onDone = {})
     }
 
     /** Makes [identity] the one the app runs as. Everything reading [activeIdentity] follows. */
@@ -160,59 +170,93 @@ class SovereignWalletViewModel(
         updateBusinessActiveInUI(walletId)
     }
 
-    fun listAvailableWallets(onDone: () -> Unit) {
+    /**
+     * Reads both stores and publishes the merged list, registering metadata for any id
+     * seen for the first time.
+     *
+     * A failure in either file is surfaced, not skipped: a corrupt `nostr-keys.dat` would
+     * otherwise drop every imported identity from the list without a word, and the seed
+     * file has always been handled this way.
+     */
+    fun listIdentities(onDone: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO + CoroutineExceptionHandler { _, e ->
 //            log.error("error when initialising startup-view: ", e)
             _listWalletState.value = ListWalletState.Error.Generic(e)
         }) {
 
-            when (val result = loadAndDecryptSeed(phoenixGlobal)) {
+            val wallets: Map<WalletId, UserWallet> = when (val result = loadAndDecryptSeed(phoenixGlobal)) {
                 is DecryptSeedResult.Failure.SerializationError -> {
                     log.error {"cannot deserialize seed file: "}
                     _listWalletState.value = ListWalletState.Error.Serialization
+                    return@launch
                 }
                 is DecryptSeedResult.Failure.DecryptionError -> {
                     log.e("cannot decrypt seed file: ", throwable = result.cause)
                     _listWalletState.value = ListWalletState.Error.DecryptionError.GeneralException(result.cause)
+                    return@launch
                 }
                 is DecryptSeedResult.Failure.KeyStoreFailure -> {
                     log.e("key store failure: ", throwable = result.cause)
                     _listWalletState.value = ListWalletState.Error.DecryptionError.KeystoreFailure(result.cause)
+                    return@launch
                 }
                 is DecryptSeedResult.Failure.SeedFileUnreadable -> {
                     log.e("aborting, unreadable seed file")
                     _listWalletState.value = ListWalletState.Error.Generic(null)
+                    return@launch
                 }
                 is DecryptSeedResult.Failure.SeedInvalid -> {
                     log.e("aborting, seed is invalid")
                     _listWalletState.value = ListWalletState.Error.Generic(null)
+                    return@launch
                 }
+                is DecryptSeedResult.Failure.SeedFileNotFound -> emptyMap()
+                is DecryptSeedResult.Success -> result.userWalletsMap
+            }
 
-                is DecryptSeedResult.Failure.SeedFileNotFound -> {
-                    _listWalletState.value = ListWalletState.Success
-                    _availableWallets.value = emptyMap()
+            val nostrKeys: Map<HexKey, PrivateKey> = when (val result = NostrKeyManager.loadAndDecrypt(phoenixGlobal)) {
+                is DecryptNostrKeysResult.Failure.SerializationError -> {
+                    log.e { "cannot deserialize nostr keys file" }
+                    _listWalletState.value = ListWalletState.Error.Serialization
+                    return@launch
                 }
-
-                is DecryptSeedResult.Success -> {
-
-                    val metadataMap = getAvailableWalletsMeta(phoenixGlobal).first()
-                    result.userWalletsMap.forEach { (walletId, _) ->
-                        if (metadataMap[walletId] == null) {
-                            saveAvailableWalletMeta(
-                                phoenixGlobal = phoenixGlobal,
-                                walletId = walletId,
-                                name = null,
-                                avatar = to.curare.compose.ui.composable.widgets.wallet.WalletAvatars.list.random(),
-                                isHidden = false
-                            )
-                        }
-                    }
-                    _availableWallets.value = result.userWalletsMap
-                    _listWalletState.value = ListWalletState.Success
-                    viewModelScope.launch(Dispatchers.Main) {
-                        onDone()
-                    }
+                is DecryptNostrKeysResult.Failure.DecryptionError -> {
+                    log.e("cannot decrypt nostr keys file: ", throwable = result.cause)
+                    _listWalletState.value = ListWalletState.Error.DecryptionError.GeneralException(result.cause)
+                    return@launch
                 }
+                is DecryptNostrKeysResult.Failure.KeyStoreFailure -> {
+                    log.e("key store failure: ", throwable = result.cause)
+                    _listWalletState.value = ListWalletState.Error.DecryptionError.KeystoreFailure(result.cause)
+                    return@launch
+                }
+                is DecryptNostrKeysResult.Failure.FileUnreadable -> {
+                    log.e("aborting, unreadable nostr keys file")
+                    _listWalletState.value = ListWalletState.Error.Generic(null)
+                    return@launch
+                }
+                is DecryptNostrKeysResult.Failure.FileNotFound -> emptyMap()
+                is DecryptNostrKeysResult.Success -> result.keys
+            }
+
+            val identities = StoredIdentity.merge(wallets, nostrKeys)
+
+            val metadataMap = getAvailableWalletsMeta(phoenixGlobal).first()
+            identities.keys.forEach { walletId ->
+                if (metadataMap[walletId] == null) {
+                    saveAvailableWalletMeta(
+                        phoenixGlobal = phoenixGlobal,
+                        walletId = walletId,
+                        name = null,
+                        avatar = to.curare.compose.ui.composable.widgets.wallet.WalletAvatars.list.random(),
+                        isHidden = false
+                    )
+                }
+            }
+            _availableIdentities.value = identities
+            _listWalletState.value = ListWalletState.Success
+            viewModelScope.launch(Dispatchers.Main) {
+                onDone()
             }
         }
     }
@@ -282,10 +326,10 @@ class SovereignWalletViewModel(
         onSeedWriteError: (WritingSeedState.Error) -> Unit = {}
     ) {
         if (writingState is WritingSeedState.Error || writingState is WritingSeedState.WrittenToDisk) {
-            // A previous attempt finished; reset so platformWriteSeed does not silently skip this one.
+            // A previous attempt finished; reset so writeMnemonic does not silently skip this one.
             writingState = WritingSeedState.Init
         }
-        platformWriteSeed(
+        IdentityWriter.writeMnemonic(
             log = log,
             phoenixGlobal = phoenixGlobal,
             globalPrefs = getGlobalPrefs(),
@@ -322,18 +366,3 @@ class SovereignWalletViewModel(
         }
     }
 }
-
-expect fun platformWriteSeed(
-    log: Logger,
-    phoenixGlobal: PhoenixGlobal,
-    globalPrefs: GlobalPrefs,
-    writingState: WritingSeedState,
-    viewModelScope: CoroutineScope,
-    mnemonics: List<String>,
-    onWritingSeedError: (WritingSeedState.Error) -> Unit,
-    onWritingSeedStateWriting: (WritingSeedState.Writing) -> Unit,
-    isRestoringWallet: Boolean,
-    isTorEnabled: Boolean,
-    customElectrumServer: ElectrumConfig.Custom?,
-    onSeedWritten: (WalletId) -> Unit
-)

@@ -502,7 +502,7 @@ fun CurareNavHost(
                                 onSeedWritten()
 
                                 sovereignWalletViewModel.loadSovereignData(walletId)
-                                sovereignWalletViewModel.listAvailableWallets {
+                                sovereignWalletViewModel.listIdentities {
                                     sovereignWalletViewModel.switchToWallet(walletId)
                                     navController.navigate(
                                         route = SovereignWalletStartupRoute

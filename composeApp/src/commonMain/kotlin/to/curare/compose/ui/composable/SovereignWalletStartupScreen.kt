@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import fr.acinq.phoenix.data.ListWalletState
-import fr.acinq.phoenix.data.UserWallet
 import fr.acinq.phoenix.data.WalletId
 import fr.acinq.phoenix.managers.DataStoreManager
 import fr.acinq.phoenix.managers.NodeParamsManager
@@ -26,6 +25,9 @@ import fr.acinq.phoenix.utils.preferences.UserPrefs
 import fr.acinq.phoenix.utils.preferences.UserWalletMetadata
 import fr.acinq.phoenix.utils.preferences.getByWalletIdOrDefault
 import kotlinx.coroutines.flow.first
+import to.curare.compose.identity.Identity
+import to.curare.compose.identity.IdentityKind
+import to.curare.compose.identity.StoredIdentity
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
@@ -74,7 +76,7 @@ fun SovereignWalletStartupScreen(
             is ListWalletState.Success -> {
                 val globalPrefs = sovereignWalletViewModel.getGlobalPrefs()
 
-                val availableWallets by sovereignWalletViewModel.availableWallets.collectAsState()
+                val availableIdentities by sovereignWalletViewModel.availableIdentities.collectAsState()
                 val defaultWallet = globalPrefs.getDefaultWallet.collectAsState(null)
                 val startWalletImmediately by sovereignWalletViewModel.startWalletImmediately.collectAsState()
 
@@ -88,7 +90,7 @@ fun SovereignWalletStartupScreen(
                 val activeIdentity = activeIdentityFlow.value
 
                 when {
-                    availableWallets.isEmpty() -> {
+                    availableIdentities.isEmpty() -> {
                         LaunchedEffect(Unit) { onNavigateToWalletLandingPage.invoke() }
                         LoadingDataIndicator(
                             text = "Initializing..."
@@ -111,29 +113,29 @@ fun SovereignWalletStartupScreen(
                     else -> {
                         when (val startupState = sovereignWalletStartupViewModel.state.value) {
                             is to.curare.compose.ui.view.model.StartupViewState.Init -> {
-                                var loadingWallet by remember {
+                                var loadingIdentity by remember {
                                     mutableStateOf(
                                         when {
-                                            forceWalletId != null -> availableWallets[forceWalletId]
+                                            forceWalletId != null -> availableIdentities[forceWalletId]
                                             !startWalletImmediately -> null
-                                            availableWallets.size == 1 -> availableWallets.entries.firstOrNull()?.value
-                                            desiredWalletId != null -> availableWallets[desiredWalletId]
-                                            startWalletImmediately -> availableWallets[defaultWallet.value]
+                                            availableIdentities.size == 1 -> availableIdentities.entries.firstOrNull()?.value
+                                            desiredWalletId != null -> availableIdentities[desiredWalletId]
+                                            startWalletImmediately -> availableIdentities[defaultWallet.value]
                                             else -> null
                                         }
                                     )
                                 }
-                                when (val wallet = loadingWallet) {
+                                when (val stored = loadingIdentity) {
                                     null -> {
                                         to.curare.compose.ui.composable.widgets.wallet.WalletsSelector(
-                                            wallets = availableWallets,
+                                            wallets = availableIdentities,
                                             globalPrefs = globalPrefs,
                                             walletsMetadata = availableWalletMetadata,
                                             activeWalletId = null,
                                             onWalletClick = {
                                                 sovereignWalletViewModel.switchToWallet(
-                                                    it.walletId
-                                                ); loadingWallet = it
+                                                    it.id
+                                                ); loadingIdentity = it
                                             },
                                             canEdit = false,
                                             modifier = Modifier.padding(horizontal = MaterialTheme.spacing.space300),
@@ -157,26 +159,50 @@ fun SovereignWalletStartupScreen(
                                         )
                                     }
                                     else -> {
-                                        val metadata = remember { availableWalletMetadata.getByWalletIdOrDefault(wallet.walletId) }
+                                        val metadata = remember { availableWalletMetadata.getByWalletIdOrDefault(stored.id) }
                                         val dataStoreManager = DataStoreManager(
                                             ctx = sovereignWalletViewModel.phoenixGlobal.ctx,
                                             chain = NodeParamsManager.chain
                                         )
+                                        // The screen-lock gate wraps both kinds. It only ever needed the
+                                        // id, to read the lock preferences, so it sits outside the branch
+                                        // and a future lock is not something to remember to add twice.
                                         LoadWallet(
-                                            userWallet = wallet,
+                                            identity = stored,
                                             metadata = metadata,
-                                            userPrefs = dataStoreManager.loadUserPrefsForWallet(wallet.walletId),
+                                            userPrefs = dataStoreManager.loadUserPrefsForWallet(stored.id),
                                             promptScreenLockImmediately = startWalletImmediately,
-                                            doLoadWallet = { userWallet ->
-                                                sovereignWalletStartupViewModel.startupNode(walletId = userWallet.walletId, words = userWallet.words, onStartupSuccess = {
-                                                    sovereignWalletViewModel.setActiveWallet(walletId = userWallet.walletId, business = it)
-                                                    onSuccessfulStartup.invoke()
-                                                })
-                                                loadingWallet = null
+                                            doLoadWallet = { identity ->
+                                                when (identity) {
+                                                    is StoredIdentity.Mnemonic -> {
+                                                        sovereignWalletStartupViewModel.startupNode(walletId = identity.id, words = identity.userWallet.words, onStartupSuccess = {
+                                                            sovereignWalletViewModel.setActiveWallet(walletId = identity.id, business = it)
+                                                            onSuccessfulStartup.invoke()
+                                                        })
+                                                    }
+                                                    is StoredIdentity.NostrSecret -> {
+                                                        // No node to start, so no platformStartupLogic, no
+                                                        // schedulePlatformLogic and no StartupViewState: the
+                                                        // identity is active the moment it is read. Setting it
+                                                        // recomposes into the `activeIdentity != null` branch
+                                                        // above, which is what reports the startup.
+                                                        sovereignWalletViewModel.setActiveIdentity(
+                                                            Identity(
+                                                                id = identity.id,
+                                                                kind = IdentityKind.NostrSecret,
+                                                                nostrPrivateKey = identity.privateKey,
+                                                                userPrefs = dataStoreManager.loadUserPrefsForWallet(identity.id),
+                                                                internalPrefs = dataStoreManager.loadInternalPrefsForWallet(identity.id),
+                                                                business = null,
+                                                            )
+                                                        )
+                                                    }
+                                                }
+                                                loadingIdentity = null
                                             },
-                                            // only show back-to-selector button if there's more than one wallet
-                                            goToWalletSelector = availableWallets.takeIf { it.size > 1 }?.let {
-                                                { loadingWallet = null; sovereignWalletViewModel.startWalletImmediately.value = false }
+                                            // only show back-to-selector button if there's more than one identity
+                                            goToWalletSelector = availableIdentities.takeIf { it.size > 1 }?.let {
+                                                { loadingIdentity = null; sovereignWalletViewModel.startWalletImmediately.value = false }
                                             }
                                         )
                                     }
@@ -233,15 +259,15 @@ fun SovereignWalletStartupScreen(
 
 @Composable
 private fun BoxScope.LoadWallet(
-    userWallet: UserWallet,
+    identity: StoredIdentity,
     metadata: UserWalletMetadata,
     userPrefs: UserPrefs,
     promptScreenLockImmediately: Boolean,
-    doLoadWallet: (UserWallet) -> Unit,
+    doLoadWallet: (StoredIdentity) -> Unit,
     goToWalletSelector: (() -> Unit)?
 ) {
 
-    val isScreenLockRequired = produceState<Boolean?>(initialValue = null, key1 = userWallet) {
+    val isScreenLockRequired = produceState<Boolean?>(initialValue = null, key1 = identity) {
         val biometricLockEnabled = userPrefs.getLockBiometricsEnabled.first()
         val customPinLockEnabled = userPrefs.getLockPinEnabled.first()
 
@@ -255,10 +281,10 @@ private fun BoxScope.LoadWallet(
         true -> {
             LoadingDataIndicator(text = "Unlock to continue")
             ScreenLockPrompt(
-                walletId = userWallet.walletId,
+                walletId = identity.id,
                 walletName = metadata.nameOrDefault(),
                 promptScreenLockImmediately = promptScreenLockImmediately,
-                onUnlock = { doLoadWallet(userWallet) },
+                onUnlock = { doLoadWallet(identity) },
                 onLock = { },
                 userPrefs = userPrefs,
                 goToWalletSelector = goToWalletSelector,
@@ -267,7 +293,7 @@ private fun BoxScope.LoadWallet(
         false -> {
             LoadingDataIndicator(text = "Starting wallet...")
             LaunchedEffect(Unit) {
-                doLoadWallet(userWallet)
+                doLoadWallet(identity)
             }
         }
     }
