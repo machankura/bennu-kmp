@@ -29,6 +29,8 @@ SMALL = {'a', 'an', 'the', 'to', 'of', 'for', 'and', 'or', 'via',
 SAMPLE = {
     'Steve Biko', 'John Doe', 'Frank Talk', 'Alan Turing',
     'To Kill a Mockingbird', 'Man With A Plan', 'Woman Of Few Words',
+    # Films, as suggested to a curated list in the queue screen's preview.
+    'The Rise and Rise of Bitcoin', 'Magic Money',
 }
 
 

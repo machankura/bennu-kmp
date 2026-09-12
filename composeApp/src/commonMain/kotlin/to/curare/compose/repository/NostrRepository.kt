@@ -175,6 +175,16 @@ interface NostrRepository {
 
     suspend fun observeNostrFeed(synchronizationFilter: SynchronizationFilter): Flow<List<LocalNostrEvent>>
 
+    /**
+     * Every stored event matching [synchronizationFilter], newest first, for as long as
+     * the caller collects.
+     *
+     * The filter is applied whole -- see `NostrEventFilterQuery` -- where [observeNostrFeed]
+     * recognises a handful of shapes and falls back to text notes for the rest. A reader
+     * that queued the same filter against a relay watches the answer arrive through this.
+     */
+    suspend fun observeNostrEventsMatching(synchronizationFilter: SynchronizationFilter): Flow<List<LocalNostrEvent>>
+
     suspend fun getNegentropicNostrFeedIds(
         synchronizationFilters: Array<SynchronizationFilter>,
         applyLimits: Boolean = true
@@ -382,6 +392,10 @@ interface NostrRepository {
             }
 
             override suspend fun observeNostrFeed(synchronizationFilter: SynchronizationFilter): Flow<List<LocalNostrEvent>> {
+                TODO("Not yet implemented")
+            }
+
+            override suspend fun observeNostrEventsMatching(synchronizationFilter: SynchronizationFilter): Flow<List<LocalNostrEvent>> {
                 TODO("Not yet implemented")
             }
 

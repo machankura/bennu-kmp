@@ -77,6 +77,17 @@ interface NostrEventDao {
         query: RoomRawQuery
     ): List<NostrEvent>
 
+    /**
+     * The same query, watched. Observed tables named explicitly because a raw query cannot
+     * infer them: the events themselves, and the profiles joined onto them, so a row whose
+     * author's kind 0 arrives after the row does re-emits with the name filled in.
+     */
+    @Transaction
+    @RawQuery(observedEntities = [NostrEvent::class, to.curare.compose.database.model.Profile::class])
+    fun  observeNostrEventsMatchingFilter(
+        query: RoomRawQuery
+    ): Flow<List<to.curare.compose.database.model.intermdiate.LocalNostrEvent>>
+
     @Transaction
     @Query("SELECT * FROM NostrEvent WHERE kind in (:kinds) AND createdAt > :since ORDER BY createdAt ASC LIMIT :limit")
     suspend fun  getNostrEvents(

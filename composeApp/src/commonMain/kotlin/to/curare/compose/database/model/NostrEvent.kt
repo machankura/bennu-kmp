@@ -478,6 +478,17 @@ data class NostrEvent(
         }
     }
 
+    /** The row as the event it was stored from, for readers written against the wire shape. */
+    fun toEvent(): Event = Event(
+        id = id,
+        pubKey = pubKey,
+        createdAt = createdAt.epochSeconds,
+        kind = kind,
+        tags = tags,
+        content = content,
+        sig = sig,
+    )
+
     fun toTextNoteEvent(): TextNoteEvent {
         return TextNoteEvent(
             id = id,

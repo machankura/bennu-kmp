@@ -570,6 +570,21 @@
     <string name="content_must_be_text">Content must be text.</string>
     <string name="the_content_is_not_a_profile">The content isn't a profile. A kind 0 carries a JSON object of profile fields.</string>
     <string name="this_schema_cannot_be_signed_as_it_is">This schema can't be signed as it is:</string>
+    <string name="view_suggestions">View suggestions</string>
+    <string name="suggestions">Suggestions</string>
+    <string name="everything_anyone_has_suggested_to_this_list">Everything anyone has suggested to this list, newest first. Only the group can take one up into the list.</string>
+    <string name="one_suggestion">1 suggestion</string>
+    <string name="n_suggestions">%1$s suggestions</string>
+    <string name="n_curated">%1$s curated</string>
+    <string name="read_from_relays">Read from %1$s</string>
+    <string name="asking_the_list_s_relays">Asking the list's relays…</string>
+    <string name="nobody_has_suggested_anything_to_this_list_yet">Nobody has suggested anything to this list yet.</string>
+    <string name="ask_again">Ask again</string>
+    <string name="curated">Curated</string>
+    <string name="suggested_by_on">Suggested by %1$s on %2$s</string>
+    <string name="taken_up_by_the_group_into_the_list">Taken up by the group into the list.</string>
+    <string name="copy_the_suggestion">Copy the suggestion</string>
+    <string name="copied_the_suggestion">Copied the suggestion</string>
     <!-- Sign in: docs/nsec-sign-in.md, phase 4. -->
     <string name="a_password_protected_key_ncryptsec_is_not">A password-protected key (ncryptsec) is not supported yet. Decrypt it in the app it came from and paste the nsec.</string>
     <string name="an_npub_is_a_public_key_curare_needs_the">An npub is a public key. Curare needs the secret key, the nsec, to sign as you.</string>

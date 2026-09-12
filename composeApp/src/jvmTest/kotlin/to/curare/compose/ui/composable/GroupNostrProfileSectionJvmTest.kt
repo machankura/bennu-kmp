@@ -250,7 +250,36 @@ class GroupNostrProfileSectionJvmTest {
             onNodeWithText("Films worth translating").assertIsDisplayed()
             onNodeWithText("Add schema").assertDoesNotExist()
             onNodeWithContentDescription("Edit schema").assertDoesNotExist()
+
+            // The queue is the one thing in the block the group did not write,
+            // and reading it takes no share of the key.
+            onNodeWithText("View suggestions").assertIsDisplayed()
         }
+
+    @Test
+    fun `every schema offers its own queue, under its own card`() = render(
+        state(
+            groupNostrProfile = profile,
+            schemas = listOf(
+                schema("films", "Films worth translating", 1_700_000_900),
+                schema("books", "Books worth translating", 1_700_000_000)
+            )
+        )
+    ) {
+        // One per list, because each list has its own queue -- and under the
+        // card it belongs to rather than once for the section, since a button
+        // between two cards would say nothing about which it opened.
+        val buttons = onAllNodesWithText("View suggestions")
+        buttons.assertCountEquals(2)
+
+        val films = onNodeWithText("Films worth translating").getBoundsInRoot()
+        val books = onNodeWithText("Books worth translating").getBoundsInRoot()
+        val first = buttons[0].getBoundsInRoot()
+        val second = buttons[1].getBoundsInRoot()
+
+        assertTrue(films.top < first.top && first.top < books.top, "the first queue button is not under its card")
+        assertTrue(books.top < second.top, "the second queue button is not under its card")
+    }
 
     @Test
     fun `a member holding a share of the key may propose any event the block can show`() = render(
