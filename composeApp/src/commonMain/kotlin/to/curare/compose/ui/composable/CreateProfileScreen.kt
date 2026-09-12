@@ -16,7 +16,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +33,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import to.curare.compose.repository.MarmotRepository
+import to.curare.compose.identity.NewProfileWriter
+import fr.acinq.phoenix.data.WalletId
 import to.curare.compose.ui.theme.LocalExtendedColors
 import to.curare.compose.ui.view.model.CreateProfileViewModel
 import to.curare.compose.ui.view.state.CreateProfileUIState
@@ -43,7 +44,6 @@ import org.jetbrains.compose.resources.stringResource
 import curare.composeapp.generated.resources.after_this_there_is_no_turning_back
 import curare.composeapp.generated.resources.bio
 import curare.composeapp.generated.resources.create_profile
-import curare.composeapp.generated.resources.end_this
 import curare.composeapp.generated.resources.enter_the_name_you_want_to_use_for_your_2
 import curare.composeapp.generated.resources.introduce_yourself
 import curare.composeapp.generated.resources.it_is_cryptographical_secure_and
@@ -70,11 +70,13 @@ import to.curare.compose.ui.theme.ConformancePreviews
 @Composable
 fun CreateProfileScreen(
     initialCreateProfileUIState: CreateProfileUIState = CreateProfileUIState.Declaration,
-    onNavigateToEndThis: () -> Unit,
     onNavigateBack: () -> Unit,
     nostrRepository: to.curare.compose.repository.NostrRepository,
     marmotRepository: MarmotRepository,
-    writeSeed: (mnemonics: List<String>, onSeedWritten: () -> Unit, onSeedWriteError: () -> Unit) -> Unit
+    /** Which secret the profile is made of -- a seed from Landing, a bare key from the switcher. The screen does not know which. */
+    newProfile: NewProfileWriter,
+    /** The nav host's tail: re-list, select, go to startup. */
+    onProfileCreated: (WalletId) -> Unit,
 ) {
     val createProfileViewModel: CreateProfileViewModel =  viewModel (
         factory = CreateProfileViewModel.factory(
@@ -309,7 +311,7 @@ fun CreateProfileScreen(
                         } else {
                             Button(
                                 onClick = {
-                                    createProfileViewModel.createAccount(writeSeed)
+                                    createProfileViewModel.createAccount(newProfile, onProfileCreated)
                                 }
                             ) {
                                 Text(
@@ -333,11 +335,16 @@ fun CreateProfileScreen(
                         )
                     }
                     is CreateProfileUIState.ProfileReady -> {
-                        // Both pills come from the extended families rather than from a
-                        // literal paired with Color.White/Color.DarkGray by eye. The old
-                        // pairings read 4.57:1 and 2.90:1 against their containers, and
-                        // RedPill carried alpha 0.749, so composited over the surface the
-                        // first was really 3.50:1. Both are below the 4.5:1 floor.
+                        // The pill comes from the extended family rather than from a
+                        // literal paired with Color.White by eye: the old pairing read
+                        // 4.57:1 against its container, and with alpha 0.749 composited
+                        // over the surface was really 3.50:1, below the 4.5:1 floor.
+                        //
+                        // The blue pill that stood beside it -- "end this" -- is gone. It
+                        // wiped the database: every profile's rooms, MLS state, key
+                        // packages and queues, from a screen whose purpose is to add a
+                        // profile. It was only ever a development exit, and with several
+                        // profiles on a device it was a way to lose the others.
                         val extendedColors = LocalExtendedColors.current
 
                         Spacer(
@@ -359,32 +366,11 @@ fun CreateProfileScreen(
                                 contentColor = extendedColors.redPill.onColor
                             ),
                             onClick = {
-                                createProfileViewModel.createAccount(writeSeed)
+                                createProfileViewModel.createAccount(newProfile, onProfileCreated)
                             }
                         ) {
                             Text(
                                 text = stringResource(Res.string.see_how_deep_the_rabbit_hole_goes)
-                            )
-                        }
-
-                        HorizontalDivider(
-                            modifier = Modifier.padding(MaterialTheme.spacing.space250)
-                        )
-
-                        Button(
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = extendedColors.bluePill.color,
-                                contentColor = extendedColors.bluePill.onColor
-                            ),
-                            onClick = {
-                                // TODO: Delete everything and close the app
-                                createProfileViewModel.wipeDatabase {
-                                    onNavigateToEndThis.invoke()
-                                }
-                            }
-                        ) {
-                            Text(
-                                text = stringResource(Res.string.end_this)
                             )
                         }
                         Spacer(
@@ -441,9 +427,9 @@ fun CreateAccountScreenPreview() {
 //                            about = "Polyglot: Math... is my middle name, computer scientist. cryptographer, and gold hider."
 //                        )
 //                    ),
-                onNavigateToEndThis = {},
                 onNavigateBack = {},
-                writeSeed = { _, _, _ -> },
+                newProfile = NewProfileWriter { Result.failure(IllegalStateException("a preview")) },
+                onProfileCreated = {},
                 nostrRepository = to.curare.compose.repository.NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 marmotRepository = MarmotRepository.NO_OP_MARMOT_KEY_PACKAGE_BUNDLE
             )

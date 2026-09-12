@@ -1,6 +1,5 @@
 package to.curare.compose.identity
 
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.room3.Room
 import co.touchlab.kermit.Logger
 import fr.acinq.bitcoin.PrivateKey
@@ -11,11 +10,10 @@ import fr.acinq.phoenix.data.WalletId
 import fr.acinq.phoenix.jvm.BusinessManager
 import fr.acinq.phoenix.managers.DataStoreManager
 import fr.acinq.phoenix.managers.NodeParamsManager
-import fr.acinq.phoenix.managers.computePreferencePath
 import fr.acinq.phoenix.managers.nostrPublicKeyHex
 import fr.acinq.phoenix.security.JvmKeyStore
 import fr.acinq.phoenix.utils.PlatformContext
-import fr.acinq.phoenix.utils.preferences.GlobalPrefs
+import to.curare.compose.extensions.getGlobalPrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -72,7 +70,6 @@ class IdentitySwitchJvmTest {
     private lateinit var storeDir: File
     private lateinit var appDir: File
     private lateinit var phoenixGlobal: PhoenixGlobal
-    private lateinit var globalPrefs: GlobalPrefs
 
     private val db: CurareDatabase = getRoomDatabase(Room.inMemoryDatabaseBuilder<CurareDatabase>())
     private val scope = CoroutineScope(Job() + Dispatchers.IO)
@@ -92,12 +89,10 @@ class IdentitySwitchJvmTest {
         appDir = Files.createTempDirectory("curare-switch-app").toFile()
         JvmKeyStore.lock()
         JvmKeyStore.unlock("correct horse battery staple".toCharArray(), storeDir)
+        // No GlobalPrefs of the test's own -- see AddProfileFromInsideJvmTest.setUp: the
+        // process-wide cache and a second instance over the same file is what DataStore
+        // refuses, and which of the two this class gets depends on the order of the run.
         phoenixGlobal = PhoenixGlobal(PlatformContext(applicationDir = appDir))
-        globalPrefs = GlobalPrefs(
-            PreferenceDataStoreFactory.createWithPath {
-                computePreferencePath(phoenixGlobal.ctx, "globalprefs.preferences_pb")
-            }
-        )
     }
 
     @AfterTest
@@ -111,7 +106,7 @@ class IdentitySwitchJvmTest {
 
     private suspend fun signIn(key: PrivateKey): WalletId {
         val written = assertIs<IdentityWriter.WriteNostrCredentialResult.Written>(
-            IdentityWriter.writeNostrKey(log, phoenixGlobal, globalPrefs, key, isTorEnabled = false, customElectrumServer = null)
+            IdentityWriter.writeNostrKey(log, phoenixGlobal, getGlobalPrefs(phoenixGlobal), key, isTorEnabled = false, customElectrumServer = null)
         )
         nostrRepository.signInToProfile(key.nostrPublicKeyHex())
         return written.id

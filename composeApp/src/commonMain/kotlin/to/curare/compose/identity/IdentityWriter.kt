@@ -55,12 +55,11 @@ import to.curare.compose.ui.view.model.WritingSeedState
  */
 object IdentityWriter {
 
-    /** What the seed store says, or null if it could not be read. */
-    private fun seedPublicKeys(phoenixGlobal: PhoenixGlobal): Set<HexKey>? =
+    /** Each seed's nostr public key and the wallet id it is filed under, or null if the store could not be read. */
+    private fun seedWalletIds(phoenixGlobal: PhoenixGlobal): Map<HexKey, WalletId>? =
         SeedManager.loadAndDecryptOrNull(phoenixGlobal)
             ?.values
-            ?.map { StoredIdentity.nostrPublicKeyOf(it.words) }
-            ?.toSet()
+            ?.associate { StoredIdentity.nostrPublicKeyOf(it.words) to it.walletId }
 
     /**
      * Creates the preference files a new id needs and records the choices made before
@@ -137,10 +136,12 @@ object IdentityWriter {
                 existingSeeds.containsKey(newWalletId) -> {
                     // The same seed, and so the same nostr key with a wallet already attached.
                     // Two different seeds cannot derive one nostr key, so this is the only
-                    // way a profile with a wallet attached is offered its phrase again.
+                    // way a profile with a wallet attached is offered its phrase again. The
+                    // id goes with the refusal: from inside the app, "already here" has an
+                    // obvious next step, which is to switch to it.
                     log.i("attempting to import a seed that already exists, aborting...")
                     onWritingSeedError.invoke(
-                        WritingSeedState.Error.SeedAlreadyExists
+                        WritingSeedState.Error.SeedAlreadyExists(newWalletId)
                     )
                     return@launch
                 }
@@ -205,8 +206,10 @@ object IdentityWriter {
         /**
          * An identity with this nostr public key is already on the device and holds at least
          * what was pasted: a wallet or a secret, for either input; a public key, for an npub.
+         * [id] is the one it is listed under -- the wallet's where a seed derives the key --
+         * so that the refusal can offer to switch to it.
          */
-        data object AlreadyExists : WriteNostrCredentialResult()
+        data class AlreadyExists(val id: WalletId) : WriteNostrCredentialResult()
 
         /** One of the two stores exists and could not be read; nothing was written. */
         data object CannotLoadKeys : WriteNostrCredentialResult()
@@ -233,15 +236,19 @@ object IdentityWriter {
         log.d("writing nostr key to disk...")
         val stored = StoredIdentity.nostrSecret(privateKey)
 
-        val seeds = seedPublicKeys(phoenixGlobal)
+        val seeds = seedWalletIds(phoenixGlobal)
         val existing = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal)
         if (seeds == null || existing == null) {
             log.e("could not load the existing keys, aborting...")
             return WriteNostrCredentialResult.CannotLoadKeys
         }
-        if (stored.nostrPublicKey in seeds || existing[stored.nostrPublicKey] is NostrCredential.Secret) {
+        seeds[stored.nostrPublicKey]?.let { walletId ->
+            log.i("attempting to import the nostr key of a wallet that is already here, aborting...")
+            return WriteNostrCredentialResult.AlreadyExists(walletId)
+        }
+        if (existing[stored.nostrPublicKey] is NostrCredential.Secret) {
             log.i("attempting to import a nostr key that is already here, aborting...")
-            return WriteNostrCredentialResult.AlreadyExists
+            return WriteNostrCredentialResult.AlreadyExists(stored.id)
         }
         val upgrading = existing[stored.nostrPublicKey] is NostrCredential.Public
 
@@ -277,15 +284,19 @@ object IdentityWriter {
         log.d("writing nostr public key to disk...")
         val stored = StoredIdentity.nostrPublic(nostrPublicKey)
 
-        val seeds = seedPublicKeys(phoenixGlobal)
+        val seeds = seedWalletIds(phoenixGlobal)
         val existing = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal)
         if (seeds == null || existing == null) {
             log.e("could not load the existing keys, aborting...")
             return WriteNostrCredentialResult.CannotLoadKeys
         }
-        if (stored.nostrPublicKey in seeds || existing.containsKey(stored.nostrPublicKey)) {
+        seeds[stored.nostrPublicKey]?.let { walletId ->
+            log.i("attempting to add the public key of a wallet that is already here, aborting...")
+            return WriteNostrCredentialResult.AlreadyExists(walletId)
+        }
+        if (existing.containsKey(stored.nostrPublicKey)) {
             log.i("attempting to add a public key the device already holds something for, aborting...")
-            return WriteNostrCredentialResult.AlreadyExists
+            return WriteNostrCredentialResult.AlreadyExists(stored.id)
         }
 
         NostrCredentialManager.writeToDisk(
@@ -327,13 +338,13 @@ object IdentityWriter {
         id: WalletId,
         nostrPublicKey: HexKey,
     ): ForgetNostrCredentialResult {
-        val seeds = seedPublicKeys(phoenixGlobal)
+        val seeds = seedWalletIds(phoenixGlobal)
         val existing = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal)
         if (seeds == null || existing == null) {
             log.e("could not load the existing keys, aborting...")
             return ForgetNostrCredentialResult.CannotLoadKeys
         }
-        if (nostrPublicKey in seeds) {
+        if (seeds.containsKey(nostrPublicKey)) {
             log.i("asked to forget a key a seed derives; the wallet has to go first")
             return ForgetNostrCredentialResult.WalletAttached
         }

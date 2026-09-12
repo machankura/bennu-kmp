@@ -86,6 +86,7 @@ class ProfilesScreenJvmTest {
     }
 
     private val switched = mutableListOf<WalletId>()
+    private val taps = mutableListOf<String>()
 
     private fun viewModel(listState: ListWalletState = ListWalletState.Success) = ProfilesViewModel(
         listWalletState = MutableStateFlow(listState),
@@ -104,6 +105,8 @@ class ProfilesScreenJvmTest {
                     onNavigateBack = {},
                     onSwitch = { switched += it },
                     onRetry = onRetry,
+                    onSignIn = { taps += "sign in" },
+                    onCreateProfile = { taps += "create" },
                 )
             }
         }
@@ -155,6 +158,20 @@ class ProfilesScreenJvmTest {
         }
         onNodeWithText("Try again", useUnmergedTree = true).performClick()
         assertEquals(1, retried)
+    }
+
+    /** The two ways to add a profile, under the list, each pushing its own screen. */
+    @Test
+    fun `under the list are the two ways to add a profile, and the one that is open stays`() = runDesktopComposeUiTest(400, 900) {
+        setContent { Screen(viewModel()) }
+        awaitLoaded()
+
+        onNodeWithText("The profile you are in stays on this device.", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithText("Sign in with a key", useUnmergedTree = true).performClick()
+        onNodeWithText("Create a new profile", useUnmergedTree = true).performClick()
+
+        assertEquals(listOf("sign in", "create"), taps)
+        assertEquals(emptyList(), switched, "adding is not switching")
     }
 
     @Test

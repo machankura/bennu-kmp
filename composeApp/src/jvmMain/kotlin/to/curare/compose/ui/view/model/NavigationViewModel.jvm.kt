@@ -8,15 +8,14 @@
 
 package to.curare.compose.ui.view.model
 
-import fr.acinq.bitcoin.Chain
 import fr.acinq.phoenix.PhoenixGlobal
 import fr.acinq.phoenix.data.DecryptSeedResult
 import fr.acinq.phoenix.data.WalletId
 import fr.acinq.phoenix.jvm.BusinessManager
-import fr.acinq.phoenix.managers.DataStoreManager
 import fr.acinq.phoenix.managers.SeedManager
 import fr.acinq.phoenix.utils.preferences.UserWalletMetadata
 import kotlinx.coroutines.flow.Flow
+import to.curare.compose.extensions.JvmGlobalPrefs
 
 
 actual fun updateBusinessActiveInUI(walletId: WalletId) {
@@ -34,20 +33,14 @@ actual fun loadAndDecryptSeed(phoenixGlobal: PhoenixGlobal): DecryptSeedResult {
 }
 
 actual fun getAvailableWalletsMeta(phoenixGlobal: PhoenixGlobal): Flow<Map<WalletId, UserWalletMetadata>> {
-    return DataStoreManager(
-        phoenixGlobal.ctx,
-        chain = Chain.Mainnet
-    ).loadGlobalPrefsForWallet().getAvailableWalletsMeta
+    return JvmGlobalPrefs.of(phoenixGlobal).getAvailableWalletsMeta
 }
 
 actual suspend fun saveAvailableWalletMeta(
     phoenixGlobal: PhoenixGlobal,
     metadata: UserWalletMetadata
 ) {
-    DataStoreManager(
-        phoenixGlobal.ctx,
-        chain = Chain.Mainnet
-    ).loadGlobalPrefsForWallet().saveAvailableWalletMeta(metadata)
+    JvmGlobalPrefs.of(phoenixGlobal).saveAvailableWalletMeta(metadata)
 }
 
 actual suspend fun saveAvailableWalletMeta(
@@ -57,10 +50,7 @@ actual suspend fun saveAvailableWalletMeta(
     avatar: String,
     isHidden: Boolean
 ) {
-    DataStoreManager(
-        phoenixGlobal.ctx,
-        chain = Chain.Mainnet
-    ).loadGlobalPrefsForWallet().saveAvailableWalletMeta(
+    JvmGlobalPrefs.of(phoenixGlobal).saveAvailableWalletMeta(
         walletId = walletId,
         name = name,
         avatar = avatar,

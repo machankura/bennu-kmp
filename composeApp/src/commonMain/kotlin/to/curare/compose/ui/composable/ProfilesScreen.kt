@@ -23,6 +23,7 @@ import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.wallet.AddProfileRows
 import to.curare.compose.ui.composable.widgets.wallet.WalletsSelector
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.spacing
@@ -49,8 +50,9 @@ fun ProfilesScreen(
     onSwitch: (WalletId) -> Unit,
     /** Re-lists. An unreadable key file is exactly the failure a retry can answer. */
     onRetry: () -> Unit,
-    /** The two ways to add a profile, drawn under the list; Phase 5 fills the slot. */
-    addProfile: (@Composable () -> Unit)? = null,
+    /** The two ways to add a profile, under the list. Both push a screen with a back button. */
+    onSignIn: () -> Unit,
+    onCreateProfile: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -83,7 +85,9 @@ fun ProfilesScreen(
                         canEdit = false,
                         onWalletClick = { onSwitch(it.id) },
                         profiles = state.profiles,
-                        bottomContent = addProfile,
+                        bottomContent = {
+                            AddProfileRows(onSignIn = onSignIn, onCreateProfile = onCreateProfile, caption = true)
+                        },
                     )
                 }
             }

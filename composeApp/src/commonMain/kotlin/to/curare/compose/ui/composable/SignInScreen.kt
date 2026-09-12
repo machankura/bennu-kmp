@@ -48,6 +48,7 @@ import curare.composeapp.generated.resources.recognised_as_a_recovery_phrase_it_
 import curare.composeapp.generated.resources.recovery_phrase_nsec_or_npub
 import curare.composeapp.generated.resources.sign_in
 import curare.composeapp.generated.resources.signed_in
+import curare.composeapp.generated.resources.switch_to_it
 import curare.composeapp.generated.resources.signing_you_in
 import curare.composeapp.generated.resources.that_is_not_a_recovery_phrase_or_a_nostr_key
 import curare.composeapp.generated.resources.that_nostr_secret_key_is_not_valid
@@ -102,6 +103,11 @@ fun SignInToProfileScreen(
         onError: (WritingSeedState.Error) -> Unit,
     ) -> Unit,
     onNavigateBack: () -> Unit,
+    /**
+     * The tail: re-list, select, go to startup. Also what "switch to it" does when the key
+     * pasted is already here -- the same tail with the id it is here under, which makes a
+     * duplicate paste the fastest switch in the app.
+     */
     onSignedIn: (WalletId) -> Unit,
 ) {
     val viewModel: SignInToProfileViewModel = viewModel(
@@ -151,10 +157,21 @@ fun SignInToProfileScreen(
                     text = stringResource(Res.string.signing_you_in)
                 )
 
-                is SignInToProfileUIState.Error -> ErrorState(
-                    message = problemMessage(state.problem),
-                    onRetry = { viewModel.retry() },
-                )
+                is SignInToProfileUIState.Error -> Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ErrorState(
+                        message = problemMessage(state.problem),
+                        onRetry = { viewModel.retry() },
+                    )
+                    // "Already on this device" is a sentence with an obvious next step.
+                    state.alreadyHere?.let { id ->
+                        TextButton(onClick = { onSignedIn(id) }) {
+                            Text(stringResource(Res.string.switch_to_it))
+                        }
+                    }
+                }
             }
         }
     }

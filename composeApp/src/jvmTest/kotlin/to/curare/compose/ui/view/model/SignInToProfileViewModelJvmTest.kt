@@ -29,6 +29,9 @@ class SignInToProfileViewModelJvmTest {
     private val words = "leader monkey parrot ring guide accident before fence cannon height naive bean".split(" ")
     private val id = WalletId("ab".repeat(20))
 
+    /** The id a key already on the device is listed under, which the refusal carries so the screen can offer to switch to it. */
+    private val alreadyHere = WalletId("cd".repeat(20))
+
     private val nostrSecret = SignInCredential.NostrSecret(privateKey, publicKey)
     private val recoveryPhrase = SignInCredential.RecoveryPhrase(words, publicKey)
     private val nostrPublicKey = SignInCredential.NostrPublicKey(publicKey)
@@ -67,9 +70,9 @@ class SignInToProfileViewModelJvmTest {
     fun `the npub of a key already here is refused, and no account is planted`() = runBlocking {
         val recorder = Recorder()
 
-        val outcome = viewModel(recorder, publicKeyOutcome = { IdentityWriter.WriteNostrCredentialResult.AlreadyExists }).commit(nostrPublicKey)
+        val outcome = viewModel(recorder, publicKeyOutcome = { IdentityWriter.WriteNostrCredentialResult.AlreadyExists(alreadyHere) }).commit(nostrPublicKey)
 
-        assertEquals(SignInToProfileViewModel.Outcome.Failed(CredentialProblem.AlreadyOnThisDevice), outcome)
+        assertEquals(SignInToProfileViewModel.Outcome.Failed(CredentialProblem.AlreadyOnThisDevice, alreadyHere), outcome)
         assertEquals(listOf("writeNostrPublicKey"), recorder.effects)
     }
 
@@ -97,9 +100,9 @@ class SignInToProfileViewModelJvmTest {
     fun `a key already on the device is refused, and no account is planted`() = runBlocking {
         val recorder = Recorder()
 
-        val outcome = viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrCredentialResult.AlreadyExists }).commit(nostrSecret)
+        val outcome = viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrCredentialResult.AlreadyExists(alreadyHere) }).commit(nostrSecret)
 
-        assertEquals(SignInToProfileViewModel.Outcome.Failed(CredentialProblem.AlreadyOnThisDevice), outcome)
+        assertEquals(SignInToProfileViewModel.Outcome.Failed(CredentialProblem.AlreadyOnThisDevice, alreadyHere), outcome)
         assertEquals(listOf("writeNostrKey"), recorder.effects)
     }
 
@@ -107,10 +110,10 @@ class SignInToProfileViewModelJvmTest {
     fun `a seed already on the device is the same refusal`() = runBlocking {
         val recorder = Recorder()
 
-        val outcome = viewModel(recorder, seedOutcome = { _, onError -> onError(WritingSeedState.Error.SeedAlreadyExists) })
+        val outcome = viewModel(recorder, seedOutcome = { _, onError -> onError(WritingSeedState.Error.SeedAlreadyExists(alreadyHere)) })
             .commit(recoveryPhrase)
 
-        assertEquals(SignInToProfileViewModel.Outcome.Failed(CredentialProblem.AlreadyOnThisDevice), outcome)
+        assertEquals(SignInToProfileViewModel.Outcome.Failed(CredentialProblem.AlreadyOnThisDevice, alreadyHere), outcome)
         assertEquals(listOf("writeRecoveryPhrase"), recorder.effects)
     }
 

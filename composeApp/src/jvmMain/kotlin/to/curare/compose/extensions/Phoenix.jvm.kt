@@ -1,11 +1,9 @@
 package to.curare.compose.extensions
 
 import co.touchlab.kermit.Logger
-import fr.acinq.bitcoin.Chain
 import fr.acinq.phoenix.PhoenixGlobal
 import fr.acinq.phoenix.data.StartBusinessResult
 import fr.acinq.phoenix.jvm.BusinessManager
-import fr.acinq.phoenix.managers.DataStoreManager
 import fr.acinq.phoenix.utils.preferences.GlobalPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -44,9 +42,9 @@ actual fun schedulePlatformLogic(phoenixGlobal: PhoenixGlobal) {
 }
 
 actual fun getShowIntroFlow(phoenixGlobal: PhoenixGlobal): Flow<Boolean> {
-    return DataStoreManager(phoenixGlobal.ctx, Chain.Mainnet).loadGlobalPrefsForWallet().getShowIntro
+    return JvmGlobalPrefs.of(phoenixGlobal).getShowIntro
 }
 
 actual fun getGlobalPrefs(phoenixGlobal: PhoenixGlobal): GlobalPrefs {
-    return DataStoreManager(phoenixGlobal.ctx, Chain.Mainnet).loadGlobalPrefsForWallet()
+    return JvmGlobalPrefs.of(phoenixGlobal)
 }

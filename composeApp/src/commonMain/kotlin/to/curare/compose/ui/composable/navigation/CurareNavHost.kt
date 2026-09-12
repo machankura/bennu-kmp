@@ -102,6 +102,8 @@ import to.curare.compose.ui.composable.navigation.routes.RecoveryPhraseRoute
 import to.curare.compose.ui.composable.ProfilesScreen
 import to.curare.compose.ui.view.model.ProfilesViewModel
 import to.curare.compose.ui.view.model.getAvailableWalletsMeta
+import to.curare.compose.ui.view.model.bareKeyProfileWriter
+import to.curare.compose.ui.view.model.seedProfileWriter
 import to.curare.compose.ui.composable.navigation.routes.SearchMemberToAddToChatRoomRoute
 import to.curare.compose.ui.composable.navigation.routes.SearchResultRoute
 import to.curare.compose.ui.composable.navigation.routes.SearchRoute
@@ -499,6 +501,12 @@ fun CurareNavHost(
                             navigationViewModel.loadNostrProfile(route)
                         }
                     },
+                    onNavigateToSignIn = {
+                        navController.navigate(route = SignInRoute)
+                    },
+                    onNavigateToCreateProfile = {
+                        navController.navigate(route = CreateProfileRoute(withWallet = false))
+                    },
                     forceWalletId = null,
                 )
             }
@@ -523,47 +531,41 @@ fun CurareNavHost(
                             route = SignInRoute
                         )
                     },
+                    // The first profile on a device is the one the wallet will belong to.
                     onNavigateToCreateProfile = {
                         navController.navigate(
-                            route = CreateProfileRoute()
+                            route = CreateProfileRoute(withWallet = true)
                         )
                     }
                 )
             }
-            composable<CreateProfileRoute> {
+            composable<CreateProfileRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<CreateProfileRoute>()
                 CreateProfileScreen(
-                    onNavigateToEndThis = {
-                        navController.navigate(
-                            route = BlankRoute
-                        ) {
-                            popUpTo(0)
-                        }
-                    },
                     onNavigateBack = {
                         navController.popBackStack()
                     },
                     nostrRepository = databaseNostrRepository,
                     marmotRepository = databaseMarmotRepository,
-                    writeSeed = { words, onSeedWritten, onSeedWriteError ->
-                        sovereignWalletViewModel.writeSeed(
-                            words,
-                            isRestoringWallet = false,
-                            onSeedWritten = { walletId ->
-                                onSeedWritten()
-
-                                sovereignWalletViewModel.loadSovereignData(walletId)
-                                sovereignWalletViewModel.listIdentities {
-                                    sovereignWalletViewModel.switchToIdentity(walletId)
-                                    navController.navigate(
-                                        route = SovereignWalletStartupRoute
-                                    )
-                                }
-                            },
-                            onSeedWriteError = { onSeedWriteError() }
-                        )
-                    }
+                    // A seed from Landing, a bare key from inside: the screen does not know
+                    // which. See docs/multiple-profiles.md, Phase 5.
+                    newProfile = if (route.withWallet) sovereignWalletViewModel.seedProfileWriter() else sovereignWalletViewModel.bareKeyProfileWriter(),
+                    // The sign-in tail, with the popUpTo(0) it always had there: back from the
+                    // new profile's startup must not return to a form whose secret is already
+                    // on disk. The account rows are in the database before this runs, so the
+                    // machine finds them the moment the identity is activated.
+                    onProfileCreated = { walletId ->
+                        sovereignWalletViewModel.loadSovereignData(walletId)
+                        sovereignWalletViewModel.listIdentities {
+                            sovereignWalletViewModel.switchToIdentity(walletId)
+                            navController.navigate(
+                                route = SovereignWalletStartupRoute
+                            ) {
+                                popUpTo(0)
+                            }
+                        }
+                    },
                 )
-
             }
             composable<ChatRoomCreationRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<ChatRoomCreationRoute>()
@@ -940,6 +942,12 @@ fun CurareNavHost(
                     },
                     onRetry = {
                         sovereignWalletViewModel.listIdentities {}
+                    },
+                    onSignIn = {
+                        navController.navigate(route = SignInRoute)
+                    },
+                    onCreateProfile = {
+                        navController.navigate(route = CreateProfileRoute(withWallet = false))
                     },
                 )
             }

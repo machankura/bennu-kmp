@@ -166,7 +166,7 @@ class IdentityWriterJvmTest {
         assertEquals(mapOf(stored.nostrPublicKey to NostrCredential.Secret(first)), credentials())
         assertTrue(FileSystem.SYSTEM.exists(userPrefsFile(stored)), "the preferences file the recovery screens read")
 
-        assertIs<IdentityWriter.WriteNostrCredentialResult.AlreadyExists>(write(first))
+        assertEquals(stored.id, assertIs<IdentityWriter.WriteNostrCredentialResult.AlreadyExists>(write(first)).id)
     }
 
     @Test
@@ -267,8 +267,9 @@ class IdentityWriterJvmTest {
         assertEquals(setOf(phrase.walletId), seeds()?.keys)
         assertTrue(FileSystem.SYSTEM.exists(computePreferencePath(phoenixGlobal.ctx, "userprefs_${id.nodeIdHash}.preferences_pb")))
 
-        assertIs<IdentityWriter.WriteNostrCredentialResult.AlreadyExists>(write(phrase.nostrKey))
-        assertIs<IdentityWriter.WriteNostrCredentialResult.AlreadyExists>(writePublic(phrase.nostrKey))
+        // Refused with the wallet's id, not the bare key's: the id the profile is listed under.
+        assertEquals(phrase.walletId, assertIs<IdentityWriter.WriteNostrCredentialResult.AlreadyExists>(write(phrase.nostrKey)).id)
+        assertEquals(phrase.walletId, assertIs<IdentityWriter.WriteNostrCredentialResult.AlreadyExists>(writePublic(phrase.nostrKey)).id)
         assertIs<IdentityWriter.ForgetNostrCredentialResult.WalletAttached>(
             IdentityWriter.forgetNostrCredential(log, phoenixGlobal, id, phrase.nostrPublicKey)
         )

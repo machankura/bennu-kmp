@@ -1,5 +1,6 @@
 package to.curare.compose.ui.view.state
 
+import fr.acinq.phoenix.data.WalletId
 import to.curare.compose.identity.CredentialProblem
 import to.curare.compose.identity.SignInCredential
 
@@ -23,5 +24,10 @@ sealed interface SignInToProfileUIState {
     /** Writing the secret and planting the account. */
     data object Committing : SignInToProfileUIState
 
-    data class Error(val problem: CredentialProblem) : SignInToProfileUIState
+    /**
+     * @param alreadyHere for [CredentialProblem.AlreadyOnThisDevice], the id the key is
+     *   listed under: "already on this device" is a sentence with an obvious next step,
+     *   and from inside the app the screen offers it.
+     */
+    data class Error(val problem: CredentialProblem, val alreadyHere: WalletId? = null) : SignInToProfileUIState
 }

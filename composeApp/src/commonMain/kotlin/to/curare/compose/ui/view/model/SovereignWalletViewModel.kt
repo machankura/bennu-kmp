@@ -52,7 +52,8 @@ sealed class WritingSeedState {
     sealed class Error : WritingSeedState() {
         data class Generic(val cause: Throwable) : Error()
         data object CannotLoadSeedMap: Error()
-        data object SeedAlreadyExists: Error()
+        /** [id] is the wallet's, so that a refusal from inside the app can offer to switch to it. */
+        data class SeedAlreadyExists(val id: WalletId): Error()
     }
 }
 

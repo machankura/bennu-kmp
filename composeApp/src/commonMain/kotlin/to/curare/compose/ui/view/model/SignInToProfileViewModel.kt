@@ -104,13 +104,15 @@ class SignInToProfileViewModel(
     /** The outcome of [commit], for the screen to act on and the tests to assert. */
     sealed interface Outcome {
         data class SignedIn(val id: WalletId) : Outcome
-        data class Failed(val problem: CredentialProblem) : Outcome
+
+        /** @param alreadyHere for [CredentialProblem.AlreadyOnThisDevice], the id the key is listed under. */
+        data class Failed(val problem: CredentialProblem, val alreadyHere: WalletId? = null) : Outcome
     }
 
     private suspend fun write(what: String, writer: suspend () -> IdentityWriter.WriteNostrCredentialResult): Outcome = try {
         when (val result = writer()) {
             is IdentityWriter.WriteNostrCredentialResult.Written -> Outcome.SignedIn(result.id)
-            is IdentityWriter.WriteNostrCredentialResult.AlreadyExists -> Outcome.Failed(CredentialProblem.AlreadyOnThisDevice)
+            is IdentityWriter.WriteNostrCredentialResult.AlreadyExists -> Outcome.Failed(CredentialProblem.AlreadyOnThisDevice, alreadyHere = result.id)
             is IdentityWriter.WriteNostrCredentialResult.CannotLoadKeys -> Outcome.Failed(CredentialProblem.CouldNotWrite)
         }
     } catch (e: CancellationException) {
@@ -141,13 +143,11 @@ class SignInToProfileViewModel(
                     { id -> outcome.complete(Outcome.SignedIn(id)) },
                     { error ->
                         outcome.complete(
-                            Outcome.Failed(
-                                when (error) {
-                                    is WritingSeedState.Error.SeedAlreadyExists -> CredentialProblem.AlreadyOnThisDevice
-                                    is WritingSeedState.Error.CannotLoadSeedMap,
-                                    is WritingSeedState.Error.Generic -> CredentialProblem.CouldNotWrite
-                                }
-                            )
+                            when (error) {
+                                is WritingSeedState.Error.SeedAlreadyExists -> Outcome.Failed(CredentialProblem.AlreadyOnThisDevice, alreadyHere = error.id)
+                                is WritingSeedState.Error.CannotLoadSeedMap,
+                                is WritingSeedState.Error.Generic -> Outcome.Failed(CredentialProblem.CouldNotWrite)
+                            }
                         )
                     },
                 )
@@ -170,7 +170,7 @@ class SignInToProfileViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             when (val outcome = commit(credential)) {
                 is Outcome.SignedIn -> withContext(Dispatchers.Main) { onSignedIn(outcome.id) }
-                is Outcome.Failed -> uiState.value = SignInToProfileUIState.Error(outcome.problem)
+                is Outcome.Failed -> uiState.value = SignInToProfileUIState.Error(outcome.problem, outcome.alreadyHere)
             }
         }
     }

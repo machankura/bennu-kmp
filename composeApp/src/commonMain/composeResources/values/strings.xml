@@ -85,7 +85,6 @@
     <string name="eg_st">eg. st</string>
     <string name="eg_to_kill_a_mocking_bird">eg. To Kill a Mocking Bird</string>
     <string name="emergency_kit">Emergency kit</string>
-    <string name="end_this">end this</string>
     <string name="ended">ENDED</string>
     <string name="encrypt_and_back_your_recovery_information">Encrypt and back your recovery information up to your Google Drive or iCloud.</string>
     <string name="enter_the_name_you_want_to_use_for_your">Enter the name you want to use for your group</string>
@@ -714,4 +713,9 @@
     <string name="loading_profiles">Loading profiles…</string>
     <string name="switch_profile">Switch profile</string>
     <string name="wallet">Wallet</string>
+    <!-- Adding a profile from inside: the two rows under the list, and the duplicate that switches. -->
+    <string name="create_a_new_profile">Create a new profile</string>
+    <string name="sign_in_with_a_key">Sign in with a key</string>
+    <string name="switch_to_it">Switch to it</string>
+    <string name="the_profile_you_are_in_stays_on_this_device">The profile you are in stays on this device.</string>
 </resources>

@@ -12,20 +12,13 @@ import to.curare.compose.repository.NostrRepository
 import to.curare.compose.ui.view.state.CreateProfileUIState
 import to.curare.compose.ui.view.state.form.CreateProfileFormState
 import co.touchlab.kermit.Logger
-import fr.acinq.bitcoin.MnemonicCode
-import fr.acinq.bitcoin.byteVector
-import fr.acinq.lightning.Lightning
-import fr.acinq.lightning.crypto.LocalKeyManager
-import fr.acinq.phoenix.managers.NodeParamsManager
-import fr.acinq.phoenix.managers.nsecPassword
-import fr.acinq.phoenix.utils.MnemonicLanguage
+import fr.acinq.phoenix.data.WalletId
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import to.curare.compose.extensions.nostrPublicKey
-import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.withContext
+import to.curare.compose.identity.NewProfileWriter
 
 class CreateProfileViewModel(
     val initialCreateProfileUIState: CreateProfileUIState,
@@ -78,19 +71,24 @@ class CreateProfileViewModel(
     }
 
 
-    private fun failProfileCreation(e: Throwable? = null) {
-        if (e != null) {
-            logger.e("error when creating new profile: ", e)
-        } else {
-            logger.e { "seed write failed, aborting profile creation" }
-        }
+    private fun failProfileCreation(e: Throwable) {
+        logger.e("error when creating new profile: ", e)
         createProfileUIState.value = CreateProfileUIState.Error
         isActionPending.value = false
     }
 
-    fun createAccount(
-        writeSeed: (mnemonics: List<String>, onSeedWritten: () -> Unit, onSeedWriteError: () -> Unit) -> Unit
-    ) {
+    /**
+     * Makes the profile: the secret through [newProfile], then the six bootstrap events
+     * for the key it derives, then [onProfileCreated] with the id, on the main thread.
+     *
+     * The secret is written first, so that the events are only ever queued for a key the
+     * device holds and the notary can sign; and the events are in the database before the
+     * caller's tail activates the identity, so that the navigation machine finds the
+     * account the moment it looks -- an ordering the sign-in screen documents as
+     * load-bearing and the create flow used to get away with by luck. Which secret is made
+     * -- a seed, or a bare key -- is the writer's business; see [NewProfileWriter].
+     */
+    fun createAccount(newProfile: NewProfileWriter, onProfileCreated: (WalletId) -> Unit) {
         logger.d { "createAccount" }
         if (isActionPending.value) return
         isActionPending.value = true
@@ -98,52 +96,21 @@ class CreateProfileViewModel(
         viewModelScope.launch(Dispatchers.IO + CoroutineExceptionHandler { _, e ->
             failProfileCreation(e)
         }) {
-            logger.d("generating new wallet...")
-            val entropy = Lightning.randomBytes(16)
-            val mnemonics = MnemonicCode.toMnemonics(
-                entropy = entropy,
-                wordlist = MnemonicLanguage.English.wordlist()
+            val written = newProfile.write().getOrElse { e ->
+                failProfileCreation(e)
+                return@launch
+            }
+            logger.d("Pubkey: ${written.nostrPublicKey}")
+
+            nostrRepository.createNewProfile(
+                written.nostrPublicKey,
+                name = createProfileFormState.nameField.textFieldState.text.toString(),
+                biography = createProfileFormState.biographyField.textFieldState.text.toString(),
+                onCompletion = {
+                    logger.d("Created: ${written.nostrPublicKey}")
+                }
             )
-
-            val localKeyManager = LocalKeyManager(
-                seed = MnemonicCode.toSeed(mnemonics, "").byteVector(),
-                chain = NodeParamsManager.chain,
-                remoteSwapInExtendedPublicKey = NodeParamsManager.remoteSwapInXpub
-            )
-
-            val pubkey = localKeyManager.nostrPublicKey()
-
-            logger.d("Pubkey: $pubkey" )
-
-            // Only create the profile events once the seed backing this pubkey is safely
-            // on disk; otherwise the notary could never sign them.
-            writeSeed(
-                mnemonics,
-                {
-                    viewModelScope.launch(Dispatchers.IO + CoroutineExceptionHandler { _, e ->
-                        failProfileCreation(e)
-                    }) {
-                        nostrRepository.createNewProfile(
-                            pubkey,
-                            name = createProfileFormState.nameField.textFieldState.text.toString(),
-                            biography = createProfileFormState.biographyField.textFieldState.text.toString(),
-                            onCompletion = {
-                                logger.d("Created: $pubkey" )
-                            }
-                        )
-                    }
-                },
-                { failProfileCreation() }
-            )
-        }
-    }
-
-    fun wipeDatabase(
-        onNavigateToEndThis: () -> Unit
-    ) {
-        viewModelScope.launch {
-            nostrRepository.wipeDatabase()
-            onNavigateToEndThis.invoke()
+            withContext(Dispatchers.Main) { onProfileCreated(written.id) }
         }
     }
 }
