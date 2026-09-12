@@ -10,10 +10,11 @@ most of what follows is that plan's out-of-scope note taken at its word — "a
 read-only mode is a product, not a branch" — and asked what the product would be.
 
 **Not built.** Phases 1–8 below, one commit each, in the order given. Phase 1 is a
-type change and ships alone. Phases 2 through 5 ship together, for the reason in
-[Phase 8](#phase-8--rollout): a build that can make a read-only identity but still
-offers it "New chat" is the failure this plan exists to avoid. Nothing here touches
-the library.
+type change and ships alone. Phase 2 is the only phase that touches the library,
+and it rides the push and tag the nsec plan's library commit still owes. Phases 3 through 5 ship
+together, for the reason in [Phase 8](#phase-8--rollout): a build that can make a
+read-only identity but still offers it "New chat" is the failure this plan exists
+to avoid.
 
 ## The constraint
 
@@ -62,7 +63,7 @@ of it on the way.
 | `Identity.business` is nullable; a read-only identity is `NostrSecret` minus the secret | [Identity.kt](../composeApp/src/commonMain/kotlin/to/curare/compose/identity/Identity.kt) | one field from it |
 | the forget flow — key out, prefs deleted, metadata hidden, account rows gone, re-list, selector | `NostrSecretViewModel.forgetKey`, `IdentityWriter.forgetNostrKey` | built for an nsec; the sequence transfers whole |
 | `WalletsSelector` shows the npub for every kind | [WalletsSelector.kt:161](../composeApp/src/commonMain/kotlin/to/curare/compose/ui/composable/widgets/wallet/WalletsSelector.kt) | needs a "read only" label |
-| `SeedManager.getDatadir` and `AtomicFileWrite.writeVerified` are public library API | `fr.acinq.phoenix` | the app can keep a third file beside the two without a library change |
+| `nostr-keys.dat`, with a version byte and a doc that says "a new shape would be a new version" | `EncryptedNostrKeys`, `NostrKeyManager`, `AtomicFileWrite` | the envelope, the atomic write and the manager shape all carry over; only the entries change |
 | a string, `this_will_give_you_read_only_access_to_the` | `strings.xml` | present, unused, and says too little |
 
 ## What actually blocks it
@@ -76,9 +77,9 @@ Five things, in dependency order.
 
 **There is nowhere to keep a public key.** Both stores hold secrets. `nostr-keys.dat`
 is a map from public key to private key, and `EncryptedNostrKeys` refuses a file
-whose entry does not derive the key it is filed under — which is the right rule for
-that file and rules out a sentinel (see the
-[appendix](#a-sentinel-entry-in-nostr-keysdat)).
+whose entry does not derive the key it is filed under — the right rule for that
+shape, which is why the answer is a new shape rather than a value smuggled into
+this one ([Phase 2](#phase-2--one-credentials-file)).
 
 **The pumps are gated on the private key.** `SynchronizationViewModel` runs its
 four collectors inside `identity?.nostrPrivateKey?.let { … }`
@@ -228,59 +229,102 @@ whole reason the field is a constructor parameter.
 
 ---
 
-## Phase 2 — the list of public keys
+## Phase 2 — one credentials file
 
-**App. Needs Phase 1.** A third file beside the two, and the writer that keeps it.
+**Library, then app. The library half needs nothing above it; the app half needs
+Phase 1.** The only phase that touches the library, and the one place this plan
+changes one of the nsec plan's stores rather than adding to them.
 
-### A plain file, on purpose
+### The file that was written expecting this
 
-`nostr-public-keys.json`, in the directory `SeedManager.getDatadir(phoenixGlobal.ctx)`
-returns — the same durable, app-private location as `seed.dat` and
-`nostr-keys.dat`, for the same reason: a cache directory is purged under storage
-pressure, and an identity that vanishes on a low-storage day is a support ticket.
+`EncryptedNostrKeys`'s own doc says it: "this file has one shape, and a new shape
+would be a new version." A read-only credential is the new shape. Rather than a
+second file beside `nostr-keys.dat` holding public keys in the clear — the design
+this plan first had, and rejected for the reason in the
+[appendix](#a-plaintext-sibling-file-for-public-keys) — the file becomes what its
+name should have been: **`nostr-credentials.dat`**, one entry per nostr public key,
+each entry saying what the device holds for it.
 
 ```json
-{ "version": 1, "publicKeys": ["<x-only pubkey hex>", "…"] }
-```
-
-Not encrypted, because there is nothing to protect: a public key is public, and
-the nsec plan's [rejection of plaintext](./nsec-sign-in.md#plaintext-in-datastore)
-was about a key that signs as the user. Written through `AtomicFileWrite.writeVerified`
-all the same — not because a truncated list is a catastrophe, but because the
-discipline costs one call and the alternative is a second way of writing a file in
-a directory that has one.
-
-**In the app, not the library.** `nostr-keys.dat` went into the library because it
-needed the keystore's `expect`/`actual`s. This file needs a directory and an atomic
-write, and both are public API. Keeping it out of the library is not a small
-thing: the nsec plan's Phase 8 begins with "library first — tag it, since JitPack
-consumers resolve by tag", and this plan's does not have to.
-
-**Not in `GlobalPrefs`** — for the same reason (`GlobalPrefs` is a library class,
-and its preference keys are `private`) and one more: `DataStoreManager` caches preferences per id for
-the life of the process, which `IdentityWriterJvmTest` already has to work
-around. A file is read when it is read.
-
-```kotlin
-package to.curare.compose.identity
-
-object NostrPublicKeyStore {
-    sealed interface ReadResult {
-        data class Success(val publicKeys: Set<HexKey>) : ReadResult
-        data object FileNotFound : ReadResult
-        data object FileUnreadable : ReadResult
-        data object SerializationError : ReadResult
-    }
-    fun read(phoenixGlobal: PhoenixGlobal): ReadResult
-    fun readOrNull(phoenixGlobal: PhoenixGlobal): Set<HexKey>?   // empty set when absent, null on failure
-    fun write(phoenixGlobal: PhoenixGlobal, publicKeys: Set<HexKey>)
+{
+  "<x-only pubkey hex>": { "type": "secret", "privateKey": "<private key hex>" },
+  "<x-only pubkey hex>": { "type": "public" }
 }
 ```
 
-Three failures rather than `NostrKeyManager`'s five, because there is no key store
-in the path. `read` validates each entry as sixty-four hex characters and drops —
-with a log line — any that is not, rather than refusing the file: a corrupt entry
-in a list of public keys costs one identity, and a refused file costs all of them.
+Same envelope — version byte, sixteen-byte iv, ciphertext of UTF-8 JSON under
+`KeyStoreNames.KEY_NO_AUTH` — same atomic write through `AtomicFileWrite`, same
+manager shape. The JSON is a `Map<String, NostrCredential>` with `NostrCredential`
+a `@Serializable sealed class` and `type` its class discriminator — kotlinx's
+standard sealed polymorphism, `Json { classDiscriminator = "type" }`, which the
+library does not use elsewhere (its cloud payloads pick a variant by a version
+field) and which is chosen here because the two variants have different fields and
+the map then decodes in one call with no hand-written dispatch.
+
+```kotlin
+package fr.acinq.phoenix.security
+
+@Serializable
+sealed class NostrCredential {
+    @Serializable @SerialName("secret") data class Secret(val privateKey: PrivateKey) : NostrCredential()
+    @Serializable @SerialName("public") data object Public : NostrCredential()
+}
+
+class EncryptedNostrCredentials(val iv: ByteArray, val ciphertext: ByteArray) {
+    fun decryptAndGetCredentials(): Map<String, NostrCredential>
+    fun serialize(): ByteArray
+    companion object {
+        const val VERSION: Byte = 1
+        fun deserialize(bytes: ByteArray): EncryptedNostrCredentials
+        fun encrypt(credentials: Map<String, NostrCredential>): EncryptedNostrCredentials
+    }
+}
+```
+
+The read keeps the check that makes the file trustworthy and adds its counterpart:
+a `secret` entry must derive the public key it is filed under, as today, and a
+`public` entry's map key must be sixty-four hex characters naming a point on the
+curve. Either failure is `SerializationError`, because either can only be
+corruption.
+
+Encrypting a public key protects nothing and costs nothing. What it buys is one
+read path with one failure classification, and — a small thing, but real — the
+list of profiles a user has looked at is a browsing record, and it is at rest
+under the same key as everything else about them.
+
+### Why the file is renamed rather than versioned in place
+
+A version byte of 2 in `nostr-keys.dat` would be the natural move and it is the
+wrong one. An older build's reader throws on an unknown version, `NostrKeyManager`
+classifies that as `SerializationError`, and `listIdentities` **returns** on that
+result before it publishes anything
+([SovereignWalletViewModel.kt:218](../composeApp/src/commonMain/kotlin/to/curare/compose/ui/view/model/SovereignWalletViewModel.kt)):
+the old build would list no identities at all, seed wallets included. That is the
+`seed.dat` failure the nsec plan's appendix rejected a version-4 payload for. A
+file the old build does not look for cannot do that to it.
+
+So: `nostr-credentials.dat`, version 1 of a new file, and the old reader kept as
+`LegacyNostrKeysFile` for exactly one caller.
+
+### Migration
+
+`NostrCredentialManager.migrateFromNostrKeys(phoenixGlobal)`: if
+`nostr-credentials.dat` is absent and `nostr-keys.dat` exists, read the old file,
+convert every entry to `Secret`, write the new file through the verified atomic
+write, and **delete the old one**. Called once from `listIdentities`, which runs
+from `SovereignWalletViewModel.init` before anything else touches either file, so
+a read stays a read and the migration is a named step with a test of its own.
+
+Delete, rather than leave a frozen copy for an older build to find. A copy goes
+stale in the one direction that matters: a key the user asks the new build to
+*forget* would survive in a file only the old build reads, and come back on a
+downgrade. Losing sight of every nsec identity on a downgrade until the next
+upgrade is the lesser failure, and [Phase 8](#phase-8--rollout) says so out loud.
+
+As far as the repository can show, the migration will run for nobody: the library
+commit that introduced `nostr-keys.dat` carries no tag and the app has none. It
+exists because the repository cannot prove a negative, and because it is thirty
+lines.
 
 ### Listing
 
@@ -296,59 +340,69 @@ sealed interface StoredIdentity {
 }
 ```
 
-`StoredIdentity.merge` takes a third argument and applies one rule: **a secret wins
-over a public key**. A pubkey present in `nostr-keys.dat` or derived from a seed
-and also in the list is listed once, as the signing kind, and the list entry is
-logged as stale. It cannot happen after the writers below have run to completion,
-and it can happen if the process dies between their two writes; the merge is where
-the two files are reconciled, and the next write repairs the list.
+`StoredIdentity.merge(wallets, credentials)` keeps its two inputs; a `Secret` is a
+`NostrSecret` and a `Public` a `NostrPublic`. One entry per pubkey is the file's
+own invariant, so there is no precedence between credentials to decide. There is
+one between a seed and a credential, and it exists for the one upgrade that has to
+span two files (below): a `Public` whose pubkey a seed derives is dropped, with a
+log line, and the next write repairs the file.
 
 ### The writers
 
 ```kotlin
 object IdentityWriter {
     …
-    suspend fun writeNostrPublicKey(log, phoenixGlobal, globalPrefs, publicKey: HexKey, isTorEnabled, customElectrumServer): WriteNostrPublicKeyResult
-    suspend fun forgetNostrPublicKey(log, phoenixGlobal, id: WalletId, publicKey: HexKey): ForgetNostrPublicKeyResult
+    suspend fun writeNostrPublicKey(log, phoenixGlobal, globalPrefs, publicKey: HexKey, isTorEnabled, customElectrumServer): WriteNostrCredentialResult
+    suspend fun forgetNostrCredential(log, phoenixGlobal, id: WalletId, publicKey: HexKey): ForgetNostrCredentialResult
 }
 ```
 
-Same shape as `writeNostrKey` and `forgetNostrKey`: load, refuse a duplicate **by
-public key across all three stores**, write, `prepareIdentity`. The Tor and
-Electrum preferences mean even less to a read-only identity than to an nsec one;
-they are saved for the reason the nsec plan gave — `loadUserPrefsForWallet` is what
-creates the file.
+`writeNostrKey` stays and writes a `Secret`; `writeNostrPublicKey` writes a
+`Public`; both refuse a duplicate by public key against the seeds *and* the
+credentials, and both `prepareIdentity` — the Tor and Electrum preferences mean
+even less to a read-only identity than to an nsec one, and are saved for the
+reason the nsec plan gave. `forgetNostrKey` becomes `forgetNostrCredential` and
+removes an entry of either kind; its `NotABareKey` becomes `NotACredential`, which
+still means a mnemonic.
 
 ### The upgrade rule
 
-`writeNostrKey` refuses a key whose public key is already known. That check learns
-one distinction:
+`writeNostrKey`'s duplicate check learns one distinction:
 
 | the pubkey is already here as | pasting its nsec | pasting its npub |
 |---|---|---|
 | a wallet (seed) | `AlreadyExists` | `AlreadyExists` |
-| an nsec | `AlreadyExists` | `AlreadyExists` |
-| a public key | **upgrade**: write the key, then remove the list entry, `Written(id)` with the id unchanged | `AlreadyExists` |
+| a `secret` credential | `AlreadyExists` | `AlreadyExists` |
+| a `public` credential | **upgrade**: the entry becomes `secret`, in one write; `Written(id)` with the id unchanged | `AlreadyExists` |
 
-`writeMnemonic` gets the same upgrade for a seed whose nostr key is in the list —
-remove the entry; the wallet's id is `hash160(nodeId)` and its preferences are
-fresh, which is what a new wallet gets today.
+One write, because it is one file. There is no window in which the device holds
+both or neither, and nothing to reconcile afterwards — which is the whole reason
+this phase is a library change and not a second file.
 
-**The order of the two writes is not a style choice.** Key first, then the list. A
-crash between them leaves the pubkey in both files, which `merge` resolves in
-favour of the secret; the reverse order would leave it in neither, which is an
-identity gone.
+The one upgrade that still spans two files is a *recovery phrase* pasted over a
+public credential: the seed goes to `seed.dat`, and that file cannot hold anything
+else. `writeMnemonic` removes the `public` entry **first**, then writes the seed.
+A crash between the two loses the read-only identity — recoverable by pasting the
+npub again — rather than leaving one pubkey listed twice under two ids, which is
+what the reverse order would do and what the merge rule above is there to catch
+if it somehow happens anyway. The wallet's id is `hash160(nodeId)` and its
+preferences are fresh, as a new wallet's are today.
 
 ### Tests
 
-`StoredIdentityJvmTest` gains: three stores land in one map, each under its own
-id; a pubkey in the list and in `nostr-keys.dat` is listed once as `NostrSecret`.
+In the library, after the two that exist: `EncryptedNostrCredentialsTest` in
+`commonTest`, the layout as literal bytes with one entry of each kind, because the
+format is a compatibility contract from the moment it exists; and, in `jvmTest`, a
+round trip through the key store, plus the migration — a v1 `nostr-keys.dat`
+written by `LegacyNostrKeysFile`'s test fixture, read back as `Secret` entries in
+`nostr-credentials.dat`, the old file gone.
+
+In the app: `StoredIdentityJvmTest` gains a `Public` credential listed as
+`NostrPublic`, and a `Public` whose pubkey a seed derives dropped.
 `IdentityWriterJvmTest` gains: a public key is written once and refused the second
-time; its nsec is then accepted, under the same id, and the list no longer holds
-it; the npub of an nsec already here is refused; forgetting a public key leaves the
-others and takes its preferences. A layout test for the JSON — the version field
-and one entry, as literal bytes — sits beside them, because the file is a
-compatibility contract from the moment it exists.
+time; its nsec is then accepted, under the same id, and the entry is now `secret`;
+the npub of an nsec already here is refused; forgetting a credential of either kind
+leaves the others and takes its preferences.
 
 ---
 
@@ -358,9 +412,9 @@ compatibility contract from the moment it exists.
 
 ### Listing and starting
 
-`SovereignWalletViewModel.listIdentities` reads the third store after the second,
-with `ReadResult.FileNotFound` as the empty set and the other two failures surfaced
-as `ListWalletState.Error`, the way the other two files are handled
+`SovereignWalletViewModel.listIdentities` runs the migration, then reads
+`nostr-credentials.dat` where it read `nostr-keys.dat`, with the same five results
+handled the same way; the change is the type of the map it hands to `merge`
 ([SovereignWalletViewModel.kt:242](../composeApp/src/commonMain/kotlin/to/curare/compose/ui/view/model/SovereignWalletViewModel.kt)).
 
 `SovereignWalletStartupScreen` gains its third branch, beside the nsec one
@@ -466,7 +520,7 @@ is stored, its `GiftWrapMessage` row is stored, no seal is stored, and nothing
 throws — `NostrNip17DaoJvmTest` has the fixtures for building the wrap. The
 listing itself is covered where the nsec plan ended up covering it: `merge`, in
 `StoredIdentityJvmTest` (Phase 2), and the round trip in Phase 7, which lists
-through the view model against a real directory. The nsec plan asked for a
+through the view model against a real directory and a real key store. The nsec plan asked for a
 `SovereignWalletViewModel` listing test of its own and the build did not write
 one; this plan does not pretend to.
 
@@ -691,10 +745,10 @@ out of the file, preferences deleted, metadata hidden, account rows gone, then t
 caller re-lists and clears the active identity — and the order is documented on the
 function: a failure partway leaves the key on disk rather than an identity the
 selector lists but nothing can open. The sequence is the same for a read-only
-identity with the first step swapped. Lift it into a `ForgetIdentity` helper that
-takes the identity and dispatches the first step on its kind, returning
-`NotABareKey` for a mnemonic one, and have `NostrSecretViewModel` call it. The diff
-will show whether that is one function or two.
+identity, and since Phase 2 the first step is the same call — `forgetNostrCredential`
+removes an entry of either kind. Lift the sequence into a `ForgetIdentity` helper
+that takes the identity, returns `NotACredential` for a mnemonic one, and is
+called by `NostrSecretViewModel` and the two exits below alike.
 
 `ActiveProfileScreen`'s *sign out* then does, for a read-only identity only, what
 its colour has been promising: a confirmation dialog naming the npub —
@@ -745,40 +799,46 @@ for the pubkey is the placeholder, still at `GENESIS_AT`; no key package bundle
 row; no broadcast request; `identity.business == null`; `identity.canSign` false.
 
 **The upgrade.** From the state above, write the nsec of the same pubkey through
-`writeNostrKey`: `Written` with the same id; `nostr-keys.dat` holds the key and the
-list does not; `signInToProfile` planted nothing new, and the account routes to
-`ProfileLoaded` as before. Re-list: one identity, `NostrSecret`, same id, same
-metadata.
+`writeNostrKey`: `Written` with the same id; the credentials file holds one entry
+for the pubkey and it is `secret`; `signInToProfile` planted nothing new, and the
+account routes to `ProfileLoaded` as before. Re-list: one identity, `NostrSecret`,
+same id, same metadata.
 
 ---
 
 ## Phase 8 — rollout
 
-**No library change.** Every file this plan touches is in `composeApp`, so there is
-no submodule pointer to bump and no tag to cut. That is the one place this rollout
-is simpler than the nsec plan's, and it is because Phase 2 chose the app.
+**Library first, and on the tag the nsec work still owes.** Phase 2 is a commit
+on the submodule, reaching the app as a pointer bump in the Phase 3 commit. The
+library commit that introduced `nostr-keys.dat` is untagged and sits on a remote
+branch called `detached`; the nsec plan says it has to be pushed and tagged before
+any of that work leaves the machine, and Phase 2 goes out on the same tag, so that
+no JitPack consumer ever sees the v1 file without the reader that migrates it.
 
 **Phase 1 ships alone.** A type change with two `require`s and one exhaustive
 `when`; if the release after it behaves differently, the cause is in one diff.
 
-**Phases 2 through 5 ship together.** A build with the store but not the screen is
-harmless; a build with the screen but not the store strands the user at
+**Phases 3 through 5 ship together.** A build with the file but not the screen is
+harmless; a build with the screen but not the file strands the user at
 "Initializing…"; and a build with both but not Phase 5 is the thing this plan is
 for — an identity that looks signed in and offers "New chat". Phase 6 can follow
 by a release: without it a read-only identity has no sign out and no not-found
 exit, which is a dead end but not a lie.
 
-**Old builds and the new file.** A build without Phase 3 does not read
-`nostr-public-keys.json` and does not know it exists. A downgrade loses sight of a
-read-only identity and nothing else; `seed.dat` and `nostr-keys.dat` are untouched
-throughout.
+**Old builds and the new file.** A build before Phase 3 does not read
+`nostr-credentials.dat` and does not know it exists. If it also predates the nsec
+work it is unaffected in every way. If it is a build *with* `nostr-keys.dat` and
+the migration has run on this device, that file is gone and the build lists no
+nsec identities until the next upgrade — the failure Phase 2 chose over a
+forgotten key coming back, and the one line of this rollout worth a release note.
+`seed.dat` is untouched throughout.
 
 ## Estimate
 
 | phase | work | days | blocked by |
 |---|---|---|---|
 | 1 | a key the identity may not have | 0.5–1 | — |
-| 2 | the list, its writers, the upgrade rule | 1 | 1 |
+| 2 | the credentials file, migration, the writers, the upgrade rule (library + app) | 1.5 | 1 |
 | 3 | listing, starting, the pumps, the DAO guard | 1 | 2 |
 | 4 | the sign-in screen; an idempotent sign-in | 0.5–1 | 3 |
 | 5 | the capability, the inventory, the Messages tab | 1 | 1 to compile, 3 to see |
@@ -819,15 +879,33 @@ added to both.
 
 ## Appendix — what was considered and rejected
 
-### A sentinel entry in `nostr-keys.dat`
+### A plaintext sibling file for public keys
 
-An empty-string value, or a zero key, under the pubkey. One file, one store, one
-`merge`. Rejected because the file's contract is the reason it is trustworthy:
+This plan's first design: `nostr-public-keys.json` beside the two `.dat` files,
+unencrypted because a public key is public, written through the same atomic
+helper, and app-side — no library change, no tag. It was rejected in review, and
+rightly. The upgrade became two writes across two files with a crash window
+between them and a "secret wins" rule in `merge` to repair the window; forget
+became two paths; and the advantage that paid for all of that was worth less than
+it looked, because the library commit that introduced `nostr-keys.dat` is itself
+untagged, so a credentials format rides the tag that work already owes. One file,
+one entry per pubkey, one write.
+
+### A sentinel entry in the version-1 format
+
+An empty-string value, or a zero key, under the pubkey, in `nostr-keys.dat` as it
+is. Rejected because the file's contract is the reason it is trustworthy:
 `EncryptedNostrKeys` refuses an entry whose key does not derive its pubkey, and a
-sentinel is exactly such an entry. A second version byte for a file that exists to
-hold secrets, so that it can hold a non-secret, is the wrong direction; and it
-would be a library change, with the tag and the JitPack consumers that come with
-one.
+sentinel is exactly such an entry. A typed credential is what a sentinel is trying
+to be, and the file's doc had already reserved a version for it.
+
+### Bumping the version in place
+
+Version byte 2 in `nostr-keys.dat`, with the typed entries. Rejected in
+[Phase 2](#why-the-file-is-renamed-rather-than-versioned-in-place): an older
+build's `listIdentities` returns on `SerializationError` before it publishes
+anything, so the old build would list no identities at all, seed wallets included.
+A new file name is invisible to a build that does not know it.
 
 ### A fake private key
 
@@ -866,5 +944,5 @@ be read. The pumps that run are the ones with something to do.
 `ReadOnlyIdentity(publicKey)`, listed by the repository. Rejected because the
 startup listing is built from the key stores by a view model that has no
 repository, and because the nsec plan's listing test exists to catch two stores
-disagreeing about what an id is; a third store in a different layer, read at a
-different time, is a third opinion.
+disagreeing about what an id is; a store in a different layer, read at a different
+time, is a second opinion where the credentials file is meant to be the only one.
