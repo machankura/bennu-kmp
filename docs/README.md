@@ -36,7 +36,7 @@ once it has a key, and what it can say about a group that does not yet.
 The Material Design note is a phased plan that has not been built, and is the
 only one about what the app looks like rather than what it does; read the
 jvm-target note first if you want to know why its adaptive-layout phase exists.
-The nsec sign-in note is a phased plan that has not been built; it inherits the
+The nsec sign-in note is a phased plan that has been built; it inherits the
 key-storage decision from the jvm-target note and drives the navigation state
 machine `NavigationViewModel.processLocalAccount` implements, so read it with the
-code open.
+code open, and read its table of where the build chose differently first.

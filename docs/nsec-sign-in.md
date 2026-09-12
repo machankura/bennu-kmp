@@ -9,10 +9,35 @@ inherits, and with `NavigationViewModel.processLocalAccount` open for the state
 machine it drives — the machine is already built, and half of this plan is about
 finding its unreachable entrance.
 
-**Not built.** Phases 1–8 below, one commit each, in the order given. Phases 1 and
-2 are independent and can go in parallel; nothing after Phase 3 can start before
-it, because Phase 3 is where the compiler first checks both halves against each
-other.
+**Built**, phases 1–7, one commit each, in the order given; Phase 8 is the rollout
+and is process rather than code. The phases are kept as written because they are
+the reasoning, and the code reads better against the argument it came from than
+against a summary of itself. Where the implementation chose differently the
+table below says so, and it did so in ways worth reading before touching any of
+it:
+
+| what the plan said | what it turned out to be |
+|---|---|
+| `WalletManagerExtension.nostrPublicKey()` "can go with" the ten sites | it stays: `CreateProfileViewModel` derives a fresh key's pubkey with it. Wrong by one caller |
+| pull the failure classification into `TechnicalExtensions.kt` | its own file, `DecryptionFailure.kt`. `androidMain` has a `TechnicalExtensions.kt` in the same package, and a common file of that name may hold only `expect`s — anything with a body is a second `TechnicalExtensionsKt` facade the android target refuses. The `graceful*Seed*` actuals were left as they were |
+| "lift the write into a helper both managers call" | `AtomicFileWrite.writeVerified`, and `SeedManager.writeSeedToDir` now goes through it with its original check and exception type |
+| the nsec branch of startup "reports the startup" itself | it only sets the identity; the existing `activeIdentity != null` branch reports it. The mnemonic path reports twice (once from `onStartupSuccess`, once from that branch); the nsec path does not repeat the mistake |
+| read `loadNostrProfile(startupRoute)` by the active identity | done, with a fallback to the first account when there is no identity — which is how `NavigationRoutingTest` constructs it, and never how production reaches it |
+| input problems "through `ErrorState`" | on the field, as supporting text, while the prompt is still showing. `ErrorState` is for what happens *after* confirming — the key was already here, the write failed — where there is no field to put the message under |
+| `SignInToProfileUIState.Confirm(kind, npub, hexKey)` | `Confirm(credential)`, with the `SignInCredential` carrying the pubkey; the two writers are injected as functions so `commit` is a suspend function with a result, testable without a key store |
+| the not-found exit as a route | a state of the *screen*: `UnsyncedProfileViewModel.decide` over the account, with `NavigationUIState` unchanged. A `processed` request — an event came back, just not a kind 0 — counts as finished; the plan's test sketch said the opposite and was wrong |
+| "set one up" opens `CreateProfileScreen` | an inline form on the not-found state. `CreateProfileScreen` is built around generating a seed and says so in its copy; and the kind 0 has to be written *over* the placeholder row, not beside it — see `setUpProfileForExistingKey` |
+| the one hop, unspecified where | in the sync pump, after `saveNostrEvent`, with a per-account set so five indexers answering with the same kind 10002 make one hop |
+| forget: key, prefs, metadata, active identity | plus the account's unsigned rows (`forgetLocalAccount`), which the plan did not list: the kind 0 that made it a local account, and anything queued that can now never be signed. Published events and the profile cache stay |
+| assert `platformStartupLogic` was not called | `identity.business == null` and the jvm `BusinessManager.businessFlow` empty afterwards — the observable fact rather than the call |
+
+Two things found on the way that are not in any phase. `DataStoreManager` caches
+each id's preferences in a companion object for the life of the process, so a test
+that reuses a key across temporary directories is served the wrong file
+(`IdentityWriterJvmTest` uses fresh keys for that reason). And the library commit
+is on `claude/nostr-key-store` in the submodule, at `59c11ed`, bumped into the app
+by the Phase 3 commit; it has to be pushed with this branch, and tagged for JitPack
+consumers, before any of this leaves the machine.
 
 ## The constraint
 
@@ -902,6 +927,13 @@ throughout, so no build old or new misreads a wallet.
 **Roughly one and a half to two focused weeks**, with Phases 1 and 2 in parallel
 if two people are on it. Phase 3 is where the estimate is least reliable: it is
 the first time both halves meet, and the startup screen has a history.
+
+Phases 1–7 are now implemented, in one sitting and in order. What each turned out
+to require, as against what was predicted here, is in the table at the top and in
+the commit messages on this branch. The two surprises were not in any phase's
+description: the android source set's file-name collision in Phase 2, and the
+process-global preferences cache that only a test with a fixed key could have
+found.
 
 ## Out of scope
 
