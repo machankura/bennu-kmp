@@ -43,10 +43,15 @@ import to.curare.compose.ui.view.model.WritingSeedState
  * key, the other hash160 of the nostr key -- and the database is keyed by pubkey, so two
  * identities for one pubkey would share every row and disagree about which is active.
  *
- * With one exception, which is the point of the credentials file: a public key already
- * here read-only is not a duplicate of the secret that signs as it. The device does not
+ * With two exceptions, which are the point of the credentials file. A public key already
+ * here read-only is not a duplicate of the secret that signs as it: the device does not
  * have that secret, and refusing it would be false. [writeNostrKey] replaces the entry
- * in one write; [writeMnemonic] has to span two files and says which goes first.
+ * in one write. And a bare secret already here is not a duplicate of the recovery phrase
+ * that derives it: the device does not have that wallet, and pasting the phrase is the
+ * profile acquiring the wallet that derives it. [writeMnemonic] writes the credential
+ * first and then the seed -- see docs/multiple-profiles.md, Phase 1 -- and every seed's
+ * key is a `Secret` entry in the credentials file, so that the file is the list of
+ * profiles and the seed is a wallet attached to one of them.
  */
 object IdentityWriter {
 
@@ -130,34 +135,43 @@ object IdentityWriter {
                     return@launch
                 }
                 existingSeeds.containsKey(newWalletId) -> {
+                    // The same seed, and so the same nostr key with a wallet already attached.
+                    // Two different seeds cannot derive one nostr key, so this is the only
+                    // way a profile with a wallet attached is offered its phrase again.
                     log.i("attempting to import a seed that already exists, aborting...")
                     onWritingSeedError.invoke(
                         WritingSeedState.Error.SeedAlreadyExists
                     )
                     return@launch
                 }
-                existingCredentials[newNostrPublicKey] is NostrCredential.Secret -> {
-                    // The same npub is already here as a bare key. The id check above cannot
-                    // see that -- different hash, different key -- so it is asked by pubkey.
-                    log.i("attempting to import a seed whose nostr key is already here, aborting...")
-                    onWritingSeedError.invoke(
-                        WritingSeedState.Error.SeedAlreadyExists
-                    )
-                    return@launch
-                }
                 else -> {
-                    if (existingCredentials[newNostrPublicKey] is NostrCredential.Public) {
-                        // The npub is here read-only, and the words that sign as it have just
-                        // been pasted: an upgrade, across two files. The credential goes
-                        // first, then the seed. A crash between the two loses the read-only
-                        // identity, which the npub pasted again restores; the reverse order
-                        // would leave one npub listed twice under two ids.
-                        log.i("the seed's nostr key is here read-only; replacing it with the wallet")
-                        NostrCredentialManager.writeToDisk(
-                            phoenixGlobal,
-                            EncryptedNostrCredentials.encrypt(existingCredentials - newNostrPublicKey),
-                        )
+                    // The credential first, then the seed. What the credentials file holds
+                    // for this key beforehand decides what the write means, not whether it
+                    // happens: nothing, and this is a new profile with a wallet; a public
+                    // entry, and it is the read-only upgrade landing on a wallet; a secret,
+                    // and it is a bare key acquiring the wallet that derives it, which used
+                    // to be refused as a duplicate and is not one -- the device did not have
+                    // the wallet. In every case the entry becomes the derived key.
+                    //
+                    // A crash between the two writes leaves a bare-key profile whose key
+                    // the phrase derives: a valid thing to hold, and pasting the phrase
+                    // again completes it. The reverse order would leave a seed with no
+                    // credential, which the listing derives around and the repair fixes --
+                    // also recoverable, but this order says the model out loud: the profile
+                    // exists, and then a wallet is attached to it.
+                    val existingEntry = existingCredentials[newNostrPublicKey]
+                    val bareKeyId = if (existingEntry != null) StoredIdentity.nostrPublic(newNostrPublicKey).id else null
+                    when (existingEntry) {
+                        null -> Unit
+                        is NostrCredential.Public -> log.i("the seed's nostr key is here read-only; it becomes a profile with a wallet")
+                        is NostrCredential.Secret -> log.i("the seed's nostr key is here as a bare key; attaching the wallet")
                     }
+                    NostrCredentialManager.writeToDisk(
+                        phoenixGlobal,
+                        EncryptedNostrCredentials.encrypt(
+                            existingCredentials + (newNostrPublicKey to NostrCredential.Secret(keyManager.nostrPrivateKey()))
+                        ),
+                    )
                     val newSeedMap = existingSeeds + (newWalletId to mnemonics)
                     val encrypted = EncryptedSeed.V2.encrypt(newSeedMap)
                     SeedManager.writeSeedToDisk(phoenixGlobal, encrypted, overwrite = true)
@@ -165,6 +179,13 @@ object IdentityWriter {
                         log.i("successfully restored wallet=$newWalletId")
                     } else {
                         log.i("successfully created wallet=$newWalletId")
+                    }
+                    if (bareKeyId != null) {
+                        // The profile's id is its wallet's now, so its preferences are the
+                        // wallet's -- fresh, as a new wallet's are, which is right: there is
+                        // a new secret to back up. The files under the bare key's id would
+                        // otherwise sit on the disk with nothing reading them.
+                        DataStoreManager(phoenixGlobal.ctx, chain = NodeParamsManager.chain).deleteNodeUserPrefs(bareKeyId)
                     }
                 }
             }
@@ -281,8 +302,14 @@ object IdentityWriter {
     sealed class ForgetNostrCredentialResult {
         data object Forgotten : ForgetNostrCredentialResult()
 
-        /** The key is not in `nostr-credentials.dat`: a mnemonic identity's key lives in the seed, and removing a seed is a wallet question. */
-        data object NotACredential : ForgetNostrCredentialResult()
+        /**
+         * A seed derives the key: the profile has a wallet attached, and removing a seed is
+         * a wallet question this does not answer. Also the answer for a key that is not in
+         * `nostr-credentials.dat` at all, which since the repair can only be a seed's key
+         * the repair could not write -- and either way, taking the entry would not take the
+         * key: the seed would derive it again and the next listing would put it back.
+         */
+        data object WalletAttached : ForgetNostrCredentialResult()
 
         data object CannotLoadKeys : ForgetNostrCredentialResult()
     }
@@ -291,7 +318,8 @@ object IdentityWriter {
      * The inverse of [writeNostrKey] and [writeNostrPublicKey] alike: removes the entry,
      * whichever kind it is, from `nostr-credentials.dat` and deletes the identity's
      * preference files. The profile stays on the relays, and the same key can be signed
-     * in again. Only for a credential -- see [ForgetNostrCredentialResult.NotACredential].
+     * in again. Only for a profile with no wallet attached -- see
+     * [ForgetNostrCredentialResult.WalletAttached].
      */
     suspend fun forgetNostrCredential(
         log: Logger,
@@ -299,14 +327,19 @@ object IdentityWriter {
         id: WalletId,
         nostrPublicKey: HexKey,
     ): ForgetNostrCredentialResult {
+        val seeds = seedPublicKeys(phoenixGlobal)
         val existing = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal)
-        if (existing == null) {
+        if (seeds == null || existing == null) {
             log.e("could not load the existing keys, aborting...")
             return ForgetNostrCredentialResult.CannotLoadKeys
         }
+        if (nostrPublicKey in seeds) {
+            log.i("asked to forget a key a seed derives; the wallet has to go first")
+            return ForgetNostrCredentialResult.WalletAttached
+        }
         if (!existing.containsKey(nostrPublicKey)) {
             log.i("asked to forget a key that is not a credential on this device")
-            return ForgetNostrCredentialResult.NotACredential
+            return ForgetNostrCredentialResult.WalletAttached
         }
 
         NostrCredentialManager.writeToDisk(phoenixGlobal, EncryptedNostrCredentials.encrypt(existing - nostrPublicKey))

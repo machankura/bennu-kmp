@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 import to.curare.compose.identity.Identity
 import to.curare.compose.identity.IdentityKind
 import to.curare.compose.identity.IdentityWriter
+import to.curare.compose.identity.SeedCredentials
 import to.curare.compose.identity.StoredIdentity
 
 sealed class WritingSeedState {
@@ -87,8 +88,9 @@ class SovereignWalletViewModel(
     val listWalletState = _listWalletState.asStateFlow()
 
     /**
-     * Every identity this device holds a secret for, from both stores -- `seed.dat` and
-     * `nostr-keys.dat` -- keyed by the id the preferences and metadata use.
+     * Every profile this device holds something for -- the credentials file, with each
+     * seed attached to the profile its key derives -- keyed by the id the preferences
+     * and metadata use.
      */
     private val _availableIdentities = MutableStateFlow<Map<WalletId, StoredIdentity>>(emptyMap())
     val availableIdentities = _availableIdentities.asStateFlow()
@@ -145,10 +147,17 @@ class SovereignWalletViewModel(
     }
 
     /**
-     * Activates the identity a just-started node derives: the mnemonic kind, with the
-     * node behind it.
+     * Activates a profile with a wallet attached, once its node has started.
+     *
+     * The key is the credential's, not the node's. The node still derives it -- and is
+     * asked to, as a cross-check -- but the credentials file is what the app signs with
+     * now, and a node that disagrees with it is the one corruption worth refusing to run
+     * under: the throw lands in the startup view model's handler and shows as a startup
+     * error. It cannot happen for a file the repair wrote, since that derived the key
+     * from the same seed.
      */
-    fun setActiveWallet(walletId: WalletId, business: PhoenixBusiness) {
+    fun setActiveWallet(stored: StoredIdentity.Mnemonic, business: PhoenixBusiness) {
+        val walletId = stored.id
         val keyManager = business.walletManager.keyManager.value
         if (keyManager == null) {
             // `startNewBusiness` loads the wallet before it reports success, so a business
@@ -157,13 +166,16 @@ class SovereignWalletViewModel(
             log.e { "business for wallet=$walletId started without a key manager" }
             return
         }
+        check(keyManager.nostrPrivateKey() == stored.privateKey) {
+            "the node for wallet=$walletId derives a different nostr key than its credential holds"
+        }
         val dataStoreManager = DataStoreManager(business)
 
         setActiveIdentity(
             Identity.signing(
                 id = walletId,
                 kind = IdentityKind.Mnemonic,
-                nostrPrivateKey = keyManager.nostrPrivateKey(),
+                nostrPrivateKey = stored.privateKey,
                 userPrefs = dataStoreManager.loadUserPrefsForWallet(walletId = walletId),
                 internalPrefs = dataStoreManager.loadInternalPrefsForWallet(walletId = walletId),
                 business = business,
@@ -173,12 +185,14 @@ class SovereignWalletViewModel(
     }
 
     /**
-     * Reads both stores and publishes the merged list, registering metadata for any id
-     * seen for the first time.
+     * Reads both stores, repairs the credentials file so that every seed's key is in it,
+     * and publishes the merged list, registering metadata for any id seen for the first
+     * time.
      *
      * A failure in either file is surfaced, not skipped: a corrupt `nostr-keys.dat` would
      * otherwise drop every imported identity from the list without a word, and the seed
-     * file has always been handled this way.
+     * file has always been handled this way. A failure of the *repair* is the one thing
+     * logged and not surfaced -- the listing derives around it, see [SeedCredentials].
      */
     fun listIdentities(onDone: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO + CoroutineExceptionHandler { _, e ->
@@ -237,7 +251,7 @@ class SovereignWalletViewModel(
                 }
             }
 
-            val credentials: Map<HexKey, NostrCredential> = when (val result = NostrCredentialManager.loadAndDecrypt(phoenixGlobal)) {
+            val readCredentials: Map<HexKey, NostrCredential> = when (val result = NostrCredentialManager.loadAndDecrypt(phoenixGlobal)) {
                 is DecryptNostrCredentialsResult.Failure.SerializationError -> {
                     log.e { "cannot deserialize nostr credentials file" }
                     _listWalletState.value = ListWalletState.Error.Serialization
@@ -260,6 +274,23 @@ class SovereignWalletViewModel(
                 }
                 is DecryptNostrCredentialsResult.Failure.FileNotFound -> emptyMap()
                 is DecryptNostrCredentialsResult.Success -> result.credentials
+            }
+
+            // The second write a listing makes, and for the same reason as the first: a
+            // seed's key belongs in the credentials file, and every seed from before that
+            // was so gets its entry here, once. The listing uses what the repair returns --
+            // the repaired map, or the one read if the write failed -- so a seed is listed
+            // either way.
+            val credentials = when (val repair = SeedCredentials.reconcile(log, phoenixGlobal, wallets, readCredentials)) {
+                is SeedCredentials.Result.Written -> {
+                    log.i { "wrote the credential of ${repair.count} seed(s) into the credentials file" }
+                    repair.credentials
+                }
+                is SeedCredentials.Result.NotNeeded -> repair.credentials
+                is SeedCredentials.Result.Failed -> {
+                    log.e("the credentials of ${wallets.size} seed(s) could not be repaired; listing by derivation", repair.cause)
+                    repair.credentials
+                }
             }
 
             val identities = StoredIdentity.merge(wallets, credentials)

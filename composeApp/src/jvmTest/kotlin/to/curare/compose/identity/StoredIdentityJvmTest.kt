@@ -15,8 +15,8 @@ import kotlin.test.assertNotEquals
  *
  * The vector is NIP-06's own: twelve words, the key at `m/44'/1237'/0'/0/0`, and the
  * x-only public key. It pins that a wallet's `nostrPublicKey` is the same key an nsec
- * import of that wallet's nostr secret would produce -- which is the whole basis of the
- * duplicate check in `IdentityWriter`.
+ * import of that wallet's nostr secret would produce -- which is what attaches a seed
+ * to its credential, and what the duplicate check in `IdentityWriter` compares.
  */
 class StoredIdentityJvmTest {
 
@@ -43,6 +43,7 @@ class StoredIdentityJvmTest {
         val merged = StoredIdentity.merge(
             wallets = mapOf(wallet.walletId to wallet),
             credentials = mapOf(
+                nip06PublicKey to NostrCredential.Secret(nip06PrivateKey),
                 bareKey.publicKey().xOnly().value.toHex() to NostrCredential.Secret(bareKey),
                 readOnlyKey to NostrCredential.Public,
             ),
@@ -51,6 +52,7 @@ class StoredIdentityJvmTest {
         assertEquals(3, merged.size)
         val mnemonic = assertIs<StoredIdentity.Mnemonic>(merged[wallet.walletId])
         assertEquals(nip06PublicKey, mnemonic.nostrPublicKey)
+        assertEquals(nip06PrivateKey, mnemonic.privateKey, "the credential's key, not a derivation")
         assertEquals(IdentityKind.Mnemonic, mnemonic.kind)
 
         val secret = assertIs<StoredIdentity.NostrSecret>(merged[bareKey.publicKey().xOnly().toWalletId()])
@@ -73,27 +75,47 @@ class StoredIdentityJvmTest {
     }
 
     /**
-     * The same npub as a wallet, imported as a bare key, gets a *different* id -- one
-     * hash is of the node key, the other of the nostr key -- so a map keyed by id holds
-     * both. That is not a bug in the merge; it is why the writers dedupe by public key.
+     * The normal state of a wallet since docs/multiple-profiles.md: its key is a secret
+     * in the credentials file, and the seed is attached to that entry. Listed once, under
+     * the wallet's id, with the credential's key -- not twice under two ids, which is what
+     * this map held before the credentials file was the list of profiles.
      */
     @Test
-    fun `a wallet and its own nostr key as a bare secret do not collide by id`() {
+    fun `a secret whose key a seed derives is listed once, as the wallet, with the credential's key`() {
         val merged = StoredIdentity.merge(
             wallets = mapOf(wallet.walletId to wallet),
             credentials = mapOf(nip06PublicKey to NostrCredential.Secret(nip06PrivateKey)),
         )
 
-        assertEquals(2, merged.size)
-        assertEquals(1, merged.values.map { it.nostrPublicKey }.toSet().size, "one npub, twice")
+        assertEquals(1, merged.size)
+        val mnemonic = assertIs<StoredIdentity.Mnemonic>(merged[wallet.walletId])
+        assertEquals(nip06PrivateKey, mnemonic.privateKey)
+        assertEquals(wallet, mnemonic.userWallet)
     }
 
     /**
-     * The one precedence the merge decides. A recovery phrase pasted over a public
-     * credential is written across two files -- the credential removed first, then the
-     * seed -- and a crash between the two would leave neither, never both; this is the
-     * rule for the "both" that is not supposed to happen, so that it lists the wallet
-     * rather than one npub twice.
+     * The state a device from before the repair is in, and the one a failed repair
+     * leaves: the seed is listed anyway, with its key derived from the words, so that a
+     * missing entry never hides a wallet.
+     */
+    @Test
+    fun `a seed with no credential is listed with its key derived`() {
+        val merged = StoredIdentity.merge(
+            wallets = mapOf(wallet.walletId to wallet),
+            credentials = emptyMap(),
+        )
+
+        assertEquals(1, merged.size)
+        val mnemonic = assertIs<StoredIdentity.Mnemonic>(merged[wallet.walletId])
+        assertEquals(nip06PrivateKey, mnemonic.privateKey)
+        assertEquals(nip06PublicKey, mnemonic.nostrPublicKey)
+    }
+
+    /**
+     * A public entry for a key a seed derives is the state the seed writer's two-file
+     * upgrade leaves if it dies between its writes, and the one the repair upgrades at
+     * the next listing. Until then the wallet is listed by derivation, and the public
+     * entry is not listed at all: one npub, once.
      */
     @Test
     fun `a public key a seed already derives is listed as the wallet only`() {
@@ -103,7 +125,8 @@ class StoredIdentityJvmTest {
         )
 
         assertEquals(1, merged.size)
-        assertIs<StoredIdentity.Mnemonic>(merged[wallet.walletId])
+        val mnemonic = assertIs<StoredIdentity.Mnemonic>(merged[wallet.walletId])
+        assertEquals(nip06PrivateKey, mnemonic.privateKey)
     }
 
     @Test

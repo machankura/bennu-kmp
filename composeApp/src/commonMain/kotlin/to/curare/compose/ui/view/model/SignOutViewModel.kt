@@ -76,7 +76,7 @@ class SignOutViewModel(
                     _state.value = State.Idle
                     withContext(Dispatchers.Main) { onSignedOut() }
                 }
-                is ForgetIdentity.Outcome.NotACredential,
+                is ForgetIdentity.Outcome.WalletAttached,
                 is ForgetIdentity.Outcome.CannotForget -> {
                     _state.value = State.Failed
                 }

@@ -177,8 +177,12 @@ fun SovereignWalletStartupScreen(
                                             doLoadWallet = { identity ->
                                                 when (identity) {
                                                     is StoredIdentity.Mnemonic -> {
+                                                        // The node starts for the wallet attached to this profile --
+                                                        // its preferences, its metadata, the channel watcher -- and no
+                                                        // longer for the key, which the identity reads from the
+                                                        // credential the node is handed to cross-check.
                                                         sovereignWalletStartupViewModel.startupNode(walletId = identity.id, words = identity.userWallet.words, onStartupSuccess = {
-                                                            sovereignWalletViewModel.setActiveWallet(walletId = identity.id, business = it)
+                                                            sovereignWalletViewModel.setActiveWallet(stored = identity, business = it)
                                                             onSuccessfulStartup.invoke()
                                                         })
                                                     }

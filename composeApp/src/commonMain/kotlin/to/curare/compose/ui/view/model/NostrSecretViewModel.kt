@@ -186,7 +186,7 @@ class NostrSecretViewModel(
                     _forgetting.value = NostrSecretUIState.Forgetting.Idle
                     withContext(Dispatchers.Main) { onForgotten() }
                 }
-                is ForgetIdentity.Outcome.NotACredential,
+                is ForgetIdentity.Outcome.WalletAttached,
                 is ForgetIdentity.Outcome.CannotForget -> {
                     _forgetting.value = NostrSecretUIState.Forgetting.Failed
                 }

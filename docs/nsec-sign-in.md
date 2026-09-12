@@ -30,6 +30,7 @@ it:
 | the one hop, unspecified where | in the sync pump, after `saveNostrEvent`, with a per-account set so five indexers answering with the same kind 10002 make one hop |
 | forget: key, prefs, metadata, active identity | plus the account's unsigned rows (`forgetLocalAccount`), which the plan did not list: the kind 0 that made it a local account, and anything queued that can now never be signed. Published events and the profile cache stay |
 | assert `platformStartupLogic` was not called | `identity.business == null` and the jvm `BusinessManager.businessFlow` empty afterwards — the observable fact rather than the call |
+| the dedupe rule: a seed's key is kept out of the key file, and a seed whose key is here as a bare secret is `SeedAlreadyExists` | **superseded** by [multiple-profiles.md](./multiple-profiles.md), Phase 1: a seed's key is a `Secret` credential like any other, written when the seed is and repaired in for every seed already here; a bare secret's phrase *attaches* the wallet rather than being refused; the identity's key is read from the credential, with the node's as a cross-check |
 
 Two things found on the way that are not in any phase. `DataStoreManager` caches
 each id's preferences in a companion object for the life of the process, so a test

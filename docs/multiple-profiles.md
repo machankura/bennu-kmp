@@ -337,13 +337,14 @@ object SeedCredentials {
 }
 ```
 
-It runs after the seed file is read and the nostr-keys migration has run, and
-before the credentials file is read for the listing — so the listing sees the
-repaired file. On a device with no seeds it does nothing; on a device already
-repaired it does nothing; on the first launch after this phase it writes once.
-`Failed` is logged, not surfaced: this is a repair of something the app can still
-work around, and a listing that goes red because a background write failed would
-be worse than the derivation it was replacing.
+It runs after both files are read and the nostr-keys migration has run, and the
+listing is built from what it returns — the repaired map, or the one read if the
+write failed — so the listing sees the repaired file without decrypting it twice.
+On a device with no seeds it does nothing; on a device already repaired it does
+nothing; on the first launch after this phase it writes once. `Failed` is logged,
+not surfaced: this is a repair of something the app can still work around, and a
+listing that goes red because a background write failed would be worse than the
+derivation it was replacing.
 
 ### The listing
 

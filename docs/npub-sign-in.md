@@ -29,6 +29,7 @@ below says so:
 | `signInToProfile` "made idempotent by pubkey" | done, and tested by signing in twice and counting one; the sign-in view model's three writers now go through one shared write-and-map |
 | the round trip "with the network faked at the repository" | with the *database* real: an in-memory Room under the app's own DAOs and a real `NotaryViewModel`, because "nothing was signed" is about what is not in the tables — plus a contrast case the plan did not ask for, the same harness as a signing identity producing a key package, so the assertions are known to bite |
 | `use_a_different_key` as a new string | it existed: the sign-in screen's own "use a different key" button. One string, two screens, one meaning |
+| one entry per pubkey *across both files*, with `merge` listing the seeds and adding the credentials | **superseded** by [multiple-profiles.md](./multiple-profiles.md), Phase 1: the credentials file is the list of profiles and a seed is attached to the entry its key derives, so a seed's key *is* in the file; `merge` lists the credentials and attaches the seeds. The upgrade table gains a row — a phrase over a bare secret attaches — and `NotACredential` becomes `WalletAttached` |
 
 One thing found on the way that is in no phase: a compose test that looks for a
 floating action button's label by text has to search the unmerged tree, because

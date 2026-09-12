@@ -74,12 +74,12 @@ class ForgetIdentityJvmTest {
     }
 
     @Test
-    fun `a mnemonic identity is refused before anything else is touched`() = runBlocking {
+    fun `a profile with a wallet attached is refused before anything else is touched`() = runBlocking {
         val recorder = Recorder()
 
-        val outcome = forget(recorder, IdentityWriter.ForgetNostrCredentialResult.NotACredential)
+        val outcome = forget(recorder, IdentityWriter.ForgetNostrCredentialResult.WalletAttached)
 
-        assertEquals(ForgetIdentity.Outcome.NotACredential, outcome)
+        assertEquals(ForgetIdentity.Outcome.WalletAttached, outcome)
         assertEquals(listOf("forgetNostrCredential"), recorder.effects)
     }
 

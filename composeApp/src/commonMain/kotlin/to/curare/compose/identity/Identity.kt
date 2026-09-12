@@ -14,16 +14,21 @@ import fr.acinq.phoenix.utils.preferences.InternalPrefs
 import fr.acinq.phoenix.utils.preferences.UserPrefs
 
 /**
- * Where an identity's key came from, which decides what else it can have.
+ * What the device holds beside an identity's key, which decides what else it can have.
  *
  * The distinction is not cosmetic: the nostr key is a BIP32 leaf of the seed at
  * `m/44'/1237'/0'/0/0`, and that derivation runs one way. Twelve words yield the
  * key and a wallet; a bare key yields nothing further, so an identity made from
  * one can never grow a node behind it; and a bare public key yields nothing at all,
- * not even a signature. See docs/nsec-sign-in.md and docs/npub-sign-in.md.
+ * not even a signature. See docs/nsec-sign-in.md, docs/npub-sign-in.md and
+ * docs/multiple-profiles.md.
  */
 enum class IdentityKind {
-    /** Twelve words. The nostr key is derived from them, and so is a wallet. */
+    /**
+     * A key the device also holds a seed for. The key is a credential like any other
+     * -- it is read from the credentials file, not derived from the node -- and the seed
+     * is the wallet attached to it. The name records the attachment, not the source.
+     */
     Mnemonic,
 
     /** A bare nostr secret. Nothing else can be derived from it. */
