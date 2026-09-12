@@ -39,7 +39,7 @@ import kotlin.time.Instant
  *
  * What is asserted here is the DAO's half: that the backlog arrives whole and in a stable
  * order, and that publishing some rows neither disturbs nor depends on the others. The loop
- * that walks it lives in NotaryViewModel, which wants an ActiveWallet flow to stand up; the
+ * that walks it lives in NotaryViewModel, which wants an Identity flow to stand up; the
  * [drain] below is shaped like it but is this test's own, so it pins the queue rather than the
  * collector.
  */

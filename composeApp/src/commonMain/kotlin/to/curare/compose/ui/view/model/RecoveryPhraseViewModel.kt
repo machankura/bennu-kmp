@@ -7,7 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import co.touchlab.kermit.Logger
 import fr.acinq.phoenix.PhoenixGlobal
-import fr.acinq.phoenix.data.ActiveWallet
+import to.curare.compose.identity.Identity
 import fr.acinq.phoenix.data.DecryptSeedResult
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +39,7 @@ import to.curare.compose.ui.view.state.RecoveryPhraseUIState
  */
 class RecoveryPhraseViewModel(
     val phoenixGlobal: PhoenixGlobal,
-    val activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    val activeIdentityStateFlow: StateFlow<Identity?>,
 ): ViewModel() {
 
     private val logger = Logger.withTag(TAG)
@@ -60,18 +60,18 @@ class RecoveryPhraseViewModel(
      * instead of drawing an unticked box over a ticked preference.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val isBackupDone: StateFlow<Boolean?> = activeWalletStateFlow
+    val isBackupDone: StateFlow<Boolean?> = activeIdentityStateFlow
         .flatMapLatest { it?.internalPrefs?.isManualSeedBackupDone ?: flowOf(null) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val isDisclaimerRead: StateFlow<Boolean?> = activeWalletStateFlow
+    val isDisclaimerRead: StateFlow<Boolean?> = activeIdentityStateFlow
         .flatMapLatest { it?.internalPrefs?.isSeedLossDisclaimerRead ?: flowOf(null) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** True until the user has both written the phrase down and read the disclaimer. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val showBackupNotice: StateFlow<Boolean> = activeWalletStateFlow
+    val showBackupNotice: StateFlow<Boolean> = activeIdentityStateFlow
         .flatMapLatest { it?.internalPrefs?.showSeedBackupNotice ?: flowOf(false) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
@@ -86,7 +86,7 @@ class RecoveryPhraseViewModel(
     fun revealRecoveryPhrase() {
         if (_recoveryPhraseUIState.value is RecoveryPhraseUIState.Revealing) return
 
-        val walletId = activeWalletStateFlow.value?.id
+        val walletId = activeIdentityStateFlow.value?.id
         if (walletId == null) {
             logger.e { "no active wallet, cannot read a recovery phrase" }
             _recoveryPhraseUIState.value = RecoveryPhraseUIState.Error.NoActiveWallet
@@ -128,7 +128,7 @@ class RecoveryPhraseViewModel(
     }
 
     fun setBackupDone(isDone: Boolean) {
-        val internalPrefs = activeWalletStateFlow.value?.internalPrefs ?: return
+        val internalPrefs = activeIdentityStateFlow.value?.internalPrefs ?: return
         viewModelScope.launch(CoroutineExceptionHandler { _, throwable ->
             logger.e("could not save the backup flag", throwable)
         }) {
@@ -137,7 +137,7 @@ class RecoveryPhraseViewModel(
     }
 
     fun setDisclaimerRead(isRead: Boolean) {
-        val internalPrefs = activeWalletStateFlow.value?.internalPrefs ?: return
+        val internalPrefs = activeIdentityStateFlow.value?.internalPrefs ?: return
         viewModelScope.launch(CoroutineExceptionHandler { _, throwable ->
             logger.e("could not save the disclaimer flag", throwable)
         }) {
@@ -150,12 +150,12 @@ class RecoveryPhraseViewModel(
 
         fun factory(
             phoenixGlobal: PhoenixGlobal,
-            activeWalletStateFlow: StateFlow<ActiveWallet?>,
+            activeIdentityStateFlow: StateFlow<Identity?>,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 RecoveryPhraseViewModel(
                     phoenixGlobal = phoenixGlobal,
-                    activeWalletStateFlow = activeWalletStateFlow,
+                    activeIdentityStateFlow = activeIdentityStateFlow,
                 )
             }
         }

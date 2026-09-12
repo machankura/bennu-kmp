@@ -8,7 +8,7 @@ import to.curare.compose.database.model.intermdiate.LocalAccount
 import to.curare.compose.ui.composable.navigation.routes.SovereignWalletStartupRoute
 import to.curare.compose.ui.view.state.NavigationUIState
 import co.touchlab.kermit.Logger
-import fr.acinq.phoenix.data.ActiveWallet
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -21,11 +21,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
-import to.curare.compose.extensions.nostrPublicKey
 import kotlin.time.Duration.Companion.milliseconds
 
 class NavigationViewModel(
-    val activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    val activeIdentityStateFlow: StateFlow<Identity?>,
     initialNavigationUIState: NavigationUIState,
     val nostrRepository: to.curare.compose.repository.NostrRepository,
     val scope: CoroutineScope,
@@ -38,14 +37,14 @@ class NavigationViewModel(
         private val PENDING_BROADCAST_STATUSES = setOf("pending", "processing")
 
         fun factory(
-            activeWallet: StateFlow<ActiveWallet?>,
+            activeIdentity: StateFlow<Identity?>,
             initialNavigationUIState: NavigationUIState,
             nostrRepository: to.curare.compose.repository.NostrRepository,
             scope: CoroutineScope,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 NavigationViewModel(
-                    activeWallet,
+                    activeIdentity,
                     initialNavigationUIState = initialNavigationUIState,
                     nostrRepository = nostrRepository,
                     scope = scope
@@ -176,34 +175,22 @@ class NavigationViewModel(
         scope.launch(Dispatchers.IO) {
             delay(2_100.milliseconds) // Looking busy...
 
-            activeWalletStateFlow.collectLatest { activeWallet ->
-                logger.d("Active Wallet: $activeWallet")
-                if (activeWallet ==  null) {
-
+            activeIdentityStateFlow.collectLatest { identity ->
+                logger.d("Active identity: $identity")
+                if (identity == null) {
+                    // Nothing has been started: go and start something.
                     _navigationUIState.getAndUpdate {
                         NavigationUIState.StartupPhoenix
                     }
                 } else {
-                    activeWallet.business.let { business ->
-                        if (business == null) {
-                            _navigationUIState.getAndUpdate {
-                                NavigationUIState.StartupPhoenix
-                            }
-                        } else {
-                            val activeUserPublicKey = business.walletManager.keyManager.value?.nostrPublicKey()
+                    // The identity carries its own key, so there is no node to wait on and no
+                    // "couldn't get the nostrKey" dead end. The branch that used to send a
+                    // nodeless identity back to startup went with it: an identity without a
+                    // node is now a kind of identity, not a wallet that has not finished
+                    // starting.
+                    logger.i("Observing: ${identity.nostrPublicKey}")
 
-                            if (activeUserPublicKey == null) {
-                                _navigationUIState.getAndUpdate {
-                                    NavigationUIState.Loading(text = "Couldn't get the nostrKey")
-                                }
-                            } else {
-                                logger.i("Observing: $activeUserPublicKey")
-
-                                loadNostrProfile(activeUserPublicKey)
-                            }
-                        }
-                        logger.i("Navigation UI State is Landing")
-                    }
+                    loadNostrProfile(identity.nostrPublicKey)
                 }
             }
         }

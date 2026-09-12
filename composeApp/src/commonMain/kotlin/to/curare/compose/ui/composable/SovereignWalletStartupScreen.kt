@@ -49,8 +49,8 @@ fun SovereignWalletStartupScreen(
     // Deliberately no intro gate. `getShowIntro` defaults to true and nothing in this app ever
     // writes it back to false, so gating on it navigated away from this screen on every cold boot
     // — and a screen that has been left behind never gets to start the wallet. Startup has to run
-    // to completion here: everything downstream reads the node's key manager. An intro screen has
-    // to be a step inside this flow, not a detour around it.
+    // to completion here: everything downstream reads the active identity, and nothing sets one
+    // but this screen. An intro screen has to be a step inside this flow, not a detour around it.
 
     val listWalletState by sovereignWalletViewModel.listWalletState.collectAsState()
 
@@ -84,8 +84,8 @@ fun SovereignWalletStartupScreen(
                 val desiredWalletIdFlow = sovereignWalletViewModel.desiredWalletId.collectAsState()
                 val desiredWalletId = desiredWalletIdFlow.value
 
-                val activeWalletFlow = sovereignWalletViewModel.activeWalletInUI.collectAsState()
-                val activeWallet = activeWalletFlow.value
+                val activeIdentityFlow = sovereignWalletViewModel.activeIdentity.collectAsState()
+                val activeIdentity = activeIdentityFlow.value
 
                 when {
                     availableWallets.isEmpty() -> {
@@ -99,12 +99,12 @@ fun SovereignWalletStartupScreen(
                             text = "Preparing wallet..."
                         )
                     }
-                    activeWallet != null -> {
+                    activeIdentity != null -> {
                         LoadingDataIndicator(
                             text = "Opening wallet"
                         )
                         LaunchedEffect(Unit) {
-                            sovereignWalletViewModel.loadSovereignData(activeWallet.id)
+                            sovereignWalletViewModel.loadSovereignData(activeIdentity.id)
                             onSuccessfulStartup.invoke()
                         }
                     }

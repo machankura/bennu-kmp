@@ -35,7 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import fr.acinq.phoenix.data.ActiveWallet
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import curare.composeapp.generated.resources.Res
@@ -81,7 +81,7 @@ fun SelectSubgroupAdminsScreen(
     activeUserPublicKey: HexKey,
     parentChatRoomId: String,
     initialUIState: SelectSubgroupAdminsUIState = SelectSubgroupAdminsUIState.Loading,
-    activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
     onNavigateToRoute: (Route) -> Unit
@@ -91,7 +91,7 @@ fun SelectSubgroupAdminsScreen(
             activeUserPublicKey = activeUserPublicKey,
             parentChatRoomId = parentChatRoomId,
             initialUIState = initialUIState,
-            activeWalletStateFlow = activeWalletStateFlow,
+            activeIdentityStateFlow = activeIdentityStateFlow,
             chatRepository = chatRepository,
             dkgRepository = dkgRepository
         )
@@ -331,7 +331,7 @@ private fun SelectSubgroupAdminsScreenPreview() {
             SelectSubgroupAdminsScreen(
                 activeUserPublicKey = "a".repeat(64),
                 parentChatRoomId = "b".repeat(64),
-                activeWalletStateFlow = kotlinx.coroutines.flow.MutableStateFlow(null),
+                activeIdentityStateFlow = kotlinx.coroutines.flow.MutableStateFlow(null),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
                 onNavigateToRoute = {}

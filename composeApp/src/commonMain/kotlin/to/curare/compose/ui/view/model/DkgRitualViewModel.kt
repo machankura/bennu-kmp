@@ -32,8 +32,7 @@ import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
-import fr.acinq.phoenix.data.ActiveWallet
-import fr.acinq.phoenix.managers.nostrPrivateKey
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
@@ -56,7 +55,7 @@ class DkgRitualViewModel(
      */
     val dkgSessionId: String? = null,
     initialDkgRitualUIState: DkgRitualUIState,
-    val activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    val activeIdentityStateFlow: StateFlow<Identity?>,
     val chatRepository: ChatRepository,
     val dkgRepository: DkgRepository,
 ): ViewModel() {
@@ -473,7 +472,7 @@ class DkgRitualViewModel(
 
         val loaded = dkgRitualUIState as? DkgRitualUIState.Loaded ?: return
 
-        val nostrPrivateKey = activeWalletStateFlow.value?.business?.walletManager?.keyManager?.value?.nostrPrivateKey()
+        val nostrPrivateKey = activeIdentityStateFlow.value?.nostrPrivateKey
         if (nostrPrivateKey == null) {
             dkgRitualUIState = DkgRitualUIState.Error("Couldn't read your keys. Please try again.")
             return
@@ -513,7 +512,7 @@ class DkgRitualViewModel(
         val loaded = dkgRitualUIState as? DkgRitualUIState.Loaded ?: return
         val session = loaded.session ?: return
 
-        val nostrPrivateKey = activeWalletStateFlow.value?.business?.walletManager?.keyManager?.value?.nostrPrivateKey()
+        val nostrPrivateKey = activeIdentityStateFlow.value?.nostrPrivateKey
         if (nostrPrivateKey == null) {
             dkgRitualUIState = DkgRitualUIState.Error("Couldn't read your keys. Please try again.")
             return
@@ -567,7 +566,7 @@ class DkgRitualViewModel(
         // guard rather than a path anybody takes.
         if (!loaded.isKeyStateSigned) return
 
-        val nostrPrivateKey = activeWalletStateFlow.value?.business?.walletManager?.keyManager?.value?.nostrPrivateKey()
+        val nostrPrivateKey = activeIdentityStateFlow.value?.nostrPrivateKey
         if (nostrPrivateKey == null) {
             dkgRitualUIState = DkgRitualUIState.Error("Couldn't read your keys. Please try again.")
             return
@@ -678,7 +677,7 @@ class DkgRitualViewModel(
             activeUserPublicKey: HexKey,
             dkgSessionId: String? = null,
             initialDkgRitualUIState: DkgRitualUIState = DkgRitualUIState.Loading,
-            activeWalletStateFlow: StateFlow<ActiveWallet?>,
+            activeIdentityStateFlow: StateFlow<Identity?>,
             chatRepository: ChatRepository,
             dkgRepository: DkgRepository
         ): ViewModelProvider.Factory = viewModelFactory {
@@ -688,7 +687,7 @@ class DkgRitualViewModel(
                     activeUserPublicKey = activeUserPublicKey,
                     dkgSessionId = dkgSessionId,
                     initialDkgRitualUIState = initialDkgRitualUIState,
-                    activeWalletStateFlow = activeWalletStateFlow,
+                    activeIdentityStateFlow = activeIdentityStateFlow,
                     chatRepository = chatRepository,
                     dkgRepository = dkgRepository
                 )

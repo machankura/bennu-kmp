@@ -12,13 +12,13 @@ import co.touchlab.kermit.Logger
 import fr.acinq.lightning.logging.error
 import fr.acinq.phoenix.PhoenixBusiness
 import fr.acinq.phoenix.PhoenixGlobal
-import fr.acinq.phoenix.data.ActiveWallet
 import fr.acinq.phoenix.data.DecryptSeedResult
 import fr.acinq.phoenix.data.ElectrumConfig
 import fr.acinq.phoenix.data.ListWalletState
 import fr.acinq.phoenix.data.UserWallet
 import fr.acinq.phoenix.data.WalletId
 import fr.acinq.phoenix.managers.DataStoreManager
+import fr.acinq.phoenix.managers.nostrPrivateKey
 import fr.acinq.phoenix.utils.preferences.GlobalPrefs
 import fr.acinq.phoenix.utils.preferences.UserWalletMetadata
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import to.curare.compose.identity.Identity
+import to.curare.compose.identity.IdentityKind
 
 sealed class WritingSeedState {
     data object Init : WritingSeedState()
@@ -83,8 +85,17 @@ class SovereignWalletViewModel(
     val desiredWalletId = _desiredWalletId.asStateFlow()
     val startWalletImmediately = MutableStateFlow(true)
 
-    private val _activeWalletInUI = MutableStateFlow<ActiveWallet?>(null)
-    val activeWalletInUI = _activeWalletInUI.asStateFlow()
+    /**
+     * The identity the app is running as, or null while nothing has been started.
+     *
+     * This replaces what used to be a flow of the active *wallet*: every reader of it
+     * only ever wanted the nostr key, and reached it through the node --
+     * `business.walletManager.keyManager.value.nostrPrivateKey()`. An [Identity]
+     * carries the key directly, so a reader no longer needs a node to exist, and an
+     * identity that never has one (a bare nsec) reads the same as one that does.
+     */
+    private val _activeIdentity = MutableStateFlow<Identity?>(null)
+    val activeIdentity = _activeIdentity.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val exchangeRates = phoenixGlobal.currencyManager.ratesFlow
@@ -115,14 +126,38 @@ class SovereignWalletViewModel(
         listAvailableWallets(onDone = {})
     }
 
+    /** Makes [identity] the one the app runs as. Everything reading [activeIdentity] follows. */
+    fun setActiveIdentity(identity: Identity) {
+        _activeIdentity.value = identity
+//        scheduleAutoLock()
+    }
+
+    /**
+     * Activates the identity a just-started node derives: the mnemonic kind, with the
+     * node behind it.
+     */
     fun setActiveWallet(walletId: WalletId, business: PhoenixBusiness) {
+        val keyManager = business.walletManager.keyManager.value
+        if (keyManager == null) {
+            // `startNewBusiness` loads the wallet before it reports success, so a business
+            // handed here without a key manager is a programming error rather than a state
+            // to route around. Leaving the identity unset sends the UI back to startup.
+            log.e { "business for wallet=$walletId started without a key manager" }
+            return
+        }
         val dataStoreManager = DataStoreManager(business)
 
-        val userPrefs = dataStoreManager.loadUserPrefsForWallet(walletId = walletId)
-        val internalPrefs = dataStoreManager.loadInternalPrefsForWallet( walletId = walletId)
-        _activeWalletInUI.value = ActiveWallet(id = walletId, business = business, userPrefs = userPrefs, internalPrefs = internalPrefs)
+        setActiveIdentity(
+            Identity(
+                id = walletId,
+                kind = IdentityKind.Mnemonic,
+                nostrPrivateKey = keyManager.nostrPrivateKey(),
+                userPrefs = dataStoreManager.loadUserPrefsForWallet(walletId = walletId),
+                internalPrefs = dataStoreManager.loadInternalPrefsForWallet(walletId = walletId),
+                business = business,
+            )
+        )
         updateBusinessActiveInUI(walletId)
-//        scheduleAutoLock()
     }
 
     fun listAvailableWallets(onDone: () -> Unit) {
@@ -186,7 +221,7 @@ class SovereignWalletViewModel(
 //        // TODO: Run this through an expect...
 //        viewModelScope.launch {
 //            autoLockHandler.removeCallbacksAndMessages(null)
-//            val activeUserPrefs = activeWalletInUI.first()?.userPrefs ?: return@launch
+//            val activeUserPrefs = activeIdentity.first()?.userPrefs ?: return@launch
 //
 //            val biometricLockEnabled = activeUserPrefs.getLockBiometricsEnabled.first()
 //            val customPinLockEnabled = activeUserPrefs.getLockPinEnabled.first()
@@ -198,21 +233,21 @@ class SovereignWalletViewModel(
 //        }
 //    }
 
-    /** Clears the active wallet and signals the startup screen to load the given [walletId]. */
+    /** Clears the active identity and signals the startup screen to load the given [walletId]. */
     fun switchToWallet(walletId: WalletId) {
         _desiredWalletId.value = walletId
-        _activeWalletInUI.value = null
+        _activeIdentity.value = null
     }
 
-    /** Clears the active wallet. It does not affect [desiredWalletId]. The UI may still auto-open a specific wallet, if [desiredWalletId] is not null. */
+    /** Clears the active identity. It does not affect [desiredWalletId]. The UI may still auto-open a specific wallet, if [desiredWalletId] is not null. */
     fun clearActiveWallet() {
-        _activeWalletInUI.value = null
+        _activeIdentity.value = null
     }
 
-    /** Resets the active wallet and [desiredWalletId]. The UI will redirect to the startup screen with the wallets selector prompt. */
+    /** Resets the active identity and [desiredWalletId]. The UI will redirect to the startup screen with the wallets selector prompt. */
     fun resetToSelector() {
         _desiredWalletId.value = null
-        _activeWalletInUI.value = null
+        _activeIdentity.value = null
         startWalletImmediately.value = false
     }
 

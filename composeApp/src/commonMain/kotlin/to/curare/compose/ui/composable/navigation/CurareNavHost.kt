@@ -230,7 +230,7 @@ fun CurareNavHost(
 
     val navigationViewModel: NavigationViewModel =  viewModel (
         factory = NavigationViewModel.factory(
-            activeWallet = sovereignWalletViewModel.activeWalletInUI,
+            activeIdentity = sovereignWalletViewModel.activeIdentity,
             initialNavigationUIState = NavigationUIState.Loading(),
             nostrRepository = databaseNostrRepository,
             scope = applicationIOScope
@@ -239,7 +239,7 @@ fun CurareNavHost(
 
     val notaryViewModel: NotaryViewModel = viewModel(
         factory = NotaryViewModel.factory(
-            activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+            activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
             nostrRepository = databaseNostrRepository,
             chatRepository = databaseChatRepository,
             marmotRepository = databaseMarmotRepository,
@@ -250,7 +250,7 @@ fun CurareNavHost(
     // TODO: Produce a notary UI Element...
     val synchronizationViewModel: SynchronizationViewModel = viewModel(
         factory = SynchronizationViewModel.factory(
-            activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+            activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
             nostrRepository = databaseNostrRepository,
             chatRepository = databaseChatRepository,
             relayRepository = databaseNostrRepository,
@@ -548,7 +548,7 @@ fun CurareNavHost(
                 SelectSubgroupAdminsScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     parentChatRoomId = route.parentChatRoomId,
-                    activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     chatRepository = databaseChatRepository,
                     dkgRepository = databaseDkgRepository,
                     onNavigateToRoute = { nextRoute ->
@@ -563,7 +563,7 @@ fun CurareNavHost(
                     activeUserPublicKey = route.activeUserPublicKey,
                     chatRoomId = route.chatRoomId,
                     dkgSessionId = route.dkgSessionId,
-                    activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     chatRepository = databaseChatRepository,
                     dkgRepository = databaseDkgRepository,
                     onNavigateToRoute = { approvalRoute ->
@@ -578,7 +578,7 @@ fun CurareNavHost(
                     activeUserPublicKey = route.activeUserPublicKey,
                     chatRoomId = route.chatRoomId,
                     dkgSessionId = route.dkgSessionId,
-                    activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     chatRepository = databaseChatRepository,
                     dkgRepository = databaseDkgRepository,
                     onDone = { navController.popBackStack() }
@@ -591,7 +591,7 @@ fun CurareNavHost(
                     activeUserPublicKey = route.activeUserPublicKey,
                     chatRoomId = route.chatRoomId,
                     dkgSessionId = route.dkgSessionId,
-                    activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     chatRepository = databaseChatRepository,
                     dkgRepository = databaseDkgRepository,
                     onDone = { navController.popBackStack() }
@@ -604,7 +604,7 @@ fun CurareNavHost(
                     activeUserPublicKey = route.activeUserPublicKey,
                     chatRoomId = route.chatRoomId,
                     dkgSessionId = route.dkgSessionId,
-                    activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     chatRepository = databaseChatRepository,
                     dkgRepository = databaseDkgRepository,
                     onDone = { navController.popBackStack() }
@@ -618,7 +618,7 @@ fun CurareNavHost(
                     name = route.name,
                     description = route.description,
                     memberPublicKeys = route.memberPublicKeys,
-                    activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     nostrRepository = databaseNostrRepository,
                     chatRepository = databaseChatRepository,
                     dkgRepository = databaseDkgRepository,
@@ -815,7 +815,7 @@ fun CurareNavHost(
 
                 KeyRecoveryScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
-                    activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     onNavigateBack = {
                         navController.popBackStack()
                     },
@@ -829,7 +829,7 @@ fun CurareNavHost(
             composable<RecoveryPhraseRoute> {
                 RecoveryPhraseScreen(
                     phoenixGlobal = phoenixGlobal,
-                    activeWalletStateFlow = sovereignWalletViewModel.activeWalletInUI,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     onNavigateBack = {
                         navController.popBackStack()
                     }

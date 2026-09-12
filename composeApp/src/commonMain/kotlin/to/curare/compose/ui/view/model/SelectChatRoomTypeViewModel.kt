@@ -30,8 +30,7 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.utils.RandomInstance
-import fr.acinq.phoenix.data.ActiveWallet
-import fr.acinq.phoenix.managers.nostrPrivateKey
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.async
@@ -58,7 +57,7 @@ class SelectChatRoomTypeViewModel(
     val description: String?,
     val memberPublicKeys: List<HexKey>,
     initialSelectChatRoomTypeUIState: SelectChatRoomTypeUIState,
-    val activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    val activeIdentityStateFlow: StateFlow<Identity?>,
     val nostrRepository: NostrRepository,
     val chatRepository: ChatRepository,
     val dkgRepository: DkgRepository,
@@ -190,7 +189,7 @@ class SelectChatRoomTypeViewModel(
             return
         }
 
-        val nostrPrivateKey = activeWalletStateFlow.value?.business?.walletManager?.keyManager?.value?.nostrPrivateKey()
+        val nostrPrivateKey = activeIdentityStateFlow.value?.nostrPrivateKey
         if (nostrPrivateKey == null) {
             selectChatRoomTypeUIState = SelectChatRoomTypeUIState.Error(
                 "Couldn't read your keys. Please try again."
@@ -447,7 +446,7 @@ class SelectChatRoomTypeViewModel(
             description: String?,
             memberPublicKeys: List<HexKey>,
             initialSelectChatRoomTypeUIState: SelectChatRoomTypeUIState = SelectChatRoomTypeUIState.Loading,
-            activeWalletStateFlow: StateFlow<ActiveWallet?>,
+            activeIdentityStateFlow: StateFlow<Identity?>,
             nostrRepository: NostrRepository,
             chatRepository: ChatRepository,
             dkgRepository: DkgRepository
@@ -459,7 +458,7 @@ class SelectChatRoomTypeViewModel(
                     description = description,
                     memberPublicKeys = memberPublicKeys,
                     initialSelectChatRoomTypeUIState = initialSelectChatRoomTypeUIState,
-                    activeWalletStateFlow = activeWalletStateFlow,
+                    activeIdentityStateFlow = activeIdentityStateFlow,
                     nostrRepository = nostrRepository,
                     chatRepository = chatRepository,
                     dkgRepository = dkgRepository

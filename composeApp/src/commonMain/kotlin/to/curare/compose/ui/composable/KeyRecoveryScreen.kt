@@ -41,7 +41,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import fr.acinq.phoenix.data.ActiveWallet
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -81,16 +81,16 @@ import to.curare.compose.ui.theme.spacing
 @Composable
 fun KeyRecoveryScreen(
     activeUserPublicKey: HexKey,
-    activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    activeIdentityStateFlow: StateFlow<Identity?>,
     onNavigateBack: () -> Unit,
     onNavigateToRoute: (Route) -> Unit,
 ) {
-    val activeWallet by activeWalletStateFlow.collectAsState()
+    val activeIdentity by activeIdentityStateFlow.collectAsState()
 
     // The same preference the recovery phrase screen writes, so the state of the backup is
     // visible before the user goes looking for it.
-    val showBackupNotice by remember(activeWallet) {
-        activeWallet?.internalPrefs?.showSeedBackupNotice ?: flowOf(false)
+    val showBackupNotice by remember(activeIdentity) {
+        activeIdentity?.internalPrefs?.showSeedBackupNotice ?: flowOf(false)
     }.collectAsState(initial = false)
 
     Scaffold(
@@ -305,7 +305,7 @@ private fun KeyRecoveryScreenPreview() {
         ) {
             KeyRecoveryScreen(
                 activeUserPublicKey = "84dee6e676e5bb67b4ad4e042cf70cbd8681155db535942fcc6a0533858a7240",
-                activeWalletStateFlow = MutableStateFlow(null),
+                activeIdentityStateFlow = MutableStateFlow(null),
                 onNavigateBack = {},
                 onNavigateToRoute = {}
             )

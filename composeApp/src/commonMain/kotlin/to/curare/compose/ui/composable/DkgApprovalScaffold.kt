@@ -35,7 +35,7 @@ import to.curare.compose.repository.DkgRepository
 import to.curare.compose.ui.view.model.DkgRitualViewModel
 import to.curare.compose.ui.view.state.DkgRitualUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import fr.acinq.phoenix.data.ActiveWallet
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.flow.StateFlow
 import to.curare.compose.ui.theme.spacing
 import to.curare.compose.ui.composable.widgets.Decorative
@@ -65,7 +65,7 @@ internal fun DkgApprovalScaffold(
     activeUserPublicKey: HexKey,
     chatRoomId: String,
     dkgSessionId: String? = null,
-    activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
     onDone: () -> Unit,
@@ -76,7 +76,7 @@ internal fun DkgApprovalScaffold(
             chatRoomId = chatRoomId,
             dkgSessionId = dkgSessionId,
             activeUserPublicKey = activeUserPublicKey,
-            activeWalletStateFlow = activeWalletStateFlow,
+            activeIdentityStateFlow = activeIdentityStateFlow,
             chatRepository = chatRepository,
             dkgRepository = dkgRepository
         )

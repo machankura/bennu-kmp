@@ -51,7 +51,7 @@ import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.view.model.SelectChatRoomTypeViewModel
 import to.curare.compose.ui.view.state.SelectChatRoomTypeUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import fr.acinq.phoenix.data.ActiveWallet
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import to.curare.compose.ui.theme.spacing
@@ -87,7 +87,7 @@ fun SelectChatRoomTypeScreen(
     description: String?,
     memberPublicKeys: List<HexKey>,
     initialSelectChatRoomTypeUIState: SelectChatRoomTypeUIState = SelectChatRoomTypeUIState.Loading,
-    activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    activeIdentityStateFlow: StateFlow<Identity?>,
     nostrRepository: NostrRepository,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
@@ -100,7 +100,7 @@ fun SelectChatRoomTypeScreen(
             description = description,
             memberPublicKeys = memberPublicKeys,
             initialSelectChatRoomTypeUIState = initialSelectChatRoomTypeUIState,
-            activeWalletStateFlow = activeWalletStateFlow,
+            activeIdentityStateFlow = activeIdentityStateFlow,
             nostrRepository = nostrRepository,
             chatRepository = chatRepository,
             dkgRepository = dkgRepository
@@ -490,7 +490,7 @@ private fun SelectChatRoomTypeScreenPreview() {
                         )
                     )
                 ),
-                activeWalletStateFlow = MutableStateFlow(null),
+                activeIdentityStateFlow = MutableStateFlow(null),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,

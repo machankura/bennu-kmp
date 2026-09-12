@@ -1,7 +1,7 @@
 package to.curare.compose.ui.view.model
 
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import fr.acinq.phoenix.data.ActiveWallet
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
@@ -102,7 +102,7 @@ class NavigationRoutingTest {
     private fun bootedOn(vararg accounts: LocalAccount): NavigationViewModel {
         val scope = CoroutineScope(Job())
         return NavigationViewModel(
-            activeWalletStateFlow = MutableStateFlow<ActiveWallet?>(null),
+            activeIdentityStateFlow = MutableStateFlow<Identity?>(null),
             initialNavigationUIState = stranded,
             nostrRepository = Device(accounts.toList()),
             scope = scope,

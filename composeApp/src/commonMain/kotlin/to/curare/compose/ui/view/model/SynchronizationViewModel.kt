@@ -29,8 +29,7 @@ import com.vitorpamplona.quartz.nip01Core.relay.filters.Filter
 import com.vitorpamplona.quartz.nip77Negentropy.NegCloseCmd
 import com.vitorpamplona.quartz.nip77Negentropy.NegMsgCmd
 import com.vitorpamplona.quartz.nip77Negentropy.NegOpenCmd
-import fr.acinq.phoenix.data.ActiveWallet
-import fr.acinq.phoenix.managers.nostrPrivateKey
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +58,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 class SynchronizationViewModel(
-    val activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    val activeIdentityStateFlow: StateFlow<Identity?>,
     val nostrRepository: NostrRepository,
     val chatRepository: ChatRepository,
     val relayRepository: RelayRepository,
@@ -67,7 +66,7 @@ class SynchronizationViewModel(
 ): ViewModel() {
 
     val relaysSocketManager = RelaysSocketManager(
-        activeWalletStateFlow = activeWalletStateFlow,
+        activeIdentityStateFlow = activeIdentityStateFlow,
         nostrSocketClientFactory = DefaultNostrSocketClientFactory,
         cachingImportRepository = CachingImportRepository.NO_OP_CACHING_IMPORT_REPOSITORY,
         relayRepository = relayRepository,
@@ -130,7 +129,7 @@ class SynchronizationViewModel(
         private val mutex = Mutex()
 
         fun factory(
-            activeWalletStateFlow: StateFlow<ActiveWallet?>,
+            activeIdentityStateFlow: StateFlow<Identity?>,
             nostrRepository: NostrRepository,
             chatRepository: ChatRepository,
             relayRepository: RelayRepository,
@@ -138,7 +137,7 @@ class SynchronizationViewModel(
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 SynchronizationViewModel(
-                    activeWalletStateFlow = activeWalletStateFlow,
+                    activeIdentityStateFlow = activeIdentityStateFlow,
                     nostrRepository = nostrRepository,
                     chatRepository = chatRepository,
                     relayRepository = relayRepository,
@@ -188,9 +187,9 @@ class SynchronizationViewModel(
 
     init {
         scope.launch {
-            activeWalletStateFlow.collectLatest { activeWallet ->
-                logger.d("Synchronization ActiveWallet: $activeWallet")
-                activeWallet?.business?.walletManager?.keyManager?.value?.nostrPrivateKey()?.let { nostrPrivateKey ->
+            activeIdentityStateFlow.collectLatest { identity ->
+                logger.d("Synchronization identity: $identity")
+                identity?.nostrPrivateKey?.let { nostrPrivateKey ->
                     val keyPair = KeyPair(
                         privKey = nostrPrivateKey.value.toByteArray()
                     )

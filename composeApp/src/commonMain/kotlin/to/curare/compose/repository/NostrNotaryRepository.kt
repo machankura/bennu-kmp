@@ -4,8 +4,8 @@ import to.curare.compose.cryptography.signOrThrow
 import to.curare.compose.network.asClientTag
 import com.vitorpamplona.quartz.nip19Bech32.toNsec
 import com.vitorpamplona.quartz.nip51Lists.relayLists.RelayFeedsListEvent
-import fr.acinq.phoenix.managers.WalletManager
-import fr.acinq.phoenix.managers.nostrPrivateKey
+import kotlinx.coroutines.flow.StateFlow
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -23,7 +23,7 @@ import kotlinx.coroutines.sync.withLock
  */
 class NostrNotaryRepository(
     private val nostrRepository: NostrRepository,
-    private val walletManager: WalletManager,
+    private val activeIdentityStateFlow: StateFlow<Identity?>,
 ) {
     private val scope = CoroutineScope(Dispatchers.Main)
 
@@ -67,7 +67,7 @@ class NostrNotaryRepository(
 
     private fun findNsecOrThrow(activeUserPublicKey: String): String =
         runCatching {
-            walletManager.keyManager.value?.nostrPrivateKey()?.value?.toByteArray()?.toNsec()
+            activeIdentityStateFlow.value?.nostrPrivateKey?.value?.toByteArray()?.toNsec()
         }.getOrNull() ?: throw to.curare.compose.exceptions.SigningKeyNotFoundException()
 
     private fun signNostrEvent(publicKey: String, event: to.curare.compose.database.model.UnsignedNostrEvent): to.curare.compose.database.model.NostrEvent {

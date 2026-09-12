@@ -12,8 +12,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewModelScope
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import fr.acinq.phoenix.data.ActiveWallet
-import fr.acinq.phoenix.managers.nostrPrivateKey
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.StateFlow
@@ -51,7 +50,7 @@ class SelectSubgroupAdminsViewModel(
     val activeUserPublicKey: HexKey,
     val parentChatRoomId: String,
     initialUIState: SelectSubgroupAdminsUIState,
-    val activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    val activeIdentityStateFlow: StateFlow<Identity?>,
     val chatRepository: ChatRepository,
     val dkgRepository: DkgRepository,
 ): ViewModel() {
@@ -204,8 +203,7 @@ class SelectSubgroupAdminsViewModel(
 
         val loaded = uiState as? SelectSubgroupAdminsUIState.Loaded ?: return
 
-        val nostrPrivateKey = activeWalletStateFlow.value
-            ?.business?.walletManager?.keyManager?.value?.nostrPrivateKey()
+        val nostrPrivateKey = activeIdentityStateFlow.value?.nostrPrivateKey
         if (nostrPrivateKey == null) {
             uiState = SelectSubgroupAdminsUIState.Error("Couldn't read your keys. Please try again.")
             return
@@ -293,7 +291,7 @@ class SelectSubgroupAdminsViewModel(
             activeUserPublicKey: HexKey,
             parentChatRoomId: String,
             initialUIState: SelectSubgroupAdminsUIState = SelectSubgroupAdminsUIState.Loading,
-            activeWalletStateFlow: StateFlow<ActiveWallet?>,
+            activeIdentityStateFlow: StateFlow<Identity?>,
             chatRepository: ChatRepository,
             dkgRepository: DkgRepository
         ): ViewModelProvider.Factory = viewModelFactory {
@@ -302,7 +300,7 @@ class SelectSubgroupAdminsViewModel(
                     activeUserPublicKey = activeUserPublicKey,
                     parentChatRoomId = parentChatRoomId,
                     initialUIState = initialUIState,
-                    activeWalletStateFlow = activeWalletStateFlow,
+                    activeIdentityStateFlow = activeIdentityStateFlow,
                     chatRepository = chatRepository,
                     dkgRepository = dkgRepository
                 )

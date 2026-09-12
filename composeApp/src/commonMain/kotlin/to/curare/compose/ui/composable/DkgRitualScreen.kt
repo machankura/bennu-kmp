@@ -73,7 +73,7 @@ import to.curare.compose.ui.view.model.DkgRitualViewModel
 import to.curare.compose.ui.view.state.DkgRitualUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import to.curare.compose.database.model.FrostSigningSession
-import fr.acinq.phoenix.data.ActiveWallet
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import to.curare.compose.ui.theme.spacing
@@ -135,7 +135,7 @@ fun DkgRitualScreen(
     /** Which of the room's ceremonies to show; null takes the newest. */
     dkgSessionId: String? = null,
     initialDkgRitualUIState: DkgRitualUIState = DkgRitualUIState.Loading,
-    activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
     onNavigateToRoute: (Route) -> Unit = {},
@@ -146,7 +146,7 @@ fun DkgRitualScreen(
             activeUserPublicKey = activeUserPublicKey,
             dkgSessionId = dkgSessionId,
             initialDkgRitualUIState = initialDkgRitualUIState,
-            activeWalletStateFlow = activeWalletStateFlow,
+            activeIdentityStateFlow = activeIdentityStateFlow,
             chatRepository = chatRepository,
             dkgRepository = dkgRepository
         )
@@ -882,7 +882,7 @@ private fun DkgRitualScreenPreview() {
                         ),
                     )
                 ),
-                activeWalletStateFlow = MutableStateFlow(null),
+                activeIdentityStateFlow = MutableStateFlow(null),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY
             )

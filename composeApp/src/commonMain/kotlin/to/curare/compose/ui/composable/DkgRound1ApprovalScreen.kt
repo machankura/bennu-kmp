@@ -12,7 +12,7 @@ import to.curare.compose.database.model.types.DkgApprovalStep
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.DkgRepository
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import fr.acinq.phoenix.data.ActiveWallet
+import to.curare.compose.identity.Identity
 import kotlinx.coroutines.flow.StateFlow
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
@@ -37,7 +37,7 @@ fun DkgRound1ApprovalScreen(
     activeUserPublicKey: HexKey,
     chatRoomId: String,
     dkgSessionId: String? = null,
-    activeWalletStateFlow: StateFlow<ActiveWallet?>,
+    activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
     onDone: () -> Unit,
@@ -49,7 +49,7 @@ fun DkgRound1ApprovalScreen(
         activeUserPublicKey = activeUserPublicKey,
         chatRoomId = chatRoomId,
         dkgSessionId = dkgSessionId,
-        activeWalletStateFlow = activeWalletStateFlow,
+        activeIdentityStateFlow = activeIdentityStateFlow,
         chatRepository = chatRepository,
         dkgRepository = dkgRepository,
         onDone = onDone
