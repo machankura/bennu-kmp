@@ -1,3 +1,4 @@
 [submodule "lightning-kmp-app"]
 	path = lightning-kmp-app
 	url = https://github.com/kngako/lightning-kmp-app.git
+	branch = master
