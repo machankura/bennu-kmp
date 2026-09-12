@@ -199,6 +199,20 @@ fun SovereignWalletStartupScreen(
                                                             )
                                                         )
                                                     }
+                                                    is StoredIdentity.NostrPublic -> {
+                                                        // Nothing to start and nothing to decrypt: the
+                                                        // public key is the whole of what the device
+                                                        // holds, and the identity is active the moment
+                                                        // it is read, as the nsec branch above is.
+                                                        sovereignWalletViewModel.setActiveIdentity(
+                                                            Identity.readOnly(
+                                                                id = identity.id,
+                                                                nostrPublicKey = identity.nostrPublicKey,
+                                                                userPrefs = dataStoreManager.loadUserPrefsForWallet(identity.id),
+                                                                internalPrefs = dataStoreManager.loadInternalPrefsForWallet(identity.id),
+                                                            )
+                                                        )
+                                                    }
                                                 }
                                                 loadingIdentity = null
                                             },

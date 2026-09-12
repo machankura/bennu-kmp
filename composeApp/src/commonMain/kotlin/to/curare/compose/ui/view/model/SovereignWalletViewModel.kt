@@ -14,14 +14,15 @@ import fr.acinq.phoenix.PhoenixBusiness
 import fr.acinq.phoenix.PhoenixGlobal
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.PrivateKey
-import fr.acinq.phoenix.data.DecryptNostrKeysResult
+import fr.acinq.phoenix.data.DecryptNostrCredentialsResult
 import fr.acinq.phoenix.data.DecryptSeedResult
 import fr.acinq.phoenix.data.ElectrumConfig
 import fr.acinq.phoenix.data.ListWalletState
 import fr.acinq.phoenix.data.UserWallet
 import fr.acinq.phoenix.data.WalletId
 import fr.acinq.phoenix.managers.DataStoreManager
-import fr.acinq.phoenix.managers.NostrKeyManager
+import fr.acinq.phoenix.managers.NostrCredentialManager
+import fr.acinq.phoenix.security.NostrCredential
 import fr.acinq.phoenix.managers.nostrPrivateKey
 import fr.acinq.phoenix.utils.preferences.GlobalPrefs
 import fr.acinq.phoenix.utils.preferences.UserWalletMetadata
@@ -214,32 +215,32 @@ class SovereignWalletViewModel(
                 is DecryptSeedResult.Success -> result.userWalletsMap
             }
 
-            val nostrKeys: Map<HexKey, PrivateKey> = when (val result = NostrKeyManager.loadAndDecrypt(phoenixGlobal)) {
-                is DecryptNostrKeysResult.Failure.SerializationError -> {
-                    log.e { "cannot deserialize nostr keys file" }
+            val credentials: Map<HexKey, NostrCredential> = when (val result = NostrCredentialManager.loadAndDecrypt(phoenixGlobal)) {
+                is DecryptNostrCredentialsResult.Failure.SerializationError -> {
+                    log.e { "cannot deserialize nostr credentials file" }
                     _listWalletState.value = ListWalletState.Error.Serialization
                     return@launch
                 }
-                is DecryptNostrKeysResult.Failure.DecryptionError -> {
-                    log.e("cannot decrypt nostr keys file: ", throwable = result.cause)
+                is DecryptNostrCredentialsResult.Failure.DecryptionError -> {
+                    log.e("cannot decrypt nostr credentials file: ", throwable = result.cause)
                     _listWalletState.value = ListWalletState.Error.DecryptionError.GeneralException(result.cause)
                     return@launch
                 }
-                is DecryptNostrKeysResult.Failure.KeyStoreFailure -> {
+                is DecryptNostrCredentialsResult.Failure.KeyStoreFailure -> {
                     log.e("key store failure: ", throwable = result.cause)
                     _listWalletState.value = ListWalletState.Error.DecryptionError.KeystoreFailure(result.cause)
                     return@launch
                 }
-                is DecryptNostrKeysResult.Failure.FileUnreadable -> {
-                    log.e("aborting, unreadable nostr keys file")
+                is DecryptNostrCredentialsResult.Failure.FileUnreadable -> {
+                    log.e("aborting, unreadable nostr credentials file")
                     _listWalletState.value = ListWalletState.Error.Generic(null)
                     return@launch
                 }
-                is DecryptNostrKeysResult.Failure.FileNotFound -> emptyMap()
-                is DecryptNostrKeysResult.Success -> result.keys
+                is DecryptNostrCredentialsResult.Failure.FileNotFound -> emptyMap()
+                is DecryptNostrCredentialsResult.Success -> result.credentials
             }
 
-            val identities = StoredIdentity.merge(wallets, nostrKeys)
+            val identities = StoredIdentity.merge(wallets, credentials)
 
             val metadataMap = getAvailableWalletsMeta(phoenixGlobal).first()
             identities.keys.forEach { walletId ->
@@ -357,7 +358,7 @@ class SovereignWalletViewModel(
      * Writes a bare nostr key as a new identity, with the same initialisation options
      * [writeSeed] applies. Suspends; the caller is the sign-in view model's coroutine.
      */
-    suspend fun writeNostrKey(privateKey: PrivateKey): IdentityWriter.WriteNostrKeyResult =
+    suspend fun writeNostrKey(privateKey: PrivateKey): IdentityWriter.WriteNostrCredentialResult =
         IdentityWriter.writeNostrKey(
             log = log,
             phoenixGlobal = phoenixGlobal,
@@ -367,9 +368,20 @@ class SovereignWalletViewModel(
             customElectrumServer = customElectrumServer.value,
         )
 
-    /** The inverse of [writeNostrKey]. Only for a bare key; see [IdentityWriter.forgetNostrKey]. */
-    suspend fun forgetNostrKey(identity: Identity): IdentityWriter.ForgetNostrKeyResult =
-        IdentityWriter.forgetNostrKey(
+    /** Writes a public key as a read-only identity, with the same options. */
+    suspend fun writeNostrPublicKey(nostrPublicKey: HexKey): IdentityWriter.WriteNostrCredentialResult =
+        IdentityWriter.writeNostrPublicKey(
+            log = log,
+            phoenixGlobal = phoenixGlobal,
+            globalPrefs = getGlobalPrefs(),
+            nostrPublicKey = nostrPublicKey,
+            isTorEnabled = isTorEnabled.value,
+            customElectrumServer = customElectrumServer.value,
+        )
+
+    /** The inverse of both writers above. Only for a credential; see [IdentityWriter.forgetNostrCredential]. */
+    suspend fun forgetNostrCredential(identity: Identity): IdentityWriter.ForgetNostrCredentialResult =
+        IdentityWriter.forgetNostrCredential(
             log = log,
             phoenixGlobal = phoenixGlobal,
             id = identity.id,

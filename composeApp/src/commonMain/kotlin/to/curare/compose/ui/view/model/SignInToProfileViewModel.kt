@@ -42,7 +42,7 @@ import to.curare.compose.ui.view.state.form.SignInToProfileFormState
  */
 class SignInToProfileViewModel(
     private val nostrRepository: NostrRepository,
-    private val writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrKeyResult,
+    private val writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrCredentialResult,
     private val writeRecoveryPhrase: (
         words: List<String>,
         onWritten: (WalletId) -> Unit,
@@ -56,7 +56,7 @@ class SignInToProfileViewModel(
 
         fun factory(
             nostrRepository: NostrRepository,
-            writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrKeyResult,
+            writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrCredentialResult,
             writeRecoveryPhrase: (
                 words: List<String>,
                 onWritten: (WalletId) -> Unit,
@@ -111,9 +111,9 @@ class SignInToProfileViewModel(
         val written: Outcome = when (credential) {
             is SignInCredential.NostrSecret -> try {
                 when (val result = writeNostrKey(credential.privateKey)) {
-                    is IdentityWriter.WriteNostrKeyResult.Written -> Outcome.SignedIn(result.id)
-                    is IdentityWriter.WriteNostrKeyResult.AlreadyExists -> Outcome.Failed(CredentialProblem.AlreadyOnThisDevice)
-                    is IdentityWriter.WriteNostrKeyResult.CannotLoadKeys -> Outcome.Failed(CredentialProblem.CouldNotWrite)
+                    is IdentityWriter.WriteNostrCredentialResult.Written -> Outcome.SignedIn(result.id)
+                    is IdentityWriter.WriteNostrCredentialResult.AlreadyExists -> Outcome.Failed(CredentialProblem.AlreadyOnThisDevice)
+                    is IdentityWriter.WriteNostrCredentialResult.CannotLoadKeys -> Outcome.Failed(CredentialProblem.CouldNotWrite)
                 }
             } catch (e: CancellationException) {
                 throw e

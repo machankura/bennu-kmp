@@ -79,26 +79,26 @@ class NostrSecretViewModelJvmTest {
 
     private fun viewModel(
         recorder: Recorder,
-        forgetOutcome: IdentityWriter.ForgetNostrKeyResult,
+        forgetOutcome: IdentityWriter.ForgetNostrCredentialResult,
     ) = NostrSecretViewModel(
         phoenixGlobal = PhoenixGlobal(PlatformContext(applicationDir = temporaryFolder.newFolder())),
         activeIdentityStateFlow = MutableStateFlow<Identity?>(identity()),
         nostrRepository = recorder,
-        forgetNostrKey = { recorder.effects += "forgetNostrKey"; forgetOutcome },
+        forgetNostrCredential = { recorder.effects += "forgetNostrCredential"; forgetOutcome },
         hideIdentityMetadata = { recorder.effects += "hideIdentityMetadata" },
     )
 
     @Test
     fun `the key comes out first, then the metadata, the account, and the caller is told`() {
         val recorder = Recorder()
-        val viewModel = viewModel(recorder, IdentityWriter.ForgetNostrKeyResult.Forgotten)
+        val viewModel = viewModel(recorder, IdentityWriter.ForgetNostrCredentialResult.Forgotten)
         val told = CompletableDeferred<Unit>()
 
         viewModel.forgetKey { told.complete(Unit) }
         runBlocking { withTimeout(10_000) { told.await() } }
 
         assertEquals(
-            listOf("forgetNostrKey", "hideIdentityMetadata", "forgetLocalAccount"),
+            listOf("forgetNostrCredential", "hideIdentityMetadata", "forgetLocalAccount"),
             recorder.effects,
         )
         assertEquals(NostrSecretUIState.Forgetting.Idle, viewModel.forgetting.value)
@@ -107,7 +107,7 @@ class NostrSecretViewModelJvmTest {
     @Test
     fun `a key that could not be removed leaves everything else alone`() {
         val recorder = Recorder()
-        val viewModel = viewModel(recorder, IdentityWriter.ForgetNostrKeyResult.CannotLoadKeys)
+        val viewModel = viewModel(recorder, IdentityWriter.ForgetNostrCredentialResult.CannotLoadKeys)
 
         viewModel.forgetKey { error("must not be told") }
         val state = runBlocking {
@@ -115,6 +115,6 @@ class NostrSecretViewModelJvmTest {
         }
 
         assertEquals(NostrSecretUIState.Forgetting.Failed, state)
-        assertEquals(listOf("forgetNostrKey"), recorder.effects)
+        assertEquals(listOf("forgetNostrCredential"), recorder.effects)
     }
 }

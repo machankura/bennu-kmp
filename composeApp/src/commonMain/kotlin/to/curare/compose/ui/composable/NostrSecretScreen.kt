@@ -104,7 +104,7 @@ fun NostrSecretScreen(
     phoenixGlobal: PhoenixGlobal,
     activeIdentityStateFlow: StateFlow<Identity?>,
     nostrRepository: NostrRepository,
-    forgetNostrKey: suspend (Identity) -> IdentityWriter.ForgetNostrKeyResult,
+    forgetNostrCredential: suspend (Identity) -> IdentityWriter.ForgetNostrCredentialResult,
     hideIdentityMetadata: suspend (Identity) -> Unit,
     onNavigateBack: () -> Unit,
     onForgotten: () -> Unit,
@@ -114,7 +114,7 @@ fun NostrSecretScreen(
             phoenixGlobal = phoenixGlobal,
             activeIdentityStateFlow = activeIdentityStateFlow,
             nostrRepository = nostrRepository,
-            forgetNostrKey = forgetNostrKey,
+            forgetNostrCredential = forgetNostrCredential,
             hideIdentityMetadata = hideIdentityMetadata,
         )
     )

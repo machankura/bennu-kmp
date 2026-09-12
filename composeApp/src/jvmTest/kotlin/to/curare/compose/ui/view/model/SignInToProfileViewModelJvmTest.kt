@@ -42,7 +42,7 @@ class SignInToProfileViewModelJvmTest {
 
     private fun viewModel(
         recorder: Recorder,
-        nostrKeyOutcome: () -> IdentityWriter.WriteNostrKeyResult = { IdentityWriter.WriteNostrKeyResult.Written(id) },
+        nostrKeyOutcome: () -> IdentityWriter.WriteNostrCredentialResult = { IdentityWriter.WriteNostrCredentialResult.Written(id) },
         seedOutcome: ((WalletId) -> Unit, (WritingSeedState.Error) -> Unit) -> Unit = { onWritten, _ -> onWritten(id) },
     ) = SignInToProfileViewModel(
         nostrRepository = recorder,
@@ -74,7 +74,7 @@ class SignInToProfileViewModelJvmTest {
     fun `a key already on the device is refused, and no account is planted`() = runBlocking {
         val recorder = Recorder()
 
-        val outcome = viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrKeyResult.AlreadyExists }).commit(nostrSecret)
+        val outcome = viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrCredentialResult.AlreadyExists }).commit(nostrSecret)
 
         assertEquals(SignInToProfileViewModel.Outcome.Failed(CredentialProblem.AlreadyOnThisDevice), outcome)
         assertEquals(listOf("writeNostrKey"), recorder.effects)
@@ -97,7 +97,7 @@ class SignInToProfileViewModelJvmTest {
 
         assertEquals(
             SignInToProfileViewModel.Outcome.Failed(CredentialProblem.CouldNotWrite),
-            viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrKeyResult.CannotLoadKeys }).commit(nostrSecret),
+            viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrCredentialResult.CannotLoadKeys }).commit(nostrSecret),
         )
         assertEquals(
             SignInToProfileViewModel.Outcome.Failed(CredentialProblem.CouldNotWrite),

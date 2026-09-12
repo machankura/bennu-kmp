@@ -4,6 +4,7 @@ import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.phoenix.data.UserWallet
 import fr.acinq.phoenix.data.WalletId
+import fr.acinq.phoenix.security.NostrCredential
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -29,6 +30,7 @@ class StoredIdentityJvmTest {
         words = words,
     )
     private val bareKey = PrivateKey(ByteVector32("02".repeat(32)))
+    private val readOnlyKey = PrivateKey(ByteVector32("03".repeat(32))).publicKey().xOnly().value.toHex()
 
     @Test
     fun `a wallet's nostr key is the NIP-06 derivation of its words`() {
@@ -40,10 +42,13 @@ class StoredIdentityJvmTest {
     fun `both stores land in one map, each under its own id`() {
         val merged = StoredIdentity.merge(
             wallets = mapOf(wallet.walletId to wallet),
-            nostrKeys = mapOf(bareKey.publicKey().xOnly().value.toHex() to bareKey),
+            credentials = mapOf(
+                bareKey.publicKey().xOnly().value.toHex() to NostrCredential.Secret(bareKey),
+                readOnlyKey to NostrCredential.Public,
+            ),
         )
 
-        assertEquals(2, merged.size)
+        assertEquals(3, merged.size)
         val mnemonic = assertIs<StoredIdentity.Mnemonic>(merged[wallet.walletId])
         assertEquals(nip06PublicKey, mnemonic.nostrPublicKey)
         assertEquals(IdentityKind.Mnemonic, mnemonic.kind)
@@ -52,6 +57,19 @@ class StoredIdentityJvmTest {
         assertEquals(IdentityKind.NostrSecret, secret.kind)
         assertEquals(40, secret.id.nodeIdHash.length, "same shape as a wallet's id")
         assertNotEquals(wallet.walletId, secret.id)
+
+        val public = assertIs<StoredIdentity.NostrPublic>(merged[readOnlyKey.toXonlyPublicKey().toWalletId()])
+        assertEquals(IdentityKind.NostrPublic, public.kind)
+        assertEquals(readOnlyKey, public.nostrPublicKey)
+    }
+
+    /** The id a read-only identity gets is the one its secret would get, so an upgrade keeps it. */
+    @Test
+    fun `a public key and its secret get the same id`() {
+        assertEquals(
+            StoredIdentity.nostrSecret(bareKey).id,
+            StoredIdentity.nostrPublic(bareKey.publicKey().xOnly().value.toHex()).id,
+        )
     }
 
     /**
@@ -63,18 +81,36 @@ class StoredIdentityJvmTest {
     fun `a wallet and its own nostr key as a bare secret do not collide by id`() {
         val merged = StoredIdentity.merge(
             wallets = mapOf(wallet.walletId to wallet),
-            nostrKeys = mapOf(nip06PublicKey to nip06PrivateKey),
+            credentials = mapOf(nip06PublicKey to NostrCredential.Secret(nip06PrivateKey)),
         )
 
         assertEquals(2, merged.size)
         assertEquals(1, merged.values.map { it.nostrPublicKey }.toSet().size, "one npub, twice")
     }
 
+    /**
+     * The one precedence the merge decides. A recovery phrase pasted over a public
+     * credential is written across two files -- the credential removed first, then the
+     * seed -- and a crash between the two would leave neither, never both; this is the
+     * rule for the "both" that is not supposed to happen, so that it lists the wallet
+     * rather than one npub twice.
+     */
+    @Test
+    fun `a public key a seed already derives is listed as the wallet only`() {
+        val merged = StoredIdentity.merge(
+            wallets = mapOf(wallet.walletId to wallet),
+            credentials = mapOf(nip06PublicKey to NostrCredential.Public),
+        )
+
+        assertEquals(1, merged.size)
+        assertIs<StoredIdentity.Mnemonic>(merged[wallet.walletId])
+    }
+
     @Test
     fun `a key filed under a public key it does not derive is dropped`() {
         val merged = StoredIdentity.merge(
             wallets = emptyMap(),
-            nostrKeys = mapOf(nip06PublicKey to bareKey),
+            credentials = mapOf(nip06PublicKey to NostrCredential.Secret(bareKey)),
         )
 
         assertEquals(emptyMap(), merged)

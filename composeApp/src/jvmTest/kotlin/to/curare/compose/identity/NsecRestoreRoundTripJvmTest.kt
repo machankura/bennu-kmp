@@ -9,7 +9,7 @@ import fr.acinq.phoenix.PhoenixGlobal
 import fr.acinq.phoenix.jvm.BusinessManager
 import fr.acinq.phoenix.managers.DataStoreManager
 import fr.acinq.phoenix.managers.NodeParamsManager
-import fr.acinq.phoenix.managers.NostrKeyManager
+import fr.acinq.phoenix.managers.NostrCredentialManager
 import fr.acinq.phoenix.managers.SeedManager
 import fr.acinq.phoenix.managers.computePreferencePath
 import fr.acinq.phoenix.security.JvmKeyStore
@@ -113,14 +113,14 @@ class NsecRestoreRoundTripJvmTest {
     @Test
     fun `an nsec written, listed, activated and routed, with no node started`() = runBlocking<Unit> {
         // 1. The sign-in screen's commit, minus the screen.
-        val written = assertIs<IdentityWriter.WriteNostrKeyResult.Written>(
+        val written = assertIs<IdentityWriter.WriteNostrCredentialResult.Written>(
             IdentityWriter.writeNostrKey(log, phoenixGlobal, globalPrefs, privateKey, isTorEnabled = false, customElectrumServer = null)
         )
 
         // 2. What startup lists: both stores, merged.
         val identities = StoredIdentity.merge(
             wallets = SeedManager.loadAndDecryptOrNull(phoenixGlobal) ?: error("seed store unreadable"),
-            nostrKeys = NostrKeyManager.loadAndDecryptOrNull(phoenixGlobal) ?: error("key store unreadable"),
+            credentials = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal) ?: error("key store unreadable"),
         )
         val stored = assertIs<StoredIdentity.NostrSecret>(identities[written.id], "the imported key is listed under the id the writer returned")
 

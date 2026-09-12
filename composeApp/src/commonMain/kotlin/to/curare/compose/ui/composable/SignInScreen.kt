@@ -92,7 +92,7 @@ import to.curare.compose.ui.view.state.SignInToProfileUIState
 @Composable
 fun SignInToProfileScreen(
     nostrRepository: NostrRepository,
-    writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrKeyResult,
+    writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrCredentialResult,
     writeRecoveryPhrase: (
         words: List<String>,
         onWritten: (WalletId) -> Unit,
@@ -302,7 +302,7 @@ private fun SignInToProfileScreenPreview() {
         ) {
             SignInToProfileScreen(
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
-                writeNostrKey = { IdentityWriter.WriteNostrKeyResult.CannotLoadKeys },
+                writeNostrKey = { IdentityWriter.WriteNostrCredentialResult.CannotLoadKeys },
                 writeRecoveryPhrase = { _, _, onError -> onError(WritingSeedState.Error.CannotLoadSeedMap) },
                 onNavigateBack = {},
                 onSignedIn = {},

@@ -7,8 +7,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import co.touchlab.kermit.Logger
 import fr.acinq.phoenix.PhoenixGlobal
-import fr.acinq.phoenix.data.DecryptNostrKeysResult
-import fr.acinq.phoenix.managers.NostrKeyManager
+import fr.acinq.phoenix.data.DecryptNostrCredentialsResult
+import fr.acinq.phoenix.managers.NostrCredentialManager
+import fr.acinq.phoenix.security.NostrCredential
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,7 +53,7 @@ class NostrSecretViewModel(
     val phoenixGlobal: PhoenixGlobal,
     val activeIdentityStateFlow: StateFlow<Identity?>,
     private val nostrRepository: NostrRepository,
-    private val forgetNostrKey: suspend (Identity) -> IdentityWriter.ForgetNostrKeyResult,
+    private val forgetNostrCredential: suspend (Identity) -> IdentityWriter.ForgetNostrCredentialResult,
     private val hideIdentityMetadata: suspend (Identity) -> Unit,
 ) : ViewModel() {
 
@@ -103,25 +104,27 @@ class NostrSecretViewModel(
 
             // Keystore-backed, and it reads a file: it blocks, so it cannot run on the main thread.
             val result = withContext(Dispatchers.IO) {
-                NostrKeyManager.loadAndDecrypt(phoenixGlobal)
+                NostrCredentialManager.loadAndDecrypt(phoenixGlobal)
             }
 
             _uiState.value = when (result) {
-                is DecryptNostrKeysResult.Success -> {
-                    val privateKey = result.keys[identity.nostrPublicKey]
-                    if (privateKey == null) {
-                        logger.e { "key file holds no key for identity=${identity.id}" }
+                is DecryptNostrCredentialsResult.Success -> {
+                    // A public entry is not a key either: this screen is not offered to a
+                    // read-only identity, and if it were reached there is nothing to show.
+                    val credential = result.credentials[identity.nostrPublicKey] as? NostrCredential.Secret
+                    if (credential == null) {
+                        logger.e { "credentials file holds no secret for identity=${identity.id}" }
                         NostrSecretUIState.Error.NoKeyForThisIdentity
                     } else {
-                        NostrSecretUIState.Revealed(privateKey.value.toHex().hexToNsecHrp())
+                        NostrSecretUIState.Revealed(credential.privateKey.value.toHex().hexToNsecHrp())
                     }
                 }
-                is DecryptNostrKeysResult.Failure.FileNotFound -> {
-                    logger.e { "no key file, so no key for identity=${identity.id}" }
+                is DecryptNostrCredentialsResult.Failure.FileNotFound -> {
+                    logger.e { "no credentials file, so no key for identity=${identity.id}" }
                     NostrSecretUIState.Error.NoKeyForThisIdentity
                 }
-                is DecryptNostrKeysResult.Failure -> {
-                    logger.e { "unable to read the nostr keys: $result" }
+                is DecryptNostrCredentialsResult.Failure -> {
+                    logger.e { "unable to read the nostr credentials: $result" }
                     NostrSecretUIState.Error.KeysUnreadable
                 }
             }
@@ -174,15 +177,15 @@ class NostrSecretViewModel(
             logger.e("could not forget the key", throwable)
             _forgetting.value = NostrSecretUIState.Forgetting.Failed
         }) {
-            when (forgetNostrKey(identity)) {
-                is IdentityWriter.ForgetNostrKeyResult.Forgotten -> {
+            when (forgetNostrCredential(identity)) {
+                is IdentityWriter.ForgetNostrCredentialResult.Forgotten -> {
                     hideIdentityMetadata(identity)
                     nostrRepository.forgetLocalAccount(identity.nostrPublicKey)
                     _forgetting.value = NostrSecretUIState.Forgetting.Idle
                     withContext(Dispatchers.Main) { onForgotten() }
                 }
-                is IdentityWriter.ForgetNostrKeyResult.NotABareKey,
-                is IdentityWriter.ForgetNostrKeyResult.CannotLoadKeys -> {
+                is IdentityWriter.ForgetNostrCredentialResult.NotACredential,
+                is IdentityWriter.ForgetNostrCredentialResult.CannotLoadKeys -> {
                     _forgetting.value = NostrSecretUIState.Forgetting.Failed
                 }
             }
@@ -196,7 +199,7 @@ class NostrSecretViewModel(
             phoenixGlobal: PhoenixGlobal,
             activeIdentityStateFlow: StateFlow<Identity?>,
             nostrRepository: NostrRepository,
-            forgetNostrKey: suspend (Identity) -> IdentityWriter.ForgetNostrKeyResult,
+            forgetNostrCredential: suspend (Identity) -> IdentityWriter.ForgetNostrCredentialResult,
             hideIdentityMetadata: suspend (Identity) -> Unit,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -204,7 +207,7 @@ class NostrSecretViewModel(
                     phoenixGlobal = phoenixGlobal,
                     activeIdentityStateFlow = activeIdentityStateFlow,
                     nostrRepository = nostrRepository,
-                    forgetNostrKey = forgetNostrKey,
+                    forgetNostrCredential = forgetNostrCredential,
                     hideIdentityMetadata = hideIdentityMetadata,
                 )
             }
