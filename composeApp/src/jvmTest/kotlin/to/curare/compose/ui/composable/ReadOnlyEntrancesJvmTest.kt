@@ -101,6 +101,7 @@ class ReadOnlyEntrancesJvmTest {
         onNodeWithText("Key recovery", useUnmergedTree = true).assertIsDisplayed()
         onNodeWithText("Key package management", useUnmergedTree = true).assertIsDisplayed()
         onNodeWithText("Sign out", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithText("Switch profile", useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test
@@ -110,6 +111,8 @@ class ReadOnlyEntrancesJvmTest {
         onNodeWithText("Key recovery", useUnmergedTree = true).assertDoesNotExist()
         onNodeWithText("Key package management", useUnmergedTree = true).assertDoesNotExist()
         onNodeWithText("Sign out", useUnmergedTree = true).assertIsDisplayed()
+        // A read-only identity can leave for another profile the same way a signing one can.
+        onNodeWithText("Switch profile", useUnmergedTree = true).assertIsDisplayed()
     }
 
     // --- Profile: sign out is real for a read-only identity, and confirms first ---

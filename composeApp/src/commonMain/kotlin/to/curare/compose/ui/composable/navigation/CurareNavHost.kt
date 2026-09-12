@@ -97,7 +97,11 @@ import to.curare.compose.ui.composable.navigation.routes.LandingRoute
 import to.curare.compose.ui.composable.navigation.routes.LoadingRoute
 import to.curare.compose.ui.composable.navigation.routes.NostrEventDetailRoute
 import to.curare.compose.ui.composable.navigation.routes.NostrSecretRoute
+import to.curare.compose.ui.composable.navigation.routes.ProfilesRoute
 import to.curare.compose.ui.composable.navigation.routes.RecoveryPhraseRoute
+import to.curare.compose.ui.composable.ProfilesScreen
+import to.curare.compose.ui.view.model.ProfilesViewModel
+import to.curare.compose.ui.view.model.getAvailableWalletsMeta
 import to.curare.compose.ui.composable.navigation.routes.SearchMemberToAddToChatRoomRoute
 import to.curare.compose.ui.composable.navigation.routes.SearchResultRoute
 import to.curare.compose.ui.composable.navigation.routes.SearchRoute
@@ -479,6 +483,7 @@ fun CurareNavHost(
 
                 SovereignWalletStartupScreen(
                     sovereignWalletViewModel = sovereignWalletViewModel,
+                    nostrRepository = databaseNostrRepository,
                     // No seed on this device, so there is no wallet to start: the user has to make or
                     // restore one, and that lives behind the landing screen. This used to park them on
                     // a loading screen with nothing left to load.
@@ -911,6 +916,31 @@ fun CurareNavHost(
                             route = route
                         )
                     }
+                )
+            }
+            composable<ProfilesRoute> {
+                val profilesViewModel: ProfilesViewModel = viewModel(
+                    factory = ProfilesViewModel.factory(
+                        listWalletState = sovereignWalletViewModel.listWalletState,
+                        availableIdentities = sovereignWalletViewModel.availableIdentities,
+                        activeIdentity = sovereignWalletViewModel.activeIdentity,
+                        walletsMetadata = getAvailableWalletsMeta(phoenixGlobal),
+                        nostrRepository = databaseNostrRepository,
+                    ),
+                )
+                ProfilesScreen(
+                    viewModel = profilesViewModel,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    },
+                    // The switch is the whole of it: the observer above sends the null
+                    // identity to startup, and startup opens the one named.
+                    onSwitch = { walletId ->
+                        sovereignWalletViewModel.switchToIdentity(walletId)
+                    },
+                    onRetry = {
+                        sovereignWalletViewModel.listIdentities {}
+                    },
                 )
             }
             composable<KeyRecoveryRoute> { backStackEntry ->

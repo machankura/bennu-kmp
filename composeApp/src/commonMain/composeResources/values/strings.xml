@@ -42,7 +42,6 @@
     <string name="bip39_seed_with_the_standard_bip84">BIP39 seed with the standard BIP84 derivation path. The profile\'s nostr key comes off the same seed, so these 12 words restore both.</string>
     <string name="block_user">Block user</string>
     <string name="cancel">Cancel</string>
-    <string name="change_account">Change account</string>
     <string name="chapter_detail">Chapter detail</string>
     <string name="chapter_name">Chapter name</string>
     <string name="chapter_translation">Chapter translation</string>
@@ -711,4 +710,8 @@
     <string name="preparing_profiles">Preparing profiles…</string>
     <string name="starting_wallet">Starting wallet…</string>
     <string name="unlock_to_continue">Unlock to continue</string>
+    <!-- The switcher: the profiles on this device, and what the device holds for each. -->
+    <string name="loading_profiles">Loading profiles…</string>
+    <string name="switch_profile">Switch profile</string>
+    <string name="wallet">Wallet</string>
 </resources>

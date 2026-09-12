@@ -54,7 +54,6 @@ import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
-import curare.composeapp.generated.resources.change_account
 import curare.composeapp.generated.resources.edit_profile
 import curare.composeapp.generated.resources.key_package_management
 import curare.composeapp.generated.resources.network_relays
@@ -62,6 +61,8 @@ import curare.composeapp.generated.resources.profile
 import curare.composeapp.generated.resources.key_recovery
 import curare.composeapp.generated.resources.share_profile
 import curare.composeapp.generated.resources.sign_out
+import curare.composeapp.generated.resources.switch_profile
+import to.curare.compose.ui.composable.navigation.routes.ProfilesRoute
 import curare.composeapp.generated.resources.sign_out_of_this_profile_question
 import curare.composeapp.generated.resources.could_not_sign_out_please_try_again
 import to.curare.compose.identity.Identity
@@ -302,18 +303,18 @@ fun ActiveProfileScreen(
                             }
 
 
+                            // For every kind: a read-only identity can leave for another
+                            // profile the same way a signing one can.
                             item {
                                 TextButton(
                                     onClick = {
-                                        onNavigateToRoute.invoke(
-                                            ImplementationPendingRoute("Change account")
-                                        )
+                                        onNavigateToRoute.invoke(ProfilesRoute)
                                     }
                                 ) {
 
                                     Icon(
                                         Icons.Default.ImportExport,
-                                        contentDescription = "Change profile"
+                                        contentDescription = Decorative
                                     )
 
                                     Spacer(
@@ -321,7 +322,7 @@ fun ActiveProfileScreen(
                                     )
 
                                     Text(
-                                        stringResource(Res.string.change_account)
+                                        stringResource(Res.string.switch_profile)
                                     )
                                 }
                             }

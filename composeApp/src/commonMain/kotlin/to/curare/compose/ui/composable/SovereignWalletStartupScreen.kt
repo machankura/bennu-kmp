@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.first
 import to.curare.compose.identity.Identity
 import to.curare.compose.identity.IdentityKind
 import to.curare.compose.identity.StoredIdentity
+import to.curare.compose.repository.NostrRepository
+import to.curare.compose.ui.composable.widgets.wallet.rememberProfilesOf
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
@@ -46,6 +48,8 @@ import to.curare.compose.ui.view.state.StartupChoice
 @Composable
 fun SovereignWalletStartupScreen(
     sovereignWalletViewModel: to.curare.compose.ui.view.model.SovereignWalletViewModel,
+    /** For the selector's rows: the nostr profile of each listed key, where the device has one. */
+    nostrRepository: NostrRepository,
     onNavigateToWalletLandingPage: () -> Unit,
     onSuccessfulStartup: () -> Unit,
     forceWalletId: WalletId?,
@@ -139,11 +143,15 @@ fun SovereignWalletStartupScreen(
                                 }
                                 when (val stored = loadingIdentity) {
                                     null -> {
+                                        val profiles by rememberProfilesOf(
+                                            publicKeys = availableIdentities.values.map { it.nostrPublicKey },
+                                            nostrRepository = nostrRepository,
+                                        )
                                         to.curare.compose.ui.composable.widgets.wallet.WalletsSelector(
                                             wallets = availableIdentities,
-                                            globalPrefs = globalPrefs,
                                             walletsMetadata = availableWalletMetadata,
                                             activeWalletId = null,
+                                            profiles = profiles,
                                             onWalletClick = {
                                                 sovereignWalletViewModel.switchToIdentity(
                                                     it.id
