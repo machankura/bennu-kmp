@@ -367,6 +367,30 @@ class SovereignWalletViewModel(
             customElectrumServer = customElectrumServer.value,
         )
 
+    /** The inverse of [writeNostrKey]. Only for a bare key; see [IdentityWriter.forgetNostrKey]. */
+    suspend fun forgetNostrKey(identity: Identity): IdentityWriter.ForgetNostrKeyResult =
+        IdentityWriter.forgetNostrKey(
+            log = log,
+            phoenixGlobal = phoenixGlobal,
+            id = identity.id,
+            nostrPublicKey = identity.nostrPublicKey,
+        )
+
+    /**
+     * Hides a forgotten identity's entry in the wallet metadata rather than deleting it:
+     * the metadata store has no delete, and `isHidden` is what the selector filters on.
+     */
+    suspend fun hideIdentityMetadata(identity: Identity) {
+        val existing = getAvailableWalletsMeta(phoenixGlobal).first()[identity.id] ?: return
+        saveAvailableWalletMeta(
+            phoenixGlobal = phoenixGlobal,
+            walletId = identity.id,
+            name = existing.name,
+            avatar = existing.avatar,
+            isHidden = true,
+        )
+    }
+
     companion object {
         private const val TAG = "SovereignWalletViewModel"
         fun factory(

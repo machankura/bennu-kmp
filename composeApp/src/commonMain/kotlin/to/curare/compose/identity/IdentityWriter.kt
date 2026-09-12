@@ -206,4 +206,42 @@ object IdentityWriter {
 
         return WriteNostrKeyResult.Written(stored.id)
     }
+
+    sealed class ForgetNostrKeyResult {
+        data object Forgotten : ForgetNostrKeyResult()
+
+        /** The key is not in `nostr-keys.dat`: a mnemonic identity's key lives in the seed, and removing a seed is a wallet question. */
+        data object NotABareKey : ForgetNostrKeyResult()
+
+        data object CannotLoadKeys : ForgetNostrKeyResult()
+    }
+
+    /**
+     * The inverse of [writeNostrKey]: removes the key from `nostr-keys.dat` and deletes
+     * the identity's preference files. The profile stays on the relays, and the same key
+     * can be signed in again. Only for a bare key -- see [ForgetNostrKeyResult.NotABareKey].
+     */
+    suspend fun forgetNostrKey(
+        log: Logger,
+        phoenixGlobal: PhoenixGlobal,
+        id: WalletId,
+        nostrPublicKey: HexKey,
+    ): ForgetNostrKeyResult {
+        val existing = NostrKeyManager.loadAndDecryptOrNull(phoenixGlobal)
+        if (existing == null) {
+            log.e("could not load the existing keys, aborting...")
+            return ForgetNostrKeyResult.CannotLoadKeys
+        }
+        if (!existing.containsKey(nostrPublicKey)) {
+            log.i("asked to forget a key that is not a bare key on this device")
+            return ForgetNostrKeyResult.NotABareKey
+        }
+
+        NostrKeyManager.writeToDisk(phoenixGlobal, EncryptedNostrKeys.encrypt(existing - nostrPublicKey))
+        log.i("forgot nostr key for identity=$id")
+
+        DataStoreManager(phoenixGlobal.ctx, chain = NodeParamsManager.chain).deleteNodeUserPrefs(id)
+
+        return ForgetNostrKeyResult.Forgotten
+    }
 }

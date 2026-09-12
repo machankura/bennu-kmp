@@ -73,6 +73,13 @@ interface NostrRepository {
         biography: String?,
     )
 
+    /**
+     * Stops treating [publicKey] as one of this device's own: its unsigned rows go, and
+     * with them the requests that hang off them. What it published, and its profile, stay
+     * cached as anyone else's would.
+     */
+    suspend fun forgetLocalAccount(publicKey: HexKey)
+
     suspend fun createNewTextNote(
         publicKey: HexKey,
         mentionedPublicKeys: List<HexKey>,
@@ -257,6 +264,10 @@ interface NostrRepository {
                 name: String?,
                 biography: String?,
             ) {
+                TODO("Not yet implemented")
+            }
+
+            override suspend fun forgetLocalAccount(publicKey: HexKey) {
                 TODO("Not yet implemented")
             }
 

@@ -23,6 +23,15 @@ interface UnsignedNostrEventDao {
     @Upsert
     suspend fun upsert(unsignedNostrEvent: UnsignedNostrEvent): Long
 
+    /**
+     * Every unsigned row of a key this device no longer holds: the kind 0 that makes it a
+     * local account, and anything queued that can now never be signed. The requests that
+     * hang off them cascade; published events and the profile cache do not, and stay as
+     * they would for anyone else's key.
+     */
+    @Query("DELETE FROM UnsignedNostrEvent WHERE pubKey = :publicKey")
+    suspend fun deleteAllForPublicKey(publicKey: String): Int
+
     @Insert
     suspend fun insert(unsignedNostrEvents: List<UnsignedNostrEvent>)
 

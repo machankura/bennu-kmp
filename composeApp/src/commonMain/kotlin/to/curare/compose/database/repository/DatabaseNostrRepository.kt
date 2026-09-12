@@ -154,6 +154,11 @@ class DatabaseNostrRepository(
         saveUnsignedNostrEvents(events.filterNot { it.kind == MetadataEvent.KIND })
     }
 
+    override suspend fun forgetLocalAccount(publicKey: HexKey) {
+        logger.d("forgetLocalAccount: $publicKey")
+        database.unsignedNostrEventDao().deleteAllForPublicKey(publicKey)
+    }
+
     /**
      * What a key gets when it first becomes a profile here: the kind 0, a contact list
      * that follows itself, and the relay lists the app reads, all pointed at the defaults.

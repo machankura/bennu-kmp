@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.AddToDrive
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Spellcheck
 import androidx.compose.material.icons.filled.VolunteerActivism
 import androidx.compose.material.icons.filled.Warning
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import to.curare.compose.identity.Identity
+import to.curare.compose.identity.IdentityKind
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -52,7 +54,11 @@ import curare.composeapp.generated.resources.emergency_kit
 import curare.composeapp.generated.resources.encrypt_and_back_your_recovery_information
 import curare.composeapp.generated.resources.key_recovery
 import curare.composeapp.generated.resources.not_backed_up_yet
+import curare.composeapp.generated.resources.nostr_secret_key
 import curare.composeapp.generated.resources.recovery_phrase
+import curare.composeapp.generated.resources.store_the_nsec_that_signs_as_this_profile
+import curare.composeapp.generated.resources.these_are_your_keys_keep_them_safe_no_wallet
+import curare.composeapp.generated.resources.you_said_you_stored_it
 import curare.composeapp.generated.resources.these_are_your_keys_keep_them_safe_so_they
 import curare.composeapp.generated.resources.write_down_and_secure_the_12_word_phrase
 import curare.composeapp.generated.resources.yolo
@@ -61,6 +67,7 @@ import curare.composeapp.generated.resources.you_said_you_wrote_it_down
 import org.jetbrains.compose.resources.stringResource
 import to.curare.compose.extensions.hexToNpubHrp
 import to.curare.compose.ui.composable.navigation.routes.ImplementationPendingRoute
+import to.curare.compose.ui.composable.navigation.routes.NostrSecretRoute
 import to.curare.compose.ui.composable.navigation.routes.RecoveryPhraseRoute
 import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.composable.widgets.Decorative
@@ -71,11 +78,12 @@ import to.curare.compose.ui.theme.spacing
 /**
  * Everything that can put this profile back on another phone.
  *
- * A Curare profile is its key: the npub that signs, and the wallet that holds
- * coins, both come out of one seed that never leaves the device. There is no
- * account to reset, so this screen is the only thing standing between a lost
- * phone and a lost identity -- it exists to get the user to take a backup while
- * they still can.
+ * A Curare profile is its key: the npub that signs and, for a wallet, the coins
+ * it holds, both come out of one secret that never leaves the device -- twelve
+ * words, or a bare nostr key that was signed in with. There is no account to
+ * reset, so this screen is the only thing standing between a lost phone and a
+ * lost identity -- it exists to get the user to take a backup while they still
+ * can.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -133,7 +141,11 @@ fun KeyRecoveryScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = stringResource(Res.string.these_are_your_keys_keep_them_safe_so_they),
+                        // A bare-key identity has no coins to speak of.
+                        text = when (activeIdentity?.kind) {
+                            IdentityKind.NostrSecret -> stringResource(Res.string.these_are_your_keys_keep_them_safe_no_wallet)
+                            else -> stringResource(Res.string.these_are_your_keys_keep_them_safe_so_they)
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center
                     )
@@ -147,27 +159,55 @@ fun KeyRecoveryScreen(
             }
 
             item {
-                KeyRecoveryOption(
-                    icon = Icons.Default.Spellcheck,
-                    title = stringResource(Res.string.recovery_phrase),
-                    description = stringResource(Res.string.write_down_and_secure_the_12_word_phrase),
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    status = if (showBackupNotice) {
-                        KeyRecoveryStatus(
-                            icon = Icons.Default.Warning,
-                            text = stringResource(Res.string.not_backed_up_yet)
-                        )
-                    } else {
-                        KeyRecoveryStatus(
-                            icon = Icons.Default.CheckCircle,
-                            text = stringResource(Res.string.you_said_you_wrote_it_down)
-                        )
-                    },
-                    onClick = {
-                        onNavigateToRoute.invoke(RecoveryPhraseRoute)
-                    }
-                )
+                // The backup an identity has depends on what it was made from. Twelve words
+                // for a wallet; for a bare key there is no phrase, and the key is the whole
+                // backup. Same flags underneath -- they are per identity and mean "this
+                // identity's secret is not backed up" for whichever secret it is.
+                when (activeIdentity?.kind) {
+                    IdentityKind.NostrSecret -> KeyRecoveryOption(
+                        icon = Icons.Default.Key,
+                        title = stringResource(Res.string.nostr_secret_key),
+                        description = stringResource(Res.string.store_the_nsec_that_signs_as_this_profile),
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        status = if (showBackupNotice) {
+                            KeyRecoveryStatus(
+                                icon = Icons.Default.Warning,
+                                text = stringResource(Res.string.not_backed_up_yet)
+                            )
+                        } else {
+                            KeyRecoveryStatus(
+                                icon = Icons.Default.CheckCircle,
+                                text = stringResource(Res.string.you_said_you_stored_it)
+                            )
+                        },
+                        onClick = {
+                            onNavigateToRoute.invoke(NostrSecretRoute)
+                        }
+                    )
+
+                    else -> KeyRecoveryOption(
+                        icon = Icons.Default.Spellcheck,
+                        title = stringResource(Res.string.recovery_phrase),
+                        description = stringResource(Res.string.write_down_and_secure_the_12_word_phrase),
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        status = if (showBackupNotice) {
+                            KeyRecoveryStatus(
+                                icon = Icons.Default.Warning,
+                                text = stringResource(Res.string.not_backed_up_yet)
+                            )
+                        } else {
+                            KeyRecoveryStatus(
+                                icon = Icons.Default.CheckCircle,
+                                text = stringResource(Res.string.you_said_you_wrote_it_down)
+                            )
+                        },
+                        onClick = {
+                            onNavigateToRoute.invoke(RecoveryPhraseRoute)
+                        }
+                    )
+                }
             }
 
             item {
