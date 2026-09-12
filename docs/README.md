@@ -41,7 +41,7 @@ The nsec sign-in note is a phased plan that has been built; it inherits the
 key-storage decision from the jvm-target note and drives the navigation state
 machine `NavigationViewModel.processLocalAccount` implements, so read it with the
 code open, and read its table of where the build chose differently first.
-The npub sign-in note is a phased plan that has not been built, and reads as that
+The npub sign-in note is a phased plan that has been built, and reads as that
 plan's out-of-scope note answered: it takes the `Identity` type and the sign-in
 machine as given and asks what an identity with no secret is for, before it asks
-how to build one.
+how to build one; read its table of where the build chose differently first.

@@ -9,12 +9,37 @@ type, the two key stores, the sign-in screen and the not-found exit from there, 
 most of what follows is that plan's out-of-scope note taken at its word — "a
 read-only mode is a product, not a branch" — and asked what the product would be.
 
-**Not built.** Phases 1–8 below, one commit each, in the order given. Phase 1 is a
-type change and ships alone. Phase 2 is the only phase that touches the library,
-and it rides the push and tag the nsec plan's library commit still owes. Phases 3 through 5 ship
-together, for the reason in [Phase 8](#phase-8--rollout): a build that can make a
-read-only identity but still offers it "New chat" is the failure this plan exists
-to avoid.
+**Built**, phases 1–7, one commit each, in the order given; Phase 8 is the rollout
+and is process rather than code. The phases are kept as written because they are
+the reasoning, and the code reads better against the argument it came from than
+against a summary of itself. Where the implementation chose differently the table
+below says so:
+
+| what the plan said | what it turned out to be |
+|---|---|
+| the startup screen's third branch in Phase 3 | in Phase 2: `StoredIdentity` is sealed, and the compiler asked for the branch the moment `NostrPublic` existed. The right code either way, one phase early |
+| `KeyRecoveryScreen`'s `NostrPublic` arm "unreachable, and says so" | for the option, `Unit` with the comment; for the sentence above it, grouped with `NostrSecret` — so that if the screen is ever reached it does not promise coins |
+| "the old reader kept as `LegacyNostrKeysFile` for exactly one caller" | `LegacyNostrKeysFile` is the read half of what was `NostrKeyManager`, and `EncryptedNostrKeys` stays beside it, because the migration's test has to *produce* a v1 file and nothing else can |
+| the migration, unspecified in its outcomes | `MigrationResult` — `Migrated(count)`, `NotNeeded`, `Failed(failure)` — and `listIdentities` maps a failure onto the same `ListWalletState.Error` an unreadable credentials file gets, per kind |
+| the wire shape as "a `@Serializable sealed class`" | two types: `NostrCredential`, whose `Secret` carries a `PrivateKey` and cannot be built with a key that is not one, and a private serializable mirror inside the encrypted file whose `Secret` carries hex |
+| the DAO guard as "belt and braces" | load-bearing between Phase 3 and Phase 5, when the room list's inbox sync still ran for a read-only identity; and verified both ways — the test fails with the guard removed |
+| `ProvideSigningCapability` from the active identity | a null identity — startup, landing, sign-in — answers *true*: it is nobody, not read-only, and those screens have nothing to hide |
+| `ForgetIdentity` "dispatches the first step on its kind" | no dispatch: since the credentials file the first step is one call for both credential kinds, and `forgetNostrCredential` itself answers `NotACredential` for a mnemonic |
+| sign out and the not-found exit, shape unspecified | one `SignOutViewModel` owning the confirmation and the in-flight state, one `SignOutOfReadOnlyDialog` differing only in its title, and a `SignOutDependencies` bundle so each screen takes one nullable parameter rather than four lambdas that throw |
+| `signInToProfile` "made idempotent by pubkey" | done, and tested by signing in twice and counting one; the sign-in view model's three writers now go through one shared write-and-map |
+| the round trip "with the network faked at the repository" | with the *database* real: an in-memory Room under the app's own DAOs and a real `NotaryViewModel`, because "nothing was signed" is about what is not in the tables — plus a contrast case the plan did not ask for, the same harness as a signing identity producing a key package, so the assertions are known to bite |
+| `use_a_different_key` as a new string | it existed: the sign-in screen's own "use a different key" button. One string, two screens, one meaning |
+
+One thing found on the way that is in no phase: a compose test that looks for a
+floating action button's label by text has to search the unmerged tree, because
+`ExtendedFloatingActionButton` merges its label into the button's semantics — and
+on the merged tree an `assertDoesNotExist` for a hidden control is vacuously true.
+`ReadOnlyEntrancesJvmTest` uses the unmerged tree for every lookup for that reason.
+
+The library commit is on `claude/nostr-credentials` in the submodule, at `01962f3`,
+bumped into the app by the Phase 2 commit; like the nsec plan's `59c11ed` before
+it, it has to be pushed with this branch and tagged for JitPack consumers before any
+of this leaves the machine. Phase 8 below says why the two go out on one tag.
 
 ## The constraint
 
