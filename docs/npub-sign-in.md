@@ -36,10 +36,12 @@ floating action button's label by text has to search the unmerged tree, because
 on the merged tree an `assertDoesNotExist` for a hidden control is vacuously true.
 `ReadOnlyEntrancesJvmTest` uses the unmerged tree for every lookup for that reason.
 
-The library commit is on `claude/nostr-credentials` in the submodule, at `01962f3`,
-bumped into the app by the Phase 2 commit; like the nsec plan's `59c11ed` before
-it, it has to be pushed with this branch and tagged for JitPack consumers before any
-of this leaves the machine. Phase 8 below says why the two go out on one tag.
+The library commit is on `claude/nostr-credentials` in the submodule, at `84cc44c`,
+one commit ahead of the library's `master` and bumped into the app by the Phase 2
+commit; it has to be pushed with this branch and tagged for JitPack consumers
+before any of this leaves the machine. The nsec plan's `59c11ed` reached `master`
+through the library's PR #1 but was never tagged; Phase 8 below says why the two go
+out on one tag.
 
 ## The constraint
 
@@ -834,11 +836,12 @@ same id, same metadata.
 ## Phase 8 — rollout
 
 **Library first, and on the tag the nsec work still owes.** Phase 2 is a commit
-on the submodule, reaching the app as a pointer bump in the Phase 3 commit. The
-library commit that introduced `nostr-keys.dat` is untagged and sits on a remote
-branch called `detached`; the nsec plan says it has to be pushed and tagged before
-any of that work leaves the machine, and Phase 2 goes out on the same tag, so that
-no JitPack consumer ever sees the v1 file without the reader that migrates it.
+on the submodule, reaching the app as a pointer bump in the Phase 2 commit. The
+library commit that introduced `nostr-keys.dat` is on the library's `master` — it
+arrived through PR #1 — but is untagged, and the library has no tags at all; the
+nsec plan says it has to be tagged before any of that work leaves the machine, and
+Phase 2 goes out on the same tag, so that no JitPack consumer ever sees the v1 file
+without the reader that migrates it.
 
 **Phase 1 ships alone.** A type change with two `require`s and one exhaustive
 `when`; if the release after it behaves differently, the cause is in one diff.
