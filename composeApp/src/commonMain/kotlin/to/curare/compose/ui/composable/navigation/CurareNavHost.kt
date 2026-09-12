@@ -43,6 +43,7 @@ import to.curare.compose.ui.composable.DkgRound2ApprovalScreen
 import to.curare.compose.ui.composable.EditGroupNostrProfileScreen
 import to.curare.compose.ui.composable.AddGroupPostScreen
 import to.curare.compose.ui.composable.EditGroupCuratedSchemaScreen
+import to.curare.compose.ui.composable.BroadcastGroupSignedEventScreen
 import to.curare.compose.ui.composable.CuratedSuggestionListScreen
 import to.curare.compose.ui.composable.ProposeGroupEventScreen
 import to.curare.compose.ui.composable.EditGroupRelaysScreen
@@ -133,6 +134,7 @@ import to.curare.compose.ui.composable.navigation.routes.AddDialectRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
 import to.curare.compose.ui.composable.navigation.routes.AddGroupPostRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupCuratedSchemaRoute
+import to.curare.compose.ui.composable.navigation.routes.BroadcastGroupSignedEventRoute
 import to.curare.compose.ui.composable.navigation.routes.CuratedSuggestionListRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
@@ -1124,6 +1126,25 @@ fun CurareNavHost(
                     identifier = route.identifier,
                     nostrRepository = databaseNostrRepository,
                     chatRepository = databaseChatRepository,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<BroadcastGroupSignedEventRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<BroadcastGroupSignedEventRoute>()
+
+                BroadcastGroupSignedEventScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    signedEventId = route.signedEventId,
+                    chatRepository = databaseChatRepository,
+                    // The one screen handed the pool itself rather than a queue
+                    // to write to: a group-signed event must not become a
+                    // `NostrEvent` row, and the queue hangs off one. See
+                    // `BroadcastGroupSignedEventViewModel`.
+                    publishTransport = synchronizationViewModel.relaysSocketManager,
                     onNavigateBack = {
                         navController.popBackStack()
                     }

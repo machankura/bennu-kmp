@@ -25,11 +25,13 @@ import kotlin.time.Instant
  * events in that position. So the group's profile lives where the group's other
  * signed statements live, and this is the reading of it.
  *
- * The consequence worth stating: **nothing here has reached a relay.** A member's
- * kind:0 is published and is how the rest of nostr learns their name; a group's is
- * signed and kept, and every device that followed the signing session -- or was
- * handed the event afterwards -- holds it. Publishing it would mean a `NostrEvent`
- * row for an event no member authored, which is a decision this does not make.
+ * The consequence worth stating: **nothing here reaches a relay by being signed.**
+ * A member's kind:0 is published and is how the rest of nostr learns their name; a
+ * group's is signed and kept, and every device that followed the signing session
+ * -- or was handed the event afterwards -- holds it. It reaches a relay when a
+ * member sends it there from `BroadcastGroupSignedEventScreen`, which serialises
+ * the signed row directly rather than making a `NostrEvent` row for an event no
+ * member authored -- a decision this still does not make.
  *
  * ### What a reading has to earn
  *

@@ -126,6 +126,17 @@ interface ChatRepository {
     suspend fun groupCuratedSchemas(chatRoomId: String): List<GroupCuratedSchema>
 
     /**
+     * One event the group signed, as the group signed it, or null when this
+     * device does not hold it or it was signed in some other room.
+     *
+     * Scoped to the room rather than looked up by id alone, because the id
+     * arrives as a navigation argument and the screen it opens names a room in
+     * its title: an event from one room shown under another room's name would
+     * be a lie the signature check cannot catch, since both rooms' events verify.
+     */
+    suspend fun groupSignedEvent(chatRoomId: String, id: HexKey): GroupSignedEvent?
+
+    /**
      * Whether this device holds a share of the group's key, and so could take
      * part in signing for it.
      *
@@ -316,6 +327,11 @@ interface ChatRepository {
             override suspend fun groupCuratedSchemas(
                 chatRoomId: String
             ): List<GroupCuratedSchema> = emptyList()
+
+            override suspend fun groupSignedEvent(
+                chatRoomId: String,
+                id: HexKey
+            ): GroupSignedEvent? = null
 
             override suspend fun canSign(chatRoomId: String): Boolean = false
 

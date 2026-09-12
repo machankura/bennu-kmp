@@ -585,6 +585,20 @@
     <string name="taken_up_by_the_group_into_the_list">Taken up by the group into the list.</string>
     <string name="copy_the_suggestion">Copy the suggestion</string>
     <string name="copied_the_suggestion">Copied the suggestion</string>
+    <!-- Broadcasting one event the group signed to relays a member picks. -->
+    <string name="broadcast">Broadcast</string>
+    <string name="sends_the_event_exactly_as_the_group_signed_it">Sends the event to each relay below, exactly as the group signed it. Any member holding it can send it: the signature is the group's, not yours.</string>
+    <string name="where_the_group_has_said_it_lives_is_filled_in">Where the group has said it lives is filled in. Add or remove relays before sending.</string>
+    <string name="no_relays_to_broadcast_to">No relays to broadcast to. Add one above.</string>
+    <string name="add_a_relay_to_broadcast_to">Add a relay to broadcast to.</string>
+    <string name="relay_sending">Sending…</string>
+    <string name="relay_accepted">Accepted</string>
+    <string name="relay_rejected">Rejected: %1$s</string>
+    <string name="relay_could_not_send">Couldn't send: %1$s</string>
+    <string name="relay_no_answer">No answer</string>
+    <string name="accepted_by_n_of_m_relays">Accepted by %1$s of %2$s relays.</string>
+    <string name="copy_raw_json">Copy raw JSON</string>
+    <string name="copied_the_raw_json">Copied the raw JSON</string>
     <!-- Sign in: docs/nsec-sign-in.md, phase 4. -->
     <string name="a_password_protected_key_ncryptsec_is_not">A password-protected key (ncryptsec) is not supported yet. Decrypt it in the app it came from and paste the nsec.</string>
     <string name="an_npub_is_a_public_key_curare_needs_the">An npub is a public key. Curare needs the secret key, the nsec, to sign as you.</string>
