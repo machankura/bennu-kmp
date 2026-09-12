@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.curare.compose.extensions.hexToNsecHrp
+import to.curare.compose.identity.ForgetIdentity
 import to.curare.compose.identity.Identity
 import to.curare.compose.identity.IdentityKind
 import to.curare.compose.identity.IdentityWriter
@@ -46,8 +47,9 @@ import to.curare.compose.ui.view.state.NostrSecretUIState
  * secret it is.
  *
  * It also owns the inverse of an import: [forgetKey], which removes the key from the
- * device and the account with it. Only for a bare key; a mnemonic identity's key is in
- * the seed, and removing a seed is a wallet question this does not answer.
+ * device and the account with it, through [ForgetIdentity]. Only for a bare key; a
+ * mnemonic identity's key is in the seed, and removing a seed is a wallet question this
+ * does not answer.
  */
 class NostrSecretViewModel(
     val phoenixGlobal: PhoenixGlobal,
@@ -163,9 +165,9 @@ class NostrSecretViewModel(
 
     /**
      * Key out of the file, preferences deleted, metadata hidden, account rows gone -- in
-     * that order, so a failure partway leaves the key on disk rather than an identity the
-     * selector lists but nothing can open. [onForgotten] runs on the main thread once the
-     * device no longer holds the key; the caller clears the active identity and re-lists.
+     * that order, for the reason [ForgetIdentity] gives. [onForgotten] runs on the main
+     * thread once the device no longer holds the key; the caller clears the active
+     * identity and re-lists.
      */
     fun forgetKey(onForgotten: () -> Unit) {
         val identity = activeIdentityStateFlow.value ?: return
@@ -177,15 +179,15 @@ class NostrSecretViewModel(
             logger.e("could not forget the key", throwable)
             _forgetting.value = NostrSecretUIState.Forgetting.Failed
         }) {
-            when (forgetNostrCredential(identity)) {
-                is IdentityWriter.ForgetNostrCredentialResult.Forgotten -> {
-                    hideIdentityMetadata(identity)
-                    nostrRepository.forgetLocalAccount(identity.nostrPublicKey)
+            // The sequence is ForgetIdentity's, shared with the two exits a read-only
+            // identity has; only the state it drives is this screen's.
+            when (ForgetIdentity.forget(identity, nostrRepository, forgetNostrCredential, hideIdentityMetadata)) {
+                is ForgetIdentity.Outcome.Forgotten -> {
                     _forgetting.value = NostrSecretUIState.Forgetting.Idle
                     withContext(Dispatchers.Main) { onForgotten() }
                 }
-                is IdentityWriter.ForgetNostrCredentialResult.NotACredential,
-                is IdentityWriter.ForgetNostrCredentialResult.CannotLoadKeys -> {
+                is ForgetIdentity.Outcome.NotACredential,
+                is ForgetIdentity.Outcome.CannotForget -> {
                     _forgetting.value = NostrSecretUIState.Forgetting.Failed
                 }
             }

@@ -267,6 +267,10 @@
     <string name="read_only">Read only</string>
     <string name="messages_need_the_secret_key_this_profile">Messages need the secret key. This profile is read only: you can see it and the people it follows, but nothing here can be opened or sent.</string>
     <string name="sign_in_with_the_nsec">Sign in with the nsec</string>
+    <string name="sign_out_of_this_profile_question">Sign out of this profile?</string>
+    <string name="use_a_different_key_question">Use a different key?</string>
+    <string name="this_device_holds_no_key_for_s_so_there">This device holds no key for %1$s, so there is nothing to lose. The profile stays on the relays, and you can sign in again any time.</string>
+    <string name="could_not_sign_out_please_try_again">Could not sign out. Please try again.</string>
     <string name="this_will_give_you_write_access_to_the">This will give you write access to the profile.</string>
     <string name="torch_will_be_broadcast_what_you_publish_to">Curare broadcasts what you publish to a distributed set of relays, so it stays decentralised.</string>
     <string name="translate_chunk">Translate chunk</string>

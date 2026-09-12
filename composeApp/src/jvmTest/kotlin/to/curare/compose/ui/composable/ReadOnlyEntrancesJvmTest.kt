@@ -3,9 +3,29 @@ package to.curare.compose.ui.composable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import fr.acinq.phoenix.data.WalletId
+import fr.acinq.phoenix.utils.preferences.InternalPrefs
+import fr.acinq.phoenix.utils.preferences.UserPrefs
+import kotlinx.coroutines.flow.MutableStateFlow
+import okio.Path.Companion.toPath
+import to.curare.compose.database.GENESIS_AT
+import to.curare.compose.database.model.SynchronizeNostrEventRequest
+import to.curare.compose.database.model.UnsignedNostrEvent
+import to.curare.compose.database.model.intermdiate.LocalAccount
+import to.curare.compose.database.model.types.SynchronizationFilter
+import to.curare.compose.extensions.hexToNpubHrp
+import to.curare.compose.identity.Identity
+import to.curare.compose.nostr.SignInSync
+import java.nio.file.Files
+import kotlin.time.Instant
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import kotlinx.coroutines.flow.Flow
@@ -92,7 +112,98 @@ class ReadOnlyEntrancesJvmTest {
         onNodeWithText("Sign out", useUnmergedTree = true).assertIsDisplayed()
     }
 
+    // --- Profile: sign out is real for a read-only identity, and confirms first ---
+
+    @Test
+    fun `a read-only identity's sign out asks before it acts, naming the npub`() = runDesktopComposeUiTest(400, 1200) {
+        setContent { AsIdentity(canSign = false) { ActiveProfile(signOut = signOutDependencies) } }
+
+        onNodeWithText("Sign out", useUnmergedTree = true).performClick()
+
+        onNodeWithText("Sign out of this profile?", useUnmergedTree = true).assertIsDisplayed()
+        // The screen shows the npub once already; the dialog names it a second time.
+        onAllNodesWithText(publicKey.hexToNpubHrp(), substring = true, useUnmergedTree = true).assertCountEquals(2)
+        onNodeWithText("nothing to lose", substring = true, useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    // --- Not found: set one up, or use a different key ---
+
+    @Test
+    fun `an identity that can sign is offered the set-up form when its profile is not found`() = runDesktopComposeUiTest(400, 1200) {
+        setContent { AsIdentity(canSign = true) { NotFound() } }
+
+        onNodeWithText("Try again", useUnmergedTree = true).assertIsDisplayed()
+        // Heading and button both say it; either is the form.
+        onAllNodesWithText("Set up a profile", useUnmergedTree = true).onFirst().assertIsDisplayed()
+        onNodeWithText("Use a different key", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a read-only identity is offered a different key instead, and it confirms first`() = runDesktopComposeUiTest(400, 1200) {
+        setContent { AsIdentity(canSign = false) { NotFound() } }
+
+        onNodeWithText("Try again", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithText("Set up a profile", useUnmergedTree = true).assertDoesNotExist()
+        onNodeWithText("Use a different key", useUnmergedTree = true).assertIsDisplayed()
+
+        onNodeWithText("Use a different key", useUnmergedTree = true).performClick()
+
+        onNodeWithText("Use a different key?", useUnmergedTree = true).assertIsDisplayed()
+    }
+
     // --- harness ---
+
+    private val readOnlyIdentity = MutableStateFlow<Identity?>(
+        Identity.readOnly(
+            id = WalletId("ab".repeat(20)),
+            nostrPublicKey = publicKey,
+            userPrefs = UserPrefs(PreferenceDataStoreFactory.createWithPath { Files.createTempFile("user", ".preferences_pb").also { it.toFile().delete() }.toString().toPath() }),
+            internalPrefs = InternalPrefs(PreferenceDataStoreFactory.createWithPath { Files.createTempFile("internal", ".preferences_pb").also { it.toFile().delete() }.toString().toPath() }),
+        )
+    )
+
+    /** Never run in these tests: the dialogs are looked at, not confirmed. */
+    private val signOutDependencies = SignOutDependencies(
+        activeIdentityStateFlow = readOnlyIdentity,
+        forgetNostrCredential = { error("not reached") },
+        hideIdentityMetadata = { error("not reached") },
+        onSignedOut = { error("not reached") },
+    )
+
+    @Composable
+    private fun NotFound() {
+        UnsyncedProfileScreen(
+            unsyncedProfilePublicKey = publicKey,
+            nostrRepository = NotFoundAccount,
+            signOut = signOutDependencies,
+        )
+    }
+
+    private val at = Instant.fromEpochSeconds(1_700_000_000)
+
+    /** An account whose one sign-in request has finished with nothing: the not-found state. */
+    private val NotFoundAccount = object : NostrRepository by NostrRepository.NO_OP_NOSTR_REPOSITORY {
+        override suspend fun observeLocalAccount(publicKey: String): Flow<LocalAccount?> = flowOf(
+            LocalAccount(
+                unsignedNostrEvent = UnsignedNostrEvent(
+                    id = 1, pubKey = publicKey, kind = 0, tags = emptyArray(), content = "{}",
+                    signedAt = GENESIS_AT, createdAt = at, updatedAt = at, savedAt = at,
+                ),
+                nostrEvent = null,
+                profile = null,
+                broadcastNostrEventRequest = null,
+                broadcastNostrEventReceipt = null,
+                synchronizeNostrEventRequests = listOf(
+                    SynchronizeNostrEventRequest(
+                        id = "req", purpose = SignInSync.PURPOSE, status = SignInSync.STATUS_COMPLETE,
+                        relayURL = "wss://relay.example", level = 0,
+                        synchronizationFilters = arrayOf(SynchronizationFilter(authors = arrayOf(publicKey), kinds = SignInSync.KINDS)),
+                        unsignedNostrEventId = 1, createdAt = at, updatedAt = at,
+                    )
+                ),
+            )
+        )
+    }
 
     @Composable
     private fun AsIdentity(canSign: Boolean, content: @Composable () -> Unit) {
@@ -121,7 +232,7 @@ class ReadOnlyEntrancesJvmTest {
     }
 
     @Composable
-    private fun ActiveProfile() {
+    private fun ActiveProfile(signOut: SignOutDependencies? = null) {
         ActiveProfileScreen(
             initialActiveProfileUIState = ActiveProfileUIState.Loaded(
                 localNostrEvent = LocalNostrEvent(nostrEvent = metadataEvent, profile = profile.profile),
@@ -131,6 +242,7 @@ class ReadOnlyEntrancesJvmTest {
             onNavigateBack = {},
             onNavigateToRoute = {},
             nostrRepository = FixedProfile,
+            signOut = signOut,
         )
     }
 
