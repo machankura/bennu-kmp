@@ -22,6 +22,7 @@ import to.curare.compose.repository.RelayRepository
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.negentropy.Negentropy
 import com.vitorpamplona.negentropy.storage.StorageVector
+import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.relay.commands.toRelay.CloseCmd
 import com.vitorpamplona.quartz.nip01Core.relay.commands.toRelay.ReqCmd
@@ -227,6 +228,14 @@ class SynchronizationViewModel(
                         // things this identity cannot open. Not asking is not an
                         // optimisation; it is the identity not asking for what it cannot use.
                         if (identity.canSign) {
+                            // The wraps that arrived while another profile was open, or
+                            // while this one held no key: opened now, before the live inbox
+                            // starts, so the two are not opening the same wrap at once. Both
+                            // are idempotent by event id; the order is about not doing the
+                            // work twice. See docs/multiple-profiles.md, Phase 6.
+                            runCatching { nostrRepository.reopenInbox(keyPair) }
+                                .onSuccess { if (it > 0) logger.i { "Reopened $it gift wrap(s) that arrived while this profile was not open" } }
+                                .onFailure { logger.e("Could not reopen the inbox", it) }
                             launch(Dispatchers.IO) { observePendingBroadcastNostrEventRequests(keyPair) }
                             // Runs until cancelled rather than draining a queue, but it
                             // belongs here for the same reason the pumps do: it needs the
@@ -245,7 +254,8 @@ class SynchronizationViewModel(
     ): Unit = coroutineScope {
         logger.i { "observePendingSyncNostrEventRequests" }
 
-        nostrRepository.observePendingSynchronizeNostrEventRequests().distinctUntilChanged().collect { synchronizeNostrEventRequestOrNull ->
+        // This identity's requests and the ones nobody owns; another identity's wait for it.
+        nostrRepository.observePendingSynchronizeNostrEventRequests(keyPair.pubKey.toHexKey()).distinctUntilChanged().collect { synchronizeNostrEventRequestOrNull ->
             synchronizeNostrEventRequestOrNull?.let { synchronizeNostrEventRequest ->
                 guardPump("sync request ${synchronizeNostrEventRequest.id}") {
                     logger.i("synchronizeNostrEventRequest: $synchronizeNostrEventRequest")
@@ -406,7 +416,7 @@ class SynchronizationViewModel(
     ): Unit = coroutineScope {
         logger.i { "observePendingNegentropySynchronizeRequests" }
 
-        nostrRepository.observePendingNegentropySynchronizeRequests().distinctUntilChanged().collect { negentropySynchronizeRequestOrNull ->
+        nostrRepository.observePendingNegentropySynchronizeRequests(keyPair.pubKey.toHexKey()).distinctUntilChanged().collect { negentropySynchronizeRequestOrNull ->
                 negentropySynchronizeRequestOrNull?.let { negentropySynchronizeRequest ->
                   guardPump("negentropy request ${negentropySynchronizeRequest.id}") {
                     mutex.withLock {

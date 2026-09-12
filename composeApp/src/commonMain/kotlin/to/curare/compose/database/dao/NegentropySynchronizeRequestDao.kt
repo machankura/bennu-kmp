@@ -14,6 +14,14 @@ interface NegentropySynchronizeRequestDao {
     @Query("SELECT * FROM NegentropySynchronizeRequest WHERE status = :status ORDER BY createdAt ASC, id ASC LIMIT 1")
     fun observeNegentropySynchronizeRequestsByStatus(status: String): Flow<NegentropySynchronizeRequest?>
 
+    /** The same head-of-queue, for one identity; see `SynchronizeNostrEventRequestDao.observeSynchronizeNostrEventRequestsByStatusFor`. */
+    @Query(
+        "SELECT * FROM NegentropySynchronizeRequest " +
+            "WHERE status = :status AND (ownerPublicKey = :ownerPublicKey OR ownerPublicKey IS NULL) " +
+            "ORDER BY createdAt ASC, id ASC LIMIT 1"
+    )
+    fun observeNegentropySynchronizeRequestsByStatusFor(status: String, ownerPublicKey: String): Flow<NegentropySynchronizeRequest?>
+
     @Query("SELECT COUNT(*) FROM NegentropySynchronizeRequest WHERE purpose = :purpose AND status IN (:status)")
     fun observeNegentropySynchronizeRequestByPurposeAndStatusCount(purpose: String, status: List<String>): Flow<Int>
 
@@ -29,4 +37,7 @@ interface NegentropySynchronizeRequestDao {
      */
     @Upsert
     suspend fun insert(negentropySynchronizeRequests: List<NegentropySynchronizeRequest>)
+
+    @Query("SELECT * FROM NegentropySynchronizeRequest")
+    suspend fun getAll(): List<NegentropySynchronizeRequest>
 }

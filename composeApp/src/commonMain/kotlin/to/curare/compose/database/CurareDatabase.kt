@@ -177,7 +177,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 19,
+    version = 20,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -312,6 +312,15 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // room, which is correct for them: a ceremony held in its own NIP-17 room
         // ran over exactly that room's members and was named after it.
         AutoMigration(from = 18, to = 19),
+        // v20 adds the nullable ownerPublicKey to SynchronizeNostrEventRequest and
+        // NegentropySynchronizeRequest: the identity that asked, so that only its
+        // pump answers. The two queues used to be the device's, drained by whoever
+        // was open with their key pair, and a gift wrap fetched for one profile
+        // while another was open was stored under the wrong key and never opened
+        // again. Rows written before this read back null, meaning "the device's",
+        // which is what they were, and any identity may drain them. The broadcast
+        // queue deliberately gets no owner: a signed event is anyone's to carry.
+        AutoMigration(from = 19, to = 20),
     ]
 )
 @ColumnTypeConverters(CurareConverters::class)

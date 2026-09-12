@@ -43,6 +43,13 @@ data class SynchronizeNostrEventRequest(
 
     val synchronizationFilters: Array<to.curare.compose.database.model.types.SynchronizationFilter>,
 
+    /**
+     * The identity that asked, so that only its pump answers: what a fetch brings back
+     * is opened with the fetcher's key. Null for rows written before there was one to
+     * record, which any identity may drain. See docs/multiple-profiles.md, Phase 6.
+     */
+    val ownerPublicKey: HexKey? = null,
+
     override val nostrEventId: HexKey? = null,
     override val unsignedNostrEventId: Long? = null,
     override val createdAt: Instant = Clock.System.now(),
@@ -61,6 +68,7 @@ data class SynchronizeNostrEventRequest(
         if (status != other.status) return false
         if (relayURL != other.relayURL) return false
         if (!synchronizationFilters.contentEquals(other.synchronizationFilters)) return false
+        if (ownerPublicKey != other.ownerPublicKey) return false
         if (nostrEventId != other.nostrEventId) return false
         if (createdAt != other.createdAt) return false
         if (updatedAt != other.updatedAt) return false
@@ -74,6 +82,7 @@ data class SynchronizeNostrEventRequest(
         result = 31 * result + status.hashCode()
         result = 31 * result + relayURL.hashCode()
         result = 31 * result + synchronizationFilters.contentHashCode()
+        result = 31 * result + (ownerPublicKey?.hashCode() ?: 0)
         result = 31 * result + (nostrEventId?.hashCode() ?: 0)
         result = 31 * result + createdAt.hashCode()
         result = 31 * result + updatedAt.hashCode()

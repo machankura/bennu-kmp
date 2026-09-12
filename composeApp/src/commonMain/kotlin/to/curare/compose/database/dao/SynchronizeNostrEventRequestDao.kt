@@ -14,6 +14,18 @@ interface SynchronizeNostrEventRequestDao {
     @Query("SELECT * FROM SynchronizeNostrEventRequest WHERE status = :status ORDER BY createdAt ASC, id ASC LIMIT 1")
     fun observeSynchronizeNostrEventRequestsByStatus(status: String): Flow<to.curare.compose.database.model.SynchronizeNostrEventRequest?>
 
+    /**
+     * The same head-of-queue, for one identity: its own requests and the ones nobody
+     * owns. A request another identity queued waits for that identity, because what it
+     * brings back is opened with that identity's key.
+     */
+    @Query(
+        "SELECT * FROM SynchronizeNostrEventRequest " +
+            "WHERE status = :status AND (ownerPublicKey = :ownerPublicKey OR ownerPublicKey IS NULL) " +
+            "ORDER BY createdAt ASC, id ASC LIMIT 1"
+    )
+    fun observeSynchronizeNostrEventRequestsByStatusFor(status: String, ownerPublicKey: String): Flow<to.curare.compose.database.model.SynchronizeNostrEventRequest?>
+
     @Query("SELECT COUNT(*) FROM SynchronizeNostrEventRequest WHERE purpose = :purpose AND status IN (:status)")
     fun observeSynchronizeNostrEventRequestByPurposeAndStatusCount(purpose: String, status: List<String>): Flow<Int>
 
@@ -31,4 +43,7 @@ interface SynchronizeNostrEventRequestDao {
 
     @Insert
     suspend fun insert(synchronizeNostrEventRequests: List<to.curare.compose.database.model.SynchronizeNostrEventRequest>)
+
+    @Query("SELECT * FROM SynchronizeNostrEventRequest")
+    suspend fun getAll(): List<to.curare.compose.database.model.SynchronizeNostrEventRequest>
 }

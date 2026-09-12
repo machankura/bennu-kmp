@@ -42,6 +42,9 @@ data class NegentropySynchronizeRequest(
 
     val synchronizationFilter: to.curare.compose.database.model.types.SynchronizationFilter,
 
+    /** The identity that asked; null for rows from before, which any identity may drain. See [SynchronizeNostrEventRequest.ownerPublicKey]. */
+    val ownerPublicKey: HexKey? = null,
+
     override val nostrEventId: HexKey? = null,
     override val createdAt: Instant = Clock.System.now(),
     override val updatedAt: Instant = createdAt,
@@ -64,6 +67,7 @@ data class NegentropySynchronizeRequest(
             ),
             relayURL = relayURL,
             level = level,
+            ownerPublicKey = ownerPublicKey,
         )
     }
     companion object {

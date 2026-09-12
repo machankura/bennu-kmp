@@ -31,6 +31,7 @@ import to.curare.compose.exceptions.MarmotNotMemberOfChatGroupException
 import to.curare.compose.exceptions.MarmotWelcomeEventMissingKeyPackageEventIdException
 import to.curare.compose.extensions.toHex
 import to.curare.compose.managers.ChillDkgRitualManager
+import to.curare.compose.nostr.Relays
 import to.curare.compose.nostr.dkg.DkgRitualEvents
 import to.curare.compose.nostr.frost.FrostSigningEvents
 import to.curare.compose.managers.FrostSigningManager
@@ -144,6 +145,58 @@ abstract class NostrDao(
                 )
             )
         }
+    }
+
+    /**
+     * Opens every gift wrap addressed to [activeKeyPair] that the device stored and could
+     * not open at the time -- because another identity fetched it, or because this one
+     * held no key yet. Phase 6 of docs/multiple-profiles.md.
+     *
+     * [storeNostrEvent] never indexes an event it already holds, so a wrap that arrived
+     * under the wrong key would otherwise stay closed for good: the live subscription
+     * re-receives it, the DAO sees a known id, and returns. This runs the wrap through
+     * [indexNostrEvent] again, under the right key, one transaction per wrap so that a
+     * wrap that cannot be opened rolls back its own changes and the next is still tried.
+     * One pass: wraps do not depend on one another, so a wrap that cannot be opened now
+     * will not be helped by opening its neighbours.
+     *
+     * @return how many were opened.
+     */
+    open suspend fun reopenInbox(activeKeyPair: KeyPair): Int {
+        if (activeKeyPair.privKey == null) return 0
+        val me = activeKeyPair.pubKey.toHex()
+        val unopened = database.giftWrapMessageDao().getUnopenedAddressedTo(me)
+        if (unopened.isEmpty()) return 0
+        logger.i("Reopening ${unopened.size} gift wrap(s) addressed to $me")
+
+        var opened = 0
+        for (wrap in unopened) {
+            val nostrEvent = database.nostrEventDao().getNostrEventById(wrap.nostrEventId) ?: continue
+            val relayURL = database.nostrEventRelayDao().getRelayUrls(nostrEvent.id).firstOrNull()
+                ?: Relays.DefaultDMRelayList.first().url
+            try {
+                reopenGiftWrap(nostrEvent, relayURL, activeKeyPair)
+                if (database.giftWrapSealDao().countForMessage(wrap.id) > 0) opened++
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                logger.w("Gift wrap ${wrap.id} could not be opened on the second try", e)
+            }
+        }
+        logger.i("Reopened $opened of ${unopened.size} gift wrap(s) for $me")
+        return opened
+    }
+
+    /** One wrap, indexed again, in a transaction of its own; see [reopenInbox]. */
+    @Transaction
+    open suspend fun reopenGiftWrap(nostrEvent: NostrEvent, relayURL: String, activeKeyPair: KeyPair) {
+        indexNostrEvent(
+            nostrEvent = nostrEvent,
+            relayURL = relayURL,
+            synchronizationRelayURLs = listOf(relayURL),
+            level = 0,
+            activeKeyPair = activeKeyPair,
+        )
     }
 
     @Transaction

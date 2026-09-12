@@ -50,14 +50,25 @@ import com.vitorpamplona.quartz.nip57Zaps.LnZapEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import to.curare.compose.identity.Identity
 import kotlin.time.Clock
 import kotlin.time.Instant
 
+/**
+ * @param activeIdentity whose requests the two fetch queues are stamped with. Every
+ *   request queued through here is queued *as* the active identity -- a screen cannot
+ *   queue anything as anyone else -- so the stamp is the repository's, not the call
+ *   site's, and no call site can forget it. Defaults to nobody, which stamps nothing
+ *   and is what a test that has no identity gets.
+ */
 class DatabaseNostrRepository(
     private val database: to.curare.compose.database.CurareDatabase,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val activeIdentity: StateFlow<Identity?> = MutableStateFlow(null),
 ): to.curare.compose.repository.NostrRepository, to.curare.compose.repository.RelayRepository {
     companion object {
         const val TAG = "DatabaseNostrRepository"
@@ -108,12 +119,19 @@ class DatabaseNostrRepository(
         return database.broadcastNostrEventRequestDao().observeBroadcastNostrEventRequestsByStatus("pending")
     }
 
-    override suspend fun observePendingSynchronizeNostrEventRequests(): Flow<to.curare.compose.database.model.SynchronizeNostrEventRequest?> {
-        return database.synchronizeNostrEventRequestDao().observeSynchronizeNostrEventRequestsByStatus("pending")
+    override suspend fun observePendingSynchronizeNostrEventRequests(ownerPublicKey: HexKey): Flow<to.curare.compose.database.model.SynchronizeNostrEventRequest?> {
+        return database.synchronizeNostrEventRequestDao().observeSynchronizeNostrEventRequestsByStatusFor("pending", ownerPublicKey)
     }
 
-    override suspend fun observePendingNegentropySynchronizeRequests(): Flow<to.curare.compose.database.model.NegentropySynchronizeRequest?> {
-        return database.negentropySynchronizeRequestDao().observeNegentropySynchronizeRequestsByStatus("pending")
+    override suspend fun observePendingNegentropySynchronizeRequests(ownerPublicKey: HexKey): Flow<to.curare.compose.database.model.NegentropySynchronizeRequest?> {
+        return database.negentropySynchronizeRequestDao().observeNegentropySynchronizeRequestsByStatusFor("pending", ownerPublicKey)
+    }
+
+    override suspend fun reopenInbox(activeKeyPair: KeyPair): Int {
+        // Under the same lock as every other write through indexNostrEvent.
+        return storeNostrEventMutex.withLock {
+            database.nostrDao().reopenInbox(activeKeyPair)
+        }
     }
 
     override suspend fun createNewProfile(
@@ -661,17 +679,23 @@ class DatabaseNostrRepository(
         }
     }
 
+    /**
+     * Stamped with the active identity where the caller stamped nothing. A request
+     * queued while nothing is active stays nobody's, which any identity may drain.
+     */
     override suspend fun queueSynchronizeNostrEvent(
         synchronizeNostrEventRequests: List<to.curare.compose.database.model.SynchronizeNostrEventRequest>,
     ) {
+        val owner = activeIdentity.value?.nostrPublicKey
         database.synchronizeNostrEventRequestDao().insert(
-            synchronizeNostrEventRequests
+            synchronizeNostrEventRequests.map { it.copy(ownerPublicKey = it.ownerPublicKey ?: owner) }
         )
     }
 
     override suspend fun queueNegentropySynchronizeRequest(negentropySynchronizeRequests: List<to.curare.compose.database.model.NegentropySynchronizeRequest>) {
+        val owner = activeIdentity.value?.nostrPublicKey
         database.negentropySynchronizeRequestDao().insert(
-            negentropySynchronizeRequests
+            negentropySynchronizeRequests.map { it.copy(ownerPublicKey = it.ownerPublicKey ?: owner) }
         )
     }
 

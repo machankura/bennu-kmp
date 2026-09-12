@@ -45,9 +45,17 @@ interface NostrRepository {
 
     suspend fun observePendingBroadcastNostrEventRequests(): Flow<LocalBroadcastNostrEventRequest?>
 
-    suspend fun observePendingSynchronizeNostrEventRequests(): Flow<SynchronizeNostrEventRequest?>
+    /** The head of the fetch queue for one identity: its own requests and the ones nobody owns. */
+    suspend fun observePendingSynchronizeNostrEventRequests(ownerPublicKey: HexKey): Flow<SynchronizeNostrEventRequest?>
 
-    suspend fun observePendingNegentropySynchronizeRequests(): Flow<NegentropySynchronizeRequest?>
+    suspend fun observePendingNegentropySynchronizeRequests(ownerPublicKey: HexKey): Flow<NegentropySynchronizeRequest?>
+
+    /**
+     * Opens every gift wrap addressed to [activeKeyPair] that the device stored and could
+     * not open at the time. Run once per activation, before the live inbox is opened.
+     * Returns how many were opened.
+     */
+    suspend fun reopenInbox(activeKeyPair: KeyPair): Int
 
     suspend fun createNewProfile(
         publicKey: HexKey,
@@ -247,11 +255,13 @@ interface NostrRepository {
                 TODO("Not yet implemented")
             }
 
-            override suspend fun observePendingSynchronizeNostrEventRequests(): Flow<SynchronizeNostrEventRequest?> {
+            override suspend fun reopenInbox(activeKeyPair: KeyPair): Int = 0
+
+            override suspend fun observePendingSynchronizeNostrEventRequests(ownerPublicKey: HexKey): Flow<SynchronizeNostrEventRequest?> {
                 TODO("Not yet implemented")
             }
 
-            override suspend fun observePendingNegentropySynchronizeRequests(): Flow<NegentropySynchronizeRequest?> {
+            override suspend fun observePendingNegentropySynchronizeRequests(ownerPublicKey: HexKey): Flow<NegentropySynchronizeRequest?> {
                 TODO("Not yet implemented")
             }
 

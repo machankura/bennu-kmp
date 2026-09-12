@@ -137,7 +137,12 @@ data class GiftWrapMessage(
                             content = giftWrapSeal.content,
                             tags = giftWrapSeal.tags,
                             createdAt = Instant.fromEpochSeconds(giftWrapSeal.createdAt),
-                            signature = giftWrapSeal.sig
+                            signature = giftWrapSeal.sig,
+                            // The wrap this came out of. The column existed and was never
+                            // written, so nothing could say which wraps had been opened;
+                            // the inbox sweep asks exactly that. A seal from before this
+                            // reads back null, is swept once, and comes back with the link.
+                            giftWrapMessageId = id,
                         )
                     }
                 }

@@ -17,7 +17,9 @@ import kotlin.test.assertNotNull
 import kotlin.time.Instant
 
 /**
- * A gift wrap addressed to a read-only identity is kept and not opened.
+ * A gift wrap addressed to a read-only identity is kept and not opened -- and, since
+ * docs/multiple-profiles.md, opened later by the inbox sweep, along with any wrap that
+ * arrived while another profile on the device was the open one.
  *
  * `storeNostrEvent` is `@Transaction` and indexes inside it, and a wrap addressed to the
  * active key that cannot be unsealed throws -- so before the guard in `indexNostrEvent`
@@ -101,6 +103,65 @@ class ReadOnlyGiftWrapDaoJvmTest {
             activeKeyPair = us,
         )
 
+        assertEquals(1, db.giftWrapSealDao().getAllGiftWrapSeals().size)
+    }
+
+    // --- The inbox, reopened: Phase 6 of docs/multiple-profiles.md ---
+
+    /** Another profile on the device, open when the wrap for us arrived. */
+    private val other = KeyPair()
+
+    /**
+     * The case the sweep exists for. A wrap for us, fetched while another profile was
+     * open: stored, found not to be addressed to the active key, and left -- and
+     * `storeNostrEvent` never indexes an event it already holds, so the live subscription
+     * re-delivering it later would change nothing. The sweep runs it through the index
+     * again under our key.
+     */
+    @Test
+    fun `a wrap fetched under another profile's key is opened by the sweep, once`() = runBlocking {
+        val wrap = wrapTo(us)
+        db.nostrDao().storeNostrEvent(
+            nostrEvent = wrap,
+            relayURL = relay,
+            synchronizationRelayURLs = listOf(relay),
+            level = 0,
+            activeKeyPair = other,
+        )
+        assertEquals(listOf(wrap.id), db.giftWrapMessageDao().getAllGiftWrapMessages().map { it.id }, "stored")
+        assertEquals(emptyList(), db.giftWrapSealDao().getAllGiftWrapSeals(), "and not opened")
+
+        // Re-delivery changes nothing: the id is known, and the DAO returns.
+        db.nostrDao().storeNostrEvent(wrap, relay, listOf(relay), 0, us)
+        assertEquals(emptyList(), db.giftWrapSealDao().getAllGiftWrapSeals(), "re-delivery does not reopen a known event")
+
+        assertEquals(1, db.nostrDao().reopenInbox(us))
+        assertEquals(1, db.giftWrapSealDao().getAllGiftWrapSeals().size, "the seal is out")
+        assertEquals(1, db.giftWrapPayloadDao().getAllGiftWrapUnsigned().size, "and the payload with it")
+
+        assertEquals(0, db.nostrDao().reopenInbox(us), "nothing left to open")
+        assertEquals(1, db.giftWrapSealDao().getAllGiftWrapSeals().size)
+    }
+
+    /** The other profile's sweep finds nothing of ours to open, and a read-only pair opens nothing. */
+    @Test
+    fun `the sweep opens only what is addressed to the key it runs with`() = runBlocking {
+        val wrap = wrapTo(us)
+        db.nostrDao().storeNostrEvent(wrap, relay, listOf(relay), 0, other)
+
+        assertEquals(0, db.nostrDao().reopenInbox(other))
+        assertEquals(0, db.nostrDao().reopenInbox(readOnlyUs))
+        assertEquals(emptyList(), db.giftWrapSealDao().getAllGiftWrapSeals())
+    }
+
+    /** The upgrade the npub plan left open: stored read-only, opened once the nsec is here. */
+    @Test
+    fun `a wrap stored while the identity was read-only is opened once it holds its key`() = runBlocking {
+        val wrap = wrapTo(us)
+        db.nostrDao().storeNostrEvent(wrap, relay, listOf(relay), 0, readOnlyUs)
+        assertEquals(emptyList(), db.giftWrapSealDao().getAllGiftWrapSeals())
+
+        assertEquals(1, db.nostrDao().reopenInbox(us))
         assertEquals(1, db.giftWrapSealDao().getAllGiftWrapSeals().size)
     }
 }

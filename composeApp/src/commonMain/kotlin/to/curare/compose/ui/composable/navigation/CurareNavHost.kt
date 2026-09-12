@@ -201,10 +201,19 @@ fun CurareNavHost(
         AuxDatabaseManager(curareGlobal)
     }
 
+    // Before the repositories: the nostr repository stamps every fetch request it queues
+    // with the active identity, and takes the flow at construction.
+    val sovereignWalletViewModel: SovereignWalletViewModel = viewModel(
+        factory = SovereignWalletViewModel.factory(
+            phoenixGlobal = phoenixGlobal
+        )
+    )
+
     val databaseNostrRepository = remember {
         DatabaseNostrRepository(
             database = auxDatabaseManager.auxDatabase,
-            applicationIOScope
+            applicationIOScope,
+            activeIdentity = sovereignWalletViewModel.activeIdentity,
         )
     }
 
@@ -247,12 +256,6 @@ fun CurareNavHost(
             database = auxDatabaseManager.auxDatabase
         )
     }
-
-    val sovereignWalletViewModel: SovereignWalletViewModel = viewModel(
-        factory = SovereignWalletViewModel.factory(
-            phoenixGlobal = phoenixGlobal
-        )
-    )
 
     val navigationViewModel: NavigationViewModel =  viewModel (
         factory = NavigationViewModel.factory(
