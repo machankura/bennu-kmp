@@ -611,6 +611,11 @@
     <string name="must_match_the_pattern">Must match %1$s.</string>
     <string name="at_least_one_of_these_is_needed">At least one of these is needed: %1$s.</string>
     <string name="field_and_problem">%1$s: %2$s</string>
+    <!-- The group's screen: the entries it has accepted into the lists it curates. -->
+    <string name="curated_entries">Curated entries</string>
+    <string name="this_group_has_not_accepted_anything_into_a_list_yet">This group hasn't accepted anything into a list yet. An entry a quorum signs is shown here, and reaches the list's readers once it is broadcast.</string>
+    <string name="in_list">In %1$s</string>
+    <string name="suggested_by">Suggested by %1$s</string>
     <!-- Broadcasting one event the group signed to relays a member picks. -->
     <string name="broadcast">Broadcast</string>
     <string name="sends_the_event_exactly_as_the_group_signed_it">Sends the event to each relay below, exactly as the group signed it. Any member holding it can send it: the signature is the group's, not yours.</string>

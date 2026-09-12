@@ -5,6 +5,7 @@ import to.curare.compose.database.model.GroupKeyState
 import to.curare.compose.managers.SubgroupManager
 import to.curare.compose.database.model.GroupSignedEvent
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
+import to.curare.compose.nostr.GroupCuratedEntry
 import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.GroupNostrProfile
 import to.curare.compose.nostr.GroupPost
@@ -92,6 +93,16 @@ sealed interface ChatRoomDetailUIState {
          * proposes a schema.
          */
         val groupCuratedSchemas: List<GroupCuratedSchema> = emptyList(),
+        /**
+         * The entries this group has accepted into the lists it curates, most
+         * recently signed first.
+         *
+         * Under the schemas because they are what a schema is *for*: the schema
+         * asks, strangers suggest, and these are what the group decided to
+         * stand behind. Empty in a group that has accepted nothing, which is
+         * every group until a quorum signs an entry.
+         */
+        val groupCuratedEntries: List<GroupCuratedEntry> = emptyList(),
         /**
          * Whether this device could sign a profile for the group.
          *

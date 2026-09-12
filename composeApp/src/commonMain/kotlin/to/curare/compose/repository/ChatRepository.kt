@@ -10,6 +10,7 @@ import to.curare.compose.managers.SharedKeyDerivation
 import to.curare.compose.managers.MarmotGroupCreation
 import to.curare.compose.managers.SubgroupManager
 import to.curare.compose.nostr.GroupNostrProfile
+import to.curare.compose.nostr.GroupCuratedEntry
 import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.GroupPost
 import to.curare.compose.nostr.GroupRelayList
@@ -124,6 +125,19 @@ interface ChatRepository {
      * curates nothing, which is every group until somebody proposes one.
      */
     suspend fun groupCuratedSchemas(chatRoomId: String): List<GroupCuratedSchema>
+
+    /**
+     * The canonical entries this group signed -- the suggestions it accepted
+     * into the lists it curates -- one per coordinate, most recently signed
+     * first.
+     *
+     * Kind 31890 is addressable, so a re-curation is a newer event under the
+     * same identifier and the newest wins, the way a schema's edit does. Each
+     * is read against the schema it replies to, and an entry whose list this
+     * device holds no schema for is left out. Empty in a group that has
+     * accepted nothing, which is every group until a quorum signs an entry.
+     */
+    suspend fun groupCuratedEntries(chatRoomId: String): List<GroupCuratedEntry>
 
     /**
      * One event the group signed, as the group signed it, or null when this
@@ -327,6 +341,10 @@ interface ChatRepository {
             override suspend fun groupCuratedSchemas(
                 chatRoomId: String
             ): List<GroupCuratedSchema> = emptyList()
+
+            override suspend fun groupCuratedEntries(
+                chatRoomId: String
+            ): List<GroupCuratedEntry> = emptyList()
 
             override suspend fun groupSignedEvent(
                 chatRoomId: String,

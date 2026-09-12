@@ -418,9 +418,10 @@ private fun CuratedMark() {
  * The fields a form prompts for, less the title (the headline), the body (its
  * own line) and anything that is a link (the sheet). Labelled because a bare
  * "2014 · en" says nothing to somebody who does not know the list's fields,
- * and this screen is driven by a schema it has never seen before.
+ * and this screen is driven by a schema it has never seen before. Shared with
+ * the group's screen, so an entry is described the same way on both.
  */
-private fun glanceOf(entry: CuratedEntry, schema: CuratedSchema): String? =
+internal fun glanceOf(entry: CuratedEntry, schema: CuratedSchema): String? =
     schema.formFields()
         .filterNot { it.tag() == TITLE_TAG || it.tag() == CuratedFieldConfig.CONTENT_TAG }
         .filterNot { it.type == CuratedFieldType.Url || it.type == CuratedFieldType.Image }
@@ -431,7 +432,7 @@ private fun glanceOf(entry: CuratedEntry, schema: CuratedSchema): String? =
         ?.joinToString(" · ")
 
 /** The value of the field that writes to the body, or null. */
-private fun bodyOf(entry: CuratedEntry, schema: CuratedSchema): String? =
+internal fun bodyOf(entry: CuratedEntry, schema: CuratedSchema): String? =
     schema.fields.firstOrNull { it.tag() == CuratedFieldConfig.CONTENT_TAG }?.let { entry.value(it.name) }
 
 private const val TITLE_TAG = "title"

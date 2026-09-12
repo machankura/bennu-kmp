@@ -16,15 +16,20 @@ import to.curare.compose.database.model.ChatRoom
 import to.curare.compose.database.model.GroupKeyState
 import to.curare.compose.database.model.GroupSignedEvent
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
+import to.curare.compose.nostr.GroupCuratedEntry
 import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.GroupNostrProfile
 import to.curare.compose.nostr.GroupPost
 import to.curare.compose.nostr.GroupRelay
 import to.curare.compose.nostr.GroupRelayList
 import to.curare.compose.nostr.GroupRelaySet
+import to.curare.compose.nostr.curated.CuratedEntry
+import to.curare.compose.nostr.curated.CuratedEntryEvent
 import to.curare.compose.nostr.curated.CuratedField
+import to.curare.compose.nostr.curated.CuratedFieldType
 import to.curare.compose.nostr.curated.CuratedSchema
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
+import to.curare.compose.nostr.curated.CuratedSuggestionRef
 import to.curare.compose.nostr.curated.CuratedVisibility
 import com.vitorpamplona.quartz.nip01Core.relay.normalizer.RelayUrlNormalizer
 import to.curare.compose.repository.ChatRepository
@@ -282,6 +287,79 @@ class GroupNostrProfileSectionJvmTest {
     }
 
     @Test
+    fun `the curated entries sit under the schemas and above the group's work`() = render(
+        state(
+            groupNostrProfile = profile,
+            schemas = listOf(schema("films", "Films worth translating", 1_700_000_000)),
+            entries = listOf(
+                entry("The Rise and Rise of Bitcoin", 1_700_000_900),
+                entry("Magic Money", 1_700_000_300, suggestedBy = null)
+            )
+        )
+    ) {
+        val schemas = onNodeWithText("Curated schemas").getBoundsInRoot().top
+        val entries = onNodeWithText("Curated entries").getBoundsInRoot().top
+        val subgroups = onNodeWithText("Subgroups").getBoundsInRoot().top
+
+        assertTrue(schemas < entries, "the curated entries climbed above the schemas")
+        assertTrue(entries < subgroups, "the curated entries fell below the group's work")
+
+        // Most recently signed first, one card per entry.
+        val newest = onNodeWithText("The Rise and Rise of Bitcoin").getBoundsInRoot().top
+        val oldest = onNodeWithText("Magic Money").getBoundsInRoot().top
+        assertTrue(newest < oldest, "the entries were drawn oldest first")
+
+        // Which list, what the entry is -- labelled as the schema labels it --
+        // and who suggested it, where somebody did.
+        onAllNodesWithText("In Films worth translating").assertCountEquals(2)
+        onAllNodesWithText("Year: 2014", substring = true).assertCountEquals(2)
+        onAllNodesWithText("Suggested by eebb74ab · ", substring = true).assertCountEquals(1)
+        // Dated like every signed statement in the block: the profile, the
+        // schema, and the two entries.
+        onAllNodesWithText("Signed by the group on", substring = true).assertCountEquals(4)
+    }
+
+    @Test
+    fun `a group that has accepted nothing says so, and offers no way to add one here`() = render(
+        state(
+            groupNostrProfile = profile,
+            schemas = listOf(schema("films", "Films worth translating", 1_700_000_000))
+        )
+    ) {
+        onNodeWithText("Curated entries").assertIsDisplayed()
+        onNodeWithText("This group hasn't accepted anything into a list yet.", substring = true)
+            .assertIsDisplayed()
+
+        // An entry is accepted from the queue on the schema's card, not from
+        // this section, so the section has no button of its own.
+        onNodeWithText("View suggestions").assertIsDisplayed()
+        onAllNodesWithText("Add entry").assertCountEquals(0)
+    }
+
+    @Test
+    fun `every accepted entry offers a broadcast under its own card, share or no share`() = render(
+        state(
+            groupNostrProfile = profile,
+            schemas = listOf(schema("films", "Films worth translating", 1_700_000_000)),
+            entries = listOf(entry("The Rise and Rise of Bitcoin", 1_700_000_900)),
+            canEditNostrProfile = false
+        )
+    ) {
+        // The profile's, the schema's and the entry's: the entry is the one
+        // event in the block whose broadcast the queue screen depends on, since
+        // that is where the "Curated" mark is read back from.
+        val buttons = onAllNodesWithText("Broadcast")
+        buttons.assertCountEquals(3)
+
+        val schemaCard = onNodeWithText("Films worth translating").getBoundsInRoot().top
+        val entryCard = onNodeWithText("The Rise and Rise of Bitcoin").getBoundsInRoot().top
+        val last = buttons[2].getBoundsInRoot().top
+
+        assertTrue(schemaCard < entryCard, "the entry climbed above its schema")
+        assertTrue(entryCard < last, "the entry's broadcast is not under its card")
+    }
+
+    @Test
     fun `every signed event in the block offers a broadcast, under its own card`() = render(
         state(
             groupNostrProfile = profile,
@@ -472,11 +550,62 @@ class GroupNostrProfileSectionJvmTest {
         )
     )
 
+    /**
+     * An entry the group accepted into the films list, built rather than read
+     * out of a signed event, for the reason [schema] is. The list's schema has a
+     * year, so the card has a glance to give.
+     */
+    private fun entry(
+        title: String,
+        createdAt: Long,
+        suggestedBy: String? = "eebb74ab6bfb8485722ab1d4acee856eee96f17a9e1721f9c7cc63376c40b860"
+    ): GroupCuratedEntry {
+        val list = schema("films", "Films worth translating", 1_700_000_000).let { films ->
+            films.copy(
+                schema = films.schema.copy(
+                    fields = films.schema.fields + CuratedField("year", CuratedFieldType.Year, isRequired = false, label = "Year")
+                )
+            )
+        }
+        val identifier = title.lowercase().replace(' ', '-')
+
+        return GroupCuratedEntry(
+            signedEvent = GroupSignedEvent(
+                id = createdAt.toString().padStart(64, 'd'),
+                chatRoomId = chatRoomId,
+                publicKey = chatRoomId,
+                kind = CuratedEntryEvent.CANONICAL_KIND,
+                tags = arrayOf(arrayOf("d", identifier), arrayOf("title", title)),
+                content = "",
+                signature = "f".repeat(128),
+                createdAt = Instant.fromEpochSeconds(createdAt)
+            ),
+            list = list,
+            entry = CuratedEntry(
+                kind = CuratedEntryEvent.CANONICAL_KIND,
+                id = createdAt.toString().padStart(64, 'd'),
+                pubKey = chatRoomId,
+                createdAt = createdAt,
+                identifier = identifier,
+                title = title,
+                values = mapOf(
+                    "identifier" to listOf(identifier),
+                    "title" to listOf(title),
+                    "year" to listOf("2014"),
+                ),
+                source = suggestedBy?.let {
+                    CuratedSuggestionRef(id = "a".repeat(64), coordinate = "31888:$it:$identifier", pubKey = it)
+                }
+            )
+        )
+    }
+
     private fun state(
         groupNostrProfile: GroupNostrProfile?,
         relayLists: List<GroupRelayList> = GroupRelayList.allAmong(emptyList(), chatRoomId),
         posts: List<GroupPost> = emptyList(),
         schemas: List<GroupCuratedSchema> = emptyList(),
+        entries: List<GroupCuratedEntry> = emptyList(),
         canEditNostrProfile: Boolean = true,
         mlsGroupState: String? = "state"
     ) = ChatRoomDetailUIState.Loaded(
@@ -507,6 +636,7 @@ class GroupNostrProfileSectionJvmTest {
         groupRelayLists = relayLists,
         groupPosts = posts,
         groupCuratedSchemas = schemas,
+        groupCuratedEntries = entries,
         canEditNostrProfile = canEditNostrProfile
     )
 

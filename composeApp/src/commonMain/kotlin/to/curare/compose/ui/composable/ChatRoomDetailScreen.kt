@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
@@ -88,6 +89,7 @@ import to.curare.compose.ui.composable.navigation.routes.EditGroupNostrProfileRo
 import to.curare.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposalListRoute
 import to.curare.compose.ui.composable.navigation.routes.SearchMemberToAddToChatRoomRoute
+import to.curare.compose.extensions.shortened
 import to.curare.compose.extensions.toFormattedTimeAndDateString
 import to.curare.compose.ui.composable.widgets.Decorative
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
@@ -107,7 +109,11 @@ import curare.composeapp.generated.resources.relays
 import curare.composeapp.generated.resources.posts
 import curare.composeapp.generated.resources.add_post
 import curare.composeapp.generated.resources.a_reply
+import curare.composeapp.generated.resources.curated_entries
 import curare.composeapp.generated.resources.curated_schemas
+import curare.composeapp.generated.resources.in_list
+import curare.composeapp.generated.resources.suggested_by
+import curare.composeapp.generated.resources.this_group_has_not_accepted_anything_into_a_list_yet
 import curare.composeapp.generated.resources.this_group_has_not_published_a_curated_schema_yet
 import curare.composeapp.generated.resources.add_schema
 import curare.composeapp.generated.resources.view_suggestions
@@ -137,6 +143,7 @@ import to.curare.compose.ui.composable.navigation.routes.SelectSubgroupAdminsRou
 import to.curare.compose.ui.composable.navigation.routes.NostrEventDetailRoute
 import to.curare.compose.ui.composable.navigation.routes.ChatRoomDetailRoute
 import to.curare.compose.managers.SubgroupManager
+import to.curare.compose.nostr.GroupCuratedEntry
 import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.GroupNostrProfile
 import to.curare.compose.nostr.GroupPost
@@ -571,10 +578,8 @@ fun ChatRoomDetailScreen(
                                 // thing a group publishes for strangers to answer:
                                 // a post is the group speaking, a schema is the
                                 // group asking -- for entries to a list it will
-                                // then curate, by quorum, under the same key. It
-                                // closes the identity block because everything in
-                                // that block is signed by that key and read by
-                                // people who were never in the room.
+                                // then curate, by quorum, under the same key. What
+                                // it curated follows, in the section below.
                                 item {
                                     Text(
                                         text = stringResource(Res.string.curated_schemas),
@@ -706,6 +711,57 @@ fun ChatRoomDetailScreen(
                                             )
 
                                             Text(stringResource(Res.string.add_schema))
+                                        }
+                                    }
+                                }
+
+                                // Under the schemas, because these are what a
+                                // schema is *for*: the schema asks, strangers
+                                // answer on the queue, and these are the answers
+                                // the group put its key to. They close the
+                                // identity block because everything in it is
+                                // signed by that key and read by people who were
+                                // never in the room, and an accepted entry is the
+                                // last thing in that chain.
+                                item {
+                                    Text(
+                                        text = stringResource(Res.string.curated_entries),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+
+                                if (chatRoomDetailUIState.groupCuratedEntries.isEmpty()) {
+                                    item {
+                                        Text(
+                                            stringResource(
+                                                Res.string.this_group_has_not_accepted_anything_into_a_list_yet
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    items(
+                                        items = chatRoomDetailUIState.groupCuratedEntries,
+                                        key = { accepted -> accepted.signedEvent.id }
+                                    ) { accepted ->
+                                        // The card and its broadcast as one item,
+                                        // so the button stays under the entry it
+                                        // sends. No gate on either: reading what
+                                        // the group decided takes no share of the
+                                        // key, and neither does repeating its
+                                        // signature to a relay. There is no way
+                                        // in to add one here, because an entry
+                                        // is accepted from the queue it was
+                                        // suggested to, on the schema's card
+                                        // above.
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            GroupCuratedEntryCard(accepted = accepted)
+
+                                            BroadcastButton(
+                                                onClick = { broadcast(accepted.signedEvent) }
+                                            )
                                         }
                                     }
                                 }
@@ -1622,6 +1678,87 @@ private fun GroupCuratedSchemaCard(
         Card(modifier = Modifier.fillMaxWidth(), onClick = onEdit) { content() }
     } else {
         Card(modifier = Modifier.fillMaxWidth()) { content() }
+    }
+}
+
+/**
+ * One entry the group accepted into a list it curates, as the list's own word.
+ *
+ * The title first, because every list has one; then which list, since a group
+ * may curate several and an entry says nothing about its list on its face;
+ * then the glance the queue row gives -- the fields that say what the entry
+ * *is*, labelled as the schema labels them, and not the links -- and the body
+ * where the list has one. The last line credits the suggester, when there was
+ * one, and dates the group's decision, which is the fact a member reading the
+ * block came for.
+ *
+ * Not a way in to anything: the entry is revised from the queue it was
+ * suggested to, where the suggestion it came from and the "Curated" mark sit
+ * side by side, and the card's one action is the broadcast under it.
+ */
+@Composable
+private fun GroupCuratedEntryCard(accepted: GroupCuratedEntry) {
+    val schema = accepted.list.schema
+    val entry = accepted.entry
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        ListItem(
+            leadingContent = {
+                Icon(
+                    Icons.Default.CheckCircle,
+                    contentDescription = Decorative,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            headlineContent = {
+                Text(
+                    text = accepted.title,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            supportingContent = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)
+                ) {
+                    Text(
+                        text = stringResource(Res.string.in_list, schema.displayName()),
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    glanceOf(entry, schema)?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    bodyOf(entry, schema)?.let {
+                        Text(
+                            text = it,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Text(
+                        text = listOfNotNull(
+                            entry.source?.let { stringResource(Res.string.suggested_by, it.pubKey.shortened()) },
+                            stringResource(
+                                Res.string.signed_by_the_group_on,
+                                accepted.signedAt.toFormattedTimeAndDateString()
+                            )
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        )
     }
 }
 
