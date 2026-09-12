@@ -46,8 +46,9 @@ The npub sign-in note is a phased plan that has been built, and reads as that
 plan's out-of-scope note answered: it takes the `Identity` type and the sign-in
 machine as given and asks what an identity with no secret is for, before it asks
 how to build one; read its table of where the build chose differently first.
-The multiple-profiles note is a phased plan that has not been built, and reads as
-the third of the sign-in notes: it asks what happens when the device holds two
+The multiple-profiles note is a phased plan that has been built, and reads as the
+third of the sign-in notes: it asks what happens when the device holds two
 identities, and its first phase changes one rule the other two share — a seed's
 key becomes a credential like any other — so read it with `StoredIdentity.merge`,
-`SovereignWalletViewModel.switchToWallet` and the startup screen open.
+`SovereignWalletViewModel.switchToIdentity` and the startup screen open, and read
+its table of where the build chose differently first.

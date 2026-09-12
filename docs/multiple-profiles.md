@@ -11,10 +11,41 @@ stores, the sign-in screen and the forget sequence as given, changes one rule th
 two of them share, and asks the question both deferred without naming it: what
 happens when the device holds two of them.
 
-**Not built.** Phases 1–8 are one commit each, in the order given; Phase 9 is the
-rollout. The phases are written as reasoning rather than as a checklist, for the
-reason the two sign-in plans give: the code reads better against the argument it
-came from.
+**Built**, phases 1–8, one commit each, in the order given; Phase 9 is the rollout
+and is process rather than code. The phases are kept as written because they are
+the reasoning, and the code reads better against the argument it came from than
+against a summary of itself. Where the implementation chose differently the table
+below says so:
+
+| what the plan said | what it turned out to be |
+|---|---|
+| the repair runs "before the credentials file is read for the listing" | after both files are read, and the listing is built from what it returns — the repaired map, or the one read if the write failed — so the file is decrypted once |
+| `NotACredential` becomes `WalletAttached` for a key a seed derives | and for a key not in the file at all, which since the repair can only be a seed's key the repair could not write; one outcome, two ways in |
+| `stopPlatformBusiness` called from `switchToIdentity` | injected into the view model as a function, defaulting to the `expect`, so the branch can be pinned with a recorder — a node cannot be started in a test, but a `PhoenixBusiness` can be built, since everything in it is lazy |
+| the relay observer restructured | as planned, plus an injectable scope and a `relayUrls` read for the test that fails against the old observer |
+| `setActiveIdentity` saves the default | wrapped: a default that could not be written is a selector on the next boot, not a crash now. The forget tails call `forgetDefaultIdentity()` on the view model rather than `clearDefaultWallet()` inline |
+| "Initializing…" among the four that become *opening profile* | it and "Preparing wallet…" both became *preparing profiles*; they are the same wait |
+| `ProfilesViewModel` "owns the four states" | takes the four flows it joins rather than the view model that holds them, so a compose test can drive it with `MutableStateFlow`s and a fake repository; the fourth state, empty, is not modelled, as the plan said it could not happen |
+| a row's fallback "the npub and the metadata's emoji" | the npub as the title over the emoji avatar, with no second line; a key with a kind 0 gets the name over the picture with the npub under it |
+| "`createAccount` already takes its writer as a function" | a `NewProfileWriter` interface returning the key it derived and the id it filed it under, with `seedProfileWriter` and `bareKeyProfileWriter` on the view model and `CreateProfileRoute(withWallet)` choosing; the view model plants the six events *after* the write and calls the tail after that, so the account is in the database before the identity is activated — an ordering the create flow used to get away with by luck |
+| `CredentialProblem.AlreadyOnThisDevice` "carries it" | the id rides on `Outcome.Failed` and the `Error` state instead; `CredentialProblem` stays an enum and the parser's tests stay as they were |
+| the DAO's own requests "stamped from the `activeKeyPair` it is already handed" | left unowned, on purpose: the placeholder-profile syncs and a Marmot join's participant syncs fetch public kinds that need no key to open, and any profile that is open may as well fetch them. Only what goes through the repository is stamped |
+| `openGiftWrap` lifted out of `indexNostrEvent` | not lifted: the branch is a screenful of room and participant handling, and running the stored wrap through `indexNostrEvent` again, in a transaction of its own per wrap, gives the same result with one code path. `reopenGiftWrap` is that |
+| `ForgetIdentityJvmTest` gains "forgetting B while A remains" | the round trip covers it, forgetting B and C and listing A alone; the per-outcome tests were done in Phase 1 |
+| the round trip "creates A from a phrase" | through the create view model with the seed writer, as Landing does, rather than through a pasted phrase; and A's node is a `PhoenixBusiness` that was never started, which is enough for the switch to have something to stop |
+
+Three things found on the way that are in no phase. `DataStoreManager` caches one
+`GlobalPrefs` per process behind an unsynchronised check-then-set, and DataStore
+refuses a second instance over the same file: two first calls at once — the listing
+on IO and a sign-in's write — could both build one, and the loser threw at first
+use. `JvmGlobalPrefs` is now the one way the jvm target reaches the prefs, under a
+lock; Android goes through the `Application`'s single instance and never raced. The
+same cache means a test that constructs `SovereignWalletViewModel` must not build a
+`GlobalPrefs` of its own. And `GiftWrapSeal.giftWrapMessageId`, a foreign key to the
+wrap a seal came out of, existed and was never written — so nothing in the database
+could say which wraps had been opened, which is the question the inbox sweep asks;
+`decryptGiftWrapSeal` now sets it, and a seal from before is swept once and comes
+back with the link.
 
 ## The vocabulary
 
@@ -1048,6 +1079,13 @@ a test that turns out to have been asserting the old model somewhere unexpected
 is a test to rewrite, not to delete. Phase 6's unseal branch of `indexNostrEvent`
 has never been called from anywhere but `indexNostrEvent`, and lifting it out is
 where a transaction boundary will turn out to have been load-bearing.
+
+Phases 1–8 are now implemented, in one sitting and in order. What each turned out
+to require, as against what was predicted here, is in the table at the top and in
+the commit messages on this branch. The Phase 6 uncertainty resolved itself by not
+lifting the branch at all; the uncertainty that did bite was in no phase — a
+process-wide cache in the library, reached by two threads at once for the first
+time, which the tests for Phase 5 hit one run in three.
 
 ## Out of scope
 
