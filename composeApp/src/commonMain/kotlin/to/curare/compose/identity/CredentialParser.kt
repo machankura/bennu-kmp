@@ -2,16 +2,18 @@ package to.curare.compose.identity
 
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip19Bech32.bech32.Bech32
+import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.MnemonicCode
 import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.bitcoin.XonlyPublicKey
 import fr.acinq.phoenix.managers.nostrPublicKeyHex
 import fr.acinq.phoenix.utils.MnemonicLanguage
 
 /**
  * What a user pasted into the sign-in field, once it has been recognised.
  *
- * Both carry the nostr public key, because the confirm step shows it and the duplicate
- * check compares it. Neither prints its secret.
+ * All three carry the nostr public key, because the confirm step shows it and the
+ * duplicate check compares it. None prints a secret.
  */
 sealed interface SignInCredential {
     val nostrPublicKey: HexKey
@@ -31,6 +33,11 @@ sealed interface SignInCredential {
     ) : SignInCredential {
         override fun toString(): String = "NostrSecret(npub=$nostrPublicKey, key=<redacted>)"
     }
+
+    /** A bare nostr public key. Nothing can be signed with it: a profile to look at. */
+    data class NostrPublicKey(
+        override val nostrPublicKey: HexKey,
+    ) : SignInCredential
 }
 
 /** Why an input was not accepted. The screen turns each into a sentence. */
@@ -44,11 +51,8 @@ enum class CredentialProblem {
     /** Words, but the checksum or the wordlist says no: a wrong word, or one out of order. */
     InvalidPhrase,
 
-    /** An nsec or hex that does not decode to a valid secp256k1 secret. */
+    /** An nsec or hex that does not decode to a valid secp256k1 secret, or an npub that does not decode to a point on the curve. */
     InvalidKey,
-
-    /** An npub. A public key cannot sign, and every write path here assumes a key that can. */
-    PublicKeyOnly,
 
     /** An ncryptsec (NIP-49). Decrypting one is a follow-on; say so rather than fail opaquely. */
     EncryptedKey,
@@ -63,11 +67,18 @@ enum class CredentialProblem {
 /**
  * Recognises a pasted credential. Pure, so it can be pinned row by row.
  *
- * A user does not choose an input type; they paste what they have. The two accepted
- * shapes are unambiguous -- words have spaces, keys do not -- and the two refused
- * shapes are named for what they are rather than lumped in with garbage, because a
- * user who pasted an npub or an ncryptsec did something reasonable and should be told
- * what to do instead.
+ * A user does not choose an input type; they paste what they have. The three accepted
+ * shapes are unambiguous -- words have spaces, keys do not, and a bech32 prefix says
+ * which key -- and the one refused shape is named for what it is rather than lumped in
+ * with garbage, because a user who pasted an ncryptsec did something reasonable and
+ * should be told what to do instead.
+ *
+ * **Hex stays a secret.** A private key and an x-only public key are both thirty-two
+ * bytes, and sixty-four hex characters cannot say which. The confirm step shows the
+ * derived npub, so a public key pasted as hex is visible for what it is; guessing --
+ * "not a valid secret, so try it as a public key" -- would never fire when it mattered,
+ * since an x coordinate is, with overwhelming probability, also a valid scalar. An npub
+ * has to arrive as an npub.
  */
 object CredentialParser {
 
@@ -91,7 +102,7 @@ object CredentialParser {
         // prefix is how a key arrives from a link.
         val token = text.removePrefix("nostr:").lowercase()
         return when {
-            token.startsWith("npub1") -> Result.Refused(CredentialProblem.PublicKeyOnly)
+            token.startsWith("npub1") -> npub(token)
             token.startsWith("ncryptsec1") -> Result.Refused(CredentialProblem.EncryptedKey)
             token.startsWith("nsec1") -> nsec(token)
             hex64.matches(token) -> secret(runCatching { PrivateKey.fromHex(token) }.getOrNull())
@@ -118,5 +129,22 @@ object CredentialParser {
     private fun secret(privateKey: PrivateKey?): Result {
         if (privateKey == null || !privateKey.isValid()) return Result.Refused(CredentialProblem.InvalidKey)
         return Result.Recognised(SignInCredential.NostrSecret(privateKey, privateKey.nostrPublicKeyHex()))
+    }
+
+    /**
+     * Thirty-two bytes under the `npub` prefix that name a point on the curve -- the
+     * counterpart of the `isValid()` a secret is checked with, since not every x
+     * coordinate has a point above it.
+     */
+    private fun npub(token: String): Result {
+        val bytes = runCatching {
+            val (hrp, data) = Bech32.decodeBytes(token)
+            require(hrp == "npub") { "not an npub" }
+            require(data.size == 32) { "not an x-only key" }
+            data
+        }.getOrNull() ?: return Result.Refused(CredentialProblem.InvalidKey)
+        val xOnly = XonlyPublicKey(ByteVector32(bytes))
+        if (!xOnly.publicKey.isValid()) return Result.Refused(CredentialProblem.InvalidKey)
+        return Result.Recognised(SignInCredential.NostrPublicKey(xOnly.value.toHex()))
     }
 }

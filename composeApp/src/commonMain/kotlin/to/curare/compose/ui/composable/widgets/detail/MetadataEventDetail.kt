@@ -54,6 +54,7 @@ import to.curare.compose.ui.view.model.MetadataEventDetailViewModel
 import to.curare.compose.ui.view.state.MetadataEventDetailUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
@@ -82,6 +83,9 @@ fun MetadataEventDetail(
     nostrRepository: NostrRepository
 ) {
     val scope = rememberCoroutineScope()
+
+    // Whether this identity can sign, which decides which of the controls below exist.
+    val canSign = LocalCanSign.current
 
     val profile = localNostrEvent.profile
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
@@ -178,6 +182,12 @@ fun MetadataEventDetail(
 
                                     if (metadataEventDetailViewModel.isActionPending.value) {
                                         LoadingIndicator()
+                                    } else if (!canSign) {
+                                        // Edit profile is a kind 0, follow and unfollow a
+                                        // kind 3: none of them can be signed by a read-only
+                                        // identity, so none is offered. The "follows you"
+                                        // state below still shows; it is a fact, not an
+                                        // action.
                                     } else {
                                         if (metadataEventDetailUIState.isActiveUser) {
                                             Button(
@@ -280,7 +290,9 @@ fun MetadataEventDetail(
                     }
                 }
 
-                item {
+                // A message is a gift wrap, sealed with the sender's key. Not for a
+                // read-only identity.
+                if (canSign) item {
                     Button(
                         onClick = {
                             onNavigateToChatRoom.invoke(

@@ -31,6 +31,7 @@ class SignInToProfileViewModelJvmTest {
 
     private val nostrSecret = SignInCredential.NostrSecret(privateKey, publicKey)
     private val recoveryPhrase = SignInCredential.RecoveryPhrase(words, publicKey)
+    private val nostrPublicKey = SignInCredential.NostrPublicKey(publicKey)
 
     /** Records the order of effects; throws on anything the sign-in should not touch. */
     private class Recorder : NostrRepository by NostrRepository.NO_OP_NOSTR_REPOSITORY {
@@ -42,13 +43,35 @@ class SignInToProfileViewModelJvmTest {
 
     private fun viewModel(
         recorder: Recorder,
-        nostrKeyOutcome: () -> IdentityWriter.WriteNostrKeyResult = { IdentityWriter.WriteNostrKeyResult.Written(id) },
+        nostrKeyOutcome: () -> IdentityWriter.WriteNostrCredentialResult = { IdentityWriter.WriteNostrCredentialResult.Written(id) },
+        publicKeyOutcome: () -> IdentityWriter.WriteNostrCredentialResult = { IdentityWriter.WriteNostrCredentialResult.Written(id) },
         seedOutcome: ((WalletId) -> Unit, (WritingSeedState.Error) -> Unit) -> Unit = { onWritten, _ -> onWritten(id) },
     ) = SignInToProfileViewModel(
         nostrRepository = recorder,
         writeNostrKey = { recorder.effects += "writeNostrKey"; nostrKeyOutcome() },
+        writeNostrPublicKey = { recorder.effects += "writeNostrPublicKey"; publicKeyOutcome() },
         writeRecoveryPhrase = { _, onWritten, onError -> recorder.effects += "writeRecoveryPhrase"; seedOutcome(onWritten, onError) },
     )
+
+    @Test
+    fun `a public key is written, then its account is planted, then the id comes back`() = runBlocking {
+        val recorder = Recorder()
+
+        val outcome = viewModel(recorder).commit(nostrPublicKey)
+
+        assertEquals(SignInToProfileViewModel.Outcome.SignedIn(id), outcome)
+        assertEquals(listOf("writeNostrPublicKey", "signInToProfile:$publicKey"), recorder.effects)
+    }
+
+    @Test
+    fun `the npub of a key already here is refused, and no account is planted`() = runBlocking {
+        val recorder = Recorder()
+
+        val outcome = viewModel(recorder, publicKeyOutcome = { IdentityWriter.WriteNostrCredentialResult.AlreadyExists }).commit(nostrPublicKey)
+
+        assertEquals(SignInToProfileViewModel.Outcome.Failed(CredentialProblem.AlreadyOnThisDevice), outcome)
+        assertEquals(listOf("writeNostrPublicKey"), recorder.effects)
+    }
 
     @Test
     fun `an nsec is written, then its account is planted, then the id comes back`() = runBlocking {
@@ -74,7 +97,7 @@ class SignInToProfileViewModelJvmTest {
     fun `a key already on the device is refused, and no account is planted`() = runBlocking {
         val recorder = Recorder()
 
-        val outcome = viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrKeyResult.AlreadyExists }).commit(nostrSecret)
+        val outcome = viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrCredentialResult.AlreadyExists }).commit(nostrSecret)
 
         assertEquals(SignInToProfileViewModel.Outcome.Failed(CredentialProblem.AlreadyOnThisDevice), outcome)
         assertEquals(listOf("writeNostrKey"), recorder.effects)
@@ -97,7 +120,7 @@ class SignInToProfileViewModelJvmTest {
 
         assertEquals(
             SignInToProfileViewModel.Outcome.Failed(CredentialProblem.CouldNotWrite),
-            viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrKeyResult.CannotLoadKeys }).commit(nostrSecret),
+            viewModel(recorder, nostrKeyOutcome = { IdentityWriter.WriteNostrCredentialResult.CannotLoadKeys }).commit(nostrSecret),
         )
         assertEquals(
             SignInToProfileViewModel.Outcome.Failed(CredentialProblem.CouldNotWrite),

@@ -11,12 +11,13 @@ import fr.acinq.phoenix.data.ElectrumConfig
 import fr.acinq.phoenix.data.WalletId
 import fr.acinq.phoenix.managers.DataStoreManager
 import fr.acinq.phoenix.managers.NodeParamsManager
-import fr.acinq.phoenix.managers.NostrKeyManager
+import fr.acinq.phoenix.managers.NostrCredentialManager
 import fr.acinq.phoenix.managers.SeedManager
 import fr.acinq.phoenix.managers.nostrPrivateKey
 import fr.acinq.phoenix.managers.nostrPublicKeyHex
-import fr.acinq.phoenix.security.EncryptedNostrKeys
+import fr.acinq.phoenix.security.EncryptedNostrCredentials
 import fr.acinq.phoenix.security.EncryptedSeed
+import fr.acinq.phoenix.security.NostrCredential
 import fr.acinq.phoenix.utils.preferences.GlobalPrefs
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -28,8 +29,8 @@ import to.curare.compose.AppVersion
 import to.curare.compose.ui.view.model.WritingSeedState
 
 /**
- * Puts a new identity's secret on disk, one function per kind, and prepares the
- * per-identity preferences both kinds read.
+ * Puts a new identity on disk, one function per kind, and prepares the per-identity
+ * preferences every kind reads.
  *
  * [writeMnemonic] was an `expect` with three byte-identical actuals -- android, jvm, ios --
  * using nothing but commonMain: SeedManager, EncryptedSeed, LocalKeyManager,
@@ -37,19 +38,24 @@ import to.curare.compose.ui.view.model.WritingSeedState
  * differ and nothing does now, so it is one function here, and the second writer sits
  * next to it rather than being triplicated in turn.
  *
- * Both refuse a duplicate **by nostr public key**, not only by id. A wallet and an
+ * All three refuse a duplicate **by nostr public key**, not only by id. A wallet and an
  * imported key can be the same npub under different ids -- one is hash160 of the node
  * key, the other hash160 of the nostr key -- and the database is keyed by pubkey, so two
  * identities for one pubkey would share every row and disagree about which is active.
+ *
+ * With one exception, which is the point of the credentials file: a public key already
+ * here read-only is not a duplicate of the secret that signs as it. The device does not
+ * have that secret, and refusing it would be false. [writeNostrKey] replaces the entry
+ * in one write; [writeMnemonic] has to span two files and says which goes first.
  */
 object IdentityWriter {
 
-    /** The nostr public keys of every identity already on this device, or null if a store could not be read. */
-    private fun knownNostrPublicKeys(phoenixGlobal: PhoenixGlobal): Set<HexKey>? {
-        val wallets = SeedManager.loadAndDecryptOrNull(phoenixGlobal) ?: return null
-        val nostrKeys = NostrKeyManager.loadAndDecryptOrNull(phoenixGlobal) ?: return null
-        return StoredIdentity.merge(wallets, nostrKeys).values.map { it.nostrPublicKey }.toSet()
-    }
+    /** What the seed store says, or null if it could not be read. */
+    private fun seedPublicKeys(phoenixGlobal: PhoenixGlobal): Set<HexKey>? =
+        SeedManager.loadAndDecryptOrNull(phoenixGlobal)
+            ?.values
+            ?.map { StoredIdentity.nostrPublicKeyOf(it.words) }
+            ?.toSet()
 
     /**
      * Creates the preference files a new id needs and records the choices made before
@@ -107,8 +113,8 @@ object IdentityWriter {
             val existingSeeds = SeedManager.loadAndDecryptOrNull(phoenixGlobal)?.map {
                 it.key to it.value.words
             }?.toMap()
-            // Null when nostr-keys.dat exists and cannot be read; an empty map when it is absent.
-            val existingNostrKeys = NostrKeyManager.loadAndDecryptOrNull(phoenixGlobal)
+            // Null when nostr-credentials.dat exists and cannot be read; an empty map when it is absent.
+            val existingCredentials = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal)
 
             val seed = MnemonicCode.toSeed(mnemonics, "").toByteVector()
             val keyManager = LocalKeyManager(seed, NodeParamsManager.chain, NodeParamsManager.remoteSwapInXpub)
@@ -116,7 +122,7 @@ object IdentityWriter {
             val newNostrPublicKey = keyManager.nostrPrivateKey().nostrPublicKeyHex()
 
             when {
-                existingSeeds == null || existingNostrKeys == null -> {
+                existingSeeds == null || existingCredentials == null -> {
                     log.e("could not load the existing seed map, aborting...")
                     onWritingSeedError.invoke(
                         WritingSeedState.Error.CannotLoadSeedMap
@@ -130,7 +136,7 @@ object IdentityWriter {
                     )
                     return@launch
                 }
-                existingNostrKeys.containsKey(newNostrPublicKey) -> {
+                existingCredentials[newNostrPublicKey] is NostrCredential.Secret -> {
                     // The same npub is already here as a bare key. The id check above cannot
                     // see that -- different hash, different key -- so it is asked by pubkey.
                     log.i("attempting to import a seed whose nostr key is already here, aborting...")
@@ -140,6 +146,18 @@ object IdentityWriter {
                     return@launch
                 }
                 else -> {
+                    if (existingCredentials[newNostrPublicKey] is NostrCredential.Public) {
+                        // The npub is here read-only, and the words that sign as it have just
+                        // been pasted: an upgrade, across two files. The credential goes
+                        // first, then the seed. A crash between the two loses the read-only
+                        // identity, which the npub pasted again restores; the reverse order
+                        // would leave one npub listed twice under two ids.
+                        log.i("the seed's nostr key is here read-only; replacing it with the wallet")
+                        NostrCredentialManager.writeToDisk(
+                            phoenixGlobal,
+                            EncryptedNostrCredentials.encrypt(existingCredentials - newNostrPublicKey),
+                        )
+                    }
                     val newSeedMap = existingSeeds + (newWalletId to mnemonics)
                     val encrypted = EncryptedSeed.V2.encrypt(newSeedMap)
                     SeedManager.writeSeedToDisk(phoenixGlobal, encrypted, overwrite = true)
@@ -160,21 +178,28 @@ object IdentityWriter {
         }
     }
 
-    sealed class WriteNostrKeyResult {
-        data class Written(val id: WalletId) : WriteNostrKeyResult()
+    sealed class WriteNostrCredentialResult {
+        data class Written(val id: WalletId) : WriteNostrCredentialResult()
 
-        /** An identity with this nostr public key is already on the device, as a wallet or as a key. */
-        data object AlreadyExists : WriteNostrKeyResult()
+        /**
+         * An identity with this nostr public key is already on the device and holds at least
+         * what was pasted: a wallet or a secret, for either input; a public key, for an npub.
+         */
+        data object AlreadyExists : WriteNostrCredentialResult()
 
         /** One of the two stores exists and could not be read; nothing was written. */
-        data object CannotLoadKeys : WriteNostrKeyResult()
+        data object CannotLoadKeys : WriteNostrCredentialResult()
     }
 
     /**
-     * Adds [privateKey] to `nostr-keys.dat` and prepares its preferences. Suspending and
-     * result-shaped rather than callback-shaped: nothing was built around a state machine
-     * for it, and the caller is a coroutine already. Throws on an I/O or key store failure
-     * during the write, as [writeMnemonic]'s handler would have caught.
+     * Adds [privateKey] to `nostr-credentials.dat` as a secret and prepares its
+     * preferences. Suspending and result-shaped rather than callback-shaped: nothing was
+     * built around a state machine for it, and the caller is a coroutine already. Throws
+     * on an I/O or key store failure during the write, as [writeMnemonic]'s handler would
+     * have caught.
+     *
+     * A public entry for the same key is the one thing that is not a duplicate: the entry
+     * becomes a secret one, in a single write, under the id it already had.
      */
     suspend fun writeNostrKey(
         log: Logger,
@@ -183,65 +208,112 @@ object IdentityWriter {
         privateKey: PrivateKey,
         isTorEnabled: Boolean,
         customElectrumServer: ElectrumConfig.Custom?,
-    ): WriteNostrKeyResult {
+    ): WriteNostrCredentialResult {
         log.d("writing nostr key to disk...")
         val stored = StoredIdentity.nostrSecret(privateKey)
 
-        val known = knownNostrPublicKeys(phoenixGlobal)
-        val existingNostrKeys = NostrKeyManager.loadAndDecryptOrNull(phoenixGlobal)
-        if (known == null || existingNostrKeys == null) {
+        val seeds = seedPublicKeys(phoenixGlobal)
+        val existing = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal)
+        if (seeds == null || existing == null) {
             log.e("could not load the existing keys, aborting...")
-            return WriteNostrKeyResult.CannotLoadKeys
+            return WriteNostrCredentialResult.CannotLoadKeys
         }
-        if (stored.nostrPublicKey in known) {
+        if (stored.nostrPublicKey in seeds || existing[stored.nostrPublicKey] is NostrCredential.Secret) {
             log.i("attempting to import a nostr key that is already here, aborting...")
-            return WriteNostrKeyResult.AlreadyExists
+            return WriteNostrCredentialResult.AlreadyExists
         }
+        val upgrading = existing[stored.nostrPublicKey] is NostrCredential.Public
 
-        val encrypted = EncryptedNostrKeys.encrypt(existingNostrKeys + (stored.nostrPublicKey to privateKey))
-        NostrKeyManager.writeToDisk(phoenixGlobal, encrypted)
-        log.i("successfully imported nostr key for identity=${stored.id}")
+        val encrypted = EncryptedNostrCredentials.encrypt(
+            existing + (stored.nostrPublicKey to NostrCredential.Secret(privateKey))
+        )
+        NostrCredentialManager.writeToDisk(phoenixGlobal, encrypted)
+        if (upgrading) {
+            log.i("read-only identity=${stored.id} now holds its key")
+        } else {
+            log.i("successfully imported nostr key for identity=${stored.id}")
+        }
 
         prepareIdentity(phoenixGlobal, globalPrefs, stored.id, isTorEnabled, customElectrumServer)
 
-        return WriteNostrKeyResult.Written(stored.id)
-    }
-
-    sealed class ForgetNostrKeyResult {
-        data object Forgotten : ForgetNostrKeyResult()
-
-        /** The key is not in `nostr-keys.dat`: a mnemonic identity's key lives in the seed, and removing a seed is a wallet question. */
-        data object NotABareKey : ForgetNostrKeyResult()
-
-        data object CannotLoadKeys : ForgetNostrKeyResult()
+        return WriteNostrCredentialResult.Written(stored.id)
     }
 
     /**
-     * The inverse of [writeNostrKey]: removes the key from `nostr-keys.dat` and deletes
-     * the identity's preference files. The profile stays on the relays, and the same key
-     * can be signed in again. Only for a bare key -- see [ForgetNostrKeyResult.NotABareKey].
+     * Adds [nostrPublicKey] to `nostr-credentials.dat` as a public entry -- an identity
+     * the device can look at and not sign as -- and prepares its preferences. Refused if
+     * the device already holds anything at all for the key, since anything is more than
+     * this.
      */
-    suspend fun forgetNostrKey(
+    suspend fun writeNostrPublicKey(
+        log: Logger,
+        phoenixGlobal: PhoenixGlobal,
+        globalPrefs: GlobalPrefs,
+        nostrPublicKey: HexKey,
+        isTorEnabled: Boolean,
+        customElectrumServer: ElectrumConfig.Custom?,
+    ): WriteNostrCredentialResult {
+        log.d("writing nostr public key to disk...")
+        val stored = StoredIdentity.nostrPublic(nostrPublicKey)
+
+        val seeds = seedPublicKeys(phoenixGlobal)
+        val existing = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal)
+        if (seeds == null || existing == null) {
+            log.e("could not load the existing keys, aborting...")
+            return WriteNostrCredentialResult.CannotLoadKeys
+        }
+        if (stored.nostrPublicKey in seeds || existing.containsKey(stored.nostrPublicKey)) {
+            log.i("attempting to add a public key the device already holds something for, aborting...")
+            return WriteNostrCredentialResult.AlreadyExists
+        }
+
+        NostrCredentialManager.writeToDisk(
+            phoenixGlobal,
+            EncryptedNostrCredentials.encrypt(existing + (stored.nostrPublicKey to NostrCredential.Public)),
+        )
+        log.i("added read-only identity=${stored.id}")
+
+        prepareIdentity(phoenixGlobal, globalPrefs, stored.id, isTorEnabled, customElectrumServer)
+
+        return WriteNostrCredentialResult.Written(stored.id)
+    }
+
+    sealed class ForgetNostrCredentialResult {
+        data object Forgotten : ForgetNostrCredentialResult()
+
+        /** The key is not in `nostr-credentials.dat`: a mnemonic identity's key lives in the seed, and removing a seed is a wallet question. */
+        data object NotACredential : ForgetNostrCredentialResult()
+
+        data object CannotLoadKeys : ForgetNostrCredentialResult()
+    }
+
+    /**
+     * The inverse of [writeNostrKey] and [writeNostrPublicKey] alike: removes the entry,
+     * whichever kind it is, from `nostr-credentials.dat` and deletes the identity's
+     * preference files. The profile stays on the relays, and the same key can be signed
+     * in again. Only for a credential -- see [ForgetNostrCredentialResult.NotACredential].
+     */
+    suspend fun forgetNostrCredential(
         log: Logger,
         phoenixGlobal: PhoenixGlobal,
         id: WalletId,
         nostrPublicKey: HexKey,
-    ): ForgetNostrKeyResult {
-        val existing = NostrKeyManager.loadAndDecryptOrNull(phoenixGlobal)
+    ): ForgetNostrCredentialResult {
+        val existing = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal)
         if (existing == null) {
             log.e("could not load the existing keys, aborting...")
-            return ForgetNostrKeyResult.CannotLoadKeys
+            return ForgetNostrCredentialResult.CannotLoadKeys
         }
         if (!existing.containsKey(nostrPublicKey)) {
-            log.i("asked to forget a key that is not a bare key on this device")
-            return ForgetNostrKeyResult.NotABareKey
+            log.i("asked to forget a key that is not a credential on this device")
+            return ForgetNostrCredentialResult.NotACredential
         }
 
-        NostrKeyManager.writeToDisk(phoenixGlobal, EncryptedNostrKeys.encrypt(existing - nostrPublicKey))
-        log.i("forgot nostr key for identity=$id")
+        NostrCredentialManager.writeToDisk(phoenixGlobal, EncryptedNostrCredentials.encrypt(existing - nostrPublicKey))
+        log.i("forgot nostr credential for identity=$id")
 
         DataStoreManager(phoenixGlobal.ctx, chain = NodeParamsManager.chain).deleteNodeUserPrefs(id)
 
-        return ForgetNostrKeyResult.Forgotten
+        return ForgetNostrCredentialResult.Forgotten
     }
 }

@@ -41,6 +41,14 @@ import curare.composeapp.generated.resources.it_may_be_new_or_it_may_live_on_rel
 import curare.composeapp.generated.resources.name_eg_alan_turing
 import curare.composeapp.generated.resources.set_up_a_profile
 import curare.composeapp.generated.resources.try_again
+import curare.composeapp.generated.resources.use_a_different_key
+import curare.composeapp.generated.resources.use_a_different_key_question
+import curare.composeapp.generated.resources.could_not_sign_out_please_try_again
+import to.curare.compose.ui.composable.widgets.dialogs.SignOutOfReadOnlyDialog
+import to.curare.compose.ui.composable.widgets.rememberNotifier
+import to.curare.compose.ui.view.model.SignOutViewModel
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import curare.composeapp.generated.resources.we_are_looking_for_your_profile_on_as_many
 import curare.composeapp.generated.resources.we_are_searching_the_internet_to_find_your
 import curare.composeapp.generated.resources.we_could_not_find_a_profile_for_this_key
@@ -49,6 +57,7 @@ import org.jetbrains.compose.resources.stringResource
 import to.curare.compose.repository.NostrRepository
 import to.curare.compose.ui.composable.widgets.Decorative
 import to.curare.compose.ui.composable.widgets.EmptyState
+import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
@@ -69,6 +78,10 @@ import to.curare.compose.ui.view.state.UnsyncedProfileUIState
 fun UnsyncedProfileScreen(
     unsyncedProfilePublicKey: String,
     nostrRepository: NostrRepository,
+    // The not-found state's exit for an identity that cannot set a profile up: the same
+    // act as signing out, reached from the other end of the identity's life. Null where
+    // there is no identity to leave (previews), in which case that kind has no exit here.
+    signOut: SignOutDependencies? = null,
 ) {
     val viewModel: UnsyncedProfileViewModel = viewModel(
         factory = UnsyncedProfileViewModel.factory(
@@ -77,6 +90,31 @@ fun UnsyncedProfileScreen(
         )
     )
     val uiState by viewModel.uiState.collectAsState()
+
+    val signOutViewModel: SignOutViewModel? = signOut?.let {
+        viewModel(
+            factory = SignOutViewModel.factory(
+                activeIdentityStateFlow = it.activeIdentityStateFlow,
+                nostrRepository = nostrRepository,
+                forgetNostrCredential = it.forgetNostrCredential,
+                hideIdentityMetadata = it.hideIdentityMetadata,
+            ),
+        )
+    }
+    val signOutState = signOutViewModel?.state?.collectAsState()?.value
+    if (signOutViewModel != null && signOut != null && signOutState is SignOutViewModel.State.Confirming) {
+        SignOutOfReadOnlyDialog(
+            title = Res.string.use_a_different_key_question,
+            nostrPublicKey = signOutViewModel.nostrPublicKey,
+            onConfirm = { signOutViewModel.signOut(onSignedOut = signOut.onSignedOut) },
+            onDismiss = { signOutViewModel.cancel() },
+        )
+    }
+    val notify = rememberNotifier(rememberCoroutineScope())
+    val couldNotSignOut = stringResource(Res.string.could_not_sign_out_please_try_again)
+    LaunchedEffect(signOutState) {
+        if (signOutState is SignOutViewModel.State.Failed) notify(couldNotSignOut)
+    }
 
     // imePadding for the not-found form's fields.
     Scaffold(
@@ -93,6 +131,7 @@ fun UnsyncedProfileScreen(
                 is UnsyncedProfileUIState.NotFound -> NotFound(
                     viewModel = viewModel,
                     unsignedNostrEventId = state.unsignedNostrEventId,
+                    onUseADifferentKey = signOutViewModel?.let { { it.askToSignOut() } },
                 )
             }
         }
@@ -149,6 +188,8 @@ private fun Searching() {
 private fun NotFound(
     viewModel: UnsyncedProfileViewModel,
     unsignedNostrEventId: Long,
+    /** Shown only where the set-up form is not; null when there is no identity to leave. */
+    onUseADifferentKey: (() -> Unit)?,
 ) {
     val nameField = viewModel.formState.nameField.textFieldState
     val biographyField = viewModel.formState.biographyField.textFieldState
@@ -180,6 +221,25 @@ private fun NotFound(
             text = stringResource(Res.string.it_may_be_new_or_it_may_live_on_relays_we),
             style = MaterialTheme.typography.bodyMedium,
         )
+
+        // Setting a profile up is signing a kind 0, which a read-only identity cannot do.
+        // The form is not offered to it -- and then this state would have no exit: the
+        // profile tab is not reachable before ProfileLoaded, so a user whose npub was not
+        // found on any relay could try again for ever. So, for that kind only, the third
+        // action: the identity leaves the device, and the way back is the selector or
+        // Landing.
+        if (!LocalCanSign.current) {
+            if (onUseADifferentKey != null) {
+                TextButton(
+                    modifier = Modifier.align(Alignment.End),
+                    enabled = !isActionPending,
+                    onClick = onUseADifferentKey,
+                ) {
+                    Text(text = stringResource(Res.string.use_a_different_key))
+                }
+            }
+            return@Column
+        }
 
         Text(
             text = stringResource(Res.string.set_up_a_profile),

@@ -189,13 +189,27 @@ fun SovereignWalletStartupScreen(
                                                         // recomposes into the `activeIdentity != null` branch
                                                         // above, which is what reports the startup.
                                                         sovereignWalletViewModel.setActiveIdentity(
-                                                            Identity(
+                                                            Identity.signing(
                                                                 id = identity.id,
                                                                 kind = IdentityKind.NostrSecret,
                                                                 nostrPrivateKey = identity.privateKey,
                                                                 userPrefs = dataStoreManager.loadUserPrefsForWallet(identity.id),
                                                                 internalPrefs = dataStoreManager.loadInternalPrefsForWallet(identity.id),
                                                                 business = null,
+                                                            )
+                                                        )
+                                                    }
+                                                    is StoredIdentity.NostrPublic -> {
+                                                        // Nothing to start and nothing to decrypt: the
+                                                        // public key is the whole of what the device
+                                                        // holds, and the identity is active the moment
+                                                        // it is read, as the nsec branch above is.
+                                                        sovereignWalletViewModel.setActiveIdentity(
+                                                            Identity.readOnly(
+                                                                id = identity.id,
+                                                                nostrPublicKey = identity.nostrPublicKey,
+                                                                userPrefs = dataStoreManager.loadUserPrefsForWallet(identity.id),
+                                                                internalPrefs = dataStoreManager.loadInternalPrefsForWallet(identity.id),
                                                             )
                                                         )
                                                     }

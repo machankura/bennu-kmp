@@ -129,10 +129,17 @@ fun KeyRecoveryScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        // A bare-key identity has no coins to speak of.
+                        // A bare-key identity has no coins to speak of. Exhaustive rather than
+                        // `else`: the `else` here used to mean "mnemonic", and a kind added later
+                        // would have fallen into it and been promised coins. A read-only identity
+                        // is never offered this screen (docs/npub-sign-in.md, Phase 5); it reads
+                        // as the bare-key kind so that, if it ever is, the sentence is at least
+                        // not about a wallet.
                         text = when (activeIdentity?.kind) {
-                            IdentityKind.NostrSecret -> stringResource(Res.string.these_are_your_keys_keep_them_safe_no_wallet)
-                            else -> stringResource(Res.string.these_are_your_keys_keep_them_safe_so_they)
+                            IdentityKind.NostrSecret,
+                            IdentityKind.NostrPublic -> stringResource(Res.string.these_are_your_keys_keep_them_safe_no_wallet)
+                            IdentityKind.Mnemonic,
+                            null -> stringResource(Res.string.these_are_your_keys_keep_them_safe_so_they)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center
@@ -174,7 +181,14 @@ fun KeyRecoveryScreen(
                         }
                     )
 
-                    else -> KeyRecoveryOption(
+                    // Nothing to recover: the device holds no secret for this identity. The
+                    // row that leads here is hidden for the kind, so this arm is not reached;
+                    // it exists so that the `when` says so rather than handing a read-only
+                    // identity the phrase option through an `else`.
+                    IdentityKind.NostrPublic -> Unit
+
+                    IdentityKind.Mnemonic,
+                    null -> KeyRecoveryOption(
                         icon = Icons.Default.Spellcheck,
                         title = stringResource(Res.string.recovery_phrase),
                         description = stringResource(Res.string.write_down_and_secure_the_12_word_phrase),

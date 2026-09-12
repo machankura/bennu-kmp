@@ -947,7 +947,8 @@ found.
   would accept it. But every write path in the app assumes a key: the notary
   would have nothing to sign with and the state machine would park on
   `UnsignedProfile` the first time anything was queued. A read-only mode is a
-  product, not a branch.
+  product, not a branch — and [npub-sign-in.md](./npub-sign-in.md) is the plan
+  for that product, starting from what it is for.
 - **NIP-49 `ncryptsec`.** A passphrase-encrypted nsec. quartz 1.14.0 ships
   `nip49PrivKeyEnc.Nip49.decrypt`, so it is one call and a passphrase field; it
   belongs in Phase 4's table once the plain nsec path is proven, and is a cheap

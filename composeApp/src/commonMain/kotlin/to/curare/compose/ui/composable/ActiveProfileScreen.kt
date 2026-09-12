@@ -50,6 +50,7 @@ import to.curare.compose.ui.view.model.ActiveProfileViewModel
 import to.curare.compose.ui.view.state.ActiveProfileUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
@@ -61,6 +62,16 @@ import curare.composeapp.generated.resources.profile
 import curare.composeapp.generated.resources.key_recovery
 import curare.composeapp.generated.resources.share_profile
 import curare.composeapp.generated.resources.sign_out
+import curare.composeapp.generated.resources.sign_out_of_this_profile_question
+import curare.composeapp.generated.resources.could_not_sign_out_please_try_again
+import to.curare.compose.identity.Identity
+import to.curare.compose.identity.IdentityWriter
+import to.curare.compose.ui.composable.widgets.dialogs.SignOutOfReadOnlyDialog
+import to.curare.compose.ui.composable.widgets.rememberNotifier
+import to.curare.compose.ui.view.model.SignOutViewModel
+import kotlinx.coroutines.flow.StateFlow
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import curare.composeapp.generated.resources.something_went_wrong
 import curare.composeapp.generated.resources.we_couldn_t_find_the_local_profile_please
 import to.curare.compose.ui.composable.widgets.ErrorState
@@ -82,7 +93,41 @@ fun ActiveProfileScreen(
     onNavigateBack: () -> Unit,
     onNavigateToRoute: (Route) -> Unit,
     nostrRepository: NostrRepository,
+    // Sign out is real for a read-only identity only -- there is nothing on the device
+    // to lose -- and these are what it takes. Null where the screen is composed without
+    // an identity to sign out of (previews, tests), in which case the button keeps its
+    // pending route for every kind.
+    signOut: SignOutDependencies? = null,
 ) {
+
+    // Whether this identity can sign, which decides which rows below exist.
+    val canSign = LocalCanSign.current
+
+    val signOutViewModel: SignOutViewModel? = signOut?.let {
+        viewModel(
+            factory = SignOutViewModel.factory(
+                activeIdentityStateFlow = it.activeIdentityStateFlow,
+                nostrRepository = nostrRepository,
+                forgetNostrCredential = it.forgetNostrCredential,
+                hideIdentityMetadata = it.hideIdentityMetadata,
+            ),
+        )
+    }
+    val signOutState = signOutViewModel?.state?.collectAsState()?.value
+    if (signOutViewModel != null && signOut != null && signOutState is SignOutViewModel.State.Confirming) {
+        SignOutOfReadOnlyDialog(
+            title = Res.string.sign_out_of_this_profile_question,
+            nostrPublicKey = signOutViewModel.nostrPublicKey,
+            onConfirm = { signOutViewModel.signOut(onSignedOut = signOut.onSignedOut) },
+            onDismiss = { signOutViewModel.cancel() },
+        )
+    }
+    // The failure is short and needs no action: the button is still there to try again.
+    val notify = rememberNotifier(rememberCoroutineScope())
+    val couldNotSignOut = stringResource(Res.string.could_not_sign_out_please_try_again)
+    LaunchedEffect(signOutState) {
+        if (signOutState is SignOutViewModel.State.Failed) notify(couldNotSignOut)
+    }
 
     val activeProfileViewModel: ActiveProfileViewModel = viewModel(
         factory = ActiveProfileViewModel.factory(
@@ -226,7 +271,10 @@ fun ActiveProfileScreen(
                                 }
                             }
 
-                            item {
+                            // Key packages are signed, and there is nothing to recover for
+                            // an identity the device holds no secret for: neither row for a
+                            // read-only identity.
+                            if (canSign) item {
                                 TextButton(
                                     onClick = {
                                         onNavigateToRoute.invoke(
@@ -279,7 +327,7 @@ fun ActiveProfileScreen(
                             }
 
 
-                            item {
+                            if (canSign) item {
                                 TextButton(
                                     onClick = {
                                         onNavigateToRoute.invoke(
@@ -332,14 +380,26 @@ fun ActiveProfileScreen(
                                 // destructive action. It now matches how leaving and
                                 // deleting a group are already treated in
                                 // ChatRoomDetailScreen: a TextButton in the error colour.
+                                //
+                                // For a read-only identity it does what its colour has been
+                                // promising: a confirmation naming the npub, then the
+                                // identity leaves the device. For the other two kinds it
+                                // keeps routing to the pending screen -- removing a seed is
+                                // a wallet question, and an nsec has its own forget under
+                                // key recovery.
                                 TextButton(
                                     colors = ButtonDefaults.textButtonColors(
                                         contentColor = MaterialTheme.colorScheme.error
                                     ),
+                                    enabled = signOutState !is SignOutViewModel.State.InProgress,
                                     onClick = {
-                                        onNavigateToRoute.invoke(
-                                            ImplementationPendingRoute("Sign out")
-                                        )
+                                        if (!canSign && signOutViewModel != null) {
+                                            signOutViewModel.askToSignOut()
+                                        } else {
+                                            onNavigateToRoute.invoke(
+                                                ImplementationPendingRoute("Sign out")
+                                            )
+                                        }
                                     }
                                 ) {
                                     Icon(
@@ -379,6 +439,19 @@ fun ActiveProfileScreen(
         }
     }
 }
+
+/**
+ * What signing out of a read-only identity needs, bundled so that the screen's parameter
+ * list gains one line rather than four, and so a caller that has none of them passes
+ * nothing rather than three lambdas that throw.
+ */
+class SignOutDependencies(
+    val activeIdentityStateFlow: StateFlow<Identity?>,
+    val forgetNostrCredential: suspend (Identity) -> IdentityWriter.ForgetNostrCredentialResult,
+    val hideIdentityMetadata: suspend (Identity) -> Unit,
+    /** The nav host's tail: re-list, and clear the active identity so startup shows the selector or Landing. */
+    val onSignedOut: () -> Unit,
+)
 
 @ConformancePreviews
 @Composable

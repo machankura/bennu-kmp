@@ -17,6 +17,7 @@ silent, or a decision that looked arbitrary and was not.
 | [long-running-sync.md](./long-running-sync.md) | the chat subscriptions that stay open instead of pulling once per screen — why the request queue could not simply hold one, and how the group filter follows the room list |
 | [dead-code.md](./dead-code.md) | code in the sync and relay stack that nothing calls, why each piece is still there, and which of it is a bug rather than a leftover |
 | [nsec-sign-in.md](./nsec-sign-in.md) | signing in with an existing nostr key — why an nsec can never have a wallet behind it, the ten call sites that make it small, and the sign-in machine that was already built and unreachable |
+| [npub-sign-in.md](./npub-sign-in.md) | signing in with only a public key — what a key that cannot sign can still see here, why that is a preview rather than a browser, and the four decisions the word settles |
 | [jvm-target.md](./jvm-target.md) | what desktop support cost, phased — why the native chain was already done, why an empty source set in our phoenix fork was the real blocker, and why DAO tests need none of it |
 | [material-design-conformance.md](./material-design-conformance.md) | what the M3 foundations actually require, measured against all 43 screens — the colour pairing that renders the app's own proposals invisible, and eight phases that put the decisions back in the theme |
 
@@ -40,3 +41,7 @@ The nsec sign-in note is a phased plan that has been built; it inherits the
 key-storage decision from the jvm-target note and drives the navigation state
 machine `NavigationViewModel.processLocalAccount` implements, so read it with the
 code open, and read its table of where the build chose differently first.
+The npub sign-in note is a phased plan that has been built, and reads as that
+plan's out-of-scope note answered: it takes the `Identity` type and the sign-in
+machine as given and asks what an identity with no secret is for, before it asks
+how to build one; read its table of where the build chose differently first.

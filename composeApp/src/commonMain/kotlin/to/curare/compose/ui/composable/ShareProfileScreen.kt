@@ -41,6 +41,7 @@ import to.curare.compose.ui.view.model.ShareProfileViewModel
 import to.curare.compose.ui.view.state.ShareProfileUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
@@ -176,7 +177,11 @@ fun ShareProfileScreen(
                             }
                         }
 
-                        Row(
+                        // Nothing is signed by a re-broadcast, but a copy of the kind 0 is
+                        // queued for the finder relays, and a read-only identity puts nothing
+                        // on a relay -- not even a copy. The broadcast pump is not running for
+                        // it to carry the request anyway.
+                        if (LocalCanSign.current) Row(
                             modifier = Modifier.fillMaxWidth().padding(MaterialTheme.spacing.space250),
                             horizontalArrangement = Arrangement.Center
                         ) {

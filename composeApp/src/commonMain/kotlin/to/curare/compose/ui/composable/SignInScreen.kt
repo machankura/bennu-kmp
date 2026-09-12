@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Spellcheck
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,13 +39,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.viewmodel.compose.viewModel
 import curare.composeapp.generated.resources.Res
 import curare.composeapp.generated.resources.a_password_protected_key_ncryptsec_is_not
-import curare.composeapp.generated.resources.an_npub_is_a_public_key_curare_needs_the
 import curare.composeapp.generated.resources.enter_a_recovery_phrase_or_an_nsec_to_sign_in
 import curare.composeapp.generated.resources.next
 import curare.composeapp.generated.resources.paste
 import curare.composeapp.generated.resources.recognised_as_a_nostr_secret_key_no_wallet
+import curare.composeapp.generated.resources.recognised_as_a_public_key_you_will_see
 import curare.composeapp.generated.resources.recognised_as_a_recovery_phrase_it_also
-import curare.composeapp.generated.resources.recovery_phrase_or_nsec
+import curare.composeapp.generated.resources.recovery_phrase_nsec_or_npub
 import curare.composeapp.generated.resources.sign_in
 import curare.composeapp.generated.resources.signed_in
 import curare.composeapp.generated.resources.signing_you_in
@@ -54,9 +55,10 @@ import curare.composeapp.generated.resources.that_recovery_phrase_is_not_valid_c
 import curare.composeapp.generated.resources.the_key_could_not_be_saved_on_this_device
 import curare.composeapp.generated.resources.the_words_or_the_key_never_leave_this_device
 import curare.composeapp.generated.resources.this_key_is_already_on_this_device
-import curare.composeapp.generated.resources.twelve_words_or_nsec1
+import curare.composeapp.generated.resources.twelve_words_nsec1_or_npub1
 import curare.composeapp.generated.resources.use_a_different_key
 import curare.composeapp.generated.resources.you_are_signing_in_as
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.phoenix.data.WalletId
 import org.jetbrains.compose.resources.stringResource
@@ -92,7 +94,8 @@ import to.curare.compose.ui.view.state.SignInToProfileUIState
 @Composable
 fun SignInToProfileScreen(
     nostrRepository: NostrRepository,
-    writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrKeyResult,
+    writeNostrKey: suspend (PrivateKey) -> IdentityWriter.WriteNostrCredentialResult,
+    writeNostrPublicKey: suspend (HexKey) -> IdentityWriter.WriteNostrCredentialResult,
     writeRecoveryPhrase: (
         words: List<String>,
         onWritten: (WalletId) -> Unit,
@@ -105,6 +108,7 @@ fun SignInToProfileScreen(
         factory = SignInToProfileViewModel.factory(
             nostrRepository = nostrRepository,
             writeNostrKey = writeNostrKey,
+            writeNostrPublicKey = writeNostrPublicKey,
             writeRecoveryPhrase = writeRecoveryPhrase,
         )
     )
@@ -191,8 +195,8 @@ private fun InputPrompt(viewModel: SignInToProfileViewModel) {
                 keyboardType = KeyboardType.Ascii,
             ),
             textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
-            label = { Text(text = stringResource(Res.string.recovery_phrase_or_nsec), maxLines = 1) },
-            placeholder = { Text(text = stringResource(Res.string.twelve_words_or_nsec1), maxLines = 1) },
+            label = { Text(text = stringResource(Res.string.recovery_phrase_nsec_or_npub), maxLines = 1) },
+            placeholder = { Text(text = stringResource(Res.string.twelve_words_nsec1_or_npub1), maxLines = 1) },
             trailingIcon = {
                 IconButton(
                     onClick = {
@@ -260,6 +264,15 @@ private fun Confirm(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
+                is SignInCredential.NostrPublicKey -> {
+                    // What the user is about to get and not get, said here and nowhere
+                    // else: this is the one step before the choice is made.
+                    Icon(Icons.Default.Visibility, contentDescription = Decorative)
+                    Text(
+                        text = stringResource(Res.string.recognised_as_a_public_key_you_will_see),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
 
@@ -286,7 +299,6 @@ private fun problemMessage(problem: CredentialProblem): String = stringResource(
         CredentialProblem.NotRecognised -> Res.string.that_is_not_a_recovery_phrase_or_a_nostr_key
         CredentialProblem.InvalidPhrase -> Res.string.that_recovery_phrase_is_not_valid_check
         CredentialProblem.InvalidKey -> Res.string.that_nostr_secret_key_is_not_valid
-        CredentialProblem.PublicKeyOnly -> Res.string.an_npub_is_a_public_key_curare_needs_the
         CredentialProblem.EncryptedKey -> Res.string.a_password_protected_key_ncryptsec_is_not
         CredentialProblem.AlreadyOnThisDevice -> Res.string.this_key_is_already_on_this_device
         CredentialProblem.CouldNotWrite -> Res.string.the_key_could_not_be_saved_on_this_device
@@ -302,7 +314,8 @@ private fun SignInToProfileScreenPreview() {
         ) {
             SignInToProfileScreen(
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
-                writeNostrKey = { IdentityWriter.WriteNostrKeyResult.CannotLoadKeys },
+                writeNostrKey = { IdentityWriter.WriteNostrCredentialResult.CannotLoadKeys },
+                writeNostrPublicKey = { IdentityWriter.WriteNostrCredentialResult.CannotLoadKeys },
                 writeRecoveryPhrase = { _, _, onError -> onError(WritingSeedState.Error.CannotLoadSeedMap) },
                 onNavigateBack = {},
                 onSignedIn = {},

@@ -5,9 +5,11 @@ import co.touchlab.kermit.Logger
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.lightning.Lightning
 import fr.acinq.phoenix.PhoenixGlobal
-import fr.acinq.phoenix.managers.NostrKeyManager
+import fr.acinq.phoenix.managers.NostrCredentialManager
 import fr.acinq.phoenix.managers.computePreferencePath
+import fr.acinq.phoenix.managers.nostrPublicKeyHex
 import fr.acinq.phoenix.security.JvmKeyStore
+import fr.acinq.phoenix.security.NostrCredential
 import fr.acinq.phoenix.utils.PlatformContext
 import fr.acinq.phoenix.utils.preferences.GlobalPrefs
 import kotlinx.coroutines.runBlocking
@@ -24,12 +26,15 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
- * The two writers for a bare key, against a real key store and a real directory.
+ * The writers for a bare key and a bare public key, against a real key store and a
+ * real directory.
  *
- * What is pinned is the duplicate rule and the inverse. A second import of the same key
- * is refused by public key, the same npub imported twice being the one thing the id
- * check cannot see; and forgetting takes the key out of the file and the identity's
- * preference files off the disk, leaving every other key where it was.
+ * What is pinned is the duplicate rule, its one exception, and the inverse. A second
+ * import of the same key is refused by public key, the same npub imported twice being
+ * the one thing the id check cannot see; a public key already here is *not* a duplicate
+ * of the secret that signs as it, and the entry becomes a secret one under the id it
+ * had; and forgetting takes the entry, whichever kind, out of the file and the identity's
+ * preference files off the disk, leaving every other entry where it was.
  */
 class IdentityWriterJvmTest {
 
@@ -76,36 +81,96 @@ class IdentityWriterJvmTest {
         customElectrumServer = null,
     )
 
-    private fun userPrefsFile(stored: StoredIdentity.NostrSecret) =
+    private suspend fun writePublic(key: PrivateKey) = IdentityWriter.writeNostrPublicKey(
+        log = log,
+        phoenixGlobal = phoenixGlobal,
+        globalPrefs = globalPrefs,
+        nostrPublicKey = key.nostrPublicKeyHex(),
+        isTorEnabled = false,
+        customElectrumServer = null,
+    )
+
+    private fun credentials() = NostrCredentialManager.loadAndDecryptOrNull(phoenixGlobal)
+
+    private fun userPrefsFile(stored: StoredIdentity) =
         computePreferencePath(phoenixGlobal.ctx, "userprefs_${stored.id.nodeIdHash}.preferences_pb")
 
     @Test
     fun `a key is written once and refused the second time, by public key`() = runBlocking<Unit> {
         val stored = StoredIdentity.nostrSecret(first)
 
-        val written = assertIs<IdentityWriter.WriteNostrKeyResult.Written>(write(first))
+        val written = assertIs<IdentityWriter.WriteNostrCredentialResult.Written>(write(first))
         assertEquals(stored.id, written.id)
-        assertEquals(mapOf(stored.nostrPublicKey to first), NostrKeyManager.loadAndDecryptOrNull(phoenixGlobal))
+        assertEquals(mapOf(stored.nostrPublicKey to NostrCredential.Secret(first)), credentials())
         assertTrue(FileSystem.SYSTEM.exists(userPrefsFile(stored)), "the preferences file the recovery screens read")
 
-        assertIs<IdentityWriter.WriteNostrKeyResult.AlreadyExists>(write(first))
+        assertIs<IdentityWriter.WriteNostrCredentialResult.AlreadyExists>(write(first))
     }
 
     @Test
-    fun `forgetting one key leaves the other, and takes the preferences with it`() = runBlocking<Unit> {
+    fun `a public key is written once and refused the second time`() = runBlocking<Unit> {
+        val stored = StoredIdentity.nostrPublic(first.nostrPublicKeyHex())
+
+        val written = assertIs<IdentityWriter.WriteNostrCredentialResult.Written>(writePublic(first))
+        assertEquals(stored.id, written.id)
+        assertEquals(mapOf(stored.nostrPublicKey to NostrCredential.Public), credentials())
+        assertTrue(FileSystem.SYSTEM.exists(userPrefsFile(stored)))
+
+        assertIs<IdentityWriter.WriteNostrCredentialResult.AlreadyExists>(writePublic(first))
+    }
+
+    /**
+     * The one exception to the duplicate rule, and the reason the two kinds share a
+     * file: the device does not hold this secret, so refusing it would be false. One
+     * write, same id, and the preferences the read-only identity had are the ones the
+     * signing identity keeps.
+     */
+    @Test
+    fun `the nsec of a key held read-only is accepted, under the same id, and the entry becomes a secret`() = runBlocking<Unit> {
+        val readOnly = assertIs<IdentityWriter.WriteNostrCredentialResult.Written>(writePublic(first))
+        writePublic(second)
+
+        val upgraded = assertIs<IdentityWriter.WriteNostrCredentialResult.Written>(write(first))
+
+        assertEquals(readOnly.id, upgraded.id)
+        assertEquals(
+            mapOf(
+                first.nostrPublicKeyHex() to NostrCredential.Secret(first),
+                second.nostrPublicKeyHex() to NostrCredential.Public,
+            ),
+            credentials(),
+        )
+        assertTrue(FileSystem.SYSTEM.exists(userPrefsFile(StoredIdentity.nostrSecret(first))))
+    }
+
+    /** The other direction is a duplicate: the device already holds more than an npub for the key. */
+    @Test
+    fun `the npub of a key held as a secret is refused`() = runBlocking<Unit> {
         write(first)
-        write(second)
+
+        assertIs<IdentityWriter.WriteNostrCredentialResult.AlreadyExists>(writePublic(first))
+        assertEquals(mapOf(first.nostrPublicKeyHex() to NostrCredential.Secret(first)), credentials())
+    }
+
+    @Test
+    fun `forgetting one entry leaves the others, whichever kind, and takes the preferences with it`() = runBlocking<Unit> {
+        write(first)
+        writePublic(second)
         val stored = StoredIdentity.nostrSecret(first)
 
-        val result = IdentityWriter.forgetNostrKey(log, phoenixGlobal, stored.id, stored.nostrPublicKey)
+        val result = IdentityWriter.forgetNostrCredential(log, phoenixGlobal, stored.id, stored.nostrPublicKey)
 
-        assertIs<IdentityWriter.ForgetNostrKeyResult.Forgotten>(result)
-        assertEquals(
-            mapOf(StoredIdentity.nostrSecret(second).nostrPublicKey to second),
-            NostrKeyManager.loadAndDecryptOrNull(phoenixGlobal),
-        )
+        assertIs<IdentityWriter.ForgetNostrCredentialResult.Forgotten>(result)
+        assertEquals(mapOf(second.nostrPublicKeyHex() to NostrCredential.Public), credentials())
         assertFalse(FileSystem.SYSTEM.exists(userPrefsFile(stored)))
-        assertTrue(FileSystem.SYSTEM.exists(userPrefsFile(StoredIdentity.nostrSecret(second))))
+        assertTrue(FileSystem.SYSTEM.exists(userPrefsFile(StoredIdentity.nostrPublic(second.nostrPublicKeyHex()))))
+
+        val readOnly = StoredIdentity.nostrPublic(second.nostrPublicKeyHex())
+        assertIs<IdentityWriter.ForgetNostrCredentialResult.Forgotten>(
+            IdentityWriter.forgetNostrCredential(log, phoenixGlobal, readOnly.id, readOnly.nostrPublicKey)
+        )
+        assertEquals(emptyMap(), credentials())
+        assertFalse(FileSystem.SYSTEM.exists(userPrefsFile(readOnly)))
     }
 
     /** A wallet's nostr key is in the seed, not here; removing a seed is a wallet question. */
@@ -114,9 +179,9 @@ class IdentityWriterJvmTest {
         write(first)
         val other = StoredIdentity.nostrSecret(second)
 
-        assertIs<IdentityWriter.ForgetNostrKeyResult.NotABareKey>(
-            IdentityWriter.forgetNostrKey(log, phoenixGlobal, other.id, other.nostrPublicKey)
+        assertIs<IdentityWriter.ForgetNostrCredentialResult.NotACredential>(
+            IdentityWriter.forgetNostrCredential(log, phoenixGlobal, other.id, other.nostrPublicKey)
         )
-        assertEquals(1, NostrKeyManager.loadAndDecryptOrNull(phoenixGlobal)?.size)
+        assertEquals(1, credentials()?.size)
     }
 }

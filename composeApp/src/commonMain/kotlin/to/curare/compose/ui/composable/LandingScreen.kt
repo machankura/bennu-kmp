@@ -27,7 +27,7 @@ import curare.composeapp.generated.resources.keep_the_feed_alive
 import curare.composeapp.generated.resources.learn_more
 import curare.composeapp.generated.resources.curare
 import curare.composeapp.generated.resources.sign_in
-import curare.composeapp.generated.resources.sign_in_with_a_recovery_phrase_or_an_nsec
+import curare.composeapp.generated.resources.sign_in_with_a_recovery_phrase_an_nsec_or
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.theme.readableContent
@@ -82,7 +82,7 @@ fun LandingScreen(
                 }
 
                 Text(
-                    text = stringResource(Res.string.sign_in_with_a_recovery_phrase_or_an_nsec),
+                    text = stringResource(Res.string.sign_in_with_a_recovery_phrase_an_nsec_or),
                     modifier = Modifier.padding(MaterialTheme.spacing.space125),
                     style = MaterialTheme.typography.labelSmall,
                     textAlign = TextAlign.Center

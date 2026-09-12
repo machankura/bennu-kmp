@@ -49,6 +49,9 @@ import fr.acinq.phoenix.utils.preferences.GlobalPrefs
 import fr.acinq.phoenix.utils.preferences.UserWalletMetadata
 import fr.acinq.phoenix.utils.preferences.getByWalletIdOrDefault
 import to.curare.compose.extensions.hexToNpubHrp
+import curare.composeapp.generated.resources.Res
+import curare.composeapp.generated.resources.read_only
+import org.jetbrains.compose.resources.stringResource
 import to.curare.compose.identity.StoredIdentity
 import to.curare.compose.ui.theme.spacing
 
@@ -159,6 +162,16 @@ private fun AvailableWalletView(
                     Text(text = metadata.nameOrDefault(), modifier = Modifier, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(MaterialTheme.spacing.space25))
                     Text(text = identity.nostrPublicKey.hexToNpubHrp(), modifier = Modifier, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.displayMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp))
+                    if (identity is StoredIdentity.NostrPublic) {
+                        // Said before the tap, not after: two identities can share an avatar
+                        // and a name, and only one of them will let the user send a message.
+                        Spacer(Modifier.height(MaterialTheme.spacing.space25))
+                        Text(
+                            text = stringResource(Res.string.read_only),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             if (isCurrent && canEdit) {

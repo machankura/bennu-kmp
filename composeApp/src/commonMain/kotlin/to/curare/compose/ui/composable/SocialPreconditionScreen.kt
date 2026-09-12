@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
@@ -88,36 +89,40 @@ fun SocialPreconditionScreen(
                     modifier = Modifier.weight(1f)
                 )
 
-                Text(
-                    stringResource(Res.string.tell_friends_to_join_you_so_your_feed_stays),
-                    textAlign = TextAlign.Center
-                )
-
-                Button(
-                    onClick = {
-                        onNavigateToInviteFriend.invoke()
-                    }
-                ) {
+                // Both pending today, and both writes when they exist: an invite is sent,
+                // an acceptance signed. A read-only identity is offered only the way past.
+                if (LocalCanSign.current) {
                     Text(
-                        stringResource(Res.string.invite_a_friend)
+                        stringResource(Res.string.tell_friends_to_join_you_so_your_feed_stays),
+                        textAlign = TextAlign.Center
                     )
-                }
 
-                Spacer(
-                    modifier = Modifier.weight(1f)
-                )
-
-                Text(
-                    stringResource(Res.string.view_and_accept_invites_you_may_have),
-                    textAlign = TextAlign.Center
-                )
-
-                Button(
-                    onClick = {
-                        onNavigateToViewInvites.invoke()
+                    Button(
+                        onClick = {
+                            onNavigateToInviteFriend.invoke()
+                        }
+                    ) {
+                        Text(
+                            stringResource(Res.string.invite_a_friend)
+                        )
                     }
-                ) {
-                    Text(stringResource(Res.string.view_invites))
+
+                    Spacer(
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Text(
+                        stringResource(Res.string.view_and_accept_invites_you_may_have),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Button(
+                        onClick = {
+                            onNavigateToViewInvites.invoke()
+                        }
+                    ) {
+                        Text(stringResource(Res.string.view_invites))
+                    }
                 }
             }
         }

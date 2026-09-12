@@ -30,6 +30,7 @@ import com.vitorpamplona.quartz.nip77Negentropy.NegCloseCmd
 import com.vitorpamplona.quartz.nip77Negentropy.NegMsgCmd
 import com.vitorpamplona.quartz.nip77Negentropy.NegOpenCmd
 import to.curare.compose.identity.Identity
+import to.curare.compose.identity.toKeyPair
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -191,10 +192,10 @@ class SynchronizationViewModel(
         scope.launch {
             activeIdentityStateFlow.collectLatest { identity ->
                 logger.d("Synchronization identity: $identity")
-                identity?.nostrPrivateKey?.let { nostrPrivateKey ->
-                    val keyPair = KeyPair(
-                        privKey = nostrPrivateKey.value.toByteArray()
-                    )
+                identity?.let {
+                    // Through the helper, never by hand: a read-only identity has no private
+                    // key, and quartz's KeyPair given neither key generates a fresh one.
+                    val keyPair = identity.toKeyPair()
 
                     // Anything a previous run left mid-flight is ours to retry: it was flipped to
                     // "processing" before the publish and nothing observes that status, so
@@ -215,13 +216,23 @@ class SynchronizationViewModel(
                     // throw in one must not take the other two down with it for the rest of the
                     // session. Each pump also guards its own per-request body (see guardPump).
                     supervisorScope {
-                        launch(Dispatchers.IO) { observePendingBroadcastNostrEventRequests(keyPair) }
                         launch(Dispatchers.IO) { observePendingSyncNostrEventRequests(keyPair) }
                         launch(Dispatchers.IO) { observePendingNegentropySynchronizeRequests(keyPair) }
-                        // Runs until cancelled rather than draining a queue, but it belongs
-                        // here for the same reason the pumps do: it needs the active wallet's
-                        // key pair, and a wallet switch must tear it down.
-                        launch(Dispatchers.IO) { liveSubscriptionManager.observe(keyPair) }
+                        // A read-only identity runs the two pumps that read and neither of
+                        // the two that write. The rule Phase 5 of docs/npub-sign-in.md
+                        // leans on: such an identity never sends anything to a relay, not a
+                        // signature and not a copy. The broadcast pump would find nothing --
+                        // nothing is ever signed -- and the live subscriptions are the
+                        // gift-wrap inbox and the group-membership follow, both fetching
+                        // things this identity cannot open. Not asking is not an
+                        // optimisation; it is the identity not asking for what it cannot use.
+                        if (identity.canSign) {
+                            launch(Dispatchers.IO) { observePendingBroadcastNostrEventRequests(keyPair) }
+                            // Runs until cancelled rather than draining a queue, but it
+                            // belongs here for the same reason the pumps do: it needs the
+                            // active wallet's key pair, and a wallet switch must tear it down.
+                            launch(Dispatchers.IO) { liveSubscriptionManager.observe(keyPair) }
+                        }
                     }
                 }
             }
