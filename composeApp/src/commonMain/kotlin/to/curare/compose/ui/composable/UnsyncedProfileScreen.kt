@@ -49,6 +49,7 @@ import org.jetbrains.compose.resources.stringResource
 import to.curare.compose.repository.NostrRepository
 import to.curare.compose.ui.composable.widgets.Decorative
 import to.curare.compose.ui.composable.widgets.EmptyState
+import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
@@ -180,6 +181,11 @@ private fun NotFound(
             text = stringResource(Res.string.it_may_be_new_or_it_may_live_on_relays_we),
             style = MaterialTheme.typography.bodyMedium,
         )
+
+        // Setting a profile up is signing a kind 0, which a read-only identity cannot do.
+        // The form is not offered to it; the way out for that kind is Phase 6 of
+        // docs/npub-sign-in.md.
+        if (!LocalCanSign.current) return@Column
 
         Text(
             text = stringResource(Res.string.set_up_a_profile),

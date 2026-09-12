@@ -265,6 +265,8 @@
     <string name="this_will_be_the_display_name_for_this_chat">This will be the display name for this chat room.</string>
     <string name="this_will_be_the_display_name_for_your">This will be the display name for your profile and also important for search.</string>
     <string name="read_only">Read only</string>
+    <string name="messages_need_the_secret_key_this_profile">Messages need the secret key. This profile is read only: you can see it and the people it follows, but nothing here can be opened or sent.</string>
+    <string name="sign_in_with_the_nsec">Sign in with the nsec</string>
     <string name="this_will_give_you_write_access_to_the">This will give you write access to the profile.</string>
     <string name="torch_will_be_broadcast_what_you_publish_to">Curare broadcasts what you publish to a distributed set of relays, so it stays decentralised.</string>
     <string name="translate_chunk">Translate chunk</string>

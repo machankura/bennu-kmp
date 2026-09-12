@@ -50,6 +50,7 @@ import to.curare.compose.ui.view.model.ActiveProfileViewModel
 import to.curare.compose.ui.view.state.ActiveProfileUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
@@ -83,6 +84,9 @@ fun ActiveProfileScreen(
     onNavigateToRoute: (Route) -> Unit,
     nostrRepository: NostrRepository,
 ) {
+
+    // Whether this identity can sign, which decides which rows below exist.
+    val canSign = LocalCanSign.current
 
     val activeProfileViewModel: ActiveProfileViewModel = viewModel(
         factory = ActiveProfileViewModel.factory(
@@ -226,7 +230,10 @@ fun ActiveProfileScreen(
                                 }
                             }
 
-                            item {
+                            // Key packages are signed, and there is nothing to recover for
+                            // an identity the device holds no secret for: neither row for a
+                            // read-only identity.
+                            if (canSign) item {
                                 TextButton(
                                     onClick = {
                                         onNavigateToRoute.invoke(
@@ -279,7 +286,7 @@ fun ActiveProfileScreen(
                             }
 
 
-                            item {
+                            if (canSign) item {
                                 TextButton(
                                     onClick = {
                                         onNavigateToRoute.invoke(

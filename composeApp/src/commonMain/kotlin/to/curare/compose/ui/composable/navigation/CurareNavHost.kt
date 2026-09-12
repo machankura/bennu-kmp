@@ -118,6 +118,7 @@ import to.curare.compose.ui.view.state.NavigationUIState
 import to.curare.compose.ui.view.state.NostrEventDetailUIState
 import to.curare.compose.ui.view.state.SearchUIState
 import to.curare.compose.ui.theme.NavigationMotion
+import to.curare.compose.ui.composable.widgets.ProvideSigningCapability
 import to.curare.compose.ui.theme.breakpoint
 import co.touchlab.kermit.Logger
 import fr.acinq.phoenix.PhoenixGlobal
@@ -418,6 +419,9 @@ fun CurareNavHost(
         }
     }
 
+    // Once, above every screen: what a read-only identity may not be offered is decided
+    // where the control is drawn, and this is how the control finds out.
+    ProvideSigningCapability(sovereignWalletViewModel.activeIdentity) {
     CurareNavigationSuite(
         navController = navController,
         breakpoint = MaterialTheme.breakpoint,
@@ -1533,6 +1537,7 @@ fun CurareNavHost(
                 )
             }
         }
+    }
     }
 
 }
