@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import to.curare.compose.database.model.ChatRoom
 import to.curare.compose.database.model.GroupSignedEvent
@@ -184,21 +185,23 @@ class CuratedSuggestionListScreenJvmTest {
     }
 
     @Test
-    fun `the sheet has every field the entry answered, the link included, and the event`() =
+    fun `the sheet has every field the entry answered, the link included, and the way in`() =
         runDesktopComposeUiTest(width = 400, height = 2000) {
+            var accepted = false
+
             setContent {
                 CurareTheme {
                     ProvideSnackbarHost {
                         CuratedSuggestionSheetContent(
-                            suggestion = suggestion("Magic Money", 1_700_000_000, isCurated = true),
-                            schema = schema.schema
+                            suggestion = suggestion("Magic Money", 1_700_000_000, isCurated = false),
+                            schema = schema.schema,
+                            onAccept = { accepted = true }
                         )
                     }
                 }
             }
 
             onNodeWithText("Magic Money").assertIsDisplayed()
-            onNodeWithText("Taken up by the group into the list.").assertIsDisplayed()
 
             // As the schema labels them, in the schema's order.
             onNodeWithText("Year").assertIsDisplayed()
@@ -208,9 +211,32 @@ class CuratedSuggestionListScreenJvmTest {
             onNodeWithText("Review").assertIsDisplayed()
             onNodeWithText("Follows the early community.").assertIsDisplayed()
 
-            // The event, whole, and a way to take it somewhere.
-            onNodeWithText("\"kind\":31888", substring = true).assertIsDisplayed()
-            onNodeWithText("Copy the suggestion").assertIsDisplayed()
+            // The one thing to do with it, and not the event: the form shows
+            // the entry as fields, which is how the group will sign it.
+            onAllNodesWithText("\"kind\":31888", substring = true).assertCountEquals(0)
+            onAllNodesWithText("Copy the suggestion").assertCountEquals(0)
+            onNodeWithText("Accept this suggestion").assertIsDisplayed().performClick()
+            assertTrue(accepted, "the button did not open the form")
+        }
+
+    @Test
+    fun `a suggestion the group already took up offers a revision, not a second acceptance`() =
+        runDesktopComposeUiTest(width = 400, height = 2000) {
+            setContent {
+                CurareTheme {
+                    ProvideSnackbarHost {
+                        CuratedSuggestionSheetContent(
+                            suggestion = suggestion("Magic Money", 1_700_000_000, isCurated = true),
+                            schema = schema.schema,
+                            onAccept = {}
+                        )
+                    }
+                }
+            }
+
+            onNodeWithText("Taken up by the group into the list.").assertIsDisplayed()
+            onNodeWithText("Revise the list's entry").assertIsDisplayed()
+            onAllNodesWithText("Accept this suggestion").assertCountEquals(0)
         }
 
     private fun suggestion(
@@ -294,7 +320,8 @@ class CuratedSuggestionListScreenJvmTest {
                             initialCuratedSuggestionListUIState = uiState,
                             nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                             chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                            onNavigateBack = {}
+                            onNavigateBack = {},
+                            onNavigateToRoute = {}
                         )
                     }
                 }

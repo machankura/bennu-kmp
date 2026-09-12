@@ -2,8 +2,11 @@ package to.curare.compose.nostr
 
 import to.curare.compose.database.model.GroupSignedEvent
 import to.curare.compose.database.model.types.SynchronizationFilter
+import to.curare.compose.nostr.curated.CuratedEntryEvent
+import to.curare.compose.nostr.curated.CuratedEntryProblem
 import to.curare.compose.nostr.curated.CuratedSchema
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
+import to.curare.compose.nostr.curated.CuratedSuggestionRef
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.signers.EventTemplate
 import kotlin.time.Instant
@@ -58,6 +61,14 @@ data class GroupCuratedSchema(
     fun coordinate(): String = CuratedSchemaEvent.coordinate(publicKey, identifier)
 
     /**
+     * Whether an entry carrying [tags] replies to this list: its `a` tags
+     * include this coordinate. How a reader holding several of the group's
+     * schemas tells which one an entry belongs to.
+     */
+    fun isRepliedToBy(tags: Array<Array<String>>): Boolean =
+        tags.any { it.size > 1 && it[0] == COORDINATE_TAG && it[1] == coordinate() }
+
+    /**
      * What to ask a relay for to read this list's queue: the NIP's two queries,
      * as one request.
      *
@@ -92,6 +103,43 @@ data class GroupCuratedSchema(
         kinds = arrayOf(schema.suggestionKind, CuratedSchemaEvent.CANONICAL_KIND),
         tags = mapOf(COORDINATE_TAG to listOf(coordinate())),
     )
+
+    /**
+     * The event to ask the group to sign to take an entry into the list:
+     * [values] as this schema lays them out, rooted at [coordinate], with the
+     * group as the curator and [source] as the suggestion it came from.
+     *
+     * The group is the curator, so its key is the `p` on the root and the only
+     * author [verifyCanonical] will accept. See [CuratedEntryEvent.canonicalTemplate]
+     * for what is and is not done to the values on the way through.
+     */
+    fun canonicalTemplate(
+        values: Map<String, List<String>>,
+        source: CuratedSuggestionRef?,
+    ): EventTemplate<*> = CuratedEntryEvent.canonicalTemplate(
+        schema = schema,
+        coordinate = coordinate(),
+        curator = publicKey,
+        values = values,
+        source = source,
+    )
+
+    /**
+     * Every reason this list's readers would refuse [template] as one of its
+     * own entries, or nothing.
+     *
+     * The same check `CuratedSuggestion.queueOf` makes on a kind 31890 off a
+     * relay, made before the group is asked to sign one: a signature is the
+     * most expensive thing this app does, and an entry the queue would then
+     * refuse to count is a quorum spent on nothing.
+     */
+    fun verifyCanonical(template: EventTemplate<*>): List<CuratedEntryProblem> =
+        CuratedEntryEvent.verifyCanonical(
+            event = CuratedEntryEvent.preview(template, publicKey),
+            schema = schema,
+            coordinate = coordinate(),
+            curator = publicKey,
+        )
 
     companion object {
         /** The tag a reply carries its schema's coordinate in. */

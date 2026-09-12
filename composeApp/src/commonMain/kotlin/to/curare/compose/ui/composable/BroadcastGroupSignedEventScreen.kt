@@ -185,6 +185,7 @@ fun BroadcastGroupSignedEventScreen(
                         kind = signedEvent.kind,
                         tags = signedEvent.tags,
                         content = signedEvent.content,
+                        schemas = broadcastGroupSignedEventUIState.schemas,
                     )
                 }
 

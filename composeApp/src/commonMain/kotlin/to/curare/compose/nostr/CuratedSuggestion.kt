@@ -34,7 +34,7 @@ import kotlin.time.Instant
 data class CuratedSuggestion(
     /** The entry, keyed by the schema's field names. */
     val entry: CuratedEntry,
-    /** The event as it was stored, for the id, the tags, and copying it somewhere. */
+    /** The event as it was stored, for the id and the tags: what a canonical entry points back at. */
     val event: NostrEvent,
     /** The suggester's profile where one has arrived, else null. */
     val suggester: Profile?,

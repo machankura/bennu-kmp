@@ -583,8 +583,34 @@
     <string name="curated">Curated</string>
     <string name="suggested_by_on">Suggested by %1$s on %2$s</string>
     <string name="taken_up_by_the_group_into_the_list">Taken up by the group into the list.</string>
-    <string name="copy_the_suggestion">Copy the suggestion</string>
-    <string name="copied_the_suggestion">Copied the suggestion</string>
+    <string name="accept_this_suggestion">Accept this suggestion</string>
+    <string name="revise_the_list_s_entry">Revise the list's entry</string>
+    <!-- Taking one suggestion into a list the group curates: the form, and the entry it proposes. -->
+    <string name="take_this_suggestion_into_the_list">Take this suggestion into %1$s, edited as the group wants it. The entry keeps the suggestion's identifier and points back at it, so the suggester is credited.</string>
+    <string name="the_group_signs_an_entry_so_it_takes_a_quorum">The group signs an entry, so it takes a quorum. Nothing changes until one has.</string>
+    <string name="this_group_has_no_shared_key_to_sign_an_entry">This group has no shared key, so it cannot sign an entry. Run a shared key ceremony first.</string>
+    <string name="the_group_already_has_an_entry_for_this">The group already has an entry for this. Proposing again revises it in place rather than adding a second one.</string>
+    <string name="propose_entry">Propose entry</string>
+    <string name="could_not_ask_the_group_to_sign_this_entry">Couldn't ask the group to sign this entry. Please try again.</string>
+    <string name="this_entry_cannot_be_signed_as_it_is">This entry can't be signed as it is:</string>
+    <string name="the_entry_cannot_be_signed_as_it_is">The entry can't be signed as it is.</string>
+    <string name="kept_from_the_suggestion">Kept from the suggestion</string>
+    <string name="filled_in_by_the_suggester_s_app_and_kept">Filled in by the suggester's app and kept as they came, the identifier among them, so that an entry accepted twice lands on the same coordinate.</string>
+    <string name="add_another">Add another</string>
+    <string name="this_field_is_required">This field is required.</string>
+    <string name="only_one_value_for_this_field">Only one value for this field.</string>
+    <string name="one_word_without_spaces">One word, without spaces.</string>
+    <string name="that_is_not_a_web_address">That is not a web address.</string>
+    <string name="that_must_be_an_https_address">That must be an https address.</string>
+    <string name="pick_one_of_the_options">Pick one of the options.</string>
+    <string name="a_whole_number">A whole number.</string>
+    <string name="more_than_zero">More than zero.</string>
+    <string name="at_least_n">At least %1$s.</string>
+    <string name="at_most_n">At most %1$s.</string>
+    <string name="at_most_n_characters">At most %1$s characters.</string>
+    <string name="must_match_the_pattern">Must match %1$s.</string>
+    <string name="at_least_one_of_these_is_needed">At least one of these is needed: %1$s.</string>
+    <string name="field_and_problem">%1$s: %2$s</string>
     <!-- Broadcasting one event the group signed to relays a member picks. -->
     <string name="broadcast">Broadcast</string>
     <string name="sends_the_event_exactly_as_the_group_signed_it">Sends the event to each relay below, exactly as the group signed it. Any member holding it can send it: the signature is the group's, not yours.</string>

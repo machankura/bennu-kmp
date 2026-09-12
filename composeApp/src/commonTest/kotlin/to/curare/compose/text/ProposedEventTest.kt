@@ -1,5 +1,6 @@
 package to.curare.compose.text
 
+import to.curare.compose.nostr.curated.CuratedEntryEvent
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
@@ -78,6 +79,39 @@ class ProposedEventTest {
 
         assertEquals("Curated schema", summary.label)
         assertEquals("Films worth translating · closed · 2 fields", summary.detail)
+    }
+
+    @Test
+    fun `a curated entry is said by its title and who suggested it`() {
+        val suggester = "eebb74ab6bfb8485722ab1d4acee856eee96f17a9e1721f9c7cc63376c40b860"
+
+        val summary = ProposedEvent.summarize(
+            event(
+                CuratedEntryEvent.CANONICAL_KIND,
+                tags = arrayOf(
+                    arrayOf("d", "imdb:tt2821314"),
+                    arrayOf("title", "The Rise and Rise of Bitcoin"),
+                    arrayOf("year", "2014"),
+                    arrayOf("a", "31889:${"7".repeat(64)}:bitcoin.mov", "", "root"),
+                    arrayOf("a", "31888:$suggester:imdb:tt2821314", "", "mention"),
+                    arrayOf("p", suggester),
+                ),
+                content = "Follows the early Bitcoin community."
+            )
+        )
+
+        assertEquals("Curated entry", summary.label)
+        assertEquals("The Rise and Rise of Bitcoin · suggested by eebb74ab", summary.detail)
+
+        // An entry the group added itself has nobody to credit.
+        val unprompted = ProposedEvent.summarize(
+            event(
+                CuratedEntryEvent.CANONICAL_KIND,
+                tags = arrayOf(arrayOf("d", "magic-money"), arrayOf("title", "Magic Money")),
+                content = ""
+            )
+        )
+        assertEquals("Magic Money", unprompted.detail)
     }
 
     @Test

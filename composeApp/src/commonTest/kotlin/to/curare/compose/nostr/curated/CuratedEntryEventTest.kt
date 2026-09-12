@@ -3,6 +3,7 @@ package to.curare.compose.nostr.curated
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -21,6 +22,12 @@ import kotlin.test.assertTrue
  * schema's field names, with the tags the schema does not define ignored rather
  * than kept. `director`, `i` and `lang` are on the NIP's example and on no
  * field of the NIP's schema, and they are not in the reading.
+ *
+ * And the write side is pinned against the same example from the other end:
+ * the canonical entry built from the suggestion's values is the NIP's canonical
+ * entry, tag for tag, and what the builder writes is what the reader reads
+ * back -- which is the property that lets the accept form and the queue screen
+ * agree about an entry without either seeing the other's code.
  */
 class CuratedEntryEventTest {
     private val curator = "7c965d8c2acdfd635562da3bcb82596b595be28b008d8b54ec702ed4c67d9d25"
@@ -339,6 +346,163 @@ class CuratedEntryEventTest {
         assertNull(CuratedCoordinate.parse("31888:$suggester:"), "an empty identifier was accepted")
         assertNull(CuratedCoordinate.parse("31888:not-a-pubkey:x"))
         assertNull(CuratedCoordinate.parse("naddr1qqxnzd3cxqmrzv3exgmr2wfeqgs"), "a bech32 address is not a coordinate")
+    }
+
+    // -- the write side -----------------------------------------------------------
+
+    /** The NIP's example, less the tags its schema does not define, which the builder cannot know to write. */
+    private val riseAndRiseAsTheSchemaKnowsIt: List<List<String>> = riseAndRise
+        .filterNot { it[0] == "director" || it[0] == "i" || it[0] == "lang" }
+        .map { it.toList() }
+
+    private val sourceBlock: List<List<String>> = listOf(
+        listOf("a", "31888:$suggester:imdb:tt2821314", "", "mention"),
+        listOf("e", suggestionId, "", "mention"),
+        listOf("p", suggester),
+    )
+
+    @Test
+    fun `the canonical entry built from the NIP's suggestion is the NIP's canonical entry`() {
+        val suggested = CuratedEntryEvent.read(suggestion(), schema)
+
+        val template = CuratedEntryEvent.canonicalTemplate(
+            schema = schema,
+            coordinate = coordinate,
+            curator = curator,
+            values = suggested.values,
+            source = CuratedSuggestionRef.of(suggested),
+            createdAt = 1735689720,
+        )
+
+        assertEquals(CuratedEntryEvent.CANONICAL_KIND, template.kind)
+        assertEquals(review, template.content)
+        // The first two blocks identical to the suggestion's, the third the
+        // pointer back: the doc's own description of the example.
+        assertEquals(riseAndRiseAsTheSchemaKnowsIt + sourceBlock, template.tags.map { it.toList() })
+
+        val preview = CuratedEntryEvent.preview(template, curator)
+        assertEquals(emptyList(), CuratedEntryEvent.verifyCanonical(preview, schema, coordinate, curator))
+
+        // And it reads back as what went in, which is the property the form
+        // and the queue rely on: the values, the `d`, and where it came from.
+        val entry = assertNotNull(CuratedEntryEvent.canonical(preview, schema, coordinate, curator))
+        assertEquals(suggested.values, entry.values)
+        assertEquals("imdb:tt2821314", entry.identifier)
+        assertEquals(CuratedSuggestionRef(suggestionId, "31888:$suggester:imdb:tt2821314", suggester), entry.source)
+    }
+
+    @Test
+    fun `an edit on the way through is what is signed, and the d is what was suggested`() {
+        val suggested = CuratedEntryEvent.read(suggestion(), schema)
+        val corrected = suggested.values + mapOf(
+            "year" to listOf("2015"),
+            "image" to listOf("https://example.com/a-better-poster.jpg"),
+        )
+
+        val template = CuratedEntryEvent.canonicalTemplate(schema, coordinate, curator, corrected, CuratedSuggestionRef.of(suggested))
+        val preview = CuratedEntryEvent.preview(template, curator)
+
+        assertEquals(emptyList(), CuratedEntryEvent.verifyCanonical(preview, schema, coordinate, curator))
+
+        val entry = assertNotNull(CuratedEntryEvent.canonical(preview, schema, coordinate, curator))
+        assertEquals("2015", entry.value("year"))
+        assertEquals("https://example.com/a-better-poster.jpg", entry.value("image"))
+        // Same coordinate as before the edit, so re-curating revises rather than adds.
+        assertEquals("31890:$curator:imdb:tt2821314", entry.coordinate())
+    }
+
+    @Test
+    fun `a value the schema refuses is refused with its field named, not clipped`() {
+        val suggested = CuratedEntryEvent.read(suggestion(), schema)
+        val wrong = suggested.values + mapOf(
+            "year" to listOf("twenty fourteen"),
+            "title" to listOf("x".repeat(201)),
+            "type" to listOf("musical"),
+        )
+
+        val template = CuratedEntryEvent.canonicalTemplate(schema, coordinate, curator, wrong)
+        val problems = CuratedEntryEvent.verifyCanonical(CuratedEntryEvent.preview(template, curator), schema, coordinate, curator)
+
+        assertEquals(
+            setOf(
+                CuratedEntryProblem("title", CuratedEntryProblem.Reason.TooLong),
+                CuratedEntryProblem("year", CuratedEntryProblem.Reason.NotAWholeNumber),
+                CuratedEntryProblem("type", CuratedEntryProblem.Reason.NotAnOption),
+            ),
+            problems.toSet()
+        )
+
+        // The reference clips a long title to its cap; this does not, because
+        // the form shows the problem and the member decides how to shorten it.
+        assertEquals("x".repeat(201), template.tags.first { it[0] == "title" }[1])
+    }
+
+    @Test
+    fun `a blank is not a value, a field that repeats takes all of them, and one that does not takes the first`() {
+        val template = CuratedEntryEvent.canonicalTemplate(
+            schema = schema,
+            coordinate = coordinate,
+            curator = curator,
+            values = mapOf(
+                "identifier" to listOf("imdb:tt2821314"),
+                "title" to listOf("  The Rise and Rise of Bitcoin  ", "A second title nobody asked for"),
+                "type" to listOf("documentary"),
+                "year" to listOf("   "),
+                "watchUrl" to listOf("http://bitcoindoc.com/", "", "https://mirror.example/watch"),
+                "description" to listOf(""),
+            ),
+        )
+
+        val tags = template.tags.map { it.toList() }
+
+        assertEquals(listOf(listOf("title", "The Rise and Rise of Bitcoin")), tags.filter { it[0] == "title" })
+        assertEquals(emptyList(), tags.filter { it[0] == "year" })
+        assertEquals(
+            listOf(
+                listOf("r", "http://bitcoindoc.com/", "watch"),
+                listOf("r", "https://mirror.example/watch", "watch"),
+            ),
+            tags.filter { it[0] == "r" }
+        )
+        assertEquals("", template.content)
+        assertEquals(
+            emptyList(),
+            CuratedEntryEvent.verifyCanonical(CuratedEntryEvent.preview(template, curator), schema, coordinate, curator)
+        )
+    }
+
+    @Test
+    fun `an entry nobody suggested has no source block, and the root carries the schema's first relay`() {
+        val values = CuratedEntryEvent.read(suggestion(), schema).values
+
+        val template = CuratedEntryEvent.canonicalTemplate(schema, coordinate, curator, values, source = null)
+        val tags = template.tags.map { it.toList() }
+
+        assertEquals(listOf(listOf("a", coordinate, "wss://ephemeral.mantra.press", "root")), tags.filter { it[0] == "a" })
+        assertEquals(listOf(listOf("p", curator)), tags.filter { it[0] == "p" })
+        assertEquals(emptyList(), tags.filter { it[0] == "e" })
+
+        val entry = assertNotNull(
+            CuratedEntryEvent.canonical(CuratedEntryEvent.preview(template, curator), schema, coordinate, curator)
+        )
+        assertNull(entry.source)
+    }
+
+    @Test
+    fun `only a suggestion can be pointed at`() {
+        val theListsOwn = assertNotNull(CuratedEntryEvent.canonical(canonical(), schema, coordinate, curator))
+
+        assertFailsWith<IllegalArgumentException> { CuratedSuggestionRef.of(theListsOwn) }
+    }
+
+    @Test
+    fun `the headline needs no schema`() {
+        val entry = CuratedEntryEvent.headline(canonical())
+
+        assertEquals("The Rise and Rise of Bitcoin", entry.title)
+        assertEquals("imdb:tt2821314", entry.identifier)
+        assertEquals(suggester, entry.source?.pubKey)
+        assertEquals(emptyMap(), entry.values)
     }
 
     private fun suggestion(

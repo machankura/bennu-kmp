@@ -3,6 +3,8 @@ package to.curare.compose.nostr.curated
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
+import com.vitorpamplona.quartz.nip01Core.signers.EventTemplate
+import kotlin.time.Clock
 
 /**
  * Kinds 31888 and 31890: an entry in a curated list, as somebody suggested it and
@@ -18,7 +20,9 @@ import com.vitorpamplona.quartz.nip01Core.core.Kind
  * This is the other half of [CuratedSchemaEvent]: that is what a list *asks*
  * for, this is what it *gets*. Ported from the reference module's `verifyEntry`
  * rule for rule, so that an entry bitcoin.mov accepts is one this app accepts
- * and an entry it refuses is refused here for the same reason.
+ * and an entry it refuses is refused here for the same reason. The write side,
+ * [canonicalTemplate], is the port of its `buildCuratedCanonicalTemplate`, and
+ * walks the same field list as [read] so the two cannot drift.
  *
  * ### Rejected, not repaired
  *
@@ -40,6 +44,12 @@ object CuratedEntryEvent {
     private const val TAG_EVENT = "e"
     private const val TAG_IDENTIFIER = "d"
     private const val TAG_TITLE = "title"
+    private const val TAG_PUBKEY = "p"
+    private const val TAG_KIND = "k"
+
+    /** NIP-10's markers: the schema being replied to, and the suggestion being credited. */
+    private const val MARKER_ROOT = "root"
+    private const val MARKER_MENTION = "mention"
 
     /** What every schema coordinate starts with, which is how a root is told from a source. */
     private val SCHEMA_PREFIX = "${CuratedSchemaEvent.KIND}:"
@@ -88,6 +98,20 @@ object CuratedEntryEvent {
     }
 
     /**
+     * The parts of an entry that need no schema to read: its identifier, its
+     * title and, for a canonical entry, where it came from.
+     *
+     * For a reader that has the event and not the list -- the signing screen,
+     * the transcript -- and wants to say which entry this is rather than check
+     * it. [CuratedEntry.values] is empty, since without a schema there are no
+     * fields to key them by.
+     */
+    fun headline(event: Event): CuratedEntry = read(event, NO_SCHEMA)
+
+    /** A schema with no fields, for [headline]: the two lifted tags are read regardless. */
+    private val NO_SCHEMA = CuratedSchema(identifier = "", title = "", name = "", description = "", visibility = null)
+
+    /**
      * Every reason [event] is not a suggestion to the list at [coordinate], or
      * nothing.
      *
@@ -125,6 +149,128 @@ object CuratedEntryEvent {
         val source = firstAddress(event.tags, SUGGESTION_PREFIX)
         if (source != null && CuratedCoordinate.parse(source) == null) {
             add(CuratedEntryProblem(FIELD_SOURCE, CuratedEntryProblem.Reason.SourceMalformed))
+        }
+    }
+
+    /**
+     * The unsigned canonical entry for the curator to sign: [values] laid out as
+     * the schema's tags, rooted at the schema's [coordinate], and pointing back
+     * at [source] when it came from a suggestion.
+     *
+     * The reverse of [read], and the reason a canonical entry and the suggestion
+     * it came from are one shape: both walk the schema's one field list, so what
+     * this writes is what [canonical] reads back, field for field. Ported from
+     * the reference module's `buildCuratedCanonicalTemplate` tag for tag, so
+     * that an entry this app signs is one bitcoin.mov's list shows.
+     *
+     * [values] is keyed by field name the way [CuratedEntry.values] is, derived
+     * fields included. The reference client derives `d` and `t` for a suggestion
+     * it is composing; this app composes none, and a suggestion it accepts keeps
+     * what the suggester's client derived -- the `d` above all, which the NIP
+     * says a canonical entry SHOULD keep so that re-curating revises the entry
+     * in place rather than adding a second one. Nothing is clipped or repaired
+     * on the way through: a value the schema refuses is refused by
+     * [verifyCanonical] on the result, with the field named, which is what a
+     * form wants to show. A blank value is not a value and writes nothing, and a
+     * field without `repeat` writes its first value only.
+     *
+     * [relayHint] goes on the root, per NIP-10: where a reader who does not know
+     * the list can find the schema being replied to. The NIP says it SHOULD be
+     * the first of the schema's relays, and by default it is.
+     */
+    fun canonicalTemplate(
+        schema: CuratedSchema,
+        coordinate: String,
+        curator: HexKey,
+        values: Map<String, List<String>>,
+        source: CuratedSuggestionRef? = null,
+        relayHint: String? = schema.relays.firstOrNull(),
+        createdAt: Long = Clock.System.now().epochSeconds,
+    ): EventTemplate<Nothing> {
+        val (fieldTags, content) = fieldTags(schema, values)
+
+        return EventTemplate(
+            createdAt = createdAt,
+            kind = CANONICAL_KIND,
+            tags = (fieldTags + replyTags(coordinate, curator, relayHint) + sourceTags(source)).toTypedArray(),
+            content = content,
+        )
+    }
+
+    /**
+     * [template] as an event the verifiers can read: the kind, the tags, the
+     * content and [pubKey], which is everything they look at, over a blank id
+     * and signature, which they do not. For checking what is about to be
+     * proposed before a quorum is spent on it.
+     */
+    fun preview(template: EventTemplate<*>, pubKey: HexKey): Event = Event(
+        id = "",
+        pubKey = pubKey,
+        createdAt = template.createdAt,
+        kind = template.kind,
+        tags = template.tags,
+        content = template.content,
+        sig = "",
+    )
+
+    /**
+     * The tags that make an entry a reply to its schema, and nothing else.
+     *
+     * The root is the schema's coordinate rather than an event id, because the
+     * kind is addressable: revising the schema mints a new id and keeps the
+     * coordinate, and an entry pinned to an id would be orphaned by the first
+     * edit. `p` and `k` are the reply courtesies the NIP asks for and nothing
+     * verifies; `a` is what is verified and what relays are queried on.
+     */
+    fun replyTags(coordinate: String, curator: HexKey, relayHint: String?): List<Array<String>> = listOf(
+        arrayOf(TAG_ADDRESS, coordinate, relayHint ?: "", MARKER_ROOT),
+        arrayOf(TAG_PUBKEY, curator),
+        arrayOf(TAG_KIND, CuratedSchemaEvent.KIND.toString()),
+    )
+
+    /**
+     * The values as the schema's tags: one per value at the field's tag, with
+     * its marker as the third element when it has one, or the body for the
+     * field that writes there.
+     */
+    private fun fieldTags(schema: CuratedSchema, values: Map<String, List<String>>): Pair<List<Array<String>>, String> {
+        val tags = mutableListOf<Array<String>>()
+        var content = ""
+
+        for (field in schema.fields) {
+            val tag = field.tag()
+            val marker = field.config.marker
+
+            for (value in values[field.name].orEmpty()) {
+                val trimmed = value.trim()
+                if (trimmed.isEmpty()) continue
+
+                if (tag == CuratedFieldConfig.CONTENT_TAG) {
+                    content = trimmed
+                } else {
+                    tags.add(if (marker != null) arrayOf(tag, trimmed, marker) else arrayOf(tag, trimmed))
+                }
+
+                if (field.config.repeat != true) break
+            }
+        }
+
+        return tags to content
+    }
+
+    /**
+     * Both halves of the pointer back: the coordinate, which follows the
+     * suggester's later edits, and the id, which pins what the curator actually
+     * read. They answer different questions, which is why the NIP has both. The
+     * `p` credits the suggester.
+     */
+    private fun sourceTags(source: CuratedSuggestionRef?): List<Array<String>> {
+        if (source == null) return emptyList()
+
+        return buildList {
+            add(arrayOf(TAG_ADDRESS, source.coordinate, "", MARKER_MENTION))
+            source.id?.let { add(arrayOf(TAG_EVENT, it, "", MARKER_MENTION)) }
+            add(arrayOf(TAG_PUBKEY, source.pubKey))
         }
     }
 
@@ -359,7 +505,25 @@ data class CuratedSuggestionRef(
     val coordinate: String,
     /** The suggester, credited. */
     val pubKey: HexKey,
-)
+) {
+    companion object {
+        /**
+         * The pointer a canonical entry made from [entry] carries: its id, its
+         * coordinate and its author. Only a suggestion can be pointed at -- a
+         * canonical entry is the list's own word, and the list did not suggest
+         * anything to itself.
+         */
+        fun of(entry: CuratedEntry): CuratedSuggestionRef {
+            require(!entry.isCanonical) { "A canonical entry is not the source of another" }
+
+            return CuratedSuggestionRef(
+                id = entry.id,
+                coordinate = entry.coordinate(),
+                pubKey = entry.pubKey,
+            )
+        }
+    }
+}
 
 /**
  * One reason an entry does not satisfy its schema: which field, and what about

@@ -26,7 +26,11 @@ import to.curare.compose.nostr.GroupRelay
 import to.curare.compose.nostr.GroupRelayList
 import to.curare.compose.nostr.GroupRelaySet
 import to.curare.compose.nostr.Relays
+import to.curare.compose.nostr.GroupCuratedSchema
+import to.curare.compose.nostr.curated.CuratedEntryEvent
+import to.curare.compose.nostr.curated.CuratedSchema
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
+import to.curare.compose.nostr.curated.CuratedVisibility
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.ui.view.model.BroadcastGroupSignedEventViewModel.RelayOutcome
 import to.curare.compose.ui.view.state.BroadcastGroupSignedEventUIState
@@ -230,6 +234,52 @@ class BroadcastGroupSignedEventViewModelJvmTest {
         // The group's relay first, then the list's own -- a client reading
         // suggestions on the list's relay finds the schema they answer.
         assertEquals(listOf(one, three), seeded)
+    }
+
+    @Test
+    fun `an entry into a curated list goes to the list's relays, found by the coordinate it replies to`() {
+        val relayLists = agreed(GroupRelaySet.General to listOf(GroupRelay(one)))
+
+        val films = GroupCuratedSchema(
+            signedEvent = relaySignedEvent(GroupRelaySet.General).copy(kind = CuratedSchemaEvent.KIND),
+            schema = CuratedSchema(
+                identifier = "films",
+                title = "Film suggestion",
+                name = "Films worth translating",
+                description = "Films the group would subtitle.",
+                visibility = CuratedVisibility.Public,
+                relays = listOf(three.url),
+            ).normalized(),
+        )
+        val books = films.copy(schema = films.schema.copy(identifier = "books", relays = listOf(two.url)))
+
+        val seeded = BroadcastGroupSignedEventViewModel.defaultRelaysFor(
+            relayLists = relayLists,
+            kind = CuratedEntryEvent.CANONICAL_KIND,
+            tags = arrayOf(
+                arrayOf("d", "magic-money"),
+                arrayOf("title", "Magic Money"),
+                arrayOf("a", films.coordinate(), "", "root"),
+            ),
+            content = "",
+            schemas = listOf(books, films),
+        )
+
+        // The group's relay, then the relays of the list replied to -- and not
+        // the other list's: the NIP sends an entry where its own schema says.
+        assertEquals(listOf(one, three), seeded)
+
+        // An entry whose schema this device does not hold goes where the group
+        // publishes, since there is nothing else to go on.
+        assertEquals(
+            listOf(one),
+            BroadcastGroupSignedEventViewModel.defaultRelaysFor(
+                relayLists = relayLists,
+                kind = CuratedEntryEvent.CANONICAL_KIND,
+                tags = arrayOf(arrayOf("a", "31889:${"0".repeat(64)}:elsewhere", "", "root")),
+                schemas = listOf(books, films),
+            )
+        )
     }
 
     @Test

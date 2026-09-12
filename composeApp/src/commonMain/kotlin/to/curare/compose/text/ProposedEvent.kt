@@ -3,8 +3,10 @@ package to.curare.compose.text
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
+import to.curare.compose.extensions.shortened
 import to.curare.compose.managers.SharedKeyDerivation
 import to.curare.compose.nostr.GroupRelaySet
+import to.curare.compose.nostr.curated.CuratedEntryEvent
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.frost.GroupKeyStateEvent
 import to.curare.compose.nostr.subgroup.SubgroupBirthCertificateEvent
@@ -205,6 +207,21 @@ object ProposedEvent {
                     schema.visibility?.value,
                     schema.fields.size.let { "$it ${if (it == 1) "field" else "fields"}" }
                 ).joinToString(" · ")
+            }
+        )
+
+        // An entry the group would take into one of its lists. A member signing
+        // this is agreeing that the list stands behind this title, so the
+        // summary is the title and who suggested it -- the credit the entry
+        // carries -- and not its fields, which the form showed whole before the
+        // proposal was made and the queue shows again once it lands.
+        CuratedEntryEvent.CANONICAL_KIND -> Summary(
+            label = "Curated entry",
+            detail = CuratedEntryEvent.headline(event).let { entry ->
+                listOfNotNull(
+                    entry.title.ifBlank { entry.identifier }.ifBlank { null },
+                    entry.source?.let { "suggested by ${it.pubKey.shortened()}" }
+                ).joinToString(" · ").ifEmpty { "An untitled entry" }
             }
         )
 

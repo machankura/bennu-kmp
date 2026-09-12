@@ -14,11 +14,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -33,13 +33,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -47,10 +44,9 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.relay.normalizer.RelayUrlNormalizer
 import com.vitorpamplona.quartz.nip01Core.relay.normalizer.displayUrl
 import curare.composeapp.generated.resources.Res
+import curare.composeapp.generated.resources.accept_this_suggestion
 import curare.composeapp.generated.resources.ask_again
 import curare.composeapp.generated.resources.asking_the_list_s_relays
-import curare.composeapp.generated.resources.copied_the_suggestion
-import curare.composeapp.generated.resources.copy_the_suggestion
 import curare.composeapp.generated.resources.curated
 import curare.composeapp.generated.resources.everything_anyone_has_suggested_to_this_list
 import curare.composeapp.generated.resources.n_curated
@@ -58,10 +54,10 @@ import curare.composeapp.generated.resources.n_suggestions
 import curare.composeapp.generated.resources.nobody_has_suggested_anything_to_this_list_yet
 import curare.composeapp.generated.resources.one_suggestion
 import curare.composeapp.generated.resources.read_from_relays
+import curare.composeapp.generated.resources.revise_the_list_s_entry
 import curare.composeapp.generated.resources.suggested_by_on
 import curare.composeapp.generated.resources.suggestions
 import curare.composeapp.generated.resources.taken_up_by_the_group_into_the_list
-import curare.composeapp.generated.resources.the_signed_event
 import org.jetbrains.compose.resources.stringResource
 import to.curare.compose.database.model.ChatRoom
 import to.curare.compose.database.model.GroupSignedEvent
@@ -79,6 +75,8 @@ import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.curated.CuratedVisibility
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.NostrRepository
+import to.curare.compose.ui.composable.navigation.routes.AcceptCuratedSuggestionRoute
+import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.composable.widgets.Decorative
 import to.curare.compose.ui.composable.widgets.EmptyState
 import to.curare.compose.ui.composable.widgets.ErrorState
@@ -87,7 +85,6 @@ import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.dialogs.ModalBottomSheet
 import to.curare.compose.ui.composable.widgets.profile.ProfileAvatar
-import to.curare.compose.ui.composable.widgets.rememberNotifier
 import to.curare.compose.ui.theme.ConformancePreviews
 import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.theme.readableContent
@@ -109,9 +106,9 @@ import kotlin.time.Instant
  * same from here. A suggestion that does not satisfy the schema is not on this
  * screen at all; see `CuratedSuggestion`.
  *
- * A row opens a sheet with the whole entry, field by field, and the event it
- * came as -- the thing a member can hand to somebody else to check, and the
- * thing a canonical entry is made from.
+ * A row opens a sheet with the whole entry, field by field, and the one thing
+ * a member can do about it from here: take it into the list, which opens the
+ * form that proposes the canonical entry for the group to sign.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -125,6 +122,7 @@ fun CuratedSuggestionListScreen(
     nostrRepository: NostrRepository,
     chatRepository: ChatRepository,
     onNavigateBack: () -> Unit,
+    onNavigateToRoute: (Route) -> Unit,
 ) {
     val curatedSuggestionListViewModel: CuratedSuggestionListViewModel = viewModel(
         factory = CuratedSuggestionListViewModel.factory(
@@ -247,6 +245,18 @@ fun CuratedSuggestionListScreen(
                             CuratedSuggestionSheet(
                                 suggestion = suggestion,
                                 schema = state.schema.schema,
+                                onAccept = {
+                                    openSuggestionId = null
+                                    onNavigateToRoute(
+                                        AcceptCuratedSuggestionRoute(
+                                            activeUserPublicKey = activeUserPublicKey,
+                                            chatRoomId = chatRoomId,
+                                            relayHint = relayHint,
+                                            identifier = identifier,
+                                            suggestionId = suggestion.id
+                                        )
+                                    )
+                                },
                                 onDismiss = { openSuggestionId = null }
                             )
                         }
@@ -427,23 +437,24 @@ private fun bodyOf(entry: CuratedEntry, schema: CuratedSchema): String? =
 private const val TITLE_TAG = "title"
 
 /**
- * The whole of one suggestion, and a way to take it somewhere else.
+ * The whole of one suggestion, and the way to take it into the list.
  *
  * Every field the entry has a value for, labelled as the schema labels it, so
- * the sheet reads as the form would have -- and then the event itself, which
- * is the only part that can be checked, and the part a canonical entry is
- * built from. Byte for byte, the way the key state sheet shows the group's own
- * event, and for the same reason: a prettier rendering is a different string
- * to the one whose id was hashed.
+ * the sheet reads as the form would have -- and then the button, which is the
+ * one thing a member can do about a suggestion: open the form that proposes it
+ * as the list's own, for the group to sign. The event itself is not shown; it
+ * is what the form is built from, and the form shows it as fields rather than
+ * as JSON, which is how a member reads it and how the group will sign it.
  */
 @Composable
 private fun CuratedSuggestionSheet(
     suggestion: CuratedSuggestion,
     schema: CuratedSchema,
+    onAccept: () -> Unit,
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(onDismiss = onDismiss) {
-        CuratedSuggestionSheetContent(suggestion = suggestion, schema = schema)
+        CuratedSuggestionSheetContent(suggestion = suggestion, schema = schema, onAccept = onAccept)
     }
 }
 
@@ -455,15 +466,9 @@ private fun CuratedSuggestionSheet(
 @Composable
 internal fun CuratedSuggestionSheetContent(
     suggestion: CuratedSuggestion,
-    schema: CuratedSchema
+    schema: CuratedSchema,
+    onAccept: () -> Unit
 ) {
-    val clipboardManager = LocalClipboardManager.current
-
-    // Read out here rather than in the click handler: both of these are
-    // composable, and an onClick lambda is not.
-    val notify = rememberNotifier(rememberCoroutineScope())
-    val copied = stringResource(Res.string.copied_the_suggestion)
-
     val entry = suggestion.entry
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -514,44 +519,27 @@ internal fun CuratedSuggestionSheetContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(MaterialTheme.spacing.sectionGap))
-
-        Text(
-            text = stringResource(Res.string.the_signed_event),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(MaterialTheme.spacing.relatedGap))
-
-        val json = suggestion.event.toEvent().toJson()
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = MaterialTheme.shapes.small
-        ) {
-            Text(
-                text = json,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(MaterialTheme.spacing.containerPadding)
-            )
-        }
-
         Spacer(modifier = Modifier.height(MaterialTheme.spacing.itemGap))
 
-        FilledTonalButton(
-            onClick = {
-                clipboardManager.setText(AnnotatedString(json))
-                notify(copied)
-            },
+        // The same button either way, worded for what it will do: a suggestion
+        // the group already took up is revised in place, since the canonical
+        // entry keeps its identifier, and a member should not have to find that
+        // out from the queue afterwards.
+        Button(
+            onClick = onAccept,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Icon(Icons.Default.ContentCopy, contentDescription = Decorative)
+            Icon(Icons.Default.Draw, contentDescription = Decorative)
             Spacer(modifier = Modifier.width(MaterialTheme.spacing.space100))
-            Text(text = stringResource(Res.string.copy_the_suggestion))
+            Text(
+                text = stringResource(
+                    if (suggestion.isCurated) {
+                        Res.string.revise_the_list_s_entry
+                    } else {
+                        Res.string.accept_this_suggestion
+                    }
+                )
+            )
         }
     }
 }
@@ -683,7 +671,8 @@ private fun CuratedSuggestionListScreenPreview() {
                 ),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                onNavigateBack = {}
+                onNavigateBack = {},
+                onNavigateToRoute = {}
             )
         }
     }

@@ -32,9 +32,11 @@ import to.curare.compose.network.relays.EventPublishTransport
 import to.curare.compose.network.relays.NostrPublishResult
 import to.curare.compose.network.relays.RelayPool
 import to.curare.compose.network.sockets.NostrIncomingMessage
+import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.GroupRelayList
 import to.curare.compose.nostr.GroupRelaySet
 import to.curare.compose.nostr.Relays
+import to.curare.compose.nostr.curated.CuratedEntryEvent
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.ui.view.state.BroadcastGroupSignedEventUIState
@@ -67,9 +69,9 @@ import kotlin.time.Duration.Companion.milliseconds
  *
  * [defaultRelaysFor]: the group's own General list where it has agreed one, the
  * app's publish set where it has not, plus the indexers for a relay list and the
- * list's own relays for a schema, minus anything the group has blocked. The
- * member can add and remove before sending, and the seeded list is a suggestion
- * rather than a rule.
+ * list's own relays for a schema and for an entry into it, minus anything the
+ * group has blocked. The member can add and remove before sending, and the
+ * seeded list is a suggestion rather than a rule.
  */
 class BroadcastGroupSignedEventViewModel(
     val chatRoomId: String,
@@ -176,6 +178,7 @@ class BroadcastGroupSignedEventViewModel(
                     localChatRoom = localChatRoom,
                     signedEvent = signedEvent,
                     relayLists = chatRepository.groupRelayLists(chatRoomId),
+                    schemas = chatRepository.groupCuratedSchemas(chatRoomId),
                 )
             }
         }
@@ -189,11 +192,17 @@ class BroadcastGroupSignedEventViewModel(
      * loaded state straight in. Once and only once, so a member who emptied the
      * list on purpose does not find it refilled by a state the view model re-emits.
      */
-    fun seedRelays(relayLists: List<GroupRelayList>, kind: Kind, tags: Array<Array<String>>, content: String) {
+    fun seedRelays(
+        relayLists: List<GroupRelayList>,
+        kind: Kind,
+        tags: Array<Array<String>>,
+        content: String,
+        schemas: List<GroupCuratedSchema> = emptyList(),
+    ) {
         if (isSeeded) return
         isSeeded = true
 
-        relays.addAll(defaultRelaysFor(relayLists, kind, tags, content))
+        relays.addAll(defaultRelaysFor(relayLists, kind, tags, content, schemas))
     }
 
     fun clearAddFailure() {
@@ -377,6 +386,12 @@ class BroadcastGroupSignedEventViewModel(
          * - A curated schema goes to the relays it names for its own replies, so a
          *   client reading suggestions there finds what they are replying to.
          *
+         * - An entry into a curated list goes to the same relays as its schema,
+         *   which the NIP makes a MUST: that is where the list's readers look,
+         *   and where the queue screen reads the entry back to mark the
+         *   suggestion it came from. The entry names its schema by coordinate,
+         *   so the relays are read off the group's own copy of it in [schemas].
+         *
          * And nothing goes to a relay the group has blocked, whatever the other
          * lists say; that is what a blocked list is for.
          */
@@ -385,6 +400,7 @@ class BroadcastGroupSignedEventViewModel(
             kind: Kind,
             tags: Array<Array<String>> = emptyArray(),
             content: String = "",
+            schemas: List<GroupCuratedSchema> = emptyList(),
         ): List<NormalizedRelayUrl> {
             val general = relayLists.firstOrNull { it.set == GroupRelaySet.General }
                 ?.relays.orEmpty()
@@ -399,12 +415,18 @@ class BroadcastGroupSignedEventViewModel(
                 emptyList()
             }
 
-            val schemaRelays = if (kind == CuratedSchemaEvent.KIND) {
-                runCatching { CuratedSchemaEvent.read(tags, content).relays }
-                    .getOrDefault(emptyList())
-                    .mapNotNull { GroupRelaySet.relayUrlOrNull(it) }
-            } else {
-                emptyList()
+            val schemaRelays = when (kind) {
+                CuratedSchemaEvent.KIND ->
+                    runCatching { CuratedSchemaEvent.read(tags, content).relays }
+                        .getOrDefault(emptyList())
+                        .mapNotNull { GroupRelaySet.relayUrlOrNull(it) }
+
+                CuratedEntryEvent.CANONICAL_KIND ->
+                    schemas.firstOrNull { it.isRepliedToBy(tags) }
+                        ?.schema?.relays.orEmpty()
+                        .mapNotNull { GroupRelaySet.relayUrlOrNull(it) }
+
+                else -> emptyList()
             }
 
             val blocked = relayLists.firstOrNull { it.set == GroupRelaySet.Blocked }

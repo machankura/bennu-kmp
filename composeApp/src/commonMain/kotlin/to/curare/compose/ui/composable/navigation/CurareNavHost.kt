@@ -42,6 +42,7 @@ import to.curare.compose.ui.composable.DkgRound1ApprovalScreen
 import to.curare.compose.ui.composable.DkgRound2ApprovalScreen
 import to.curare.compose.ui.composable.EditGroupNostrProfileScreen
 import to.curare.compose.ui.composable.AddGroupPostScreen
+import to.curare.compose.ui.composable.AcceptCuratedSuggestionScreen
 import to.curare.compose.ui.composable.EditGroupCuratedSchemaScreen
 import to.curare.compose.ui.composable.BroadcastGroupSignedEventScreen
 import to.curare.compose.ui.composable.CuratedSuggestionListScreen
@@ -133,6 +134,7 @@ import to.curare.compose.ui.composable.navigation.routes.AddArtifactRoute
 import to.curare.compose.ui.composable.navigation.routes.AddDialectRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
 import to.curare.compose.ui.composable.navigation.routes.AddGroupPostRoute
+import to.curare.compose.ui.composable.navigation.routes.AcceptCuratedSuggestionRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupCuratedSchemaRoute
 import to.curare.compose.ui.composable.navigation.routes.BroadcastGroupSignedEventRoute
 import to.curare.compose.ui.composable.navigation.routes.CuratedSuggestionListRoute
@@ -1128,6 +1130,35 @@ fun CurareNavHost(
                     chatRepository = databaseChatRepository,
                     onNavigateBack = {
                         navController.popBackStack()
+                    },
+                    onNavigateToRoute = { acceptRoute ->
+                        navController.navigate(route = acceptRoute)
+                    }
+                )
+            }
+            composable<AcceptCuratedSuggestionRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<AcceptCuratedSuggestionRoute>()
+
+                AcceptCuratedSuggestionScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    identifier = route.identifier,
+                    suggestionId = route.suggestionId,
+                    nostrRepository = databaseNostrRepository,
+                    chatRepository = databaseChatRepository,
+                    frostSigningRepository = databaseFrostSigningRepository,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    },
+                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
+                        // Replace the form so back returns to the queue rather
+                        // than to an entry whose proposal has already gone out.
+                        navController.navigate(route = signingRoute) {
+                            popUpTo<AcceptCuratedSuggestionRoute> {
+                                inclusive = true
+                            }
+                        }
                     }
                 )
             }
