@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -43,10 +44,12 @@ import curare.composeapp.generated.resources.direct_message_detail
 import curare.composeapp.generated.resources.direct_message_functionality_will_be_here
 import curare.composeapp.generated.resources.invite
 import curare.composeapp.generated.resources.invite_2
+import curare.composeapp.generated.resources.invite_new_member
 import curare.composeapp.generated.resources.once_invited_will_be_able_to_receive_and
 import curare.composeapp.generated.resources.to_join_the_chat_room
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -62,6 +65,7 @@ fun AddMemberToChatRoomConfirmationScreen(
     nostrRepository: NostrRepository,
     chatRepository: ChatRepository,
     onInviteSent: () -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val addMemberToChatRoomConfirmationViewModel: AddMemberToChatRoomConfirmationViewModel = viewModel(
         factory = AddMemberToChatRoomConfirmationViewModel.factory(
@@ -94,22 +98,14 @@ fun AddMemberToChatRoomConfirmationScreen(
             is AddMemberToChatRoomConfirmationUIState.Loaded -> {
                 Scaffold(
                     snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
-    //                topBar = {
-    //                    TopAppBar(
-    //                        title = {
-    //                            val title = if (addMemberToChatRoomConfirmationUIState.localChatRoom.chatRoom.subject != null) {
-    //                                "Invite new member to ${addMemberToChatRoomConfirmationUIState.localChatRoom.chatRoom.subject}"
-    //                            } else {
-    //                                "Invite new member to chat"
-    //                            }
-    //                            Text(
-    //                                text = title,
-    //                            )
-    //                        },
-    //                        actions = {
-    //                        }
-    //                    )
-    //                }
+                    topBar = {
+                        // The body already names who is being invited to which room,
+                        // so the bar says only what the screen is for.
+                        TopAppBar(
+                            title = { Text(stringResource(Res.string.invite_new_member)) },
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
+                        )
+                    },
                     bottomBar = {
                         BottomAppBar(
                             floatingActionButton = {
@@ -252,7 +248,8 @@ private fun ChatRoomDetailScreenPreview() {
                 ),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                onInviteSent = {}
+                onInviteSent = {},
+                onNavigateBack = {},
             )
         }
     }

@@ -496,6 +496,9 @@ fun CurareNavHost(
                             popUpTo(0)
                         }
                     },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    },
                     nostrRepository = databaseNostrRepository,
                     marmotRepository = databaseMarmotRepository,
                     writeSeed = { words, onSeedWritten, onSeedWriteError ->
@@ -528,6 +531,9 @@ fun CurareNavHost(
                         navController.navigate(
                             selectMembersRoute
                         )
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -543,6 +549,9 @@ fun CurareNavHost(
                         navController.navigate(
                             selectChatRoomTypeRoute
                         )
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -557,6 +566,9 @@ fun CurareNavHost(
                     dkgRepository = databaseDkgRepository,
                     onNavigateToRoute = { nextRoute ->
                         navController.navigate(route = nextRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -572,6 +584,9 @@ fun CurareNavHost(
                     dkgRepository = databaseDkgRepository,
                     onNavigateToRoute = { approvalRoute ->
                         navController.navigate(route = approvalRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -640,6 +655,9 @@ fun CurareNavHost(
                                 inclusive = true
                             }
                         }
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -661,6 +679,9 @@ fun CurareNavHost(
                                 nostrEventId = hexKey
                             )
                         )
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     },
                     nostrRepository = databaseNostrRepository
                 )
@@ -914,6 +935,11 @@ fun CurareNavHost(
                         navController.navigate(
                             route = actionRoute
                         )
+                    },
+                    // A pushed route, unlike the same screen inside the home screen's
+                    // detail pane, so there is something to pop.
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -937,6 +963,9 @@ fun CurareNavHost(
                             route = popRoute,
                             inclusive = false
                         )
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -953,6 +982,9 @@ fun CurareNavHost(
                         navController.navigate(
                             route = chatRoomDetailRoute
                         )
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     },
                 )
             }
@@ -975,6 +1007,11 @@ fun CurareNavHost(
                             ),
                             inclusive = true
                         )
+                    },
+                    // Back is to the search, not past it: a member who picked the wrong
+                    // person wants the list again, not the room.
+                    onNavigateBack = {
+                        navController.popBackStack()
                     },
                 )
             }
@@ -1004,6 +1041,9 @@ fun CurareNavHost(
                         navController.navigate(
                             route = actionRoute
                         )
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -1030,6 +1070,9 @@ fun CurareNavHost(
                         navController.navigate(
                             route = actionRoute
                         )
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -1050,6 +1093,9 @@ fun CurareNavHost(
                                 inclusive = true
                             }
                         }
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -1070,6 +1116,9 @@ fun CurareNavHost(
                                 inclusive = true
                             }
                         }
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -1090,6 +1139,9 @@ fun CurareNavHost(
                                 inclusive = true
                             }
                         }
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -1111,6 +1163,9 @@ fun CurareNavHost(
                                 inclusive = true
                             }
                         }
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -1146,6 +1201,9 @@ fun CurareNavHost(
                                 inclusive = true
                             }
                         }
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }
@@ -1433,8 +1491,23 @@ fun CurareNavHost(
             }
             composable<ImplementationPendingRoute> { backStackEntry ->
                 val route: ImplementationPendingRoute = backStackEntry.toRoute()
+
+                // Pushed from a "learn more" or an "edit profile", and also where the
+                // navigation observer above lands with `popUpTo(0)` on an error. Whether
+                // there is anything under this entry is what decides the back button, and
+                // it is remembered because the answer is read again while the screen is
+                // leaving, when the stack has already moved on.
+                val hasSomethingToReturnTo = remember {
+                    navController.previousBackStackEntry != null
+                }
+
                 ImplementationPendingScreen(
-                    route.name
+                    text = route.name,
+                    onNavigateBack = if (hasSomethingToReturnTo) {
+                        { navController.popBackStack() }
+                    } else {
+                        null
+                    }
                 )
             }
         }

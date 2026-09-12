@@ -59,6 +59,7 @@ import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.composable.widgets.ErrorState
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.rememberNotifier
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -113,6 +114,7 @@ fun EditGroupNostrProfileScreen(
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val editGroupNostrProfileViewModel: EditGroupNostrProfileViewModel = viewModel(
         factory = EditGroupNostrProfileViewModel.factory(
@@ -170,7 +172,8 @@ fun EditGroupNostrProfileScreen(
                             title = {
                                 editGroupNostrProfileUIState.localChatRoom
                                     .RenderChatRoomTitleText()
-                            }
+                            },
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     },
                     bottomBar = {
@@ -416,7 +419,8 @@ private fun EditGroupNostrProfileScreenPreview() {
                 ),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
-                onNavigateToRouteAndPopUpInclusive = {}
+                onNavigateToRouteAndPopUpInclusive = {},
+                onNavigateBack = {},
             )
         }
     }

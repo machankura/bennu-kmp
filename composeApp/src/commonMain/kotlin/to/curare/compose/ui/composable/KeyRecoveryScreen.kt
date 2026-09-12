@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddToDrive
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.Key
@@ -25,7 +24,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -71,6 +69,7 @@ import to.curare.compose.ui.composable.navigation.routes.NostrSecretRoute
 import to.curare.compose.ui.composable.navigation.routes.RecoveryPhraseRoute
 import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.composable.widgets.Decorative
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.ConformancePreviews
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.spacing
@@ -109,18 +108,7 @@ fun KeyRecoveryScreen(
                         text = stringResource(Res.string.key_recovery)
                     )
                 },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            onNavigateBack.invoke()
-                        }
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                }
+                navigationIcon = { NavigateBackButton(onNavigateBack) }
             )
         }
     ) { innerPadding ->

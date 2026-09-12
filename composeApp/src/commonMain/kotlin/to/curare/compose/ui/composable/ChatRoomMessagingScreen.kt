@@ -69,6 +69,7 @@ import curare.composeapp.generated.resources.private_message_to
 import curare.composeapp.generated.resources.private_to
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -86,6 +87,13 @@ fun ChatRoomMessagingScreen(
     dkgRepository: DkgRepository,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
     onNavigateToRoute: (Route) -> Unit,
+    /**
+     * `null` when this is the home screen's detail pane rather than a pushed route. In
+     * the pane the room list is beside the transcript and there is nothing to pop, so
+     * the bar draws no back button -- M3's list-detail has the list do that job. On a
+     * phone the same screen is a destination, and the button is what leaves it.
+     */
+    onNavigateBack: (() -> Unit)?,
 ) {
     val chatRoomMessagingViewModel: ChatRoomMessagingViewModel = viewModel(
         factory = ChatRoomMessagingViewModel.factory(
@@ -132,6 +140,9 @@ fun ChatRoomMessagingScreen(
                         TopAppBar(
                             title = {
                                 chatRoomDetailUIState.localChatRoom.RenderChatRoomTitleText()
+                            },
+                            navigationIcon = {
+                                if (onNavigateBack != null) NavigateBackButton(onNavigateBack)
                             },
                             actions = {
                                 IconButton(
@@ -491,7 +502,8 @@ private fun ChatRoomMessagingScreenPreview() {
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
                 dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
                 onNavigateToRouteAndPopUpInclusive = {},
-                onNavigateToRoute = {}
+                onNavigateToRoute = {},
+                onNavigateBack = {},
             )
         }
     }

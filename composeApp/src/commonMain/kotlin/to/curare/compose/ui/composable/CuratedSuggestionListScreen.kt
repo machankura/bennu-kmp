@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Card
@@ -20,7 +19,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -88,6 +86,7 @@ import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.dialogs.ModalBottomSheet
 import to.curare.compose.ui.composable.widgets.profile.ProfileAvatar
 import to.curare.compose.ui.composable.widgets.rememberNotifier
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.ConformancePreviews
 import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.theme.readableContent
@@ -155,11 +154,7 @@ fun CuratedSuggestionListScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                 },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
+                navigationIcon = { NavigateBackButton(onNavigateBack) }
             )
         }
     ) { padding ->

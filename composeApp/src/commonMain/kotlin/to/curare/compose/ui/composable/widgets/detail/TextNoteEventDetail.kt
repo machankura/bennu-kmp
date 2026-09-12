@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddReaction
-import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.CurrencyBitcoin
 import androidx.compose.material.icons.filled.MoreVert
@@ -57,6 +56,7 @@ import curare.composeapp.generated.resources.reply_to
 import to.curare.compose.ui.composable.widgets.ErrorState
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.ConformancePreviews
 
@@ -87,16 +87,7 @@ fun TextNoteEventDetail(
         modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
-                navigationIcon = {
-                    IconButton(
-                        onClick = onNavigateBack
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowBackIosNew,
-                            contentDescription = "Navigate back"
-                        )
-                    }
-                },
+                navigationIcon = { NavigateBackButton(onNavigateBack) },
                 title = {
                     Text(stringResource(Res.string.post))
                 },

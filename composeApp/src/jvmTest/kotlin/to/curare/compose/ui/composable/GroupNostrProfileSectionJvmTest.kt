@@ -483,7 +483,8 @@ class GroupNostrProfileSectionJvmTest {
                             chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                             mantraRepository = MantraRepository.NO_OP_MANTRA_REPOSITORY,
                             onNavigateToRoute = {},
-                            onPopBackToRoute = {}
+                            onPopBackToRoute = {},
+                            onNavigateBack = {},
                         )
                     }
                 }

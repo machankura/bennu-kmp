@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -34,12 +35,14 @@ import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
 import curare.composeapp.generated.resources.functionality_coming_soon
+import curare.composeapp.generated.resources.post
 import curare.composeapp.generated.resources.post_functionality_coming_soon
 import curare.composeapp.generated.resources.something_went_wrong
 import curare.composeapp.generated.resources.we_couldn_t_find_your_nostr_event_please_try
 import to.curare.compose.ui.composable.widgets.ErrorState
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -95,20 +98,41 @@ fun NostrEventDetailScreen(
                             nostrRepository = nostrRepository
                         )
                     }
+                    // The two kinds with a detail of their own draw their bar inside it. The
+                    // rest are a placeholder, and a placeholder pushed onto the stack still
+                    // needs the way off it.
                     RepostEvent.KIND -> {
                         // TODO: RePost...
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(feedListUIState.localNostrEvent.nostrEvent.content)
+                        Scaffold(
+                            snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
+                            topBar = {
+                                TopAppBar(
+                                    title = { Text(stringResource(Res.string.post)) },
+                                    navigationIcon = { NavigateBackButton(onNavigateBack) },
+                                )
+                            },
+                        ) { innerPadding ->
+                            Column(
+                                modifier = Modifier.padding(innerPadding).readableContent().fillMaxSize(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(feedListUIState.localNostrEvent.nostrEvent.content)
 
-                            Text(stringResource(Res.string.post_functionality_coming_soon))
+                                Text(stringResource(Res.string.post_functionality_coming_soon))
+                            }
                         }
                     }
                     else -> {
-                        Scaffold(snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) }) { innerPadding ->
+                        Scaffold(
+                            snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
+                            topBar = {
+                                TopAppBar(
+                                    title = { Text(stringResource(Res.string.post)) },
+                                    navigationIcon = { NavigateBackButton(onNavigateBack) },
+                                )
+                            },
+                        ) { innerPadding ->
                             Column(
                                 modifier = Modifier.padding(innerPadding).readableContent().fillMaxSize()
                             ) {

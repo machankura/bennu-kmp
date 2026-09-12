@@ -54,6 +54,7 @@ import curare.composeapp.generated.resources.next_with
 import curare.composeapp.generated.resources.selected
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -74,6 +75,7 @@ fun SelectChatRoomMembersScreen(
     initialSelectChatRoomMembersUIState: SelectChatRoomMembersUIState = SelectChatRoomMembersUIState.Loading,
     nostrRepository: NostrRepository,
     onNavigateToRoute: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val selectChatRoomMembersViewModel: SelectChatRoomMembersViewModel = viewModel(
         factory = SelectChatRoomMembersViewModel.factory(
@@ -114,7 +116,8 @@ fun SelectChatRoomMembersScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                            }
+                            },
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     },
                     bottomBar = {
@@ -302,7 +305,8 @@ private fun SelectChatRoomMembersScreenPreview() {
                     )
                 ),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
-                onNavigateToRoute = {}
+                onNavigateToRoute = {},
+                onNavigateBack = {},
             )
         }
     }

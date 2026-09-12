@@ -12,12 +12,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,19 +35,23 @@ import org.jetbrains.compose.resources.stringResource
 import curare.composeapp.generated.resources.choose_who_to_chat_with
 import curare.composeapp.generated.resources.enter_the_name_you_want_to_use_for_your
 import curare.composeapp.generated.resources.name_eg_group_discussions
+import curare.composeapp.generated.resources.new_chat
 import curare.composeapp.generated.resources.this_will_be_shown_when_people_open_the_chat
 import curare.composeapp.generated.resources.this_will_be_the_display_name_for_this_chat
 import curare.composeapp.generated.resources.what_should_people_know_about_you
 import curare.composeapp.generated.resources.what_will_be_discussed_in_this_chat_room
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.ConformancePreviews
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatRoomCreationScreen(
     activeUserPublicKey: HexKey,
-    onNavigateToRoute: (Route) -> Unit
+    onNavigateToRoute: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val chatRoomCreationViewModel: ChatRoomCreationViewModel =  viewModel (
         factory = ChatRoomCreationViewModel.factory()
@@ -55,7 +61,16 @@ fun ChatRoomCreationScreen(
     // keyboard covers whatever is being typed into.
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
-        modifier = Modifier.imePadding()) { innerPadding ->
+        modifier = Modifier.imePadding(),
+        topBar = {
+            // Named after the button that opens it, which is the first of three steps;
+            // the next two name themselves after the chat this one is creating.
+            TopAppBar(
+                title = { Text(stringResource(Res.string.new_chat)) },
+                navigationIcon = { NavigateBackButton(onNavigateBack) },
+            )
+        },
+    ) { innerPadding ->
         Column(
             modifier = Modifier.padding(innerPadding).readableContent().fillMaxWidth()
         ) {
@@ -181,7 +196,8 @@ private fun LoadingScreenPreview() {
         ) {
             ChatRoomCreationScreen(
                 activeUserPublicKey = "",
-                onNavigateToRoute = {}
+                onNavigateToRoute = {},
+                onNavigateBack = {},
             )
         }
     }

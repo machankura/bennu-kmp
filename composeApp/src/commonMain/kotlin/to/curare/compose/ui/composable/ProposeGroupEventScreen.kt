@@ -58,6 +58,7 @@ import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.composable.widgets.ErrorState
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.profile.ProfileAvatar
 import to.curare.compose.ui.composable.widgets.rememberNotifier
@@ -115,6 +116,7 @@ fun ProposeGroupEventScreen(
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val proposeGroupEventViewModel: ProposeGroupEventViewModel = viewModel(
         factory = ProposeGroupEventViewModel.factory(
@@ -164,7 +166,8 @@ fun ProposeGroupEventScreen(
                     modifier = Modifier.imePadding(),
                     topBar = {
                         TopAppBar(
-                            title = { Text(text = stringResource(Res.string.propose_event)) }
+                            title = { Text(text = stringResource(Res.string.propose_event)) },
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     },
                     bottomBar = {
@@ -458,7 +461,8 @@ private fun ProposeGroupEventScreenPreview() {
                 ),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
-                onNavigateToRouteAndPopUpInclusive = {}
+                onNavigateToRouteAndPopUpInclusive = {},
+                onNavigateBack = {},
             )
         }
     }

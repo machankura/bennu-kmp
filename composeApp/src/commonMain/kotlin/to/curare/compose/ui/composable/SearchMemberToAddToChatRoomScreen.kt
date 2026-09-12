@@ -47,6 +47,7 @@ import curare.composeapp.generated.resources.search_member_functionality
 import curare.composeapp.generated.resources.search_message_functionality_will_be_here
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -61,6 +62,7 @@ fun SearchMemberToAddToChatRoomScreen(
     nostrRepository: NostrRepository,
     chatRepository: ChatRepository,
     onNavigateToRoute: (Route) -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     val searchMemberToAddToChatRoomViewModel: SearchMemberToAddToChatRoomViewModel = viewModel(
         factory = SearchMemberToAddToChatRoomViewModel.factory(
@@ -102,7 +104,8 @@ fun SearchMemberToAddToChatRoomScreen(
                                 Text(
                                     text = title,
                                 )
-                            }
+                            },
+                            navigationIcon = { NavigateBackButton(onNavigateBack) },
                         )
                     }
                 ) { innerPadding ->
@@ -256,7 +259,8 @@ private fun ChatRoomDetailScreenPreview() {
                 ),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                onNavigateToRoute = {}
+                onNavigateToRoute = {},
+                onNavigateBack = {},
             )
         }
     }
