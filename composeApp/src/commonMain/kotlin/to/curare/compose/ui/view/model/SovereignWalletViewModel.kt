@@ -149,10 +149,35 @@ class SovereignWalletViewModel(
         listIdentities(onDone = {})
     }
 
-    /** Makes [identity] the one the app runs as. Everything reading [activeIdentity] follows. */
+    /**
+     * Makes [identity] the one the app runs as. Everything reading [activeIdentity]
+     * follows, and the id is saved as the default: every activation goes through here
+     * -- startup for all three kinds, the sign-in and create tails through startup -- so
+     * the default is always the profile most recently open, and a cold boot with several
+     * opens that one. It was read by startup and written by nothing, which made every
+     * cold boot with two profiles the selector.
+     */
     fun setActiveIdentity(identity: Identity) {
         _activeIdentity.value = identity
+        rememberDefault { saveDefaultWallet(identity.id) }
 //        scheduleAutoLock()
+    }
+
+    /**
+     * Forgets which profile opens on launch. For the forget tails: the default is the
+     * one memory of an identity that would otherwise outlive it, and a null read is
+     * better than a miss that happens to be handled.
+     */
+    fun forgetDefaultIdentity() {
+        rememberDefault { clearDefaultWallet() }
+    }
+
+    /** A default that could not be written is a selector on the next boot, not a crash now. */
+    private fun rememberDefault(write: suspend GlobalPrefs.() -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { getGlobalPrefs().write() }
+                .onFailure { log.e("could not record which profile is open", it) }
+        }
     }
 
     /**

@@ -31,9 +31,17 @@ import to.curare.compose.identity.StoredIdentity
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
+import curare.composeapp.generated.resources.choose_a_profile
+import curare.composeapp.generated.resources.could_not_load_the_profiles_on_this_device
+import curare.composeapp.generated.resources.decrypting
+import curare.composeapp.generated.resources.loading_preferences
 import curare.composeapp.generated.resources.lock_prompt_coming_soon
-import curare.composeapp.generated.resources.select_a_wallet
+import curare.composeapp.generated.resources.opening_profile
+import curare.composeapp.generated.resources.preparing_profiles
+import curare.composeapp.generated.resources.starting_wallet
 import curare.composeapp.generated.resources.startup_error
+import curare.composeapp.generated.resources.unlock_to_continue
+import to.curare.compose.ui.view.state.StartupChoice
 
 @Composable
 fun SovereignWalletStartupScreen(
@@ -65,12 +73,12 @@ fun SovereignWalletStartupScreen(
         when (listWalletState) {
             is ListWalletState.Init -> {
                 LoadingDataIndicator(
-                    text = "Decrypting..."
+                    text = stringResource(Res.string.decrypting)
                 )
             }
             is ListWalletState.Error -> {
                 ImplementationPendingScreen(
-                    text = "Failed to load wallet data",
+                    text = stringResource(Res.string.could_not_load_the_profiles_on_this_device),
                     // Drawn inside the startup gate, which is the root of the stack.
                     onNavigateBack = null,
                 )
@@ -95,17 +103,17 @@ fun SovereignWalletStartupScreen(
                     availableIdentities.isEmpty() -> {
                         LaunchedEffect(Unit) { onNavigateToWalletLandingPage.invoke() }
                         LoadingDataIndicator(
-                            text = "Initializing..."
+                            text = stringResource(Res.string.preparing_profiles)
                         )
                     }
                     availableWalletMetadata == null || defaultWallet.value == null -> {
                         LoadingDataIndicator(
-                            text = "Preparing wallet..."
+                            text = stringResource(Res.string.preparing_profiles)
                         )
                     }
                     activeIdentity != null -> {
                         LoadingDataIndicator(
-                            text = "Opening wallet"
+                            text = stringResource(Res.string.opening_profile)
                         )
                         LaunchedEffect(Unit) {
                             sovereignWalletViewModel.loadSovereignData(activeIdentity.id)
@@ -115,16 +123,18 @@ fun SovereignWalletStartupScreen(
                     else -> {
                         when (val startupState = sovereignWalletStartupViewModel.state.value) {
                             is to.curare.compose.ui.view.model.StartupViewState.Init -> {
+                                // The table is StartupChoice's, where it can be read and
+                                // tested; the one thing decided here is that the saved default
+                                // is only a default when it names a wallet.
                                 var loadingIdentity by remember {
                                     mutableStateOf(
-                                        when {
-                                            forceWalletId != null -> availableIdentities[forceWalletId]
-                                            !startWalletImmediately -> null
-                                            availableIdentities.size == 1 -> availableIdentities.entries.firstOrNull()?.value
-                                            desiredWalletId != null -> availableIdentities[desiredWalletId]
-                                            startWalletImmediately -> availableIdentities[defaultWallet.value]
-                                            else -> null
-                                        }
+                                        StartupChoice.resolve(
+                                            force = forceWalletId,
+                                            desired = desiredWalletId,
+                                            startImmediately = startWalletImmediately,
+                                            identities = availableIdentities,
+                                            default = defaultWallet.value as? WalletId,
+                                        )
                                     )
                                 }
                                 when (val stored = loadingIdentity) {
@@ -144,7 +154,7 @@ fun SovereignWalletStartupScreen(
                                             topContent = {
                                                 Spacer(Modifier.height(MaterialTheme.spacing.space800))
                                                 Text(
-                                                    text = stringResource(Res.string.select_a_wallet),
+                                                    text = stringResource(Res.string.choose_a_profile),
                                                     style = MaterialTheme.typography.headlineSmall
                                                 )
                                                 Spacer(Modifier.height(MaterialTheme.spacing.space200))
@@ -229,13 +239,16 @@ fun SovereignWalletStartupScreen(
                                 }
                             }
                             is to.curare.compose.ui.view.model.StartupViewState.StartingBusiness -> {
+                                // The one place the word "wallet" stays: only the branch with
+                                // a wallet attached reaches this state, and what is starting is
+                                // a Lightning node. A bare-key profile never sees it.
                                 LoadingDataIndicator(
-                                    text = "Starting wallet"
+                                    text = stringResource(Res.string.starting_wallet)
                                 )
                             }
                             is to.curare.compose.ui.view.model.StartupViewState.BusinessActive -> {
                                 LoadingDataIndicator(
-                                    text = "Opening wallet"
+                                    text = stringResource(Res.string.opening_profile)
                                 )
                             }
                             is to.curare.compose.ui.view.model.StartupViewState.Error -> {
@@ -296,10 +309,10 @@ private fun BoxScope.LoadWallet(
 
     when (isScreenLockRequired.value) {
         null -> {
-            LoadingDataIndicator(text = "Loading preferences...")
+            LoadingDataIndicator(text = stringResource(Res.string.loading_preferences))
         }
         true -> {
-            LoadingDataIndicator(text = "Unlock to continue")
+            LoadingDataIndicator(text = stringResource(Res.string.unlock_to_continue))
             ScreenLockPrompt(
                 walletId = identity.id,
                 walletName = metadata.nameOrDefault(),
@@ -311,7 +324,7 @@ private fun BoxScope.LoadWallet(
             )
         }
         false -> {
-            LoadingDataIndicator(text = "Starting wallet...")
+            LoadingDataIndicator(text = stringResource(Res.string.opening_profile))
             LaunchedEffect(Unit) {
                 doLoadWallet(identity)
             }

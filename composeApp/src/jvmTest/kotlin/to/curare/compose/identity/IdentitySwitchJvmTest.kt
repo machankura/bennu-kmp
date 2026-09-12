@@ -34,6 +34,8 @@ import to.curare.compose.ui.view.model.NavigationViewModel
 import to.curare.compose.ui.view.model.NotaryViewModel
 import to.curare.compose.ui.view.model.SovereignWalletViewModel
 import to.curare.compose.ui.view.state.NavigationUIState
+import to.curare.compose.ui.view.state.StartupChoice
+import fr.acinq.phoenix.data.EmptyWalletId
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -60,6 +62,10 @@ import kotlin.time.Clock
  * a recorder, since a node cannot be started here; a `PhoenixBusiness` can be built
  * without one, because everything in it is lazy, and that is enough to make the branch
  * true.
+ *
+ * Then Phase 3's half: every activation saves which profile is open, so that a cold
+ * boot -- a fresh view model over the same directory -- resolves to it without asking;
+ * and a forget tail clears it, so the boot after shows the list.
  */
 class IdentitySwitchJvmTest {
 
@@ -212,6 +218,52 @@ class IdentitySwitchJvmTest {
         assertEquals(listOf(walletId), stopped)
         assertNull(sovereign.activeIdentity.value)
         assertEquals(other, sovereign.desiredWalletId.value)
+    }
+
+    @Test
+    fun `the last profile opened is the one a cold boot resolves, until it is forgotten`() = runBlocking<Unit> {
+        val idA = signIn(keyA)
+        val idB = signIn(keyB)
+        val first = SovereignWalletViewModel(phoenixGlobal, stopBusiness = { stopped += it })
+        withTimeout(15_000) { first.availableIdentities.first { it.size == 2 } }
+        val storedA = assertIs<StoredIdentity.NostrSecret>(first.availableIdentities.value[idA])
+        val storedB = assertIs<StoredIdentity.NostrSecret>(first.availableIdentities.value[idB])
+
+        first.setActiveIdentity(activated(storedA))
+        first.switchToIdentity(idB)
+        first.setActiveIdentity(activated(storedB))
+        // Read through the view model's own GlobalPrefs, not this test's: DataStoreManager
+        // caches the global preferences once per process, bound to whichever directory
+        // was current when the first test in this JVM asked -- the same trap the nsec plan
+        // recorded for user preferences. The app has one directory; a test JVM has many.
+        val prefs = first.getGlobalPrefs()
+        withTimeout(5_000) { prefs.getDefaultWallet.first { it == idB } }
+
+        // A cold boot: a fresh view model over the same directory, nothing desired,
+        // nothing forced, and the user has not asked for the list.
+        val booted = SovereignWalletViewModel(phoenixGlobal, stopBusiness = { stopped += it })
+        withTimeout(15_000) { booted.availableIdentities.first { it.size == 2 } }
+        val resolved = StartupChoice.resolve(
+            force = null,
+            desired = booted.desiredWalletId.value,
+            startImmediately = booted.startWalletImmediately.value,
+            identities = booted.availableIdentities.value,
+            default = prefs.getDefaultWallet.first() as? WalletId,
+        )
+        assertEquals(idB, resolved?.id, "the profile that was open is the one that opens")
+
+        // The forget tail clears it; the boot after shows the list.
+        booted.forgetDefaultIdentity()
+        withTimeout(5_000) { prefs.getDefaultWallet.first { it == EmptyWalletId } }
+        assertNull(
+            StartupChoice.resolve(
+                force = null,
+                desired = null,
+                startImmediately = true,
+                identities = booted.availableIdentities.value,
+                default = prefs.getDefaultWallet.first() as? WalletId,
+            )
+        )
     }
 
     @Test

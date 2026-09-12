@@ -209,7 +209,6 @@
     <string name="search_member_functionality">Search member functionality</string>
     <string name="search_message_functionality_will_be_here">Search message functionality will be here.</string>
     <string name="see_how_deep_the_rabbit_hole_goes">See how deep the rabbit hole goes</string>
-    <string name="select_a_wallet">Select a wallet</string>
     <string name="send_message">Send message</string>
     <string name="share_profile">Share profile</string>
     <string name="shared_key">Shared key</string>
@@ -703,4 +702,13 @@
     <string name="you_said_you_stored_it">You said you stored it</string>
     <!-- The bar on the note composer, which had no bar before it had a back button. -->
     <string name="new_note">New note</string>
+    <!-- Several profiles on a device, docs/multiple-profiles.md. The startup screen's literals,
+         with "wallet" kept only where a wallet is what is starting. -->
+    <string name="choose_a_profile">Choose a profile</string>
+    <string name="could_not_load_the_profiles_on_this_device">Could not load the profiles on this device</string>
+    <string name="decrypting">Decrypting…</string>
+    <string name="opening_profile">Opening profile…</string>
+    <string name="preparing_profiles">Preparing profiles…</string>
+    <string name="starting_wallet">Starting wallet…</string>
+    <string name="unlock_to_continue">Unlock to continue</string>
 </resources>

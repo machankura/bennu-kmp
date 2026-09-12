@@ -443,6 +443,7 @@ fun CurareNavHost(
             forgetNostrCredential = { identity -> sovereignWalletViewModel.forgetNostrCredential(identity) },
             hideIdentityMetadata = { identity -> sovereignWalletViewModel.hideIdentityMetadata(identity) },
             onSignedOut = {
+                sovereignWalletViewModel.forgetDefaultIdentity()
                 sovereignWalletViewModel.listIdentities {
                     sovereignWalletViewModel.resetToSelector()
                 }
@@ -952,6 +953,7 @@ fun CurareNavHost(
                     // identity to startup, which shows the selector -- or Landing, if this
                     // was the last one.
                     onForgotten = {
+                        sovereignWalletViewModel.forgetDefaultIdentity()
                         sovereignWalletViewModel.listIdentities {
                             sovereignWalletViewModel.resetToSelector()
                         }
