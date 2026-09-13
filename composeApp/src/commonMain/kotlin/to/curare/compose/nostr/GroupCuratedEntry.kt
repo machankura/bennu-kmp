@@ -49,7 +49,8 @@ import kotlin.time.Instant
  * queue screen marks a suggestion curated only from a copy read back off the
  * list's relays, so until a member broadcasts an entry from this section the
  * queue still shows it waiting. The broadcast button under each card is how
- * it gets there.
+ * it gets there, or the one at the bottom of the entries screen that sends
+ * all of them.
  */
 data class GroupCuratedEntry(
     /** The group's statement, whole, with the signature that makes it one. */

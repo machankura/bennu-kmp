@@ -28,7 +28,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -117,6 +116,7 @@ import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.theme.ConformancePreviews
 
 /**
@@ -194,7 +194,13 @@ fun DkgRitualScreen(
                         if (pending != null) {
                             BottomAppBar(
                                 floatingActionButton = {
-                                    ExtendedFloatingActionButton(
+                                    ExtendedFab(
+                                        label = when (pending) {
+                                            DkgApprovalStep.HOST_KEY -> stringResource(Res.string.review_and_join)
+                                            DkgApprovalStep.ROUND_1 -> stringResource(Res.string.review_and_contribute)
+                                            DkgApprovalStep.ROUND_2 -> stringResource(Res.string.review_and_confirm)
+                                        },
+                                        icon = { Icon(Icons.Default.Key, contentDescription = Decorative) },
                                         onClick = {
                                             onNavigateToRoute(
                                                 when (pending) {
@@ -216,16 +222,7 @@ fun DkgRitualScreen(
                                                 }
                                             )
                                         }
-                                    ) {
-                                        Icon(Icons.Default.Key, contentDescription = Decorative)
-                                        Text(
-                                            text = when (pending) {
-                                                DkgApprovalStep.HOST_KEY -> stringResource(Res.string.review_and_join)
-                                                DkgApprovalStep.ROUND_1 -> stringResource(Res.string.review_and_contribute)
-                                                DkgApprovalStep.ROUND_2 -> stringResource(Res.string.review_and_confirm)
-                                            }
-                                        )
-                                    }
+                                    )
                                 },
                                 actions = {}
                             )
@@ -238,19 +235,21 @@ fun DkgRitualScreen(
                         if (canStartRitual) {
                             BottomAppBar(
                                 floatingActionButton = {
-                                    ExtendedFloatingActionButton(
-                                        onClick = { dkgRitualViewModel.startRitual() }
-                                    ) {
-                                        if (isActionPending) {
-                                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                    ExtendedFab(
+                                        label = if (session == null) {
+                                            stringResource(Res.string.start_key_ceremony)
                                         } else {
-                                            Icon(Icons.Default.Key, contentDescription = "Start")
-                                        }
-
-                                        Text(
-                                            text = if (session == null) stringResource(Res.string.start_key_ceremony) else stringResource(Res.string.try_again)
-                                        )
-                                    }
+                                            stringResource(Res.string.try_again)
+                                        },
+                                        icon = {
+                                            if (isActionPending) {
+                                                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                            } else {
+                                                Icon(Icons.Default.Key, contentDescription = "Start")
+                                            }
+                                        },
+                                        onClick = { dkgRitualViewModel.startRitual() }
+                                    )
                                 },
                                 actions = {
                                     Text(

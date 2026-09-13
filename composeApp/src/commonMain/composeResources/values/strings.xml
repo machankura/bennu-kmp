@@ -648,6 +648,12 @@
     <string name="accepted_by_n_of_m_relays">Accepted by %1$s of %2$s relays.</string>
     <string name="copy_raw_json">Copy raw JSON</string>
     <string name="copied_the_raw_json">Copied the raw JSON</string>
+    <!-- Broadcasting every entry the group has accepted at once, each to where its own broadcast would go. -->
+    <string name="broadcast_all">Broadcast all</string>
+    <string name="sending_entry_n_of_m">Sending entry %1$s of %2$s…</string>
+    <string name="accepted_by_every_relay_for_n_of_m_entries">Accepted by every relay for %1$s of %2$s entries.</string>
+    <string name="no_relays_to_send_it_to">No relays to send it to: every relay the group named is blocked.</string>
+    <string name="relay_and_answer">%1$s · %2$s</string>
     <!-- Sign in: docs/nsec-sign-in.md, phase 4. -->
     <string name="a_password_protected_key_ncryptsec_is_not">A password-protected key (ncryptsec) is not supported yet. Decrypt it in the app it came from and paste the nsec.</string>
     <string name="enter_a_recovery_phrase_or_an_nsec_to_sign_in">Enter a recovery phrase or an nsec to sign in.</string>

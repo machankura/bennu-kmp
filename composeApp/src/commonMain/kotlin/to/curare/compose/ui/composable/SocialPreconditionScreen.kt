@@ -10,7 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -33,6 +32,7 @@ import curare.composeapp.generated.resources.view_invites
 import curare.composeapp.generated.resources.who_will_you_be_passing_the_aux_to
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.ConformancePreviews
 
@@ -51,17 +51,9 @@ fun SocialPreconditionScreen(
 
                 },
                 floatingActionButton = {
-                    ExtendedFloatingActionButton(
-                        modifier = Modifier,
-                        icon = {
-                            Icon(
-                                Icons.Default.SkipNext,
-                                contentDescription = "Skip for now"
-                            )
-                        },
-                        text = {
-                            Text(stringResource(Res.string.skip_for_now))
-                        },
+                    ExtendedFab(
+                        label = stringResource(Res.string.skip_for_now),
+                        icon = { Icon(Icons.Default.SkipNext, contentDescription = "Skip for now") },
                         onClick = {
                             onNavigateToSkipForNow.invoke()
                         }

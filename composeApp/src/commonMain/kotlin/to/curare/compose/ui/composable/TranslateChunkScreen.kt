@@ -14,11 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -26,13 +23,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -64,6 +58,7 @@ import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.theme.ConformancePreviews
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -111,10 +106,6 @@ fun TranslateChunkScreen(
             is TranslateChunkUIState.Loaded -> {
                 val translationFieldState = rememberTextFieldState(translateChunkUIState.existingTranslationText)
 
-                // M3 gives a FAB no `enabled`, so borrow the disabled colours every
-                // other button in the app uses rather than inventing a shade here.
-                val buttonColors = ButtonDefaults.buttonColors()
-
                 // imePadding: this screen has a text field, and without it the software
                 // keyboard covers whatever is being typed into.
                 Scaffold(
@@ -130,28 +121,11 @@ fun TranslateChunkScreen(
                         BottomAppBar(
                             actions = {},
                             floatingActionButton = {
-                                ExtendedFloatingActionButton(
-                                    modifier = if (translateChunkUIState.canSign) {
-                                        Modifier
-                                    } else {
-                                        // Looking unavailable is not being unavailable:
-                                        // without this a screen reader still announces
-                                        // a button it is happy to press.
-                                        Modifier.semantics { disabled() }
-                                    },
-                                    containerColor = if (translateChunkUIState.canSign) {
-                                        FloatingActionButtonDefaults.containerColor
-                                    } else {
-                                        buttonColors.disabledContainerColor
-                                    },
-                                    contentColor = if (translateChunkUIState.canSign) {
-                                        contentColorFor(FloatingActionButtonDefaults.containerColor)
-                                    } else {
-                                        buttonColors.disabledContentColor
-                                    },
+                                ExtendedFab(
+                                    label = stringResource(Res.string.propose_translation),
+                                    icon = { Icon(Icons.Default.Add, contentDescription = "Propose translation") },
+                                    enabled = translateChunkUIState.canSign,
                                     onClick = {
-                                        if (!translateChunkUIState.canSign) return@ExtendedFloatingActionButton
-
                                         translateChunkViewModel.proposeTranslation(
                                             localChatRoom = translateChunkUIState.localChatRoom,
                                             originalChunk = translateChunkUIState.originalChunk,
@@ -178,13 +152,7 @@ fun TranslateChunkScreen(
                                             }
                                         )
                                     }
-                                ) {
-                                    Icon(
-                                        Icons.Default.Add,
-                                        contentDescription = "Propose translation"
-                                    )
-                                    Text(stringResource(Res.string.propose_translation))
-                                }
+                                )
                             }
                         )
                     }

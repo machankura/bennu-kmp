@@ -36,6 +36,9 @@ floating action button's label by text has to search the unmerged tree, because
 `ExtendedFloatingActionButton` merges its label into the button's semantics — and
 on the merged tree an `assertDoesNotExist` for a hidden control is vacuously true.
 `ReadOnlyEntrancesJvmTest` uses the unmerged tree for every lookup for that reason.
+(More precisely, the `text`/`icon` overload *clears* the label's semantics, so the
+merged tree never had it; the shared `ExtendedFab` that replaced it keeps the label
+in the merged tree, and the test's habit is now only a habit.)
 
 The library commit is on `claude/nostr-credentials` in the submodule, at `84cc44c`,
 one commit ahead of the library's `master` and bumped into the app by the Phase 2

@@ -699,7 +699,10 @@ let the component apply the 38% state layer. No `FloatingActionButton` overload 
 material3 1.10 takes `enabled` — the spec's position is that an unavailable FAB should not
 appear at all — so hand-computing the colours is the only way to show one, and the existing
 code already pairs it with `Modifier.semantics { disabled() }` so a screen reader does not
-announce a button it is happy to press. Left alone.
+announce a button it is happy to press. Left alone at the time; since done once, in
+`ExtendedFab`, which every screen's bottom-bar action now goes through and which also
+puts M3's own 12dp between the icon and the label — the content overload the screens were
+using put nothing there.
 
 **Left for a person.** Eight more screens have two or more filled buttons competing:
 LandingScreen's "Sign in" beside "Create profile", SocialPreconditionScreen's "Invite a

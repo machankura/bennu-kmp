@@ -23,12 +23,9 @@ import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.BottomAppBarDefaults
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,7 +38,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -49,8 +45,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -70,6 +64,7 @@ import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.composable.widgets.rememberNotifier
 import to.curare.compose.ui.theme.ConformancePreviews
 import to.curare.compose.ui.theme.CurareTheme
@@ -183,10 +178,6 @@ fun EditGroupRelaysScreen(
                         .collect { editGroupRelaysViewModel.clearAddFailure() }
                 }
 
-                // M3 gives a FAB no `enabled`, so borrow the disabled colours every
-                // other button in the app uses rather than inventing a shade here.
-                val buttonColors = ButtonDefaults.buttonColors()
-
                 Scaffold(
                     snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
                     modifier = Modifier.imePadding(),
@@ -202,26 +193,11 @@ fun EditGroupRelaysScreen(
                         BottomAppBar(
                             actions = {},
                             floatingActionButton = {
-                                ExtendedFloatingActionButton(
-                                    modifier = if (canSign) {
-                                        Modifier
-                                    } else {
-                                        // Looking unavailable is not being unavailable.
-                                        Modifier.semantics { disabled() }
-                                    },
-                                    containerColor = if (canSign) {
-                                        FloatingActionButtonDefaults.containerColor
-                                    } else {
-                                        buttonColors.disabledContainerColor
-                                    },
-                                    contentColor = if (canSign) {
-                                        contentColorFor(FloatingActionButtonDefaults.containerColor)
-                                    } else {
-                                        buttonColors.disabledContentColor
-                                    },
+                                ExtendedFab(
+                                    label = stringResource(Res.string.propose_relays),
+                                    icon = { Icon(Icons.Default.Draw, contentDescription = "Propose relays") },
+                                    enabled = canSign,
                                     onClick = {
-                                        if (!canSign) return@ExtendedFloatingActionButton
-
                                         editGroupRelaysViewModel.proposeRelayLists(
                                             localChatRoom =
                                                 editGroupRelaysUIState.localChatRoom,
@@ -249,13 +225,7 @@ fun EditGroupRelaysScreen(
                                             onFailure = { notify(couldNotPropose) }
                                         )
                                     }
-                                ) {
-                                    Icon(
-                                        Icons.Default.Draw,
-                                        contentDescription = "Propose relays"
-                                    )
-                                    Text(stringResource(Res.string.propose_relays))
-                                }
+                                )
                             }
                         )
                     }

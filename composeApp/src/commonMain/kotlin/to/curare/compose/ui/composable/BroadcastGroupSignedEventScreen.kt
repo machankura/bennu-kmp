@@ -24,12 +24,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.BottomAppBarDefaults
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -41,7 +38,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,11 +65,6 @@ import curare.composeapp.generated.resources.copied_the_raw_json
 import curare.composeapp.generated.resources.copy_raw_json
 import curare.composeapp.generated.resources.eg_wss_relay_example_com
 import curare.composeapp.generated.resources.no_relays_to_broadcast_to
-import curare.composeapp.generated.resources.relay_accepted
-import curare.composeapp.generated.resources.relay_could_not_send
-import curare.composeapp.generated.resources.relay_no_answer
-import curare.composeapp.generated.resources.relay_rejected
-import curare.composeapp.generated.resources.relay_sending
 import curare.composeapp.generated.resources.relay_url
 import curare.composeapp.generated.resources.relays
 import curare.composeapp.generated.resources.sends_the_event_exactly_as_the_group_signed_it
@@ -96,6 +87,7 @@ import to.curare.compose.ui.composable.widgets.ErrorState
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.label
 import to.curare.compose.ui.composable.widgets.rememberNotifier
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -106,6 +98,7 @@ import to.curare.compose.ui.view.model.BroadcastGroupSignedEventViewModel
 import to.curare.compose.ui.view.model.BroadcastGroupSignedEventViewModel.RelayOutcome
 import to.curare.compose.ui.view.state.BroadcastGroupSignedEventUIState
 import to.curare.compose.extensions.toFormattedTimeAndDateString
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlin.time.Instant
@@ -203,9 +196,6 @@ fun BroadcastGroupSignedEventScreen(
                 val json = signedEvent.toEvent().toJson()
                 val summary = ProposedEvent.summarize(signedEvent.toEvent())
 
-                // M3 gives a FAB no `enabled`, so borrow the disabled colours every
-                // other button in the app uses rather than inventing a shade here.
-                val buttonColors = ButtonDefaults.buttonColors()
                 val canSend = !isPending
 
                 Scaffold(
@@ -223,26 +213,11 @@ fun BroadcastGroupSignedEventScreen(
                         BottomAppBar(
                             actions = {},
                             floatingActionButton = {
-                                ExtendedFloatingActionButton(
-                                    modifier = if (canSend) {
-                                        Modifier
-                                    } else {
-                                        // Looking unavailable is not being unavailable.
-                                        Modifier.semantics { disabled() }
-                                    },
-                                    containerColor = if (canSend) {
-                                        FloatingActionButtonDefaults.containerColor
-                                    } else {
-                                        buttonColors.disabledContainerColor
-                                    },
-                                    contentColor = if (canSend) {
-                                        contentColorFor(FloatingActionButtonDefaults.containerColor)
-                                    } else {
-                                        buttonColors.disabledContentColor
-                                    },
+                                ExtendedFab(
+                                    label = stringResource(Res.string.broadcast),
+                                    icon = { Icon(Icons.Default.CellTower, contentDescription = "Broadcast to these relays") },
+                                    enabled = canSend,
                                     onClick = {
-                                        if (!canSend) return@ExtendedFloatingActionButton
-
                                         broadcastGroupSignedEventViewModel.broadcast(
                                             signedEvent = signedEvent,
                                             // Stays on the screen: an empty list is
@@ -250,13 +225,7 @@ fun BroadcastGroupSignedEventScreen(
                                             onNoRelays = { notify(noRelays) }
                                         )
                                     }
-                                ) {
-                                    Icon(
-                                        Icons.Default.CellTower,
-                                        contentDescription = "Broadcast to these relays"
-                                    )
-                                    Text(stringResource(Res.string.broadcast))
-                                }
+                                )
                             }
                         )
                     }
@@ -539,15 +508,7 @@ private fun BroadcastRelayRow(
 
             outcome?.let {
                 Text(
-                    text = when (it) {
-                        RelayOutcome.Sending -> stringResource(Res.string.relay_sending)
-                        RelayOutcome.Accepted -> stringResource(Res.string.relay_accepted)
-                        is RelayOutcome.Rejected ->
-                            stringResource(Res.string.relay_rejected, it.reason)
-                        is RelayOutcome.Failed ->
-                            stringResource(Res.string.relay_could_not_send, it.reason)
-                        RelayOutcome.NoAnswer -> stringResource(Res.string.relay_no_answer)
-                    },
+                    text = it.label(),
                     style = MaterialTheme.typography.bodySmall,
                     color = when (it) {
                         RelayOutcome.Accepted -> MaterialTheme.colorScheme.primary

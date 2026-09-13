@@ -23,7 +23,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -74,6 +73,7 @@ import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.theme.ConformancePreviews
 
 /**
@@ -151,32 +151,25 @@ fun SelectChatRoomTypeScreen(
                     bottomBar = {
                         BottomAppBar(
                             floatingActionButton = {
-                                ExtendedFloatingActionButton(
+                                ExtendedFab(
+                                    label = if (selectChatRoomTypeViewModel.createdChatRoomId.value != null) {
+                                        stringResource(Res.string.open_chat)
+                                    } else {
+                                        stringResource(Res.string.create_chat)
+                                    },
+                                    icon = {
+                                        if (isActionPending) {
+                                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                        } else {
+                                            Icon(Icons.Default.Check, contentDescription = "Create chat")
+                                        }
+                                    },
                                     onClick = {
                                         selectChatRoomTypeViewModel.createChatRoom(
                                             onNavigateToRoute = onNavigateToRoute
                                         )
                                     }
-                                ) {
-                                    if (isActionPending) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    } else {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = "Create chat"
-                                        )
-                                    }
-
-                                    Text(
-                                        text = if (selectChatRoomTypeViewModel.createdChatRoomId.value != null) {
-                                            stringResource(Res.string.open_chat)
-                                        } else {
-                                            stringResource(Res.string.create_chat)
-                                        }
-                                    )
-                                }
+                                )
                             },
                             actions = {
                                 Text(

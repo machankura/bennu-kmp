@@ -17,11 +17,8 @@ import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.BottomAppBarDefaults
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -30,14 +27,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -71,6 +65,7 @@ import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.theme.ConformancePreviews
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
@@ -119,10 +114,6 @@ fun AddDialectScreen(
                 val countryFieldState = rememberTextFieldState()
                 val languageFieldState = rememberTextFieldState()
 
-                // M3 gives a FAB no `enabled`, so borrow the disabled colours every
-                // other button in the app uses rather than inventing a shade here.
-                val buttonColors = ButtonDefaults.buttonColors()
-
                 // imePadding: this screen has a text field, and without it the software
                 // keyboard covers whatever is being typed into.
                 Scaffold(
@@ -140,26 +131,11 @@ fun AddDialectScreen(
                         BottomAppBar(
                             actions = {},
                             floatingActionButton = {
-                                ExtendedFloatingActionButton(
-                                    modifier = if (addDialectUIState.canSign) {
-                                        Modifier
-                                    } else {
-                                        // Looking unavailable is not being unavailable.
-                                        Modifier.semantics { disabled() }
-                                    },
-                                    containerColor = if (addDialectUIState.canSign) {
-                                        FloatingActionButtonDefaults.containerColor
-                                    } else {
-                                        buttonColors.disabledContainerColor
-                                    },
-                                    contentColor = if (addDialectUIState.canSign) {
-                                        contentColorFor(FloatingActionButtonDefaults.containerColor)
-                                    } else {
-                                        buttonColors.disabledContentColor
-                                    },
+                                ExtendedFab(
+                                    label = stringResource(Res.string.propose_dialect),
+                                    icon = { Icon(Icons.Default.Add, contentDescription = "Propose dialect") },
+                                    enabled = addDialectUIState.canSign,
                                     onClick = {
-                                        if (!addDialectUIState.canSign) return@ExtendedFloatingActionButton
-
                                         addDialectViewModel.addDialect(
                                             localChatRoom = addDialectUIState.localChatRoom,
                                             nameField = nameFieldState,
@@ -186,13 +162,7 @@ fun AddDialectScreen(
                                             }
                                         )
                                     }
-                                ) {
-                                    Icon(
-                                        Icons.Default.Add,
-                                        contentDescription = "Propose dialect"
-                                    )
-                                    Text(stringResource(Res.string.propose_dialect))
-                                }
+                                )
                             }
                         )
                     }

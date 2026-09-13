@@ -2,6 +2,7 @@ package to.curare.compose.ui.view.state
 
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.nostr.GroupCuratedEntry
+import to.curare.compose.nostr.GroupRelayList
 
 sealed interface GroupCuratedEntriesUIState {
     data class Loaded(
@@ -16,6 +17,14 @@ sealed interface GroupCuratedEntriesUIState {
          * neither does repeating its signature to a relay.
          */
         val groupCuratedEntries: List<GroupCuratedEntry> = emptyList(),
+        /**
+         * Where the group has said it lives, for "Broadcast all": each entry
+         * goes where its own broadcast screen would send it before the member
+         * changed anything, and that starts from these. See
+         * `BroadcastGroupSignedEventViewModel.defaultRelaysFor`; the list's
+         * own relays come off the entry, which carries its schema.
+         */
+        val relayLists: List<GroupRelayList> = emptyList(),
     ): GroupCuratedEntriesUIState
 
     data class Error(
