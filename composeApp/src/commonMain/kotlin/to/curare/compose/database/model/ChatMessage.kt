@@ -16,6 +16,7 @@ import to.curare.compose.managers.GroupKeyStateManager
 import to.curare.compose.managers.SubgroupManager
 import to.curare.compose.extensions.toHex
 import com.vitorpamplona.quartz.marmot.GroupEventResult
+import com.vitorpamplona.quartz.marmot.foundation.appEvents.MarmotAppEvent
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -1694,6 +1695,15 @@ data class ChatMessage(
                         }
                     )
                 }
+
+                // v2's two non-chat kinds. A kind:1210 that arrives is one member's
+                // assertion about what the group's state became, and this device
+                // derives that for itself from the commit it applied (see
+                // [TYPE_MEMBER_ADDED]); a kind:1009 is an edit the app does not
+                // apply. Neither is a line, and neither is a raw-JSON bubble from
+                // a White Noise member. Every other unknown kind keeps the bubble,
+                // which is the only trace an unrecognised payload leaves.
+                MarmotAppEvent.KIND_SYSTEM, MarmotAppEvent.KIND_EDIT -> null
 
                 else -> unsupported()
             }
