@@ -70,7 +70,7 @@ import to.curare.compose.database.model.intermdiate.LocalParticipant
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.MantraRepository
 import to.curare.compose.repository.NostrRepository
-import to.curare.compose.ui.composable.navigation.routes.ImplementationPendingRoute
+import to.curare.compose.ui.composable.navigation.routes.ProfilePreviewRoute
 import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.composable.navigation.routes.DkgRitualRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
@@ -728,11 +728,19 @@ fun ChatRoomDetailScreen(
                                 key = { localParticipant -> localParticipant.participant.participantPublicKey}
                             ) { localParticipant ->
 
+                                // The preview, not the profile detail: the detail is
+                                // keyed by a kind 0's event id, and a member whose
+                                // profile has not arrived yet -- the "LOADING..." row
+                                // the sync exists for -- has none. The preview is
+                                // keyed by the public key, which is the one thing
+                                // every row here has, and it shows the cached
+                                // profile at once while the relays refresh it.
                                 Card(
                                     onClick = {
                                         onNavigateToRoute.invoke(
-                                            ImplementationPendingRoute(
-                                                "Profile detail"
+                                            ProfilePreviewRoute(
+                                                activeUserPublicKey = activeUserPublicKey,
+                                                profilePublicKey = localParticipant.participant.participantPublicKey
                                             )
                                         )
                                     }
