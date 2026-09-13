@@ -8,8 +8,10 @@ import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageEvent
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageRotationManager
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageUtils
 import com.vitorpamplona.quartz.marmot.mip02Welcome.WelcomeEvent
+import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroupManager
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroupStateStore
+import com.vitorpamplona.quartz.marmot.mls.messages.CommitResult
 import com.vitorpamplona.quartz.marmot.mls.messages.KeyPackageBundle
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
@@ -57,6 +59,28 @@ internal class MarmotStandIn(val keyPair: KeyPair = KeyPair()) {
     /** This client's own KeyPackage bundle, once one has been made. */
     lateinit var bundle: KeyPackageBundle
 
+    /**
+     * A commit this client makes and applies, told to its convergence engine the way
+     * Amethyst tells its own: with the state it was authored against, so a competitor
+     * later authored against the same parent is a fork and not an orphan.
+     */
+    suspend fun commitLocally(routingId: String, commit: suspend () -> CommitResult): CommitResult {
+        val pre = assertNotNull(manager.snapshot(routingId))
+        val result = commit()
+        inbound.recordLocalCommit(routingId, result.framedCommitBytes, pre.groupContext.epoch, pre)
+        lastCommit = result
+        return result
+    }
+
+    /** The newest commit this client made, for the others to be handed. */
+    var lastCommit: CommitResult? = null
+
+    /** [lastCommit] as the kind:445 the others receive. */
+    suspend fun lastCommitEvent(routingId: String): GroupEvent {
+        val commit = assertNotNull(lastCommit)
+        return outbound.buildCommitEvent(routingId, commit.framedCommitBytes, commit.preCommitExporterSecret).signedEvent
+    }
+
     suspend fun makeBundle(): KeyPackageBundle =
         CurrentProfileGroupFactory.createKeyPackage(signer).also { bundle = it }
 
@@ -91,7 +115,7 @@ internal class MarmotStandIn(val keyPair: KeyPair = KeyPair()) {
         )
         val ourKeyPackage = KeyPackageUtils.decodeKeyPackage(Base64.decode(ourEvent.content))
 
-        val commit = manager.addMember(routingId, ourKeyPackage.toTlsBytes())
+        val commit = commitLocally(routingId) { manager.addMember(routingId, ourKeyPackage.toTlsBytes()) }
         val welcomeTemplate = WelcomeEvent.build(
             welcomeBase64 = Base64.encode(assertNotNull(commit.welcomeBytes)),
             keyPackageEventId = ourEvent.id,
