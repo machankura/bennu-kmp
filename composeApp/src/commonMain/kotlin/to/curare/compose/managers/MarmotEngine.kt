@@ -8,6 +8,8 @@ import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageRotationManage
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroupManager
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroupState
+import com.vitorpamplona.quartz.marmot.protocolCore.MarmotPublishGate
+import com.vitorpamplona.quartz.marmot.protocolCore.PublishOutcome
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +60,13 @@ class MarmotEngine(
     val inbound = MarmotInboundProcessor(groupManager, KeyPackageRotationManager())
     val outbound = MarmotOutboundProcessor(groupManager)
 
+    /**
+     * Publish-before-apply for the commits this device makes: a commit is prepared
+     * on a clone, recorded durably, broadcast, and installed only when a relay in its
+     * scope has accepted it. See [RoomPublishObligationStore] and Phase 6.
+     */
+    val gate = MarmotPublishGate(groupManager, RoomPublishObligationStore(database))
+
     private val restoreMutex = Mutex()
     private var restored = false
 
@@ -72,6 +81,9 @@ class MarmotEngine(
             if (restored) return
             groupManager.restoreAll()
             groupManager.activeGroupIds().forEach { inbound.trackGroup(it) }
+            // After the groups: an obligation restored names states of a group the
+            // manager has to hold already.
+            gate.restore()
             restored = true
             logger.d("Restored ${groupManager.activeGroupIds().size} group(s)")
         }
@@ -92,6 +104,26 @@ class MarmotEngine(
         groupManager.adoptGroup(routingId, group)
         inbound.trackGroup(routingId)
         return group
+    }
+
+    /**
+     * A relay accepted the commit behind [obligationId]: the pending state becomes
+     * canonical, and convergence learns of the commit we authored -- without which a
+     * peer's competing commit would look like an orphan rather than a fork we are
+     * half of. Nothing to do for an obligation the gate no longer holds, which is a
+     * second OK for the same event from another relay.
+     */
+    suspend fun confirmPublished(obligationId: HexKey) {
+        ensureRestored()
+        val obligation = gate.allPending().firstOrNull { it.obligationId == obligationId } ?: return
+        gate.resolve(obligationId, PublishOutcome.CONFIRMED)
+        inbound.recordLocalCommit(
+            groupId = obligation.groupId,
+            framedCommitBytes = obligation.outboundBytes,
+            sourceEpoch = obligation.priorState.groupContext.epoch,
+            preState = obligation.priorState,
+        )
+        logger.i("Commit ${obligationId.take(8)}… confirmed; ${obligation.groupId.take(8)}… is at epoch ${obligation.pendingState.groupContext.epoch}")
     }
 
     /**

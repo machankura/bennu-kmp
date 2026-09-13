@@ -21,6 +21,7 @@ import to.curare.compose.nostr.MarmotProfile
 import to.curare.compose.database.model.MarmotRetainedEpochSecret
 import to.curare.compose.database.model.NostrEvent
 import to.curare.compose.database.model.Participant
+import to.curare.compose.exceptions.MarmotCommitPendingException
 import to.curare.compose.exceptions.MarmotKeyPackageProfileException
 import to.curare.compose.exceptions.MarmotMissingChatGroupException
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
@@ -587,14 +588,32 @@ abstract class MarmotOutboundDao(
             content = "Invited ${memberName(peerPublicKey)} to the group",
         )
 
+        var obligationId: HexKey? = null
         val commitResult = if (mlsGroup.currentGroupState().isCurrentProfile) {
-            // Staged on a clone and installed at once by the manager, which retains
-            // the epoch it is leaving and persists the state itself; the caller
-            // must not write it back. Installing here rather than on a relay's OK
-            // is what docs/marmot-v2.md Phase 6 changes.
-            val manager = database.marmotEngine.groupManager
-            val staged = manager.stageAddMember(routingId, peerKeyPackage.tlsEncodedMarmotKeyPackage)
-            manager.installState(routingId, staged.pendingState)
+            // Staged on a clone by the manager, which persists nothing yet. The
+            // founding Add -- a group that is only its creator -- is installed at
+            // once, which is the one exception publish-before-apply allows: there
+            // is no peer a failure to publish could fork. Every later commit is
+            // recorded as an obligation, durable before anything is broadcast, and
+            // installed only when a relay accepts it: MarmotEngine.confirmPublished,
+            // from the relay's OK. See docs/marmot-v2.md, Phase 6.
+            val engine = database.marmotEngine
+            if (!isOneMemberInitialGroupCreation && !engine.gate.canPrepareLocalCommit(routingId)) {
+                throw MarmotCommitPendingException(
+                    "An earlier change to this room is still waiting for a relay to accept it; try again in a moment"
+                )
+            }
+            val staged = engine.groupManager.stageAddMember(routingId, peerKeyPackage.tlsEncodedMarmotKeyPackage)
+            if (isOneMemberInitialGroupCreation) {
+                engine.groupManager.installState(routingId, staged.pendingState)
+            } else {
+                obligationId = engine.gate.prepare(
+                    groupId = routingId,
+                    staged = staged,
+                    outboundBytes = staged.result.framedCommitBytes,
+                    recipientScope = relays,
+                ).obligationId
+            }
             staged.result
         } else {
             val retainedBefore = mlsGroup.retainedSecrets()
@@ -689,7 +708,8 @@ abstract class MarmotOutboundDao(
                     userPublicKey = userPublicKey,
                     peerKeyPackageEventId = peerKeyPackage.id,
                     isOneMemberInitialGroupCreation = isOneMemberInitialGroupCreation,
-                    createdAt = Instant.fromEpochSeconds(commitEvent.createdAt)
+                    createdAt = Instant.fromEpochSeconds(commitEvent.createdAt),
+                    obligationId = obligationId,
                 )
             )
 

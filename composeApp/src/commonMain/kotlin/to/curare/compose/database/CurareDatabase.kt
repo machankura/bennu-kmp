@@ -42,6 +42,7 @@ import to.curare.compose.database.dao.MarmotGroupEventDao
 import to.curare.compose.database.dao.MarmotInnerEventDao
 import to.curare.compose.database.dao.MarmotKeyPackageBundleDao
 import to.curare.compose.database.dao.MarmotRoutingDao
+import to.curare.compose.database.dao.MarmotPublishObligationDao
 import to.curare.compose.database.dao.MarmotKeyPackageDao
 import to.curare.compose.database.dao.MarmotRetainedEpochSecretDao
 import to.curare.compose.database.dao.MentionDao
@@ -95,6 +96,8 @@ import to.curare.compose.database.model.MarmotInnerEvent
 import to.curare.compose.database.model.MarmotKeyPackage
 import to.curare.compose.database.model.MarmotKeyPackageBundle
 import to.curare.compose.database.model.MarmotRouting
+import to.curare.compose.database.model.MarmotPublishObligation
+import to.curare.compose.database.model.MarmotOutboundGate
 import to.curare.compose.managers.MarmotEngine
 import to.curare.compose.database.model.MarmotRetainedEpochSecret
 import to.curare.compose.database.model.Mention
@@ -162,6 +165,8 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         MarmotKeyPackage::class,
         MarmotKeyPackageBundle::class,
         MarmotRouting::class,
+        MarmotPublishObligation::class,
+        MarmotOutboundGate::class,
         MarmotRetainedEpochSecret::class,
         Mention::class,
         NegentropySynchronizeRequest::class,
@@ -181,7 +186,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 22,
+    version = 23,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -341,6 +346,12 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // through this table. No rows are backfilled: a room with none is addressed
         // by its own id, which is what every room before the table was.
         AutoMigration(from = 21, to = 22),
+        // v23 adds MarmotPublishObligation and MarmotOutboundGate: the commits this
+        // device prepared and has not yet heard a relay accept, and the gates a room
+        // is under (docs/marmot-v2.md, Phase 6). Both have to outlive the process --
+        // an obligation forgotten at a crash is a replacement commit at the next
+        // start, which forks the group against whoever took the first one.
+        AutoMigration(from = 22, to = 23),
     ]
 )
 @ColumnTypeConverters(CurareConverters::class)
@@ -418,6 +429,7 @@ abstract class CurareDatabase: RoomDatabase() {
 
     abstract fun marmotKeyPackageBundleDao(): MarmotKeyPackageBundleDao
     abstract fun marmotRoutingDao(): MarmotRoutingDao
+    abstract fun marmotPublishObligationDao(): MarmotPublishObligationDao
 
     abstract fun marmotKeyPackageDao(): MarmotKeyPackageDao
 

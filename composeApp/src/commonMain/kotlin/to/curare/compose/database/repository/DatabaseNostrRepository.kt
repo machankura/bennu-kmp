@@ -506,6 +506,15 @@ class DatabaseNostrRepository(
                 nostrEventId = broadcastNostrEventRequest.nostrEventId
             )?.let { marmotCommitResult ->
                 logger.d("marmotCommitResult: $marmotCommitResult")
+
+                // Publish before apply: a relay accepted the commit, so the state it
+                // makes canonical is installed now -- and only now, and before the
+                // Welcome below, which is the MIP-02 ordering enforced by sequence
+                // rather than by hope. See docs/marmot-v2.md, Phase 6.
+                marmotCommitResult.obligationId?.let { obligationId ->
+                    database.marmotEngine.confirmPublished(obligationId)
+                }
+
                 if (marmotCommitResult.isOneMemberInitialGroupCreation.not()) {
                     logger.d("Deliver Welcome")
                     database.chatRoomDao().findChatRoomById(marmotCommitResult.chatRoomId)?.let { localChatRoom ->

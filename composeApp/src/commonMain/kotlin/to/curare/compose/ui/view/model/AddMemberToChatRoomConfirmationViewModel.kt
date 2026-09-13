@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import to.curare.compose.database.model.MarmotKeyPackage
+import to.curare.compose.exceptions.MarmotCommitPendingException
 import to.curare.compose.exceptions.MarmotKeyPackageProfileException
 import to.curare.compose.nostr.MarmotProfile
 import to.curare.compose.database.model.NegentropySynchronizeRequest
@@ -147,10 +148,13 @@ class AddMemberToChatRoomConfirmationViewModel(
                 logger.e("Failed to invite $peerPublicKey to ${localChatRoom.chatRoom.id}", e)
                 isActionPending.value = false
                 // A key package on the wrong profile is the one failure the member can
-                // fix, so it is shown as itself rather than as "try again".
+                // fix, and a commit still waiting for a relay is the one that fixes
+                // itself, so both are shown as themselves rather than as "try again".
                 addMemberToChatRoomConfirmationUIState = AddMemberToChatRoomConfirmationUIState.Error(
-                    (e as? MarmotKeyPackageProfileException)?.message
-                        ?: "Couldn't send the invite. Please try again."
+                    when (e) {
+                        is MarmotKeyPackageProfileException, is MarmotCommitPendingException -> e.message
+                        else -> null
+                    } ?: "Couldn't send the invite. Please try again."
                 )
                 return@launch
             }
