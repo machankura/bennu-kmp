@@ -111,7 +111,15 @@ interface NostrRepository {
         activeKeyPair: KeyPair
     )
 
-    suspend fun broadcastProcessed(broadcastNostrEventRequest: BroadcastNostrEventRequest, status: String = "processing")
+    /**
+     * Record how a publish attempt ended. [reason] is the relay's own words when it
+     * refused, for the line that tells the user a change was rejected.
+     */
+    suspend fun broadcastProcessed(
+        broadcastNostrEventRequest: BroadcastNostrEventRequest,
+        status: String = "processing",
+        reason: String? = null,
+    )
 
     /**
      * Move broadcasts a previous process left in "processing"/"failed" back to "pending" so an
@@ -325,7 +333,8 @@ interface NostrRepository {
 
             override suspend fun broadcastProcessed(
                 broadcastNostrEventRequest: BroadcastNostrEventRequest,
-                status: String
+                status: String,
+                reason: String?,
             ) {
                 TODO("Not yet implemented")
             }

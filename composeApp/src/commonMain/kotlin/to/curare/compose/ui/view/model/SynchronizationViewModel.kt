@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import to.curare.compose.database.model.BroadcastStatus
 import to.curare.compose.database.model.BroadcastNostrEventRequest
 import to.curare.compose.database.model.SynchronizeNostrEventRequest
 import to.curare.compose.database.model.types.SynchronizationFilter
@@ -830,19 +831,21 @@ class SynchronizationViewModel(
                                     "failed"
                                 )
                             }.collect { nostrPublishResult ->
+                            // A relay's answer decides the status, not merely whether
+                            // there was an error: a refusal it will keep giving is
+                            // "rejected" and is not retried, a `duplicate:` is the
+                            // event being there already. See BroadcastStatus.
+                            val status = BroadcastStatus.of(nostrPublishResult.error)
                             if (nostrPublishResult.error != null) {
-                                logger.e("Error publishing note: $nostrPublishResult")
-                                nostrRepository.broadcastProcessed(
-                                    localBroadcastNostrEventRequest.broadcastNostrEventRequest,
-                                    "failed"
-                                )
+                                logger.e("Error publishing note ($status): $nostrPublishResult")
                             } else {
                                 logger.d("Nostr Publish Result: $nostrPublishResult")
-                                nostrRepository.broadcastProcessed(
-                                    localBroadcastNostrEventRequest.broadcastNostrEventRequest,
-                                    "published"
-                                )
                             }
+                            nostrRepository.broadcastProcessed(
+                                localBroadcastNostrEventRequest.broadcastNostrEventRequest,
+                                status,
+                                reason = nostrPublishResult.error?.message,
+                            )
                         }
                         }
                       } catch (e: CancellationException) {

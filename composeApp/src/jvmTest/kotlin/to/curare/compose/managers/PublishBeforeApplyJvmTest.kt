@@ -11,6 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import to.curare.compose.database.CurareDatabase
 import to.curare.compose.database.builder.getRoomDatabase
+import to.curare.compose.database.model.BroadcastNostrEventRequest
+import to.curare.compose.database.model.BroadcastStatus
+import to.curare.compose.database.model.ChatMessage
 import to.curare.compose.database.model.MarmotKeyPackage
 import to.curare.compose.database.model.NostrEvent
 import to.curare.compose.database.model.Profile
@@ -149,5 +152,42 @@ class PublishBeforeApplyJvmTest {
         assertEquals(2L, epochOnDisk())
         assertNull(db.marmotPublishObligationDao().getAll().firstOrNull())
         assertTrue(rebuilt.gate.canPrepareLocalCommit(routingId))
+    }
+
+    @Test
+    fun `a commit every relay refuses is discarded, and the room can invite again`() = runBlocking {
+        val routingId = establishedRoom()
+        val second = KeyPair()
+        chatRepository.inviteMember(db.chatRoomDao().findChatRoomById(roomId)!!, second.pubKey.toHexKey(), peerPackage(second))
+        val (commitEvent, _) = commitEventFor(second)
+        // The default scope is one relay; a second row widens it to two, as a room
+        // whose relay list names two would have.
+        db.broadcastNostrEventRequestDao().insert(listOf(BroadcastNostrEventRequest(nostrEventId = commitEvent.id, relayURL = "wss://second.example")))
+        val requests = db.broadcastNostrEventRequestDao().getBroadcastNostrEventRequestsByNostrEventId(commitEvent.id)
+        assertEquals(2, requests.size)
+
+        // One relay's refusal decides nothing: the other may still take it.
+        nostrRepository.broadcastProcessed(requests[0], BroadcastStatus.REJECTED, reason = "blocked: no")
+        assertEquals(1, db.marmotPublishObligationDao().getAll().size)
+        assertTrue(!db.marmotEngine.gate.canPrepareLocalCommit(routingId))
+
+        // Nor does a timeout on the other: that is retried with the same bytes.
+        nostrRepository.broadcastProcessed(requests[1], BroadcastStatus.FAILED)
+        assertEquals(1, db.marmotPublishObligationDao().getAll().size)
+
+        // The other relay refusing too is the end of it: the pending state is
+        // dropped, the room is where it was, and it says why.
+        nostrRepository.broadcastProcessed(requests[1], BroadcastStatus.REJECTED, reason = "blocked: no")
+        assertEquals(0, db.marmotPublishObligationDao().getAll().size)
+        assertEquals(1L, epochOnDisk())
+        assertTrue(db.marmotEngine.gate.canPrepareLocalCommit(routingId))
+        assertTrue(second.pubKey.toHexKey() !in db.marmotEngine.groupManager.getGroup(routingId)!!.currentMemberIdentities())
+        val line = db.chatMessageDao().getChatMessagesByChatRoomId(roomId).map { it.chatMessage }
+            .last { it.messageType == ChatMessage.TYPE_MEMBER_INVITE_FAILED }
+        assertTrue("blocked: no" in line.content, line.content)
+
+        // And the room is free: the same peer can be invited again.
+        chatRepository.inviteMember(db.chatRoomDao().findChatRoomById(roomId)!!, second.pubKey.toHexKey(), peerPackage(second))
+        assertEquals(1, db.marmotPublishObligationDao().getAll().size)
     }
 }

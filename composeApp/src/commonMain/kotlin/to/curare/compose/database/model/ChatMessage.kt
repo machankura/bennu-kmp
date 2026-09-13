@@ -542,6 +542,13 @@ data class ChatMessage(
         const val TYPE_GROUP_DISBANDED = "groupDisbanded"
 
         /**
+         * A change this device asked for that every relay refused, so the line
+         * written when it was asked for -- a removal, a disband -- did not come
+         * true. The invite's own version is [TYPE_MEMBER_INVITE_FAILED].
+         */
+        const val TYPE_CHANGE_REJECTED = "changeRejected"
+
+        /**
          * Every membership line, for the one check the transcript dispatches on.
          *
          * A type missing from here renders as a chat bubble -- silently, and looking
@@ -554,6 +561,7 @@ data class ChatMessage(
             TYPE_MEMBER_ADDED,
             TYPE_MEMBER_LEFT,
             TYPE_GROUP_DISBANDED,
+            TYPE_CHANGE_REJECTED,
         )
 
         const val TYPE_UNDECRYPTABLE_OUTER_LAYER = "undecryptableOuterLayer"

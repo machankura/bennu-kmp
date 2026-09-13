@@ -522,6 +522,25 @@ abstract class MarmotOutboundDao(
         )
     }
 
+    /**
+     * A change to the room -- a removal, a disband step -- was refused by every
+     * relay it was sent to, and so never happened; the line written when it was
+     * asked for would otherwise stand uncorrected.
+     */
+    suspend fun announceChangeRejected(
+        chatRoomId: HexKey,
+        userPublicKey: HexKey,
+        reason: String?,
+    ) {
+        val why = reason?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""
+        announceMembership(
+            chatRoomId = chatRoomId,
+            userPublicKey = userPublicKey,
+            messageType = ChatMessage.TYPE_CHANGE_REJECTED,
+            content = "The relays refused the change, so it was not made$why",
+        )
+    }
+
     private suspend fun inviteMember(
         chatRoomId: HexKey,
         mlsGroup: MlsGroup,

@@ -137,6 +137,23 @@ class MarmotEngine(
     }
 
     /**
+     * Every relay in scope refused [obligationId]: discard its pending state.
+     *
+     * The live group never advanced, so there is nothing to undo; the gate drops
+     * the clone, the lifecycle returns to `STABLE`, and the next commit may be
+     * prepared. Nothing is told to convergence -- a commit no relay carries is
+     * not a branch any member will ever see. Returns whether there was an
+     * obligation to discard.
+     */
+    suspend fun discardRejected(obligationId: HexKey): Boolean {
+        ensureRestored()
+        val obligation = gate.allPending().firstOrNull { it.obligationId == obligationId } ?: return false
+        gate.resolve(obligationId, PublishOutcome.FAILED)
+        logger.w("Commit ${obligationId.take(8)}… discarded; ${obligation.groupId.take(8)}… stays at epoch ${obligation.priorState.groupContext.epoch}")
+        return true
+    }
+
+    /**
      * Wait for [routingId]'s convergence pass, if one is open, to settle.
      *
      * Outbound work against a state that may lose is work no peer can read once
