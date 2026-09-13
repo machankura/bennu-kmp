@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryScrollableTabRow
@@ -81,6 +80,7 @@ import curare.composeapp.generated.resources.messages_need_the_secret_key_this_p
 import curare.composeapp.generated.resources.sign_in_with_the_nsec
 import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.theme.ConformancePreviews
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -455,8 +455,8 @@ private fun ReadOnlyInbox(onSignInWithTheNsec: () -> Unit) {
  */
 @Composable
 private fun NewChatButton(onClick: () -> Unit) {
-    ExtendedFloatingActionButton(
-        onClick = onClick,
+    ExtendedFab(
+        label = stringResource(Res.string.new_chat),
         icon = {
             Icon(
                 Icons.Default.Add,
@@ -464,7 +464,7 @@ private fun NewChatButton(onClick: () -> Unit) {
                 contentDescription = Decorative,
             )
         },
-        text = { Text(stringResource(Res.string.new_chat)) },
+        onClick = onClick,
     )
 }
 

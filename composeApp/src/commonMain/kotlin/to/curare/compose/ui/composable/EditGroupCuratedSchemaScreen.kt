@@ -48,9 +48,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -67,7 +65,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -106,6 +103,7 @@ import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.composable.widgets.dialogs.ModalBottomSheet
 import to.curare.compose.ui.composable.widgets.rememberNotifier
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -335,10 +333,6 @@ fun EditGroupCuratedSchemaScreen(
                         .collect { editGroupCuratedSchemaViewModel.clearAddSuggesterFailure() }
                 }
 
-                // M3 gives a FAB no `enabled`, so borrow the disabled colours every
-                // other button in the app uses rather than inventing a shade here.
-                val buttonColors = ButtonDefaults.buttonColors()
-
                 Scaffold(
                     snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
                     modifier = Modifier.imePadding(),
@@ -354,26 +348,11 @@ fun EditGroupCuratedSchemaScreen(
                         BottomAppBar(
                             actions = {},
                             floatingActionButton = {
-                                ExtendedFloatingActionButton(
-                                    modifier = if (canSign) {
-                                        Modifier
-                                    } else {
-                                        // Looking unavailable is not being unavailable.
-                                        Modifier.semantics { disabled() }
-                                    },
-                                    containerColor = if (canSign) {
-                                        FloatingActionButtonDefaults.containerColor
-                                    } else {
-                                        buttonColors.disabledContainerColor
-                                    },
-                                    contentColor = if (canSign) {
-                                        contentColorFor(FloatingActionButtonDefaults.containerColor)
-                                    } else {
-                                        buttonColors.disabledContentColor
-                                    },
+                                ExtendedFab(
+                                    label = stringResource(Res.string.propose_schema),
+                                    icon = { Icon(Icons.Default.Draw, contentDescription = "Propose schema") },
+                                    enabled = canSign,
                                     onClick = {
-                                        if (!canSign) return@ExtendedFloatingActionButton
-
                                         editGroupCuratedSchemaViewModel.proposeSchema(
                                             localChatRoom =
                                                 editGroupCuratedSchemaUIState.localChatRoom,
@@ -412,10 +391,7 @@ fun EditGroupCuratedSchemaScreen(
                                             onFailure = { notify(couldNotPropose) }
                                         )
                                     }
-                                ) {
-                                    Icon(Icons.Default.Draw, contentDescription = "Propose schema")
-                                    Text(stringResource(Res.string.propose_schema))
-                                }
+                                )
                             }
                         )
                     }

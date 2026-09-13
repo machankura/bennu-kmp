@@ -12,7 +12,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -52,6 +51,7 @@ import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.theme.ConformancePreviews
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
@@ -109,7 +109,12 @@ fun AddMemberToChatRoomConfirmationScreen(
                     bottomBar = {
                         BottomAppBar(
                             floatingActionButton = {
-                                ExtendedFloatingActionButton(
+                                ExtendedFab(
+                                    label = stringResource(
+                                        Res.string.invite_2,
+                                        addMemberToChatRoomConfirmationUIState.profile.humanReadableNameOrPubkey()
+                                    ),
+                                    icon = { Icon(Icons.Default.Add, contentDescription = "Invite new member") },
                                     onClick = {
                                         addMemberToChatRoomConfirmationViewModel.inviteToChatRoom(
                                             localChatRoom = addMemberToChatRoomConfirmationUIState.localChatRoom,
@@ -118,14 +123,7 @@ fun AddMemberToChatRoomConfirmationScreen(
                                             onInviteSent = onInviteSent
                                         )
                                     }
-                                ) {
-                                    Icon(
-                                        Icons.Default.Add,
-                                        contentDescription = "Invite new member"
-                                    )
-
-                                    Text(stringResource(Res.string.invite_2, addMemberToChatRoomConfirmationUIState.profile.humanReadableNameOrPubkey()))
-                                }
+                                )
                             },
                             actions = {
 

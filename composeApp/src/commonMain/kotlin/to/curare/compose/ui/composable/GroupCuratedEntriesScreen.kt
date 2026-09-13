@@ -13,11 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -26,13 +23,10 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -82,6 +76,7 @@ import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.buttons.BroadcastButton
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.composable.widgets.label
 import to.curare.compose.ui.theme.ConformancePreviews
 import to.curare.compose.ui.theme.CurareTheme
@@ -165,39 +160,17 @@ fun GroupCuratedEntriesScreen(
             if (loaded != null && loaded.groupCuratedEntries.isNotEmpty()) {
                 val canSend = !groupCuratedEntriesViewModel.isActionPending.value
 
-                // M3 gives a FAB no `enabled`, so borrow the disabled colours every
-                // other button in the app uses rather than inventing a shade here.
-                val buttonColors = ButtonDefaults.buttonColors()
-
                 BottomAppBar(
                     actions = {},
                     floatingActionButton = {
-                        ExtendedFloatingActionButton(
-                            modifier = if (canSend) {
-                                Modifier
-                            } else {
-                                // Looking unavailable is not being unavailable.
-                                Modifier.semantics { disabled() }
-                            },
-                            containerColor = if (canSend) {
-                                FloatingActionButtonDefaults.containerColor
-                            } else {
-                                buttonColors.disabledContainerColor
-                            },
-                            contentColor = if (canSend) {
-                                contentColorFor(FloatingActionButtonDefaults.containerColor)
-                            } else {
-                                buttonColors.disabledContentColor
-                            },
+                        ExtendedFab(
+                            label = stringResource(Res.string.broadcast_all),
+                            icon = { Icon(Icons.Default.CellTower, contentDescription = Decorative) },
+                            enabled = canSend,
                             onClick = {
-                                if (!canSend) return@ExtendedFloatingActionButton
-
                                 groupCuratedEntriesViewModel.broadcastAll()
                             }
-                        ) {
-                            Icon(Icons.Default.CellTower, contentDescription = Decorative)
-                            Text(stringResource(Res.string.broadcast_all))
-                        }
+                        )
                     }
                 )
             }
