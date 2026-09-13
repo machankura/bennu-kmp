@@ -982,6 +982,15 @@ data class ChatMessage(
                         content = "Undecryptable Message", // TODO: Figure out what to do here...
                     )
                 }
+                // Neither is a delivery. quartz 1.15.2's inbound processor produces both
+                // from its convergence engine: the first is a payload that decrypted only
+                // on a losing fork, which the library is explicit must not be rendered,
+                // and the second is input a disbanded or unrecoverable group refuses
+                // outright. [MarmotInboundManager] drives MlsGroup itself and never
+                // constructs either, so today these are unreachable; if it adopts the
+                // engine they get no chat line, the same as a duplicate.
+                is GroupEventResult.AppMessageOnCandidateBranch -> null
+                is GroupEventResult.RefusedByLifecycle -> null
             }
         }
 
