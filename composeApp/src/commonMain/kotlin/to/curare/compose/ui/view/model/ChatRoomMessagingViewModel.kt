@@ -67,44 +67,23 @@ class ChatRoomMessagingViewModel(
         // Get ChatRoomById
         viewModelScope.launch(Dispatchers.IO) {
 
-            // Check if we have a chat with activeUserPublicKey and chatRoomId (pubkey) as participants
-            val participants = chatRepository.getAllParticipantsWithPubKey(chatRoomId)
-
-            participants.forEach { participant ->
-                chatRepository.getChatRoomByIdentifier(participant.chatRoomId)?.let { localChatRoom ->
-                    // TODO: Check that chatRoom is not a group chat...
-                    if (localChatRoom.localParticipants.size == 1) {
-                        // This is a chat with self...
-                        // TODO: navigateToTheChat...
-                        viewModelScope.launch(Dispatchers.Main) {
-                             onNavigateToChat.invoke(
-                                ChatRoomMessagingRoute(
-                                    activeUserPublicKey = activeUserPublicKey,
-                                    chatRoomId = localChatRoom.chatRoom.id,
-                                    relayHint = relayHint
-                                )
-                            )
-                        }
-                        return@launch
-
-                    } else if (localChatRoom.localParticipants.size == 2) {
-                        val activeUserParticipant = localChatRoom.localParticipants.find { localParticipant -> localParticipant.participant.participantPublicKey == activeUserPublicKey }
-
-                        if (activeUserParticipant != null) {
-                            // We have found the chat we are looking for...
-                            viewModelScope.launch(Dispatchers.Main) {
-                                onNavigateToChat.invoke(
-                                    ChatRoomMessagingRoute(
-                                        activeUserPublicKey = activeUserPublicKey,
-                                        chatRoomId = localChatRoom.chatRoom.id,
-                                        relayHint = relayHint
-                                    )
-                                )
-                            }
-                            return@launch
-                        }
-                    }
+            // A conversation with this person that already exists is the one to open. The
+            // rule -- the two of us and nobody else, or yourself alone -- is the
+            // repository's now, and the profile preview reads the same one.
+            chatRepository.findDirectMessageRoom(
+                userPublicKey = activeUserPublicKey,
+                peerPublicKey = chatRoomId
+            )?.let { localChatRoom ->
+                viewModelScope.launch(Dispatchers.Main) {
+                    onNavigateToChat.invoke(
+                        ChatRoomMessagingRoute(
+                            activeUserPublicKey = activeUserPublicKey,
+                            chatRoomId = localChatRoom.chatRoom.id,
+                            relayHint = relayHint
+                        )
+                    )
                 }
+                return@launch
             }
 
             // Observe BOTH halves of what we need. Watching only the profile meant a key

@@ -7,14 +7,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import to.curare.compose.database.model.MarmotKeyPackage
 import to.curare.compose.database.model.NegentropySynchronizeRequest
 import to.curare.compose.database.model.Profile
 import to.curare.compose.database.model.SynchronizeNostrEventRequest
+import to.curare.compose.database.model.intermdiate.LocalChatRoom
+import to.curare.compose.repository.ChatRepository
 import to.curare.compose.extensions.hexToNpubHrp
 import to.curare.compose.repository.NostrRepository
 import to.curare.compose.ui.composable.navigation.routes.ChatRoomMessagingRoute
@@ -23,6 +28,7 @@ import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.composable.widgets.ProvideSnackbarHost
 import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.view.state.ProfilePreviewUIState
+import to.curare.compose.ui.view.state.ProfilePreviewUIState.Readiness
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -47,7 +53,7 @@ class ProfilePreviewScreenJvmTest {
 
     @Test
     fun `a found profile is drawn whole, with the npub that was pasted`() = render(
-        ProfilePreviewUIState.Loaded(profile = alice)
+        ProfilePreviewUIState.Loaded(profile = alice, readiness = Readiness.CanStartChat)
     ) {
         onNodeWithText("Alice").assertIsDisplayed()
         onNodeWithText("alice@example.com").assertIsDisplayed()
@@ -59,7 +65,7 @@ class ProfilePreviewScreenJvmTest {
     fun `starting a chat hands over the route the dialog used to push, and creates nothing here`() {
         var opened: Route? = null
 
-        render(ProfilePreviewUIState.Loaded(profile = alice), onStartChat = { opened = it }) {
+        render(ProfilePreviewUIState.Loaded(profile = alice, readiness = Readiness.CanStartChat), onStartChat = { opened = it }) {
             onNodeWithText("Start new chat", useUnmergedTree = true).assertIsDisplayed().performClick()
         }
 
@@ -76,7 +82,7 @@ class ProfilePreviewScreenJvmTest {
     /** A message is a gift wrap sealed with the sender's key; a read-only identity is shown the person and nothing to do. */
     @Test
     fun `a read-only identity sees the person and no button`() = render(
-        ProfilePreviewUIState.Loaded(profile = alice),
+        ProfilePreviewUIState.Loaded(profile = alice, readiness = Readiness.CanStartChat),
         canSign = false,
     ) {
         onNodeWithText("Alice").assertIsDisplayed()
@@ -84,10 +90,64 @@ class ProfilePreviewScreenJvmTest {
     }
 
     /** Arriving loading is the one case that runs `initiate`, so this render is given relays that never answer. */
+    // --- whether the button can be pressed ---
+
+    @Test
+    fun `a room that exists is opened, not started again`() {
+        var opened: Route? = null
+
+        render(
+            ProfilePreviewUIState.Loaded(
+                profile = alice,
+                readiness = Readiness.ExistingChat(chatRoomId = "room", relayHint = "wss://hint.example"),
+            ),
+            onStartChat = { opened = it },
+        ) {
+            onNodeWithText("You already have a chat with Alice.").assertIsDisplayed()
+            onNodeWithText("Start new chat", useUnmergedTree = true).assertDoesNotExist()
+            onNodeWithText("Open chat", useUnmergedTree = true).assertIsDisplayed().performClick()
+        }
+
+        assertEquals(
+            ChatRoomMessagingRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = "room", relayHint = "wss://hint.example"),
+            opened,
+        )
+    }
+
+    @Test
+    fun `while the key package is still owed the button waits, and says so`() = render(
+        ProfilePreviewUIState.Loaded(profile = alice, readiness = Readiness.Checking)
+    ) {
+        onNodeWithText("Start new chat", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithText("Start new chat").assertIsNotEnabled()
+        onNodeWithText("Checking whether Alice can receive messages here.").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a person not yet on Curare cannot be written to, and the reason is under the button`() = render(
+        ProfilePreviewUIState.Loaded(profile = alice, readiness = Readiness.NotYetOnCurare)
+    ) {
+        onNodeWithText("Start new chat").assertIsNotEnabled()
+        onNodeWithText("Alice hasn't set up messaging on Curare yet. Try again later, or ask them to open Curare.").assertIsDisplayed()
+        onNodeWithText("Try again").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a person whose key package is here can be written to at once`() = render(
+        ProfilePreviewUIState.Loaded(profile = alice, readiness = Readiness.CanStartChat)
+    ) {
+        onNodeWithText("Start new chat").assertIsEnabled()
+        onNodeWithText("Checking whether", substring = true).assertDoesNotExist()
+        onNodeWithText("hasn't set up messaging", substring = true).assertDoesNotExist()
+    }
+
+    // --- the other states ---
+
     @Test
     fun `while the relays are asked the npub is already on screen`() = render(
         ProfilePreviewUIState.Loading,
         nostrRepository = NothingArrives,
+        chatRepository = NoRooms,
     ) {
         onNodeWithText(npub).assertIsDisplayed()
         onNodeWithText("Looking for this profile on the relays.").assertIsDisplayed()
@@ -118,6 +178,12 @@ class ProfilePreviewScreenJvmTest {
         override suspend fun queueNegentropySynchronizeRequest(negentropySynchronizeRequests: List<NegentropySynchronizeRequest>) = Unit
     }
 
+    /** No room with the person, and no key package for them. */
+    private val NoRooms = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
+        override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: String): Flow<MarmotKeyPackage?> = flowOf(null)
+        override suspend fun findDirectMessageRoom(userPublicKey: String, peerPublicKey: String): LocalChatRoom? = null
+    }
+
     /**
      * The screen at a phone's width. The state is passed in, so the NO_OP repository is
      * never asked for anything: `initiate` only runs for a screen that arrives loading.
@@ -126,6 +192,7 @@ class ProfilePreviewScreenJvmTest {
         uiState: ProfilePreviewUIState,
         canSign: Boolean = true,
         nostrRepository: NostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
+        chatRepository: ChatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
         onStartChat: (Route) -> Unit = {},
         assertions: ComposeUiTest.() -> Unit,
     ) = runDesktopComposeUiTest(width = 400, height = 1200) {
@@ -139,6 +206,7 @@ class ProfilePreviewScreenJvmTest {
                                 profilePublicKey = profilePublicKey,
                                 initialProfilePreviewUIState = uiState,
                                 nostrRepository = nostrRepository,
+                                chatRepository = chatRepository,
                                 onStartChat = onStartChat,
                                 onNavigateBack = {},
                             )

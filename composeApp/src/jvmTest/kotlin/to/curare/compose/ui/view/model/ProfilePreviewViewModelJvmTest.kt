@@ -12,12 +12,19 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import to.curare.compose.database.GENESIS_AT
+import to.curare.compose.database.model.ChatRoom
+import to.curare.compose.database.model.MarmotKeyPackage
 import to.curare.compose.database.model.NegentropySynchronizeRequest
+import to.curare.compose.database.model.Participant
 import to.curare.compose.database.model.Profile
 import to.curare.compose.database.model.SynchronizeNostrEventRequest
+import to.curare.compose.database.model.intermdiate.LocalChatRoom
+import to.curare.compose.database.model.intermdiate.LocalParticipant
 import to.curare.compose.nostr.DirectMessagePeerSync
+import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.NostrRepository
 import to.curare.compose.ui.view.state.ProfilePreviewUIState
+import to.curare.compose.ui.view.state.ProfilePreviewUIState.Readiness
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -27,13 +34,14 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 
 /**
- * What the preview shows while the relays are asked, and when it stops waiting.
+ * What the preview shows while the relays are asked, when it stops waiting, and
+ * whether the button it ends on can be pressed.
  *
- * The repository fake records every ask and holds the profile row in a
- * `MutableStateFlow`, so the test can play the row arriving before the ask, after
- * it, after the timeout, or never. The view model launches on `Dispatchers.IO`, as
- * the others do, so the timeout is real time cut to a few hundred milliseconds
- * through its constructor, and the assertions poll.
+ * The repository fakes record every ask and hold the profile row and the key package
+ * in `MutableStateFlow`s, so the test can play them arriving in either order, after
+ * the timeout, or never. The view model launches on `Dispatchers.IO`, as the others
+ * do, so the timeout is real time cut to a few hundred milliseconds through its
+ * constructor, and the assertions poll.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProfilePreviewViewModelJvmTest {
@@ -61,7 +69,18 @@ class ProfilePreviewViewModelJvmTest {
         }
     }
 
-    private val bothAsks = listOf("req:${DirectMessagePeerSync.PROFILE_PURPOSE}", "neg:${DirectMessagePeerSync.PURPOSE}")
+    /** The key package the device holds for the peer, and the room it already has with them. */
+    private class Rooms(
+        val keyPackage: MutableStateFlow<MarmotKeyPackage?> = MutableStateFlow(null),
+        private val existingRoom: LocalChatRoom? = null,
+    ) : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
+        override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: HexKey): Flow<MarmotKeyPackage?> = keyPackage
+        override suspend fun findDirectMessageRoom(userPublicKey: HexKey, peerPublicKey: HexKey): LocalChatRoom? = existingRoom
+    }
+
+    private val profileAsk = "req:${DirectMessagePeerSync.PROFILE_PURPOSE}"
+    private val chatAsk = "neg:${DirectMessagePeerSync.PURPOSE}"
+    private val bothAsks = listOf(profileAsk, chatAsk)
 
     @BeforeTest
     fun setUp() {
@@ -73,13 +92,16 @@ class ProfilePreviewViewModelJvmTest {
         Dispatchers.resetMain()
     }
 
-    private fun viewModel(recorder: Recorder) = ProfilePreviewViewModel(
+    private fun viewModel(recorder: Recorder, rooms: Rooms = Rooms()) = ProfilePreviewViewModel(
         activeUserPublicKey = me,
         profilePublicKey = alice,
         initialProfilePreviewUIState = ProfilePreviewUIState.Loading,
         nostrRepository = recorder,
+        chatRepository = rooms,
         relayLookupTimeout = 300.milliseconds,
     )
+
+    // --- finding the person ---------------------------------------------------------------
 
     @Test
     fun `initiating asks both sets of relays once, and waits`() = runBlocking {
@@ -119,27 +141,9 @@ class ProfilePreviewViewModelJvmTest {
         viewModel.initiate()
         await { viewModel.profilePreviewUIState is ProfilePreviewUIState.Loaded }
 
-        assertEquals(ProfilePreviewUIState.Loaded(resolved(alice)), viewModel.profilePreviewUIState)
+        assertEquals(loaded(Readiness.Checking), viewModel.profilePreviewUIState)
         await { recorder.effects.size == 2 }
         assertEquals(bothAsks, recorder.effects)
-    }
-
-    @Test
-    fun `a kind 0 arriving from the relays loads`() = runBlocking<Unit> {
-        val recorder = Recorder()
-        val viewModel = viewModel(recorder)
-
-        viewModel.initiate()
-        await { recorder.effects.size == 2 }
-        recorder.profile.value = placeholder(alice)
-        recorder.profile.value = resolved(alice)
-
-        await { viewModel.profilePreviewUIState is ProfilePreviewUIState.Loaded }
-        assertEquals(ProfilePreviewUIState.Loaded(resolved(alice)), viewModel.profilePreviewUIState)
-
-        // Loaded is loaded: the timeout, had it still been armed, must not take it back.
-        delay(400)
-        assertIs<ProfilePreviewUIState.Loaded>(viewModel.profilePreviewUIState)
     }
 
     @Test
@@ -187,6 +191,91 @@ class ProfilePreviewViewModelJvmTest {
         await { viewModel.profilePreviewUIState == ProfilePreviewUIState.Error }
     }
 
+    // --- whether the button can be pressed -----------------------------------------------
+
+    /**
+     * A key package is meant to be used once, and the relays need not hold a fresh one
+     * for a person you already have a room with: without this row, someone you talk to
+     * every day would read "hasn't set up messaging".
+     */
+    @Test
+    fun `a room that exists opens, key package or not`() = runBlocking<Unit> {
+        val recorder = Recorder(profile = MutableStateFlow(resolved(alice)))
+        val viewModel = viewModel(recorder, Rooms(existingRoom = roomWith(alice)))
+
+        viewModel.initiate()
+        await { viewModel.profilePreviewUIState is ProfilePreviewUIState.Loaded }
+
+        assertEquals(loaded(Readiness.ExistingChat(chatRoomId = "room", relayHint = "wss://hint.example")), viewModel.profilePreviewUIState)
+
+        // Nothing left to wait for, so the timeout has nothing to say.
+        delay(400)
+        assertIs<Readiness.ExistingChat>(assertIs<ProfilePreviewUIState.Loaded>(viewModel.profilePreviewUIState).readiness)
+    }
+
+    @Test
+    fun `the profile first, then the key package, and the clock stops`() = runBlocking {
+        val recorder = Recorder()
+        val rooms = Rooms()
+        val viewModel = viewModel(recorder, rooms)
+
+        viewModel.initiate()
+        recorder.profile.value = resolved(alice)
+        await { viewModel.profilePreviewUIState == loaded(Readiness.Checking) }
+
+        rooms.keyPackage.value = keyPackage(alice)
+        await { viewModel.profilePreviewUIState == loaded(Readiness.CanStartChat) }
+
+        delay(400)
+        assertEquals(loaded(Readiness.CanStartChat), viewModel.profilePreviewUIState)
+    }
+
+    @Test
+    fun `the key package first, then the profile, is ready at once`() = runBlocking {
+        val recorder = Recorder()
+        val rooms = Rooms(keyPackage = MutableStateFlow(keyPackage(alice)))
+        val viewModel = viewModel(recorder, rooms)
+
+        viewModel.initiate()
+        delay(50)
+        assertEquals(ProfilePreviewUIState.Loading, viewModel.profilePreviewUIState)
+
+        recorder.profile.value = resolved(alice)
+        await { viewModel.profilePreviewUIState == loaded(Readiness.CanStartChat) }
+    }
+
+    @Test
+    fun `a person with no key package is not yet on Curare after the timeout, and a late one still counts`() = runBlocking {
+        val recorder = Recorder(profile = MutableStateFlow(resolved(alice)))
+        val rooms = Rooms()
+        val viewModel = viewModel(recorder, rooms)
+
+        viewModel.initiate()
+        await { viewModel.profilePreviewUIState == loaded(Readiness.Checking) }
+        await { viewModel.profilePreviewUIState == loaded(Readiness.NotYetOnCurare) }
+
+        rooms.keyPackage.value = keyPackage(alice)
+        await { viewModel.profilePreviewUIState == loaded(Readiness.CanStartChat) }
+    }
+
+    /** The person is found; it is the key package being asked for again, and the DM relays alone are asked. */
+    @Test
+    fun `try again with a person on screen asks the DM relays alone and keeps the person`() = runBlocking {
+        val recorder = Recorder(profile = MutableStateFlow(resolved(alice)))
+        val viewModel = viewModel(recorder, Rooms())
+
+        viewModel.initiate()
+        await { viewModel.profilePreviewUIState == loaded(Readiness.NotYetOnCurare) }
+        assertEquals(bothAsks, recorder.effects)
+
+        viewModel.retry()
+        assertEquals(loaded(Readiness.Checking), viewModel.profilePreviewUIState)
+        await { recorder.effects.size == 3 }
+        assertEquals(bothAsks + chatAsk, recorder.effects)
+
+        await { viewModel.profilePreviewUIState == loaded(Readiness.NotYetOnCurare) }
+    }
+
     // --- fixtures -----------------------------------------------------------------------
 
     private suspend fun await(condition: () -> Boolean) {
@@ -194,6 +283,8 @@ class ProfilePreviewViewModelJvmTest {
             while (!condition()) delay(10)
         }
     }
+
+    private fun loaded(readiness: Readiness) = ProfilePreviewUIState.Loaded(profile = resolved(alice), readiness = readiness)
 
     /** What every mint site writes: the "LOADING..." name, stamped `GENESIS_AT`. */
     private fun placeholder(publicKey: HexKey) = Profile(
@@ -203,12 +294,40 @@ class ProfilePreviewViewModelJvmTest {
         createdAt = GENESIS_AT,
     )
 
+    private val at = Instant.fromEpochSeconds(1_700_000_000)
+
     private fun resolved(publicKey: HexKey) = Profile(
         publicKey = publicKey,
         displayName = "Alice",
         nostrEventId = "kind0",
-        createdAt = Instant.fromEpochSeconds(1_700_000_000),
-        updatedAt = Instant.fromEpochSeconds(1_700_000_000),
-        savedAt = Instant.fromEpochSeconds(1_700_000_000),
+        createdAt = at,
+        updatedAt = at,
+        savedAt = at,
+    )
+
+    private fun keyPackage(publicKey: HexKey) = MarmotKeyPackage(
+        id = "keypackage",
+        publicKey = publicKey,
+        tlsEncodedMarmotKeyPackage = ByteArray(0),
+    )
+
+    private fun roomWith(peer: HexKey) = LocalChatRoom(
+        chatRoom = ChatRoom(
+            id = "room",
+            userPublicKey = me,
+            subject = null,
+            description = null,
+            mlsGroupState = "state",
+        ),
+        localParticipants = listOf(me, peer).map { publicKey ->
+            LocalParticipant(
+                participant = Participant(
+                    participantPublicKey = publicKey,
+                    chatRoomId = "room",
+                    relayHint = "wss://hint.example",
+                ),
+                profile = null,
+            )
+        },
     )
 }

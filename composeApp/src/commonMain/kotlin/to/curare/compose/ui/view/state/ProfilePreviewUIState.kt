@@ -14,6 +14,7 @@ sealed interface ProfilePreviewUIState {
 
     data class Loaded(
         val profile: Profile,
+        val readiness: Readiness,
     ) : ProfilePreviewUIState
 
     /**
@@ -24,4 +25,28 @@ sealed interface ProfilePreviewUIState {
 
     /** The queue itself refused: nothing was asked, and asking again is the retry. */
     data object Error : ProfilePreviewUIState
+
+    /**
+     * Whether pressing the button would get anywhere, read here rather than twenty
+     * seconds into the next screen.
+     *
+     * A fact about a *loaded* profile: a room does not make a person known, and a
+     * member still "LOADING..." waits on their kind 0 here like anyone else.
+     */
+    sealed interface Readiness {
+        /** A conversation with this person exists; the button opens it. */
+        data class ExistingChat(
+            val chatRoomId: String,
+            val relayHint: String?,
+        ) : Readiness
+
+        /** Their key package is here; `initiateNewChat` will create the room without waiting. */
+        data object CanStartChat : Readiness
+
+        /** Asked, not answered yet. */
+        data object Checking : Readiness
+
+        /** The relays have had their time and no key package came. */
+        data object NotYetOnCurare : Readiness
+    }
 }

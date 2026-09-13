@@ -721,4 +721,7 @@
     <string name="find_profile">Find profile</string>
     <string name="looking_for_this_profile_on_the_relays">Looking for this profile on the relays.</string>
     <string name="start_new_chat">Start new chat</string>
+    <string name="you_already_have_a_chat_with_s">You already have a chat with %1$s.</string>
+    <string name="checking_whether_s_can_receive_messages_here">Checking whether %1$s can receive messages here.</string>
+    <string name="s_hasn_t_set_up_messaging_on_curare_yet">%1$s hasn't set up messaging on Curare yet. Try again later, or ask them to open Curare.</string>
 </resources>

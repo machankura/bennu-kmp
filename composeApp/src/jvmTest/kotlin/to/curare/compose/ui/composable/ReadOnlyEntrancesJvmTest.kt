@@ -291,8 +291,12 @@ class ReadOnlyEntrancesJvmTest {
         ProfilePreviewScreen(
             activeUserPublicKey = publicKey,
             profilePublicKey = publicKey,
-            initialProfilePreviewUIState = ProfilePreviewUIState.Loaded(profile = profile.profile),
+            initialProfilePreviewUIState = ProfilePreviewUIState.Loaded(
+                profile = profile.profile,
+                readiness = ProfilePreviewUIState.Readiness.CanStartChat,
+            ),
             nostrRepository = FixedProfile,
+            chatRepository = NoRooms,
             onStartChat = {},
             onNavigateBack = {},
         )

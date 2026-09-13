@@ -236,6 +236,18 @@ class DatabaseChatRepository(
     override suspend fun getAllParticipantsWithPubKey(publicKey: HexKey): List<Participant> {
         return database.participantDao().findParticipantByPublicKey(publicKey)
     }
+
+    override suspend fun findDirectMessageRoom(userPublicKey: HexKey, peerPublicKey: HexKey): LocalChatRoom? {
+        val theTwoOfUs = setOf(userPublicKey, peerPublicKey)
+
+        for (participant in database.participantDao().findParticipantByPublicKey(peerPublicKey)) {
+            val localChatRoom = database.chatRoomDao().findChatRoomById(participant.chatRoomId) ?: continue
+            val members = localChatRoom.localParticipants.map { it.participant.participantPublicKey }.toSet()
+            if (members == theTwoOfUs) return localChatRoom
+        }
+
+        return null
+    }
     override suspend fun getChatMessageListByChatRoomId(chatRoomId: String): List<LocalChatMessage> {
         return database.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId)
     }

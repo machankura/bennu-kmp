@@ -176,6 +176,16 @@ interface ChatRepository {
 
     suspend fun getAllParticipantsWithPubKey(publicKey: HexKey): List<Participant>
 
+    /**
+     * The room that is a conversation between [userPublicKey] and [peerPublicKey]
+     * alone, if there is one: its members are exactly the two of them, or the one of
+     * them when the two keys are the same. A group of two is not told apart from a
+     * direct message here -- the schema does not record which a room is -- so this is
+     * the rule `ChatRoomMessagingViewModel.initiateNewChat` has applied since it was
+     * written, in one place with its name on it. See docs/npub-profile-preview.md.
+     */
+    suspend fun findDirectMessageRoom(userPublicKey: HexKey, peerPublicKey: HexKey): LocalChatRoom?
+
     suspend fun getChatMessageListByChatRoomId(chatRoomId: String): List<LocalChatMessage>
 
     suspend fun observeChatMessageListByChatRoomId(chatRoomId: String): Flow<List<LocalChatMessage>>
@@ -372,6 +382,10 @@ interface ChatRepository {
             }
 
             override suspend fun getAllParticipantsWithPubKey(publicKey: HexKey): List<Participant> {
+                TODO("Not yet implemented")
+            }
+
+            override suspend fun findDirectMessageRoom(userPublicKey: HexKey, peerPublicKey: HexKey): LocalChatRoom? {
                 TODO("Not yet implemented")
             }
 
