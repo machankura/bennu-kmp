@@ -98,8 +98,10 @@ import to.curare.compose.ui.composable.navigation.routes.LandingRoute
 import to.curare.compose.ui.composable.navigation.routes.LoadingRoute
 import to.curare.compose.ui.composable.navigation.routes.NostrEventDetailRoute
 import to.curare.compose.ui.composable.navigation.routes.NostrSecretRoute
+import to.curare.compose.ui.composable.navigation.routes.ProfilePreviewRoute
 import to.curare.compose.ui.composable.navigation.routes.ProfilesRoute
 import to.curare.compose.ui.composable.navigation.routes.RecoveryPhraseRoute
+import to.curare.compose.ui.composable.ProfilePreviewScreen
 import to.curare.compose.ui.composable.ProfilesScreen
 import to.curare.compose.ui.view.model.ProfilesViewModel
 import to.curare.compose.ui.view.model.getAvailableWalletsMeta
@@ -1711,6 +1713,30 @@ fun CurareNavHost(
                                 inclusive = true
                             }
                         }
+                    },
+                )
+            }
+            composable<ProfilePreviewRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<ProfilePreviewRoute>()
+
+                ProfilePreviewScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    profilePublicKey = route.profilePublicKey,
+                    nostrRepository = databaseNostrRepository,
+                    // The room replaces the preview, as it replaces the profile detail
+                    // above: back from a chat is the list, not the person it was started
+                    // from.
+                    onStartChat = { chatRoom ->
+                        navController.navigate(
+                            route = chatRoom
+                        ) {
+                            popUpTo(route) {
+                                inclusive = true
+                            }
+                        }
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     },
                 )
             }

@@ -44,6 +44,7 @@ import to.curare.compose.ui.composable.widgets.ProvideSnackbarHost
 import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.view.state.ActiveProfileUIState
 import to.curare.compose.ui.view.state.HomeScreenUIState
+import to.curare.compose.ui.view.state.ProfilePreviewUIState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -91,6 +92,24 @@ class ReadOnlyEntrancesJvmTest {
         onNodeWithText("Sign in with the nsec", useUnmergedTree = true).assertIsDisplayed()
         onNodeWithText("New chat", useUnmergedTree = true).assertDoesNotExist()
         onNodeWithText("Pick a conversation to read it here.", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    // --- Profile preview: the one thing to do about a person, or nothing ---
+
+    @Test
+    fun `an identity that can sign is offered a chat with the person it looked up`() = runDesktopComposeUiTest(400, 1200) {
+        setContent { AsIdentity(canSign = true) { ProfilePreview() } }
+
+        onNodeWithText("Reader", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithText("Start new chat", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a read-only identity is shown the person and offered nothing`() = runDesktopComposeUiTest(400, 1200) {
+        setContent { AsIdentity(canSign = false) { ProfilePreview() } }
+
+        onNodeWithText("Reader", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithText("Start new chat", useUnmergedTree = true).assertDoesNotExist()
     }
 
     // --- Profile: key packages and key recovery, or neither ---
@@ -263,6 +282,19 @@ class ReadOnlyEntrancesJvmTest {
             chatRepository = NoRooms,
             frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
             dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
+        )
+    }
+
+    /** The person behind a pasted npub, already found: the state is passed in, so nothing is asked. */
+    @Composable
+    private fun ProfilePreview() {
+        ProfilePreviewScreen(
+            activeUserPublicKey = publicKey,
+            profilePublicKey = publicKey,
+            initialProfilePreviewUIState = ProfilePreviewUIState.Loaded(profile = profile.profile),
+            nostrRepository = FixedProfile,
+            onStartChat = {},
+            onNavigateBack = {},
         )
     }
 

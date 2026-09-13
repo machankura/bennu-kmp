@@ -718,4 +718,7 @@
     <string name="sign_in_with_a_key">Sign in with a key</string>
     <string name="switch_to_it">Switch to it</string>
     <string name="the_profile_you_are_in_stays_on_this_device">The profile you are in stays on this device.</string>
+    <!-- The profile preview: the person behind a pasted npub, before a chat with them is started. -->
+    <string name="looking_for_this_profile_on_the_relays">Looking for this profile on the relays.</string>
+    <string name="start_new_chat">Start new chat</string>
 </resources>
