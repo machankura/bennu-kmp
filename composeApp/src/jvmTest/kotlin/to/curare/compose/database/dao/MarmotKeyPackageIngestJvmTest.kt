@@ -24,6 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.io.encoding.Base64
 
 /**
  * A peer's kind:30443 through the sync funnel and into an invite, on both profiles.
@@ -155,9 +156,12 @@ class MarmotKeyPackageIngestJvmTest {
     @Test
     fun `a key package that does not verify is not stored`() = runBlocking {
         val (event, _) = currentProfileKeyPackageEventFor(peer)
-        val tampered = event.asStoredNostrEvent().copy(
-            content = event.content.dropLast(4) + "AAAA",
-        )
+        // A byte of the KeyPackage's own signature -- its last field -- flipped after
+        // signing. Flipped in the decoded bytes rather than the base64 text, because
+        // rewriting the text's tail can change nothing but its padding.
+        val bytes = Base64.decode(event.content)
+        bytes[bytes.lastIndex] = (bytes[bytes.lastIndex].toInt() xor 0x01).toByte()
+        val tampered = event.asStoredNostrEvent().copy(content = Base64.encode(bytes))
 
         store(tampered)
 

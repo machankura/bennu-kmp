@@ -28,8 +28,8 @@ import to.curare.compose.nostr.MarmotDelivery
 import to.curare.compose.nostr.MarmotDirectMessage
 import to.curare.compose.nostr.Relays
 import co.touchlab.kermit.Logger
+import com.vitorpamplona.quartz.marmot.foundation.appEvents.MarmotAppEvent
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageUtils
-import com.vitorpamplona.quartz.marmot.mip00KeyPackages.tags.EncodingTag
 import com.vitorpamplona.quartz.marmot.mip01Groups.MarmotGroupData
 import com.vitorpamplona.quartz.marmot.mip02Welcome.WelcomeEvent
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
@@ -741,12 +741,20 @@ abstract class MarmotOutboundDao(
         marmotInnerEvent: MarmotInnerEvent,
         nostrSignerSync: NostrSignerSync
     ): GroupEvent {
-        // A direct message is gift wrapped for one member before it goes into MLS, so
-        // what the group carries is a kind:1059 whose id is not this row's. Everything
-        // downstream -- MLS encrypt, outer ChaCha20, kind:445, persistence, broadcast --
-        // is the same either way. See MarmotDirectMessage.
-        val innerEvent: Event = marmotInnerEvent.directMessageRecipientPublicKey?.let { recipient ->
-            MarmotDirectMessage.wrap(
+        // The room's profile decides the shape of what goes into MLS. See
+        // docs/marmot-v2.md, Phase 2: it is the feature flag for every wire change
+        // an old build cannot read, because a current-profile room admits only
+        // leaves that carry an identity proof, and only a build past Phase 3 can
+        // make one.
+        val isCurrentProfileRoom = mlsGroup.currentGroupState().isCurrentProfile
+
+        val plainTextBytes: ByteArray = marmotInnerEvent.directMessageRecipientPublicKey?.let { recipient ->
+            // A direct message is gift wrapped for one member before it goes into
+            // MLS, so what the group carries is a kind:1059 whose id is not this
+            // row's. Everything downstream -- MLS encrypt, outer ChaCha20, kind:445,
+            // persistence, broadcast -- is the same either way. See
+            // MarmotDirectMessage.
+            val wrap = MarmotDirectMessage.wrap(
                 signer = nostrSignerSync,
                 recipientPublicKey = recipient,
                 kind = marmotInnerEvent.kind,
@@ -754,19 +762,44 @@ abstract class MarmotOutboundDao(
                 tags = marmotInnerEvent.tags,
                 content = marmotInnerEvent.content
             )
-        } ?: RumorAssembler.assembleRumor(
-            pubKey = nostrSignerSync.pubKey,
-            ev = EventTemplate(
-                createdAt = marmotInnerEvent.createdAt.epochSeconds,
-                content = marmotInnerEvent.content,
-                tags = marmotInnerEvent.tags,
-                kind = marmotInnerEvent.kind
+
+            if (isCurrentProfileRoom) {
+                // Inside an unsigned envelope authored by the sender, which is what
+                // a conformant peer accepts. The bare wrap is signed and names a
+                // throwaway key, and fails their author check twice over.
+                MarmotDirectMessage.envelope(
+                    senderPublicKey = nostrSignerSync.pubKey,
+                    recipientPublicKey = recipient,
+                    wrap = wrap,
+                    createdAt = marmotInnerEvent.createdAt.epochSeconds,
+                ).encodeToPayload()
+            } else {
+                // The bare wrap, signature and all: the one shape every build in a
+                // legacy room reads, through the carve-out in mip03Rejection.
+                wrap.toJson().encodeToByteArray()
+            }
+        } ?: run {
+            val rumor = RumorAssembler.assembleRumor<Event>(
+                pubKey = nostrSignerSync.pubKey,
+                ev = EventTemplate(
+                    createdAt = marmotInnerEvent.createdAt.epochSeconds,
+                    content = marmotInnerEvent.content,
+                    tags = marmotInnerEvent.tags,
+                    kind = marmotInnerEvent.kind
+                )
             )
-        )
 
-        logger.d("InnerEvent: ${innerEvent.toJson()}")
+            // The canonical Marmot app event: six members and no `sig`. The rumor
+            // serialised as an Event carries `"sig":""`, which a conformant decoder
+            // refuses outright -- a payload with a signature would be a standalone
+            // relay event, republishable as a signed statement by its author. The
+            // id does not move, because NIP-01 never hashed the signature, so every
+            // row filed under this event's id stays valid, and every build already
+            // in the field reads the shape: Event.fromJsonOrNull defaults a missing
+            // signature. This switch alone needs no gating.
+            MarmotAppEvent.fromEvent(rumor).encodeToPayload()
+        }
 
-        val plainTextBytes = innerEvent.toJson().encodeToByteArray()
         logger.d("plainTextBytes: ${plainTextBytes.toHex()}")
 
         // Step 1: MLS encrypt
@@ -787,15 +820,16 @@ abstract class MarmotOutboundDao(
         val createdAt = TimeUtils.now()
         val expirationTime = disappearingExpiration(mlsGroup, createdAt)
 
+        // No `encoding` tag. `transports/nostr.md`: a sender MUST NOT add one to any
+        // event shape -- a receiver that switched decoders on it could be steered
+        // into a different parse of the same bytes -- and the commit template below
+        // never carried one either.
         val template = GroupEvent.build(
             encryptedContentBase64 = encryptedContent,
             nostrGroupId = localChatRoom.chatRoom.id,
             createdAt = createdAt,
         ) {
             if (expirationTime != null) expiration(expirationTime)
-            addUnique(
-                EncodingTag.assemble()
-            )
         }
 
         // Step 4: Sign with a fresh ephemeral keypair

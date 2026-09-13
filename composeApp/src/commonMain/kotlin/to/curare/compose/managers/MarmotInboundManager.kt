@@ -66,21 +66,25 @@ object MarmotInboundManager {
     /**
      * Why an inner application event may not be accepted from this sender, or null.
      *
-     * MIP-03: an inner event's `pubkey` MUST equal the MLS sender's credential identity,
-     * so a member cannot mint events claiming a different author.
+     * An inner event's `pubkey` MUST equal the MLS sender's credential identity, so a
+     * member cannot mint events claiming a different author. MIP-03 said so and
+     * `foundation/application-messages.md` says the same.
      *
-     * A gift wrap is exempt. Its pubkey is a throwaway key by construction -- see
-     * [MarmotDirectMessage] -- so there is no author field to compare and the check
-     * cannot be applied as written. The authorship claim moves inside, to the signed
-     * kind:13 seal, which [MarmotDirectMessage.classify] binds to this same identity
-     * before a word is rendered: a verified signature bound to an MLS leaf, rather than a
-     * plaintext field compared to one.
+     * In a legacy room a gift wrap is exempt. Its pubkey is a throwaway key by
+     * construction -- see [MarmotDirectMessage] -- so there is no author field to
+     * compare and the check cannot be applied as written. The authorship claim moves
+     * inside, to the signed kind:13 seal, which [MarmotDirectMessage.classify] binds to
+     * this same identity before a word is rendered: a verified signature bound to an
+     * MLS leaf, rather than a plaintext field compared to one.
      *
-     * The exemption is on kind:1059 alone. Widening it to any other kind, or dropping the
-     * kind guard, hands every member the ability to publish events as anybody.
-     *
-     * Other Marmot clients do not have this carve-out and drop these messages as
-     * impersonation. See docs/marmot-direct-messages.md.
+     * The exemption is on kind:1059 alone, and on legacy rooms alone. Widening it to any
+     * other kind, or dropping the kind guard, hands every member the ability to publish
+     * events as anybody. A current-profile room never carries a bare wrap -- a direct
+     * message there travels inside an envelope authored by the sender, which passes the
+     * check like any other payload -- so a bare wrap arriving in one is what every other
+     * conformant client says it is: an author that is not the sender, refused. Other
+     * Marmot clients have no carve-out at all and drop legacy wraps as impersonation.
+     * See docs/marmot-direct-messages.md and docs/marmot-v2.md, Phase 2.
      *
      * [senderIdentity] is required rather than merely compared: every sender-derived
      * field downstream reads from it -- who a message is from, and whether it is ours --
@@ -90,12 +94,14 @@ object MarmotInboundManager {
         innerEventKind: Int,
         innerEventPubKey: HexKey,
         senderIdentity: HexKey?,
+        legacyRoom: Boolean,
     ): String? {
         if (senderIdentity == null) {
             return "No MLS credential identity for the sender leaf"
         }
 
-        if (innerEventKind != GiftWrapEvent.KIND && innerEventPubKey != senderIdentity) {
+        val bareWrapInLegacyRoom = legacyRoom && innerEventKind == GiftWrapEvent.KIND
+        if (!bareWrapInLegacyRoom && innerEventPubKey != senderIdentity) {
             return "MIP-03: inner event pubkey ($innerEventPubKey) does not match MLS sender identity ($senderIdentity)"
         }
 
@@ -332,7 +338,12 @@ object MarmotInboundManager {
                 if (innerAuthor != null) {
                     val senderIdentity = mlsGroup.memberIdentityHex(decrypted.senderLeafIndex)
 
-                    mip03Rejection(innerAuthor.first, innerAuthor.second, senderIdentity)?.let { reason ->
+                    mip03Rejection(
+                        innerEventKind = innerAuthor.first,
+                        innerEventPubKey = innerAuthor.second,
+                        senderIdentity = senderIdentity,
+                        legacyRoom = !mlsGroup.currentGroupState().isCurrentProfile,
+                    )?.let { reason ->
                         return GroupEventResult.Error(groupId, reason)
                     }
                 }

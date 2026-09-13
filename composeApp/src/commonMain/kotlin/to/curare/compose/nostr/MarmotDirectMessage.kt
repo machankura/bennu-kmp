@@ -1,5 +1,6 @@
 package to.curare.compose.nostr
 
+import com.vitorpamplona.quartz.marmot.foundation.appEvents.MarmotAppEvent
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
@@ -20,9 +21,21 @@ import com.vitorpamplona.quartz.nip59Giftwrap.wraps.GiftWrapEvent
  * A one-to-one message carried inside a Marmot group, as the application payload of a
  * kind:445 group event. See docs/marmot-direct-messages.md.
  *
- * The payload is a stock NIP-59 gift wrap: a throwaway-keyed kind:1059 around a
+ * The message is a stock NIP-59 gift wrap: a throwaway-keyed kind:1059 around a
  * sender-signed kind:13 seal around the kind:14 rumor that holds the words. Every member
  * of the group decrypts the MLS layer and sees the wrap; only the recipient can open it.
+ *
+ * What carries the wrap depends on the room's profile. A legacy room carries the wrap
+ * itself as the payload -- signed by its throwaway key, with a `pubkey` that names
+ * nobody -- which is what every build before docs/marmot-v2.md Phase 2 sent and reads,
+ * and what the carve-out in `MarmotInboundManager.mip03Rejection` exists to admit. A
+ * current-profile room carries it inside an [envelope]: an unsigned Marmot app event of
+ * [ENVELOPE_KIND] whose `pubkey` is the sender's account and whose `content` is the
+ * wrap's JSON. A conformant decoder refuses a payload with a `sig` member and one whose
+ * author is not the MLS sender, and the wrap fails both; the envelope passes both, and
+ * keeps every property the wrap was chosen for -- see docs/marmot-direct-messages.md --
+ * because the envelope is unsigned and so a claim rather than a proof, and the wrap
+ * inside it is still signed by nobody.
  *
  * Everything here is a pure function of its arguments, with no database and no MLS state,
  * which is what makes it testable — Room-backed code cannot be unit-tested in this project.
@@ -33,6 +46,17 @@ import com.vitorpamplona.quartz.nip59Giftwrap.wraps.GiftWrapEvent
  * message lives in `MarmotInnerEvent`, never in `GiftWrapPayload` or `GiftWrapMessage`.
  */
 object MarmotDirectMessage {
+    /**
+     * The app kind of the envelope a current-profile room carries a direct message in.
+     *
+     * In the app's own range, beside the chronicle (30327), its request (30328) and the
+     * subgroup certificate (30329): a kind that exists only inside MLS and that no relay
+     * ever sees. Another client renders it as a kind it does not know, which is the
+     * "sent a private message" line and nothing more -- the same thing a bystander in
+     * this app sees.
+     */
+    const val ENVELOPE_KIND: Kind = 30330
+
     /**
      * A wrap that opened, both layers of it.
      *
@@ -174,6 +198,46 @@ object MarmotDirectMessage {
             createdAt = createdAt,
             recipientRelayHint = recipientRelayHint,
         )
+    }
+
+    /**
+     * The envelope a current-profile room carries [wrap] in.
+     *
+     * Unsigned, by construction -- a `MarmotAppEvent` has no signature to give -- and
+     * authored by [senderPublicKey], which is the MLS sender's account and therefore
+     * what the standard author check compares against. The recipient rides in a `p` tag
+     * so a member can tell whose message it is without opening the content, exactly as
+     * the wrap's own `p` tag lets them today. [createdAt] is the wrap's, unfuzzed, for
+     * the reason [wrap] gives.
+     */
+    fun envelope(
+        senderPublicKey: HexKey,
+        recipientPublicKey: HexKey,
+        wrap: Event,
+        createdAt: Long,
+    ): MarmotAppEvent =
+        MarmotAppEvent.build(
+            pubKey = senderPublicKey,
+            kind = ENVELOPE_KIND,
+            content = wrap.toJson(),
+            createdAt = createdAt,
+            tags = arrayOf(arrayOf("p", recipientPublicKey)),
+        )
+
+    /**
+     * The wrap inside [envelope], or null when it is not an envelope or holds no wrap.
+     *
+     * Null rather than a throw for the same reason [open] returns null: the caller is
+     * inside inbound processing for a kind:445, and one malformed payload must not cost
+     * the rest.
+     */
+    fun wrapInside(envelope: Event): Event? {
+        if (envelope.kind != ENVELOPE_KIND) return null
+        return try {
+            Event.fromJsonOrNull(envelope.content)?.takeIf { it.kind == GiftWrapEvent.KIND }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**

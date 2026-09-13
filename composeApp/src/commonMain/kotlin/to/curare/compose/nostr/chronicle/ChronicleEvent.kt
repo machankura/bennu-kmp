@@ -113,8 +113,18 @@ class ChronicleEvent(
          * Sized so the finished kind:445 clears the tightest relay limits with
          * room for the MLS framing and the NIP-44 expansion that sit outside it;
          * measure it against a real one rather than trusting the arithmetic.
+         *
+         * Under 64 KiB with room to spare, because that is the bound a conformant
+         * Marmot decoder puts on the *whole* app payload -- `MarmotJson.MAX_INPUT_BYTES`
+         * -- and this page rides inside one as its `content`, JSON-escaped and
+         * wrapped in the six members of the envelope. The packer measures the page
+         * as [escapedByteSize] -- the bytes it will occupy inside the envelope,
+         * which for dense JSON content is half again the raw page -- against this
+         * cap, so both the receiver's raw-bytes check and the decoder's bound hold
+         * by construction. At 64 KiB the raw page alone was over the bound, and an
+         * MDK peer dropped it without a word. See docs/marmot-v2.md, Phase 2.
          */
-        const val MAX_PAGE_BYTES = 64 * 1024
+        const val MAX_PAGE_BYTES = 48 * 1024
 
         /**
          * The most payloads one page may carry.
@@ -126,10 +136,10 @@ class ChronicleEvent(
          * **Sized under what the byte cap allows, or it would never fire.** An
          * event carries a 64-character id, a 64-character pubkey and a
          * 128-character signature before it says anything at all, so the floor is
-         * around 370 bytes and [MAX_PAGE_BYTES] cannot hold much past 170 of
+         * around 370 bytes and [MAX_PAGE_BYTES] cannot hold much past 130 of
          * them. A count cap above that ceiling is a check that cannot fail --
          * which is how this was first written, and a test that asserts a page at
-         * exactly the cap decodes is what caught it. At 128 both caps bind
+         * exactly the cap decodes is what caught it. At 96 both caps bind
          * something: the count stops a page of many small payloads, the bytes
          * stop a page of few large ones.
          *
@@ -141,7 +151,7 @@ class ChronicleEvent(
          * item costs nonce generation, a FROST session and a native sign, where
          * a chronicle payload costs a signature verify and an upsert.
          */
-        const val MAX_PAGE_EVENTS = 128
+        const val MAX_PAGE_EVENTS = 96
 
         /**
          * The kinds a chronicle may carry, in the order they have to be applied.
@@ -220,6 +230,34 @@ class ChronicleEvent(
          */
         fun inApplyOrder(payloads: List<Event>): List<Event> =
             payloads.sortedBy { applyRank(it.kind) ?: Int.MAX_VALUE }
+
+        /**
+         * The bytes [json] occupies once it is the `content` of a Marmot app event --
+         * that is, once it is inside a JSON string.
+         *
+         * A page is JSON that travels as JSON: every quote in it becomes `\\"`, every
+         * backslash `\\\\`, and the payloads' own content, already escaped once inside
+         * the page, escapes again. Dense JSON content grows by half; content that is
+         * nothing but quotes doubles. The decoder's 64 KiB bound is on the *escaped*
+         * form, so the packer has to measure this and not the raw page -- see
+         * [MAX_PAGE_BYTES]. The escape set is NIP-01's, which is what
+         * `MarmotAppEvent.toJson` writes.
+         */
+        fun escapedByteSize(json: String): Int {
+            var size = 0
+            for (ch in json) {
+                size += when {
+                    ch == '"' || ch == '\\' || ch == '\n' || ch == '\r' || ch == '\t' ||
+                        ch == '\u0008' || ch == '\u000C' -> 2
+                    ch < ' ' -> 6
+                    ch.code < 0x80 -> 1
+                    ch.code < 0x800 -> 2
+                    ch.isSurrogate() -> 2 // each half of a pair is two of the four bytes
+                    else -> 3
+                }
+            }
+            return size
+        }
 
         /**
          * One page's payloads as its content: a JSON array of whole events.
