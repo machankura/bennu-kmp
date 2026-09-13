@@ -4,6 +4,7 @@ import androidx.room3.Room
 import com.vitorpamplona.quartz.marmot.GroupEventResult
 import com.vitorpamplona.quartz.marmot.appComponents.AdminPolicyV1
 import com.vitorpamplona.quartz.marmot.appComponents.CurrentProfileGroupFactory
+import com.vitorpamplona.quartz.marmot.foundation.appEvents.MarmotAppEvent
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
 import com.vitorpamplona.quartz.marmot.mls.tree.Credential
@@ -28,6 +29,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -134,9 +136,13 @@ class ConvergenceForkJvmTest {
         assertIs<GroupEventResult.CommitProcessed>(dana.inbound.processGroupEvent(bobsCommit))
         assertIs<GroupEventResult.CommitPending>(dana.inbound.processGroupEvent(alicesCommit)).also { assertTrue(it.forkDetected) }
 
-        // Both passes resolved without waiting for the cutoff: the timers are
+        // The app's side settles the way its outbound path does before it sends:
+        // `awaitSettled` ticks the pass through its quiet second and returns once
+        // outbound work is allowed. Dana's is resolved outright -- the timers are
         // scheduling, not semantics.
-        assertNotNull(db.marmotEngine.inbound.resolveConvergence(routingId))
+        assertFalse(db.marmotEngine.inbound.convergenceStatus(routingId).allowsOutboundWork)
+        db.marmotEngine.awaitSettled(routingId)
+        assertTrue(db.marmotEngine.inbound.convergenceStatus(routingId).allowsOutboundWork)
         assertNotNull(dana.inbound.resolveConvergence(routingId))
 
         val ours = db.marmotEngine.groupManager.getGroup(routingId)!!
@@ -154,6 +160,12 @@ class ConvergenceForkJvmTest {
         assertTrue(xIn xor yIn)
         // And the app's row carries what its engine holds.
         assertContentEquals(ours.contextBytes(), db.chatRoomDao().findChatRoomById(routingId)!!.chatRoom.toMlsGroup()!!.contextBytes())
+
+        // What settling is for: a message the app sends now is one Dana reads.
+        val hello = MarmotAppEvent.build(pubKey = userHex, kind = 9, content = "still here", createdAt = 1_700_000_000L).encodeToPayload()
+        val sent = db.marmotEngine.outbound.buildGroupEventFromBytes(routingId, hello).signedEvent
+        val read = assertIs<GroupEventResult.ApplicationMessage>(dana.inbound.processGroupEvent(sent))
+        assertTrue("still here" in read.innerEventJson)
     }
 
     /**

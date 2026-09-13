@@ -11,6 +11,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import to.curare.compose.database.model.MarmotKeyPackage
 import to.curare.compose.exceptions.MarmotCommitPendingException
+import to.curare.compose.exceptions.MarmotConvergencePendingException
 import to.curare.compose.exceptions.MarmotKeyPackageProfileException
 import to.curare.compose.nostr.MarmotProfile
 import to.curare.compose.database.model.NegentropySynchronizeRequest
@@ -152,7 +153,7 @@ class AddMemberToChatRoomConfirmationViewModel(
                 // itself, so both are shown as themselves rather than as "try again".
                 addMemberToChatRoomConfirmationUIState = AddMemberToChatRoomConfirmationUIState.Error(
                     when (e) {
-                        is MarmotKeyPackageProfileException, is MarmotCommitPendingException -> e.message
+                        is MarmotKeyPackageProfileException, is MarmotCommitPendingException, is MarmotConvergencePendingException -> e.message
                         else -> null
                     } ?: "Couldn't send the invite. Please try again."
                 )

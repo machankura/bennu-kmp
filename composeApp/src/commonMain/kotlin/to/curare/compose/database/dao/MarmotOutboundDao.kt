@@ -607,6 +607,7 @@ abstract class MarmotOutboundDao(
                     "An earlier change to this room is still waiting for a relay to accept it; try again in a moment"
                 )
             }
+            engine.awaitSettled(routingId)
             val staged = engine.groupManager.stageAddMember(routingId, peerKeyPackage.tlsEncodedMarmotKeyPackage)
             if (isOneMemberInitialGroupCreation) {
                 engine.groupManager.installState(routingId, staged.pendingState)
@@ -781,6 +782,7 @@ abstract class MarmotOutboundDao(
                 "An earlier change to this room is still waiting for a relay to accept it; try again in a moment"
             )
         }
+        engine.awaitSettled(routingId)
         val staged = stage(engine.groupManager, routingId)
         val obligation = engine.gate.prepare(
             groupId = routingId,
@@ -940,6 +942,7 @@ abstract class MarmotOutboundDao(
             )
         }
 
+        engine.awaitSettled(routingId)
         engine.gate.raiseGate(routingId, LocalOutboundGate.LEAVING)
         val (framedProposal, exporterSecret) = engine.groupManager.leaveGroup(routingId)
 
@@ -1171,6 +1174,10 @@ abstract class MarmotOutboundDao(
             val engine = database.marmotEngine
             engine.groupFor(localChatRoom.routingId)
                 ?: throw MarmotMissingChatGroupException("No live group for ${localChatRoom.chatRoom.id}")
+            // Not while a fork is being settled: a message keyed under the branch
+            // that loses is one no peer can read. The row stays queued if the
+            // pass outlasts the wait.
+            engine.awaitSettled(localChatRoom.routingId)
             engine.outbound.buildGroupEventFromBytes(localChatRoom.routingId, plainTextBytes).signedEvent
         } else {
             // Step 1: MLS encrypt

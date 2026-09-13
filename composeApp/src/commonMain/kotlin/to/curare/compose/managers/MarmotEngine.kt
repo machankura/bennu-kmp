@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import to.curare.compose.database.CurareDatabase
+import to.curare.compose.exceptions.MarmotConvergencePendingException
 
 /**
  * quartz's Marmot engine, over this database, for the rooms on the current profile.
@@ -136,6 +137,34 @@ class MarmotEngine(
     }
 
     /**
+     * Wait for [routingId]'s convergence pass, if one is open, to settle.
+     *
+     * Outbound work against a state that may lose is work no peer can read once
+     * the other branch wins -- a message keyed under the losing epoch, or worse,
+     * a commit that makes a three-way fork -- so a message or a commit waits for
+     * the pass first: `convergenceStatus(...).allowsOutboundWork` is the
+     * library's word for it. A pass settles at the quiescence window, so the wait
+     * is a second or two, and it ticks the processor itself rather than relying
+     * on [settleLater] having been armed. Past [MAX_SETTLE_WAIT_TICKS] it gives
+     * up with [MarmotConvergencePendingException]; the caller's row stays queued
+     * and is tried again. The bound is short because most callers hold a Room
+     * transaction while they wait.
+     */
+    suspend fun awaitSettled(routingId: HexKey) {
+        repeat(MAX_SETTLE_WAIT_TICKS) {
+            if (inbound.convergenceStatus(routingId).allowsOutboundWork) return
+            delay(SETTLE_TICK_MS)
+            runCatching { inbound.settleDueConvergence() }
+                .onFailure { logger.e("Convergence tick failed", it) }
+        }
+        if (!inbound.convergenceStatus(routingId).allowsOutboundWork) {
+            throw MarmotConvergencePendingException(
+                "The room is still settling two members' conflicting changes; try again in a moment"
+            )
+        }
+    }
+
+    /**
      * Tick convergence, and keep ticking while any pass is open.
      *
      * Inbound traffic is only an opportunistic tick: a group that goes quiet
@@ -163,6 +192,9 @@ class MarmotEngine(
     companion object {
         /** The convergence policy's quiescence window: a pass may settle after one quiet second. */
         const val SETTLE_TICK_MS = 1_000L
+
+        /** How many ticks [awaitSettled] gives a pass before handing the wait back to the queue. */
+        const val MAX_SETTLE_WAIT_TICKS = 3
 
         /**
          * [result] as filed under [chatRoomId]. The processor names a group by its
