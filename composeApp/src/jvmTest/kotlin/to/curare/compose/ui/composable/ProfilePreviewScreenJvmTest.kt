@@ -1,5 +1,6 @@
 package to.curare.compose.ui.composable
 
+import to.curare.compose.nostr.MarmotProfile
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
@@ -180,7 +181,7 @@ class ProfilePreviewScreenJvmTest {
 
     /** No room with the person, and no key package for them. */
     private val NoRooms = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
-        override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: String): Flow<MarmotKeyPackage?> = flowOf(null)
+        override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: String, roomProfile: MarmotProfile): Flow<MarmotKeyPackage?> = flowOf(null)
         override suspend fun findDirectMessageRoom(userPublicKey: String, peerPublicKey: String): LocalChatRoom? = null
     }
 

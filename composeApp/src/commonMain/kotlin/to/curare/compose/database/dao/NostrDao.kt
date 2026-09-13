@@ -42,6 +42,9 @@ import to.curare.compose.managers.MarmotReindexSweep
 import to.curare.compose.managers.WelcomeBundleMatch
 import to.curare.compose.managers.roomDescription
 import to.curare.compose.managers.roomName
+import to.curare.compose.managers.roomId
+import to.curare.compose.managers.routingId
+import to.curare.compose.database.model.MarmotRouting
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CancellationException
 import com.vitorpamplona.quartz.marmot.GroupEventResult
@@ -466,10 +469,13 @@ abstract class NostrDao(
         )?.let { groupEvent ->
             logger.d("groupEvent: ${groupEvent.toJson()}")
 
-            groupEvent.groupId()?.let { chatRoomId ->
+            // The `h` tag is the room's address, which on the current profile is not
+            // its id; the routing table says which room, and a room with no row is
+            // addressed by its own id. See MarmotRouting.
+            groupEvent.groupId()?.let { routingId ->
                 indexMarmotGroupEvent(
                     groupEvent = groupEvent,
-                    chatRoomId = chatRoomId,
+                    chatRoomId = database.marmotRoutingDao().chatRoomIdFor(routingId),
                     activeKeyPair = activeKeyPair,
                 )
             }
@@ -775,11 +781,17 @@ abstract class NostrDao(
                                 )
                                 logger.d("Group: $group")
 
-                                // From whichever profile the group is on: the routing
-                                // component for a current-profile group, the 0xF2EE
-                                // extension for a legacy one. A group with neither is
-                                // not a Marmot group and there is no room to make of it.
-                                val nostrGroupId = group.currentNostrGroupId() ?: throw MarmotMissingNostrGroupDataExtension("Didn't find group data for $group")
+                                // The room's address, from whichever profile the group
+                                // is on: the routing component for a current-profile
+                                // group, the 0xF2EE extension for a legacy one. A group
+                                // with neither is not a Marmot group and there is no
+                                // room to make of it. The room's *id* is what the group
+                                // says it is -- the address, unless its description names
+                                // the room, as a current-profile room this app created
+                                // does. See MarmotRoomIdentity and MarmotRouting.
+                                val routingId = group.routingId().takeIf { group.currentNostrGroupId() != null }
+                                    ?: throw MarmotMissingNostrGroupDataExtension("Didn't find group data for $group")
+                                val nostrGroupId = group.roomId()
 
                                 logger.d("nostrGroupId: $nostrGroupId")
 
@@ -812,6 +824,10 @@ abstract class NostrDao(
                                             joinedGroupAt = decryptedGiftWrapPayload.createdAt,
                                             mlsGroupState = group.saveState().encodeTls().toHex(),
                                         )
+                                    )
+
+                                    database.marmotRoutingDao().upsert(
+                                        MarmotRouting(routingId = routingId, chatRoomId = nostrGroupId)
                                     )
 
                                     database.marmotKeyPackageBundleDao().upsert(
@@ -1548,16 +1564,19 @@ abstract class NostrDao(
         val userPublicKey = activeKeyPair.pubKey.toHex()
         val chatRoom = database.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom
 
-        // The query's LIKE only narrows; the h tag is what decides the room. Sorted
-        // by CommitOrdering's own comparator rather than left in createdAt order, so
-        // that where two commits compete for an epoch the first one replayed is the
-        // one every other member also picked.
-        val groupEvents = database.nostrEventDao()
-            .getMarmotGroupNostrEventsByChatRoomId(chatRoomId)
+        // The query's LIKE only narrows; the h tag is what decides the room, and the
+        // h tag is one of the room's routing addresses -- its own id, or the ones the
+        // routing table records. Sorted by CommitOrdering's own comparator rather
+        // than left in createdAt order, so that where two commits compete for an
+        // epoch the first one replayed is the one every other member also picked.
+        val routingIds = database.marmotRoutingDao().findByChatRoomId(chatRoomId).map { it.routingId }.ifEmpty { listOf(chatRoomId) }
+        val groupEvents = routingIds
+            .flatMap { database.nostrEventDao().getMarmotGroupNostrEventsByChatRoomId(it) }
+            .distinctBy { it.id }
             .mapNotNull { storedNostrEvent ->
                 storedNostrEvent
                     .toGroupEvent(userPublicKey = userPublicKey)
-                    ?.takeIf { it.groupId() == chatRoomId }
+                    ?.takeIf { it.groupId() in routingIds }
             }
             .sortedWith(CommitOrdering.comparator)
 

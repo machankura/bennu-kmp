@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import to.curare.compose.database.model.MarmotKeyPackage
+import to.curare.compose.exceptions.MarmotKeyPackageProfileException
+import to.curare.compose.nostr.MarmotProfile
 import to.curare.compose.database.model.NegentropySynchronizeRequest
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.database.model.types.SynchronizationFilter
@@ -80,7 +82,13 @@ class AddMemberToChatRoomConfirmationViewModel(
             // Observe rather than read once: the key package usually lands a moment after
             // this screen opens, and the old one-shot read latched a terminal error that no
             // amount of waiting could clear.
-            chatRepository.observeMarmotKeyPackageForPublicKey(profilePublicKey)
+            // The package has to fit the room: a current-profile room can add only a
+            // current-profile leaf, and the newest package of any profile is, while a
+            // peer publishes both, deliberately the legacy one.
+            val roomProfile = localChatRoom.chatRoom.toMlsGroup()
+                ?.let { if (it.currentGroupState().isCurrentProfile) MarmotProfile.CURRENT else MarmotProfile.LEGACY }
+                ?: MarmotProfile.LEGACY
+            chatRepository.observeMarmotKeyPackageForPublicKey(profilePublicKey, roomProfile)
                 .distinctUntilChanged()
                 .collect { marmotKeyPackage ->
                     if (marmotKeyPackage != null) {
@@ -138,8 +146,12 @@ class AddMemberToChatRoomConfirmationViewModel(
             outcome.exceptionOrNull()?.let { e ->
                 logger.e("Failed to invite $peerPublicKey to ${localChatRoom.chatRoom.id}", e)
                 isActionPending.value = false
-                addMemberToChatRoomConfirmationUIState =
-                    AddMemberToChatRoomConfirmationUIState.Error("Couldn't send the invite. Please try again.")
+                // A key package on the wrong profile is the one failure the member can
+                // fix, so it is shown as itself rather than as "try again".
+                addMemberToChatRoomConfirmationUIState = AddMemberToChatRoomConfirmationUIState.Error(
+                    (e as? MarmotKeyPackageProfileException)?.message
+                        ?: "Couldn't send the invite. Please try again."
+                )
                 return@launch
             }
 

@@ -15,9 +15,13 @@ import to.curare.compose.database.model.MarmotGroupEvent
 import to.curare.compose.database.model.MarmotInnerEvent
 import to.curare.compose.database.model.MarmotInnerEvent.Companion.disappearingExpiration
 import to.curare.compose.database.model.MarmotKeyPackage
+import to.curare.compose.database.model.MarmotRouting
+import to.curare.compose.managers.MarmotGroupFactory
+import to.curare.compose.nostr.MarmotProfile
 import to.curare.compose.database.model.MarmotRetainedEpochSecret
 import to.curare.compose.database.model.NostrEvent
 import to.curare.compose.database.model.Participant
+import to.curare.compose.exceptions.MarmotKeyPackageProfileException
 import to.curare.compose.exceptions.MarmotMissingChatGroupException
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.extensions.exporterSecret
@@ -59,26 +63,33 @@ abstract class MarmotOutboundDao(
 ) {
     val logger = Logger.withTag(TAG)
 
+    /**
+     * @param creator the room's creator. Its private key is needed when new rooms are
+     *   on the current profile -- see [MarmotGroupFactory]; a legacy room needs only
+     *   the public half, which is all a read-only identity has.
+     */
     @Transaction
     open suspend fun createMlsDirectMessageChatRoom(
         name: String? = null,
         description: String? = null,
-        userPublicKey: HexKey,
+        creator: KeyPair,
         peerPublicKey: HexKey,
         peerKeyPackage: MarmotKeyPackage,
-        relays: List<String> = Relays.DefaultDMRelayList.map { it.url }
+        relays: List<String> = Relays.DefaultDMRelayList.map { it.url },
+        profile: MarmotProfile = MarmotProfile.DEFAULT_FOR_NEW_ROOMS,
     ): String {
+        val userPublicKey = creator.pubKey.toHexKey()
         val nostrGroupId = RandomInstance.bytes(32).toHexKey()
-        val mlsGroup = MlsGroup.create(
-            identity = userPublicKey.hexToByteArray(),
-            initialExtensions = listOf(
-                MarmotGroupData.bootstrap(
-                    nostrGroupId = nostrGroupId,
-                    creatorPubKey = userPublicKey,
-                    outboxRelays = relays,
-                ).toExtension()
-            )
+        val created = MarmotGroupFactory.create(
+            creator = creator,
+            roomId = nostrGroupId,
+            name = name,
+            description = description,
+            adminPublicKeys = listOf(userPublicKey),
+            relays = relays,
+            profile = profile,
         )
+        val mlsGroup = created.group
 
         // Save Chat Room
         //
@@ -98,6 +109,10 @@ abstract class MarmotOutboundDao(
         database.chatRoomDao().upsert(
             chatRoom
         )
+        // The address the room's traffic travels under, which on the current
+        // profile is not its id. Recorded before the invite, whose commit is the
+        // first thing stamped with it.
+        database.marmotRoutingDao().upsert(MarmotRouting(routingId = created.routingId, chatRoomId = chatRoom.id))
 
         // Save Participants...
         database.participantDao().upsert(
@@ -117,7 +132,7 @@ abstract class MarmotOutboundDao(
 
         // Invite peer...
         inviteMember(
-            nostrGroupId = nostrGroupId,
+            chatRoomId = nostrGroupId,
             mlsGroup = mlsGroup,
             userPublicKey = userPublicKey,
             peerPublicKey = peerPublicKey,
@@ -165,7 +180,7 @@ abstract class MarmotOutboundDao(
         )
 
         inviteMember(
-            nostrGroupId = localChatRoom.chatRoom.id,
+            chatRoomId = localChatRoom.chatRoom.id,
             mlsGroup = mlsGroup,
             userPublicKey = localChatRoom.chatRoom.userPublicKey,
             peerPublicKey = peerPublicKey,
@@ -338,7 +353,7 @@ abstract class MarmotOutboundDao(
             // transcript line instead, so its answer is what says whether this peer
             // was reached -- a runCatching here would see nothing to catch.
             val delivered = deliveryWelcome(
-                nostrGroupId = localChatRoom.chatRoom.id,
+                chatRoomId = localChatRoom.chatRoom.id,
                 userPublicKey = localChatRoom.chatRoom.userPublicKey,
                 welcomeBytes = welcomeBytes,
                 peerKeyPackageEventId = peerKeyPackage.id,
@@ -450,7 +465,7 @@ abstract class MarmotOutboundDao(
     }
 
     private suspend fun inviteMember(
-        nostrGroupId: HexKey,
+        chatRoomId: HexKey,
         mlsGroup: MlsGroup,
         userPublicKey: HexKey,
         peerPublicKey: HexKey,
@@ -458,6 +473,9 @@ abstract class MarmotOutboundDao(
         relays: List<String> = Relays.DefaultDMRelayList.map { it.url },
     ) {
         logger.d("inviteMember: $peerPublicKey")
+        // What the commit's kind:445 is stamped with: the room's address, which on
+        // the current profile is not its id. See MarmotRouting.
+        val routingId = database.marmotRoutingDao().activeRoutingIdFor(chatRoomId)
 
         // Read before `addMember` advances the tree. A group holding only its
         // creator has nobody to tell about the commit -- no other member exists, and
@@ -492,6 +510,16 @@ abstract class MarmotOutboundDao(
             "KeyPackage credential identity does not match memberPubKey"
         }
 
+        // The library refuses this too, at addMember, naming extension and proposal
+        // numbers. Refused here first with a reason the member can act on: in a
+        // current-profile room a leaf from an older build is the one failure that
+        // is theirs to fix.
+        if (!MarmotGroupFactory.leafFits(mlsGroup, keyPackage)) {
+            throw MarmotKeyPackageProfileException(
+                "${memberName(peerPublicKey)}'s key package is from an older Marmot profile; ask them to update"
+            )
+        }
+
         // Say so now, not when the Welcome eventually goes out. On the deferred path
         // that is a relay round trip away and may never happen at all, and until this
         // line existed the room showed nothing whatsoever in the meantime -- an invite
@@ -500,7 +528,7 @@ abstract class MarmotOutboundDao(
         // transaction, so an invite that does not survive `addMember` leaves no claim
         // that it did.
         announceMembership(
-            chatRoomId = nostrGroupId,
+            chatRoomId = chatRoomId,
             userPublicKey = userPublicKey,
             messageType = ChatMessage.TYPE_MEMBER_INVITED,
             content = "Invited ${memberName(peerPublicKey)} to the group",
@@ -513,7 +541,7 @@ abstract class MarmotOutboundDao(
 
         database.marmotRetainedEpochSecretDao().insert(
             MarmotRetainedEpochSecret(
-                chatRoomId = nostrGroupId,
+                chatRoomId = chatRoomId,
                 epoch = retainedBefore.epoch,
                 senderDataSecret = retainedBefore.senderDataSecret,
                 encryptionSecret = retainedBefore.encryptionSecret,
@@ -525,7 +553,7 @@ abstract class MarmotOutboundDao(
         // Trim retained epochs out of the retention window...
         val defenestratableMarmotRetainedEpochSecrets = database.marmotRetainedEpochSecretDao()
             .getDefenestratableMarmotRetainedEpochSecretForChatRoomId(
-                chatRoomId = nostrGroupId,
+                chatRoomId = chatRoomId,
                 epochCutOffPoint = retainedBefore.epoch - EPOCH_RETENTION_WINDOW.toLong()
             )
         logger.d("Defenestratable Retained Epochs: ${defenestratableMarmotRetainedEpochSecrets.map { it.epoch }}")
@@ -537,7 +565,7 @@ abstract class MarmotOutboundDao(
             // Send welcome event to participant
             commitResult.welcomeBytes?.let { welcomeBytes ->
                 deliveryWelcome(
-                    nostrGroupId = nostrGroupId,
+                    chatRoomId = chatRoomId,
                     userPublicKey = userPublicKey,
                     welcomeBytes = welcomeBytes,
                     peerKeyPackageEventId = peerKeyPackage.id,
@@ -555,7 +583,7 @@ abstract class MarmotOutboundDao(
 
             val template = GroupEvent.build(
                 encryptedContentBase64 = encryptedContent,
-                nostrGroupId = nostrGroupId
+                nostrGroupId = routingId
             )
 
             val ephemeralSigner = NostrSignerInternal(KeyPair())
@@ -581,7 +609,7 @@ abstract class MarmotOutboundDao(
                     publicKey = commitEvent.pubKey,
                     userPublicKey = userPublicKey,
                     expiresAt = commitEvent.expiration()?.let { Instant.fromEpochSeconds(it) },
-                    chatRoomId = nostrGroupId,
+                    chatRoomId = chatRoomId,
                     signature = commitEvent.sig
                 )
             )
@@ -591,7 +619,7 @@ abstract class MarmotOutboundDao(
                 MarmotCommitResult.from(
                     commitEventId = commitEvent.id,
                     commitResult = commitResult,
-                    chatRoomId = nostrGroupId,
+                    chatRoomId = chatRoomId,
                     userPublicKey = userPublicKey,
                     peerKeyPackageEventId = peerKeyPackage.id,
                     isOneMemberInitialGroupCreation = isOneMemberInitialGroupCreation,
@@ -622,7 +650,7 @@ abstract class MarmotOutboundDao(
      * Welcome that never went out.
      */
     suspend fun deliveryWelcome(
-        nostrGroupId: HexKey,
+        chatRoomId: HexKey,
         userPublicKey: HexKey,
         welcomeBytes: ByteArray,
         peerKeyPackageEventId: HexKey,
@@ -640,7 +668,9 @@ abstract class MarmotOutboundDao(
                 createdAt = createdAt.epochSeconds,
                 keyPackageEventId = peerKeyPackageEventId,
                 relays = relays.map { NormalizedRelayUrl(it) },
-                nostrGroupId = nostrGroupId,
+                // The hint a joiner checks against the group's own routing component:
+                // the room's address, not its id.
+                nostrGroupId = database.marmotRoutingDao().activeRoutingIdFor(chatRoomId),
             )
             // Compute welcomeEventId
             val welcomeEventId = EventHasher.hashId(
@@ -658,7 +688,7 @@ abstract class MarmotOutboundDao(
                 GiftWrapPayload(
                     id = welcomeEventId,
                     publicKey = userPublicKey,
-                    chatRoomId = nostrGroupId,
+                    chatRoomId = chatRoomId,
                     kind = welcomeEvent.kind,
                     tags = welcomeEvent.tags,
                     content = welcomeEvent.content,
@@ -696,7 +726,7 @@ abstract class MarmotOutboundDao(
                 // Welcome it rides behind.
                 ChronicleManager.sendTo(
                     database = database,
-                    chatRoomId = nostrGroupId,
+                    chatRoomId = chatRoomId,
                     userPublicKey = userPublicKey,
                     recipient = marmotKeyPackage.publicKey,
                 )
@@ -712,7 +742,7 @@ abstract class MarmotOutboundDao(
             // taking the invite's transaction down over a line about it.
             runCatching {
                 announceInviteFailed(
-                    chatRoomId = nostrGroupId,
+                    chatRoomId = chatRoomId,
                     userPublicKey = userPublicKey,
                     peerPublicKey = database.marmotKeyPackageDao()
                         .getMarmotKeyPackageById(peerKeyPackageEventId)?.publicKey,
@@ -826,7 +856,7 @@ abstract class MarmotOutboundDao(
         // never carried one either.
         val template = GroupEvent.build(
             encryptedContentBase64 = encryptedContent,
-            nostrGroupId = localChatRoom.chatRoom.id,
+            nostrGroupId = localChatRoom.routingId,
             createdAt = createdAt,
         ) {
             if (expirationTime != null) expiration(expirationTime)

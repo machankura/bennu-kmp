@@ -1,5 +1,6 @@
 package to.curare.compose.ui.view.model
 
+import to.curare.compose.nostr.MarmotProfile
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -13,6 +14,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import to.curare.compose.database.model.Profile
 import to.curare.compose.database.model.types.ChatRoomType
 import to.curare.compose.extensions.toHex
+import to.curare.compose.managers.MarmotGroupFactory
 import to.curare.compose.managers.MarmotGroupName
 import to.curare.compose.nostr.Relays
 import to.curare.compose.repository.ChatRepository
@@ -23,9 +25,6 @@ import to.curare.compose.ui.composable.navigation.routes.ImplementationPendingRo
 import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.view.state.SelectChatRoomTypeUIState
 import co.touchlab.kermit.Logger
-import com.vitorpamplona.quartz.marmot.mip01Groups.MarmotGroupData
-import com.vitorpamplona.quartz.marmot.mls.crypto.Ed25519
-import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
@@ -228,36 +227,27 @@ class SelectChatRoomTypeViewModel(
         // convention is applied here as well as there.
         val groupName = MarmotGroupName.of(name)
 
-        // Stamp initial metadata via the shared factory so UI + CLI stay
-        // byte-identical. Bake the MarmotGroupData extension into the
-        // epoch-0 GroupContext directly (see `MarmotManager.createGroup`)
-        // so later invitees receive a pre-populated group from the
-        // welcome and never have to chase an undecryptable bootstrap
-        // commit that predates their membership.
-        val metadata = MarmotGroupData.bootstrap(
-            nostrGroupId = gid,
-            creatorPubKey = keyPair.pubKey.toHexKey(),
-            outboxRelays = Relays.DefaultDMRelayList.map { it.url },
-            name = groupName,
-            description = description.orEmpty()
-        )
-
-        val extras = listOf(metadata.toExtension())
-
-        val signingKeyPair = Ed25519.generateKeyPair()
-//      TODO: Use nostrPrivateKey  Ed25519.publicFromPrivate(privateKey).let { ed25519pubKey ->
-//            Ed25519KeyPair(privateKey, ed25519pubKey)
-//        }
-        val group = MlsGroup.create(keyPair.pubKey, signingKeyPair.privateKey, extras)
-
         viewModelScope.launch(Dispatchers.IO) {
+            // The group's initial state is baked into the epoch-0 GroupContext so later
+            // invitees receive a pre-populated group from the Welcome and never have to
+            // chase an undecryptable bootstrap commit that predates their membership.
+            // Which profile that state is on is the factory's decision, not this
+            // screen's -- see MarmotGroupFactory.
+            val created = MarmotGroupFactory.create(
+                creator = keyPair,
+                roomId = gid,
+                name = groupName,
+                description = description,
+                adminPublicKeys = listOf(keyPair.pubKey.toHexKey()),
+                relays = Relays.DefaultDMRelayList.map { it.url },
+            )
+            val group = created.group
+
             val localChatRoom = chatRepository.getOrCreateChatRoom(
-                // Key the room on the Marmot `nostr_group_id` baked into the group's
-                // 0xF2EE extension, NOT on `MlsGroup`'s own randomly generated groupId —
-                // they are unrelated 32-byte values. GroupEvents are h-tagged with the
-                // room id, while every inbound path (and the invitee's own join) resolves
-                // rooms by nostrGroupId, so using the MLS id meant the two sides could
-                // never see each other's events.
+                // Key the room on its Marmot id, NOT on `MlsGroup`'s own randomly
+                // generated groupId — they are unrelated 32-byte values. Every inbound
+                // path (and the invitee's own join) resolves rooms to this id, through
+                // the routing address recorded below.
                 chatRoomId = gid,
                 activeUserPublicKey = keyPair.pubKey.toHexKey(),
                 relayHint = null,
@@ -265,6 +255,9 @@ class SelectChatRoomTypeViewModel(
                 description = description,
                 mlsGroupState = group.saveState().encodeTls().toHex()
             )
+            if (localChatRoom != null) {
+                chatRepository.recordMarmotRouting(chatRoomId = gid, routingId = created.routingId)
+            }
 
             if (localChatRoom == null) {
                 withContext(Dispatchers.Main) {
@@ -395,7 +388,7 @@ class SelectChatRoomTypeViewModel(
             memberPublicKeys.map { publicKey ->
                 async {
                     publicKey to withTimeoutOrNull(KEY_PACKAGE_LOOKUP_TIMEOUT) {
-                        chatRepository.observeMarmotKeyPackageForPublicKey(publicKey)
+                        chatRepository.observeMarmotKeyPackageForPublicKey(publicKey, MarmotProfile.DEFAULT_FOR_NEW_ROOMS)
                             .filterNotNull()
                             .first()
                     }

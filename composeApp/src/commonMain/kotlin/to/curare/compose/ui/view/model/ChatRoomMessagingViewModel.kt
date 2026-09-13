@@ -1,5 +1,6 @@
 package to.curare.compose.ui.view.model
 
+import to.curare.compose.nostr.MarmotProfile
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -102,7 +103,7 @@ class ChatRoomMessagingViewModel(
 
             combine(
                 nostrRepository.observeProfileWithPublicKey(chatRoomId),
-                chatRepository.observeMarmotKeyPackageForPublicKey(chatRoomId)
+                chatRepository.observeMarmotKeyPackageForPublicKey(chatRoomId, MarmotProfile.DEFAULT_FOR_NEW_ROOMS)
             ) { profile, keyPackage -> profile to keyPackage }
                 .distinctUntilChanged()
                 .collect { (profile, keyPackageEvent) ->

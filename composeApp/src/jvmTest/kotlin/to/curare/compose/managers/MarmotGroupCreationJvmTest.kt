@@ -19,6 +19,10 @@ import to.curare.compose.database.model.NostrEvent
 import to.curare.compose.database.model.Profile
 import to.curare.compose.database.repository.DatabaseChatRepository
 import to.curare.compose.extensions.toHex
+import to.curare.compose.nostr.MarmotProfile
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
+import kotlin.time.Clock
 
 /**
  * What the device that *creates* a room knows about it afterwards.
@@ -160,5 +164,114 @@ class MarmotGroupCreationJvmTest {
         db.profileDao().upsert(
             Profile(publicKey = publicKey, userName = "member", nostrEventId = nostrEventId)
         )
+    }
+
+    // ---- The current profile ---------------------------------------------------
+
+    /**
+     * docs/marmot-v2.md, Phase 4. The room's id is still the derived key; the group's
+     * routing address is minted apart from it and recorded; and the group's own
+     * description names the room, so a joiner keys it as this device does.
+     */
+    @Test
+    fun `a current-profile room keeps its derived id and gets a routing address of its own`(): Unit = runBlocking {
+        seedProfile(user)
+
+        val outcome = MarmotGroupCreation.create(
+            database = db,
+            chatRepository = repository,
+            groupId = groupId,
+            name = "#Ekklesia",
+            purpose = "Admins of Ekklesia.",
+            adminPublicKeys = setOf(user),
+            userPublicKey = user,
+            keyPair = keyPair,
+            profile = MarmotProfile.CURRENT,
+        )
+        assertIs<MarmotGroupCreation.Outcome.Created>(outcome)
+
+        val room = assertNotNull(db.chatRoomDao().findChatRoomById(groupId), "the room is not keyed on the derived id")
+        val group = assertNotNull(room.chatRoom.toMlsGroup())
+        assertTrue(group.currentGroupState().isCurrentProfile, "the group is not on the current profile")
+        assertNull(group.currentMarmotData(), "a current-profile group must carry no 0xF2EE")
+
+        // The address is not the identity.
+        val routing = assertNotNull(db.marmotRoutingDao().findByChatRoomId(groupId).singleOrNull(), "no routing row")
+        assertEquals(groupId, routing.chatRoomId)
+        assertNotEquals(groupId, routing.routingId)
+        assertEquals(routing.routingId, group.routingId())
+        assertEquals(routing.routingId, group.currentNostrGroupId())
+        assertEquals(listOf(routing.routingId), room.routingIds)
+
+        // And the group says which room it is, so a joiner agrees with us.
+        assertEquals(groupId, group.roomId())
+        assertEquals(setOf(user), group.currentAdminIdentities())
+        assertNotNull(room.localParticipants.firstOrNull { it.participant.participantPublicKey == user }?.participant?.adminAt)
+    }
+
+    @Test
+    fun `a legacy room is addressed by its own id, unchanged`(): Unit = runBlocking {
+        seedProfile(user)
+
+        MarmotGroupCreation.create(
+            database = db,
+            chatRepository = repository,
+            groupId = groupId,
+            name = "#Ekklesia",
+            purpose = "Admins of Ekklesia.",
+            adminPublicKeys = setOf(user),
+            userPublicKey = user,
+            keyPair = keyPair,
+            profile = MarmotProfile.LEGACY,
+        )
+
+        val room = assertNotNull(db.chatRoomDao().findChatRoomById(groupId))
+        val group = assertNotNull(room.chatRoom.toMlsGroup())
+        assertEquals(groupId, group.routingId())
+        assertEquals(groupId, group.roomId())
+        assertEquals(listOf(groupId), room.routingIds)
+        assertEquals(groupId, room.routingId)
+    }
+
+    /**
+     * The inbound side of the split: a kind:445 arrives under the routing address and
+     * has to land in the room the address belongs to. Its content is nothing the
+     * group can read, which files it as undecryptable -- what matters is which room.
+     */
+    @Test
+    fun `a group event under the routing address is filed in the room`(): Unit = runBlocking {
+        seedProfile(user)
+        MarmotGroupCreation.create(
+            database = db,
+            chatRepository = repository,
+            groupId = groupId,
+            name = "#Ekklesia",
+            purpose = "Admins of Ekklesia.",
+            adminPublicKeys = setOf(user),
+            userPublicKey = user,
+            keyPair = keyPair,
+            profile = MarmotProfile.CURRENT,
+        )
+        val routingId = db.marmotRoutingDao().activeRoutingIdFor(groupId)
+
+        val eventId = "5".repeat(64)
+        db.nostrDao().storeNostrEvent(
+            nostrEvent = NostrEvent(
+                id = eventId,
+                pubKey = "6".repeat(64),
+                kind = 445,
+                tags = arrayOf(arrayOf("h", routingId)),
+                content = "bm90IGEgZ3JvdXAgZXZlbnQ=",
+                sig = "0".repeat(128),
+                createdAt = Clock.System.now(),
+            ),
+            relayURL = "wss://relay.example",
+            synchronizationRelayURLs = listOf("wss://relay.example"),
+            level = 0,
+            activeKeyPair = keyPair,
+        )
+
+        val filed = assertNotNull(db.marmotGroupEventDao().getMarmotGroupEventById(eventId), "the event was not filed")
+        assertEquals(groupId, filed.chatRoomId, "filed under the address rather than the room")
     }
 }

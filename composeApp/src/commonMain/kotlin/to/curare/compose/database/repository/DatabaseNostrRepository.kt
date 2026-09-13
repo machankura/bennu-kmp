@@ -531,7 +531,7 @@ class DatabaseNostrRepository(
 
                         logger.d("welcomeBytes: ${welcomeBytes.toHex()}")
                         val delivered = database.marmotOutboundDao().deliveryWelcome(
-                            nostrGroupId = marmotCommitResult.chatRoomId,
+                            chatRoomId = marmotCommitResult.chatRoomId,
                             userPublicKey = marmotCommitResult.userPublicKey,
                             welcomeBytes = welcomeBytes,
                             peerKeyPackageEventId = marmotCommitResult.peerKeyPackageEventId,
@@ -806,12 +806,14 @@ class DatabaseNostrRepository(
             NostrEventFilterQuery.NO_LIMIT
         }
 
-        val chatRoomIds = synchronizationFilter.marmotGroupChatRoomIds()
-        if (chatRoomIds != null) {
+        val routingIds = synchronizationFilter.marmotGroupChatRoomIds()
+        if (routingIds != null) {
             // Group messages live in their own table, which carries the NIP-40 expiry a relay
             // uses to decide whether it still serves the event, and an indexed chatRoomId
-            // rather than a scan of the tags JSON.
+            // rather than a scan of the tags JSON. The filter names routing addresses, as a
+            // relay indexes them; the table is keyed by room, so each is resolved first.
             logger.d("getMarmotGroupEvents($applyLimits): $synchronizationFilter")
+            val chatRoomIds = routingIds.map { database.marmotRoutingDao().chatRoomIdFor(it) }.distinct().toTypedArray()
             return database.nostrEventDao().getMarmotGroupEvents(
                 chatRoomIds = chatRoomIds,
                 since = synchronizationFilter.since ?: GENESIS_AT,

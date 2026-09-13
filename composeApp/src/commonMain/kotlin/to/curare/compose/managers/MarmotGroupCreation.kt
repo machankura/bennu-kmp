@@ -1,9 +1,7 @@
 package to.curare.compose.managers
 
 import co.touchlab.kermit.Logger
-import com.vitorpamplona.quartz.marmot.mip01Groups.MarmotGroupData
-import com.vitorpamplona.quartz.marmot.mls.crypto.Ed25519
-import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
+import to.curare.compose.nostr.MarmotProfile
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import kotlinx.coroutines.async
@@ -113,14 +111,15 @@ object MarmotGroupCreation {
         keyPair: KeyPair,
         path: List<Long> = SharedKeyDerivation.MARMOT_ADMIN_GROUP_PATH,
         parentChatRoomId: HexKey? = null,
-        keyPackageLookupTimeout: Long = KEY_PACKAGE_LOOKUP_TIMEOUT
+        keyPackageLookupTimeout: Long = KEY_PACKAGE_LOOKUP_TIMEOUT,
+        profile: MarmotProfile = MarmotProfile.DEFAULT_FOR_NEW_ROOMS,
     ): Outcome {
         chatRepository.getChatRoomByIdentifier(groupId)?.let { return Outcome.Existing(it) }
 
         val groupName = MarmotGroupName.of(name)
 
         val peers = adminPublicKeys.filterNot { it == userPublicKey }
-        val keyPackages = keyPackagesFor(chatRepository, peers, keyPackageLookupTimeout)
+        val keyPackages = keyPackagesFor(chatRepository, peers, keyPackageLookupTimeout, profile)
 
         val missing = keyPackages.filter { it.second == null }.map { it.first }
         if (missing.isNotEmpty()) {
@@ -134,26 +133,24 @@ object MarmotGroupCreation {
 
         val description = SharedKeyDerivation.describe(purpose = purpose, path = path)
 
-        // Built directly rather than through MarmotGroupData.bootstrap, which
-        // hardcodes a single admin.
-        val metadata = MarmotGroupData(
-            nostrGroupId = groupId,
+        // On whichever profile new rooms are on. The room id is the derived key
+        // either way; on the current profile the group's routing address is minted
+        // apart from it and the id rides in the description, so a joiner keys the
+        // room as this device does. See MarmotGroupFactory and MarmotRoomIdentity.
+        val created = MarmotGroupFactory.create(
+            creator = keyPair,
+            roomId = groupId,
             name = groupName,
             description = description,
-            adminPubkeys = adminPublicKeys.toList(),
-            relays = Relays.DefaultDMRelayList.map { it.url }
+            adminPublicKeys = adminPublicKeys,
+            relays = Relays.DefaultDMRelayList.map { it.url },
+            profile = profile,
         )
+        val group = created.group
 
-        val signingKeyPair = Ed25519.generateKeyPair()
-        val group = MlsGroup.create(
-            keyPair.pubKey,
-            signingKeyPair.privateKey,
-            listOf(metadata.toExtension())
-        )
-
-        // Keyed on the Marmot nostrGroupId, not MlsGroup's own groupId: they are
-        // unrelated 32-byte values, and every inbound path resolves rooms by the
-        // former.
+        // Keyed on the room id, not MlsGroup's own groupId and not the routing
+        // address: they are unrelated 32-byte values, and every inbound path resolves
+        // rooms to this one.
         val localChatRoom = chatRepository.getOrCreateChatRoom(
             chatRoomId = groupId,
             activeUserPublicKey = userPublicKey,
@@ -162,6 +159,8 @@ object MarmotGroupCreation {
             description = description,
             mlsGroupState = group.saveState().encodeTls().toHex()
         ) ?: return Outcome.Failed("Couldn't create the group. Please try again.")
+
+        chatRepository.recordMarmotRouting(chatRoomId = groupId, routingId = created.routingId)
 
         if (parentChatRoomId != null) {
             // Written after the room exists rather than passed into its creation,
@@ -254,12 +253,13 @@ object MarmotGroupCreation {
     suspend fun keyPackagesFor(
         chatRepository: ChatRepository,
         publicKeys: List<HexKey>,
-        timeout: Long = KEY_PACKAGE_LOOKUP_TIMEOUT
+        timeout: Long = KEY_PACKAGE_LOOKUP_TIMEOUT,
+        profile: MarmotProfile = MarmotProfile.DEFAULT_FOR_NEW_ROOMS,
     ): List<Pair<HexKey, MarmotKeyPackage?>> = coroutineScope {
         publicKeys.map { publicKey ->
             async {
                 publicKey to withTimeoutOrNull(timeout) {
-                    chatRepository.observeMarmotKeyPackageForPublicKey(publicKey)
+                    chatRepository.observeMarmotKeyPackageForPublicKey(publicKey, profile)
                         .filterNotNull()
                         .first()
                 }

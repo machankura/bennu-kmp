@@ -41,6 +41,7 @@ import to.curare.compose.database.dao.MarmotOutboundDao
 import to.curare.compose.database.dao.MarmotGroupEventDao
 import to.curare.compose.database.dao.MarmotInnerEventDao
 import to.curare.compose.database.dao.MarmotKeyPackageBundleDao
+import to.curare.compose.database.dao.MarmotRoutingDao
 import to.curare.compose.database.dao.MarmotKeyPackageDao
 import to.curare.compose.database.dao.MarmotRetainedEpochSecretDao
 import to.curare.compose.database.dao.MentionDao
@@ -93,6 +94,7 @@ import to.curare.compose.database.model.MarmotGroupEvent
 import to.curare.compose.database.model.MarmotInnerEvent
 import to.curare.compose.database.model.MarmotKeyPackage
 import to.curare.compose.database.model.MarmotKeyPackageBundle
+import to.curare.compose.database.model.MarmotRouting
 import to.curare.compose.database.model.MarmotRetainedEpochSecret
 import to.curare.compose.database.model.Mention
 import to.curare.compose.database.model.NegentropySynchronizeRequest
@@ -158,6 +160,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         MarmotInnerEvent::class,
         MarmotKeyPackage::class,
         MarmotKeyPackageBundle::class,
+        MarmotRouting::class,
         MarmotRetainedEpochSecret::class,
         Mention::class,
         NegentropySynchronizeRequest::class,
@@ -177,7 +180,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 21,
+    version = 22,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -329,6 +332,14 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // is what a room picks by. Rows from before read back null, which every
         // reader takes as legacy -- what they were.
         AutoMigration(from = 20, to = 21),
+        // v22 adds MarmotRouting: the address a room's kind:445 traffic is carried
+        // under, separate from the room's id (docs/marmot-v2.md, Phase 4). A
+        // current-profile room this app creates mints a random routing id -- the
+        // room's own id is a derived key, which v2's routing component says must
+        // never be the address -- and every reader keyed on the `h` tag resolves it
+        // through this table. No rows are backfilled: a room with none is addressed
+        // by its own id, which is what every room before the table was.
+        AutoMigration(from = 21, to = 22),
     ]
 )
 @ColumnTypeConverters(CurareConverters::class)
@@ -397,6 +408,7 @@ abstract class CurareDatabase: RoomDatabase() {
     abstract fun marmotInnerEventDao(): MarmotInnerEventDao
 
     abstract fun marmotKeyPackageBundleDao(): MarmotKeyPackageBundleDao
+    abstract fun marmotRoutingDao(): MarmotRoutingDao
 
     abstract fun marmotKeyPackageDao(): MarmotKeyPackageDao
 

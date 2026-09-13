@@ -6,6 +6,7 @@ import to.curare.compose.database.model.GroupKeyState
 import to.curare.compose.database.model.GroupSignedEvent
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import to.curare.compose.database.model.MarmotKeyPackage
+import to.curare.compose.nostr.MarmotProfile
 import to.curare.compose.managers.SharedKeyDerivation
 import to.curare.compose.managers.MarmotGroupCreation
 import to.curare.compose.managers.SubgroupManager
@@ -201,9 +202,23 @@ interface ChatRepository {
 
     suspend fun getChatMessageRelayForPublicKey(publicKey: HexKey): ChatMessageRelayListEvent?
 
-    suspend fun getMarmotKeyPackageForPublicKey(publicKey: HexKey): MarmotKeyPackage?
+    /**
+     * A peer's usable KeyPackage for a room on [roomProfile].
+     *
+     * A legacy room takes the newest of any profile -- both shapes fit it. A
+     * current-profile room takes the newest current-profile package or none: the
+     * legacy one is deliberately the newest a peer publishes while they publish both,
+     * and cannot join a current-profile room. See docs/marmot-v2.md, Phase 3.
+     */
+    suspend fun getMarmotKeyPackageForPublicKey(
+        publicKey: HexKey,
+        roomProfile: MarmotProfile = MarmotProfile.LEGACY,
+    ): MarmotKeyPackage?
 
-    suspend fun observeMarmotKeyPackageForPublicKey(publicKey: HexKey): Flow<MarmotKeyPackage?>
+    suspend fun observeMarmotKeyPackageForPublicKey(
+        publicKey: HexKey,
+        roomProfile: MarmotProfile = MarmotProfile.LEGACY,
+    ): Flow<MarmotKeyPackage?>
 
     /**
      * Creates a NIP-17 group: participants and a room, no MLS group. Membership is
@@ -223,6 +238,13 @@ interface ChatRepository {
         peerPublicKey: HexKey,
         peerKeyPackage: MarmotKeyPackage
     ): String
+
+    /**
+     * Record that [chatRoomId]'s kind:445 traffic travels under [routingId]. On the
+     * legacy profile the two are one value; on the current profile the address is
+     * minted at random and this is what ties it back. See `MarmotRouting`.
+     */
+    suspend fun recordMarmotRouting(chatRoomId: HexKey, routingId: HexKey)
 
     suspend fun inviteMember(
         localChatRoom: LocalChatRoom,
@@ -413,11 +435,11 @@ interface ChatRepository {
                 return null
             }
 
-            override suspend fun getMarmotKeyPackageForPublicKey(publicKey: HexKey): MarmotKeyPackage? {
+            override suspend fun getMarmotKeyPackageForPublicKey(publicKey: HexKey, roomProfile: MarmotProfile): MarmotKeyPackage? {
                 TODO("Not yet implemented")
             }
 
-            override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: HexKey): Flow<MarmotKeyPackage?> {
+            override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: HexKey, roomProfile: MarmotProfile): Flow<MarmotKeyPackage?> {
                 TODO("Not yet implemented")
             }
 
@@ -439,6 +461,8 @@ interface ChatRepository {
             ): String {
                 TODO("Not yet implemented")
             }
+
+            override suspend fun recordMarmotRouting(chatRoomId: HexKey, routingId: HexKey) = Unit
 
             override suspend fun inviteMember(
                 localChatRoom: LocalChatRoom,

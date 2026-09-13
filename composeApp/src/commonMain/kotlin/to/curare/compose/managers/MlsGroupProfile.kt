@@ -24,11 +24,26 @@ import to.curare.compose.extensions.toHex
  */
 
 /**
- * The id this group's rooms are keyed on: the Marmot `nostr_group_id` from either
- * profile, or -- for a group that has no Marmot state, which only a test builds --
- * the MLS group id, which is what every caller fell back to before.
+ * The id this group's room is keyed on.
+ *
+ * A current-profile room this app created names its room id in its profile
+ * description -- see [MarmotRoomIdentity] -- because its `nostr_group_id` is a
+ * routing address, not an identity. Every other group is keyed on its
+ * `nostr_group_id`, from whichever profile carries it: a legacy room's derived or
+ * random id, or the only id a room made by another client has. A group with neither,
+ * which only a test builds, falls back to the MLS group id as every caller did before.
  */
-fun MlsGroup.roomId(): HexKey = currentNostrGroupId() ?: groupId.toHex()
+fun MlsGroup.roomId(): HexKey =
+    MarmotRoomIdentity.parse(currentGroupState().profile?.description)
+        ?: currentNostrGroupId()
+        ?: groupId.toHex()
+
+/**
+ * The `h` tag this group's kind:445 traffic carries: its `nostr_group_id` from either
+ * profile, which for a current-profile room is a random address and for a legacy one
+ * is the room id itself. Same fallback as [roomId] for a group with no Marmot state.
+ */
+fun MlsGroup.routingId(): HexKey = currentNostrGroupId() ?: groupId.toHex()
 
 /** The group's display name, or null when it has none or it is blank. */
 fun MlsGroup.roomName(): String? =
