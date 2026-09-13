@@ -11,6 +11,7 @@ import to.curare.compose.nostr.curated.CuratedFieldType
 import to.curare.compose.nostr.curated.CuratedSchema
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.curated.CuratedSchemaProblem
+import to.curare.compose.nostr.curated.CuratedSchemaTemplate
 import to.curare.compose.nostr.curated.CuratedVisibility
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
@@ -25,9 +26,10 @@ import kotlin.time.Instant
 /**
  * The decisions the schema editor makes that nothing else can check.
  *
- * **What a new list starts as.** The two fields every list has and the group's
- * own relays, so that what the member sees is what the group will sign rather
- * than what `CuratedSchema.normalized` will quietly add.
+ * **What a new list starts as.** Its template's fields and rules -- the two
+ * fields every list has, when no shape was chosen -- and the group's own relays,
+ * so that what the member sees is what the group will sign rather than what
+ * `CuratedSchema.normalized` will quietly add.
  *
  * **What cannot be taken away.** A field writing to `d` or `title` cannot be
  * removed, because the event would only grow it back -- so the editor has to
@@ -58,11 +60,12 @@ class EditGroupCuratedSchemaViewModelJvmTest {
         relays = listOf("wss://relay.one.example"),
     )
 
-    private fun viewModel(identifier: String? = null) = EditGroupCuratedSchemaViewModel(
+    private fun viewModel(identifier: String? = null, template: String? = null) = EditGroupCuratedSchemaViewModel(
         chatRoomId = chatRoomId,
         activeUserPublicKey = "a".repeat(64),
         relayHint = null,
         identifier = identifier,
+        template = template,
         initialEditGroupCuratedSchemaUIState = EditGroupCuratedSchemaUIState.Loading,
         chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
         frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
@@ -123,8 +126,42 @@ class EditGroupCuratedSchemaViewModelJvmTest {
     }
 
     @Test
+    fun `a new schema from a template starts at the template's fields and rules`() {
+        val viewModel = viewModel(template = CuratedSchemaTemplate.Links.key)
+        viewModel.seedWorkingCopy(newSchema())
+
+        assertEquals(CuratedSchemaTemplate.Links.fields, viewModel.fields.toList())
+        assertEquals(CuratedSchemaTemplate.Links.requireAny, viewModel.requireAny.toList())
+        // The identifier is the template's: derived, with its rule in the hint.
+        assertTrue(viewModel.isMandatory(viewModel.fields[0]))
+        assertTrue(viewModel.fields[0].config.hint.orEmpty().endsWith("[rule:link-or-title]"))
+        // What the template does not decide is as any new list's.
+        assertEquals(CuratedVisibility.Public, viewModel.visibility)
+        assertEquals(listOf("wss://relay.one.example"), viewModel.relays)
+        assertEquals(emptyList(), viewModel.suggesters)
+
+        // And the draft it makes is a usable schema as it stands, so a member
+        // who fills in the identity and presses the button proposes the shape.
+        val draft = viewModel.draft("links", "Link suggestion", "Links", "Things worth a look.", "", "")
+        assertTrue(draft.isUsable())
+        assertEquals(listOf(listOf("link", "body")), draft.requireAny)
+    }
+
+    @Test
+    fun `a template key this build does not know starts at the two fields every list has`() {
+        val viewModel = viewModel(template = "gallery")
+        viewModel.seedWorkingCopy(newSchema())
+
+        assertEquals(CuratedSchemaTemplate.Custom.fields, viewModel.fields.toList())
+        assertEquals(listOf("d", "title"), viewModel.fields.map { it.tag() })
+        assertEquals(emptyList(), viewModel.requireAny)
+    }
+
+    @Test
     fun `an existing schema starts as itself, and its relays are its own`() {
-        val viewModel = viewModel("films")
+        // A template beside an identifier is ignored: an edit starts from the
+        // schema the group signed, whatever shape the route also names.
+        val viewModel = viewModel("films", template = CuratedSchemaTemplate.Catalogue.key)
         viewModel.seedWorkingCopy(editing())
 
         assertEquals(films.fields, viewModel.fields.toList())

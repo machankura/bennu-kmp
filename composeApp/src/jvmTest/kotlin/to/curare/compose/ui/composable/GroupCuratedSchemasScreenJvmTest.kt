@@ -22,6 +22,7 @@ import to.curare.compose.ui.composable.navigation.routes.BroadcastGroupSignedEve
 import to.curare.compose.ui.composable.navigation.routes.CuratedSuggestionListRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupCuratedSchemaRoute
 import to.curare.compose.ui.composable.navigation.routes.Route
+import to.curare.compose.ui.composable.navigation.routes.SelectCuratedSchemaTemplateRoute
 import to.curare.compose.ui.composable.widgets.ProvideSnackbarHost
 import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.view.state.GroupCuratedSchemasUIState
@@ -33,8 +34,8 @@ import kotlin.test.assertTrue
 /**
  * The schemas of the lists the group curates on their own screen: one card per
  * list, most recently signed first, each with its queue and its broadcast, and
- * two ways into the editor -- the card for a revision, the button for a new
- * list -- for a member holding a share.
+ * two ways on -- the card into the editor for a revision, the button into the
+ * template picker for a new list -- for a member holding a share.
  */
 @OptIn(ExperimentalTestApi::class)
 class GroupCuratedSchemasScreenJvmTest {
@@ -129,26 +130,29 @@ class GroupCuratedSchemasScreenJvmTest {
                 activeUserPublicKey = activeUserPublicKey,
                 chatRoomId = chatRoomId,
                 relayHint = null,
-                identifier = "books"
+                identifier = "books",
+                // A revision starts from the schema itself, not from a shape.
+                template = null
             ),
             opened
         )
     }
 
     @Test
-    fun `the button opens the editor on no schema at all`() {
+    fun `the button opens the template picker, not the editor`() {
         var opened: Route? = null
 
         render(state(schemas = listOf(films)), onNavigateToRoute = { opened = it }) {
             onNodeWithText("Add schema").performClick()
         }
 
+        // A new list has a shape to choose before it has a form to fill, and
+        // the picker is what opens the editor, on the shape chosen there.
         assertEquals(
-            EditGroupCuratedSchemaRoute(
+            SelectCuratedSchemaTemplateRoute(
                 activeUserPublicKey = activeUserPublicKey,
                 chatRoomId = chatRoomId,
-                relayHint = null,
-                identifier = null
+                relayHint = null
             ),
             opened
         )
@@ -189,7 +193,7 @@ class GroupCuratedSchemasScreenJvmTest {
         }
 
         assertEquals(
-            EditGroupCuratedSchemaRoute(activeUserPublicKey, chatRoomId, relayHint = null, identifier = null),
+            SelectCuratedSchemaTemplateRoute(activeUserPublicKey, chatRoomId, relayHint = null),
             opened
         )
     }
