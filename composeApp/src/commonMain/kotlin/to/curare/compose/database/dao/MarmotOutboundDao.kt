@@ -34,6 +34,10 @@ import to.curare.compose.nostr.MarmotDirectMessage
 import to.curare.compose.nostr.Relays
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.marmot.foundation.appEvents.MarmotAppEvent
+import com.vitorpamplona.quartz.marmot.appComponents.AppComponentIds
+import com.vitorpamplona.quartz.marmot.mls.group.MlsGroupManager
+import com.vitorpamplona.quartz.marmot.mls.messages.CommitResult
+import com.vitorpamplona.quartz.marmot.protocolCore.LocalOutboundGate
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageUtils
 import com.vitorpamplona.quartz.marmot.mip01Groups.MarmotGroupData
 import com.vitorpamplona.quartz.marmot.mip02Welcome.WelcomeEvent
@@ -659,69 +663,316 @@ abstract class MarmotOutboundDao(
                 )
             }
         } else {
-            // CommitEvent...
-            val encryptedContent = encryptedCommitEvent(
-                mlsGroup,
-                commitBytes = commitResult.framedCommitBytes,
-                exporterKey = commitResult.preCommitExporterSecret
+            publishCommit(
+                chatRoomId = chatRoomId,
+                routingId = routingId,
+                userPublicKey = userPublicKey,
+                commitResult = commitResult,
+                peerKeyPackageEventId = peerKeyPackage.id,
+                obligationId = obligationId,
+                relays = relays,
             )
+        }
+    }
 
-            val template = GroupEvent.build(
-                encryptedContentBase64 = encryptedContent,
-                nostrGroupId = routingId
+    /**
+     * Puts a commit this device made on the wire: the kind:445, its rows, the
+     * [MarmotCommitResult] a relay's OK is keyed on, and the broadcast requests.
+     *
+     * [obligationId] is the publish obligation the commit is the outbound half of
+     * (null for a legacy room's, which is already applied), and
+     * [peerKeyPackageEventId] the invitee's package, or [MarmotCommitResult.NO_INVITEE]
+     * for a commit that invites nobody. Outer-encrypted with the pre-commit exporter
+     * secret in [commitResult], the key the members still at that epoch hold.
+     */
+    private suspend fun publishCommit(
+        chatRoomId: HexKey,
+        routingId: HexKey,
+        userPublicKey: HexKey,
+        commitResult: CommitResult,
+        peerKeyPackageEventId: HexKey,
+        obligationId: HexKey?,
+        relays: List<String>,
+    ): GroupEvent {
+        val encryptedContent = GroupEventEncryption.encrypt(
+            commitResult.framedCommitBytes,
+            commitResult.preCommitExporterSecret,
+        )
+
+        val template = GroupEvent.build(
+            encryptedContentBase64 = encryptedContent,
+            nostrGroupId = routingId
+        )
+
+        val ephemeralSigner = NostrSignerInternal(KeyPair())
+        val commitEvent: GroupEvent = ephemeralSigner.sign(template)
+
+        database.nostrEventDao().upsert(
+            NostrEvent(
+                id = commitEvent.id,
+                createdAt = Instant.fromEpochSeconds(commitEvent.createdAt),
+                content = commitEvent.content,
+                sig = commitEvent.sig,
+                tags = commitEvent.tags,
+                kind = commitEvent.kind,
+                pubKey = commitEvent.pubKey
             )
+        )
 
-            val ephemeralSigner = NostrSignerInternal(KeyPair())
-            val commitEvent: GroupEvent = ephemeralSigner.sign(template)
+        database.marmotGroupEventDao().upsert(
+            MarmotGroupEvent(
+                id = commitEvent.id,
+                createdAt = Instant.fromEpochSeconds(commitEvent.createdAt),
+                encryptedContent = commitEvent.encryptedContent(),
+                publicKey = commitEvent.pubKey,
+                userPublicKey = userPublicKey,
+                expiresAt = commitEvent.expiration()?.let { Instant.fromEpochSeconds(it) },
+                chatRoomId = chatRoomId,
+                signature = commitEvent.sig
+            )
+        )
 
-            database.nostrEventDao().upsert(
-                NostrEvent(
-                    id = commitEvent.id,
-                    createdAt = Instant.fromEpochSeconds(commitEvent.createdAt),
-                    content = commitEvent.content,
-                    sig = commitEvent.sig,
-                    tags = commitEvent.tags,
-                    kind = commitEvent.kind,
-                    pubKey = commitEvent.pubKey
+        // Save commitResult... in case we need to broadcast welcomeEvent after relay acknowledgement...
+        database.marmotCommitResultDao().upsert(
+            MarmotCommitResult.from(
+                commitEventId = commitEvent.id,
+                commitResult = commitResult,
+                chatRoomId = chatRoomId,
+                userPublicKey = userPublicKey,
+                peerKeyPackageEventId = peerKeyPackageEventId,
+                isOneMemberInitialGroupCreation = false,
+                createdAt = Instant.fromEpochSeconds(commitEvent.createdAt),
+                obligationId = obligationId,
+            )
+        )
+
+        // Broadcast commitment so other members get it...
+        database.broadcastNostrEventRequestDao().insert(
+            relays.map {
+                BroadcastNostrEventRequest(
+                    nostrEventId = commitEvent.id,
+                    relayURL = it
                 )
-            )
+            }
+        )
 
-            database.marmotGroupEventDao().upsert(
-                MarmotGroupEvent(
-                    id = commitEvent.id,
-                    createdAt = Instant.fromEpochSeconds(commitEvent.createdAt),
-                    encryptedContent = commitEvent.encryptedContent(),
-                    publicKey = commitEvent.pubKey,
-                    userPublicKey = userPublicKey,
-                    expiresAt = commitEvent.expiration()?.let { Instant.fromEpochSeconds(it) },
-                    chatRoomId = chatRoomId,
-                    signature = commitEvent.sig
-                )
-            )
+        return commitEvent
+    }
 
-            // Save commitResult... in case we need to broadcast welcomeEvent after relay acknowledgement...
-            database.marmotCommitResultDao().upsert(
-                MarmotCommitResult.from(
-                    commitEventId = commitEvent.id,
-                    commitResult = commitResult,
-                    chatRoomId = chatRoomId,
-                    userPublicKey = userPublicKey,
-                    peerKeyPackageEventId = peerKeyPackage.id,
-                    isOneMemberInitialGroupCreation = isOneMemberInitialGroupCreation,
-                    createdAt = Instant.fromEpochSeconds(commitEvent.createdAt),
-                    obligationId = obligationId,
-                )
+    /**
+     * A commit into an established current-profile room, prepared on a clone,
+     * recorded as an obligation and put on the wire; applied when a relay accepts
+     * it. The shape every governance change below shares. See docs/marmot-v2.md,
+     * Phase 6.
+     *
+     * @param stage the change, prepared by the manager on a clone.
+     */
+    private suspend fun publishGatedCommit(
+        localChatRoom: LocalChatRoom,
+        relays: List<String> = Relays.DefaultDMRelayList.map { it.url },
+        stage: suspend (MlsGroupManager, HexKey) -> MlsGroupManager.StagedCommit,
+    ): GroupEvent {
+        val engine = database.marmotEngine
+        val routingId = localChatRoom.routingId
+        engine.groupFor(routingId)
+            ?: throw MarmotMissingChatGroupException("No live group for ${localChatRoom.chatRoom.id}")
+        if (!engine.gate.canPrepareLocalCommit(routingId)) {
+            throw MarmotCommitPendingException(
+                "An earlier change to this room is still waiting for a relay to accept it; try again in a moment"
             )
+        }
+        val staged = stage(engine.groupManager, routingId)
+        val obligation = engine.gate.prepare(
+            groupId = routingId,
+            staged = staged,
+            outboundBytes = staged.result.framedCommitBytes,
+            recipientScope = relays,
+        )
+        return publishCommit(
+            chatRoomId = localChatRoom.chatRoom.id,
+            routingId = routingId,
+            userPublicKey = localChatRoom.chatRoom.userPublicKey,
+            commitResult = staged.result,
+            peerKeyPackageEventId = MarmotCommitResult.NO_INVITEE,
+            obligationId = obligation.obligationId,
+            relays = relays,
+        )
+    }
 
-            // Broadcast commitment so other members get it...
-            database.broadcastNostrEventRequestDao().insert(
-                relays.map {
-                    BroadcastNostrEventRequest(
-                        nostrEventId = commitEvent.id,
-                        relayURL = it
-                    )
-                }
+    /**
+     * Commits whatever proposals are staged in a current-profile room -- a member's
+     * `SelfRemove`, typically -- if this device is an admin and one is pending. An
+     * admin's device does this on receipt, as the library expects, so a leaver is
+     * out of the tree without anyone pressing anything. Nothing to do otherwise.
+     */
+    open suspend fun commitStagedProposals(localChatRoom: LocalChatRoom) {
+        if (localChatRoom.chatRoom.marmotProfile() != MarmotProfile.CURRENT) return
+        val engine = database.marmotEngine
+        val routingId = localChatRoom.routingId
+        val group = engine.groupFor(routingId) ?: return
+        if (!group.isLocalAdmin() || !engine.groupManager.hasPendingProposals(routingId)) return
+        if (!engine.gate.canPrepareLocalCommit(routingId)) return
+
+        publishGatedCommit(localChatRoom) { manager, id -> manager.stageCommit(id) }
+    }
+
+    /**
+     * Removes [memberPublicKey] from a current-profile room, as an admin.
+     *
+     * Nothing is captioned here: the member's row goes, and the line saying they
+     * left is written, when the commit is applied -- on this device from the OK, on
+     * every other from the commit -- so every device says the same thing at the
+     * same point. The library's admin-depletion guard refuses a commit that would
+     * leave no admin in the tree.
+     */
+    @Transaction
+    open suspend fun removeMember(localChatRoom: LocalChatRoom, memberPublicKey: HexKey) {
+        require(localChatRoom.chatRoom.marmotProfile() == MarmotProfile.CURRENT) { "Only a current-profile room can remove a member" }
+        val group = database.marmotEngine.groupFor(localChatRoom.routingId)
+            ?: throw MarmotMissingChatGroupException("No live group for ${localChatRoom.chatRoom.id}")
+        val leafIndex = group.members()
+            .firstOrNull { (_, leaf) -> (leaf.credential as? Credential.Basic)?.identity?.toHexKey() == memberPublicKey }
+            ?.first
+            ?: throw IllegalArgumentException("$memberPublicKey is not in the group")
+
+        publishGatedCommit(localChatRoom) { manager, id -> manager.stageRemoveMember(id, leafIndex) }
+    }
+
+    /**
+     * Disbands a current-profile room, as an admin.
+     *
+     * Two commits when the group predates the lifecycle component -- one that
+     * enables disbanding, then the disband itself -- and one otherwise. The gate is
+     * raised first and is durable: a disband that is only in memory is lost by the
+     * crash between raising it and publishing the commit. The second step, where
+     * there is one, is taken by [continueDisband] when the first is accepted.
+     */
+    @Transaction
+    open suspend fun disband(localChatRoom: LocalChatRoom) {
+        require(localChatRoom.chatRoom.marmotProfile() == MarmotProfile.CURRENT) { "Only a current-profile room can be disbanded" }
+        val engine = database.marmotEngine
+        val routingId = localChatRoom.routingId
+        val group = engine.groupFor(routingId)
+            ?: throw MarmotMissingChatGroupException("No live group for ${localChatRoom.chatRoom.id}")
+        require(group.isLocalAdmin()) { "Only an admin can disband the group" }
+        if (!engine.gate.canPrepareLocalCommit(routingId)) {
+            throw MarmotCommitPendingException(
+                "An earlier change to this room is still waiting for a relay to accept it; try again in a moment"
             )
+        }
+
+        engine.gate.raiseGate(routingId, LocalOutboundGate.DISBANDING)
+        continueDisband(localChatRoom)
+    }
+
+    /**
+     * The next disband commit for a room under the `DISBANDING` gate, or nothing
+     * when the group is disbanded already or a commit is still in flight.
+     */
+    open suspend fun continueDisband(localChatRoom: LocalChatRoom) {
+        val engine = database.marmotEngine
+        val routingId = localChatRoom.routingId
+        val group = engine.groupFor(routingId) ?: return
+        if (engine.gate.outboundGate(routingId) != LocalOutboundGate.DISBANDING) return
+        if (group.currentGroupState().isDisbanded) return
+        // The gate this device raised is the one it is acting under, so it is the
+        // one exception to "no commit while gated".
+        if (!engine.gate.canPrepareLocalCommit(routingId, ignoringGate = LocalOutboundGate.DISBANDING)) return
+
+        val lifecycleRequired = group.currentGroupState().requires(AppComponentIds.GROUP_LIFECYCLE_V1)
+        publishGatedCommitIgnoringGate(localChatRoom) { manager, id ->
+            if (lifecycleRequired) manager.stageDisband(id) else manager.stageEnableDisbanding(id)
+        }
+    }
+
+    /** [publishGatedCommit] for the device acting under a gate it raised itself. */
+    private suspend fun publishGatedCommitIgnoringGate(
+        localChatRoom: LocalChatRoom,
+        relays: List<String> = Relays.DefaultDMRelayList.map { it.url },
+        stage: suspend (MlsGroupManager, HexKey) -> MlsGroupManager.StagedCommit,
+    ): GroupEvent {
+        val engine = database.marmotEngine
+        val routingId = localChatRoom.routingId
+        val staged = stage(engine.groupManager, routingId)
+        val obligation = engine.gate.prepare(
+            groupId = routingId,
+            staged = staged,
+            outboundBytes = staged.result.framedCommitBytes,
+            recipientScope = relays,
+        )
+        return publishCommit(
+            chatRoomId = localChatRoom.chatRoom.id,
+            routingId = routingId,
+            userPublicKey = localChatRoom.chatRoom.userPublicKey,
+            commitResult = staged.result,
+            peerKeyPackageEventId = MarmotCommitResult.NO_INVITEE,
+            obligationId = obligation.obligationId,
+            relays = relays,
+        )
+    }
+
+    /**
+     * Leaves a current-profile room: a standalone `SelfRemove` proposal on the wire
+     * for an admin to commit, the local state dropped, the gate raised, and the
+     * room closed on this device.
+     *
+     * One-way. The proposal is a `PublicMessage` outer-encrypted with the epoch's
+     * exporter secret, which the manager hands back with the bytes; it is not a
+     * commit, so it waits on no relay -- there is no state of ours it would make
+     * canonical. A legacy room has no such proposal to send: its leave is the
+     * local flag and the line it always was.
+     */
+    @Transaction
+    open suspend fun leave(localChatRoom: LocalChatRoom, relays: List<String> = Relays.DefaultDMRelayList.map { it.url }) {
+        require(localChatRoom.chatRoom.marmotProfile() == MarmotProfile.CURRENT) { "Only a current-profile room leaves by proposal" }
+        val engine = database.marmotEngine
+        val routingId = localChatRoom.routingId
+        val group = engine.groupFor(routingId)
+            ?: throw MarmotMissingChatGroupException("No live group for ${localChatRoom.chatRoom.id}")
+
+        // The library refuses an admin's SelfRemove -- an admin self-demotes first --
+        // and the only admin cannot even do that without leaving the group ungoverned.
+        // Said here, before anything is raised or dropped, in words a person can act on.
+        if (group.isLocalAdmin()) {
+            throw IllegalStateException(
+                if (group.currentAdminIdentities().size > 1) "An admin cannot leave; hand over admin first"
+                else "The only admin cannot leave; make another member an admin, or disband the group"
+            )
+        }
+
+        engine.gate.raiseGate(routingId, LocalOutboundGate.LEAVING)
+        val (framedProposal, exporterSecret) = engine.groupManager.leaveGroup(routingId)
+
+        val template = GroupEvent.build(
+            encryptedContentBase64 = GroupEventEncryption.encrypt(framedProposal, exporterSecret),
+            nostrGroupId = routingId,
+        )
+        val proposalEvent: GroupEvent = NostrSignerInternal(KeyPair()).sign(template)
+        database.nostrEventDao().upsert(
+            NostrEvent(
+                id = proposalEvent.id,
+                createdAt = Instant.fromEpochSeconds(proposalEvent.createdAt),
+                content = proposalEvent.content,
+                sig = proposalEvent.sig,
+                tags = proposalEvent.tags,
+                kind = proposalEvent.kind,
+                pubKey = proposalEvent.pubKey,
+            )
+        )
+        database.broadcastNostrEventRequestDao().insert(
+            relays.map { BroadcastNostrEventRequest(nostrEventId = proposalEvent.id, relayURL = it) }
+        )
+
+        announceMembership(
+            chatRoomId = localChatRoom.chatRoom.id,
+            userPublicKey = localChatRoom.chatRoom.userPublicKey,
+            messageType = ChatMessage.TYPE_MEMBER_LEFT,
+            content = "You left the group",
+        )
+        // Re-read rather than copied: `leaveGroup` dropped the room's state through
+        // the store, and the row this function was handed still carries it.
+        database.chatRoomDao().findChatRoomById(localChatRoom.chatRoom.id)?.let { fresh ->
+            database.chatRoomDao().upsert(fresh.chatRoom.copy(leftGroupAt = Clock.System.now()))
         }
     }
 
@@ -838,16 +1089,6 @@ abstract class MarmotOutboundDao(
 
             return false
         }
-    }
-
-    private fun encryptedCommitEvent(
-        mlsGroup: MlsGroup,
-        commitBytes: ByteArray,
-        exporterKey: ByteArray? = null,
-    ): String {
-        val outerKey = exporterKey ?: mlsGroup.exporterSecret()
-
-        return GroupEventEncryption.encrypt(commitBytes, outerKey)
     }
 
     @Transaction

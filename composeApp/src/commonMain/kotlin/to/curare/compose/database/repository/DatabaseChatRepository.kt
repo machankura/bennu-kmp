@@ -687,6 +687,16 @@ class DatabaseChatRepository(
         localChatRoom: LocalChatRoom,
         onCompletion: () -> Unit
     ) {
+        // A current-profile room is left by a SelfRemove proposal the admins commit,
+        // the local state dropped and the room closed here -- see MarmotOutboundDao.leave.
+        // A legacy room, or one this device holds no state for, is left the way it
+        // always was: the flag, and a line.
+        if (localChatRoom.chatRoom.marmotProfile() == MarmotProfile.CURRENT && localChatRoom.chatRoom.leftGroupAt == null) {
+            database.marmotOutboundDao().leave(localChatRoom)
+            onCompletion.invoke()
+            return
+        }
+
         database.chatRoomDao().upsert(
             chatRoom = localChatRoom.chatRoom.copy(
                 leftGroupAt = Clock.System.now()
@@ -701,6 +711,14 @@ class DatabaseChatRepository(
         )
 
         onCompletion.invoke()
+    }
+
+    override suspend fun removeMember(localChatRoom: LocalChatRoom, memberPublicKey: HexKey) {
+        database.marmotOutboundDao().removeMember(localChatRoom, memberPublicKey)
+    }
+
+    override suspend fun disbandChatRoom(localChatRoom: LocalChatRoom) {
+        database.marmotOutboundDao().disband(localChatRoom)
     }
 
     override suspend fun softDeleteChatRoom(

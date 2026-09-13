@@ -1,5 +1,6 @@
 package to.curare.compose.database.repository
 
+import to.curare.compose.database.model.MarmotCommitResult
 import to.curare.compose.database.GENESIS_AT
 import to.curare.compose.database.model.BroadcastNostrEventRequest
 import to.curare.compose.database.model.NostrEvent
@@ -514,6 +515,10 @@ class DatabaseNostrRepository(
                 marmotCommitResult.obligationId?.let { obligationId ->
                     database.marmotEngine.confirmPublished(obligationId)
                 }
+
+                // A removal, a committed leave or a disband invites nobody, and so
+                // has no Welcome to send once it is applied.
+                if (marmotCommitResult.peerKeyPackageEventId == MarmotCommitResult.NO_INVITEE) return@let
 
                 if (marmotCommitResult.isOneMemberInitialGroupCreation.not()) {
                     logger.d("Deliver Welcome")

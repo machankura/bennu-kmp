@@ -83,6 +83,15 @@ data class MarmotCommitResult( // TODO: Rename this to GiftWrapPayload...
         const val TAG = "MarmotCommitResult"
 
         /**
+         * The `peerKeyPackageEventId` of a commit that invites nobody -- a removal, a
+         * committed leave, a disband. Such a commit still waits for a relay's OK to
+         * be applied, which is what this row is keyed for, and has no Welcome to
+         * send afterwards. The column is not nullable, and a blank is the one value
+         * no event id can be.
+         */
+        const val NO_INVITEE: HexKey = ""
+
+        /**
          * The persisted record of a commit, built from the [CommitResult] that produced it.
          *
          * The five payload fields are carried over from quartz verbatim -- same names, same

@@ -124,6 +124,15 @@ class MarmotEngine(
             preState = obligation.priorState,
         )
         logger.i("Commit ${obligationId.take(8)}… confirmed; ${obligation.groupId.take(8)}… is at epoch ${obligation.pendingState.groupContext.epoch}")
+
+        // The room follows the state it just gained -- a member removed, a group
+        // disbanded -- without a caption for what this device asked for itself,
+        // which was written when it asked. A disband that has a step left takes it.
+        val chatRoomId = database.marmotRoutingDao().chatRoomIdFor(obligation.groupId)
+        val localChatRoom = database.chatRoomDao().findChatRoomById(chatRoomId) ?: return
+        val group = groupManager.getGroup(obligation.groupId) ?: return
+        MarmotInboundManager.processGroupMembershipChanges(database, localChatRoom, group, announceAdditions = false)
+        database.marmotOutboundDao().continueDisband(localChatRoom)
     }
 
     /**

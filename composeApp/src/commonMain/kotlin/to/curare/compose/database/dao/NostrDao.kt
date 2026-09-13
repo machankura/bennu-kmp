@@ -1525,6 +1525,12 @@ abstract class NostrDao(
                     localChatRoom = localChatRoom
                 )
             }
+            // A member's standalone proposal -- their SelfRemove -- sits in the
+            // pool until an admin commits it. An admin's device does so on
+            // receipt; on any other device this does nothing.
+            is GroupEventResult.ProposalStaged -> {
+                database.marmotOutboundDao().commitStagedProposals(localChatRoom)
+            }
             else -> {
                 logger.i("No app logic to handle: $groupEventResult")
             }

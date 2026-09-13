@@ -322,6 +322,20 @@ interface ChatRepository {
         onCompletion: () -> Unit
     )
 
+    /**
+     * Removes [memberPublicKey] from a current-profile room this device administers:
+     * a commit through the publish gate, applied when a relay accepts it. See
+     * docs/marmot-v2.md, Phase 7.
+     */
+    suspend fun removeMember(localChatRoom: LocalChatRoom, memberPublicKey: HexKey)
+
+    /**
+     * Disbands a current-profile room this device administers. Absorbing: once the
+     * disband commit is applied nobody rejoins, and a replacement conversation is a
+     * new group.
+     */
+    suspend fun disbandChatRoom(localChatRoom: LocalChatRoom)
+
     suspend fun softDeleteChatRoom(
         chatRoom: ChatRoom,
         onCompletion: () -> Unit
@@ -520,6 +534,10 @@ interface ChatRepository {
             ) {
                 TODO("Not yet implemented")
             }
+
+            override suspend fun removeMember(localChatRoom: LocalChatRoom, memberPublicKey: HexKey) = Unit
+
+            override suspend fun disbandChatRoom(localChatRoom: LocalChatRoom) = Unit
 
             override suspend fun softDeleteChatRoom(
                 chatRoom: ChatRoom,

@@ -1,6 +1,7 @@
 package to.curare.compose.managers
 
 import to.curare.compose.database.CurareDatabase
+import to.curare.compose.database.model.ChatMessage
 import to.curare.compose.database.model.Participant
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.exceptions.MarmotMissingChatGroupException
@@ -109,10 +110,28 @@ object MarmotInboundManager {
         return null
     }
 
+    /**
+     * Brings the room's members into line with the group's tree after a commit, and
+     * says what changed.
+     *
+     * The lines are derived from the difference, never received -- see
+     * [ChatMessage.TYPE_MEMBER_ADDED]. [announceAdditions] is false for a commit this
+     * device made itself, whose invite lines were written when the invites were
+     * made. Departures are always captioned, on every device including the one that
+     * committed them: the caption is the state's, not the actor's.
+     *
+     * Two changes are about this device rather than the room. A commit that removed
+     * our own leaf, or that disbanded the group, ends the room for us: the line says
+     * so and `leftGroupAt` is set, which is what stops the subscriptions and greys
+     * the room out. Both are a terminal state on the other side too -- a removed
+     * member cannot decrypt the next epoch, and a disbanded group refuses every
+     * later event -- so nothing is lost by closing here.
+     */
     suspend fun processGroupMembershipChanges(
         database: CurareDatabase,
         localChatRoom: LocalChatRoom,
         mlsGroup: MlsGroup,
+        announceAdditions: Boolean = true,
     ) {
         logger.d("processGroupMembershipChanges")
         val adminPublicKeys = mlsGroup.currentAdminIdentities()
@@ -229,6 +248,58 @@ object MarmotInboundManager {
         database.participantDao().delete(excludedParticipants)
         database.participantDao().upsert(newParticipants)
         database.participantDao().upsert(graduatedAdmins)
+
+        val userPublicKey = localChatRoom.chatRoom.userPublicKey
+        val disbanded = mlsGroup.currentGroupState().isDisbanded
+        val removedUs = !mlsGroup.isLocalMember()
+
+        if (announceAdditions) {
+            newParticipants.forEach { participant ->
+                announceLine(database, localChatRoom, ChatMessage.TYPE_MEMBER_ADDED,
+                    "${memberName(database, participant.participantPublicKey)} joined the group")
+            }
+        }
+        excludedParticipants
+            .filterNot { it.participantPublicKey == userPublicKey }
+            // A disband removes everyone; one line for it below, not one per member.
+            .takeUnless { disbanded }
+            ?.forEach { participant ->
+                announceLine(database, localChatRoom, ChatMessage.TYPE_MEMBER_LEFT,
+                    "${memberName(database, participant.participantPublicKey)} left the group")
+            }
+
+        when {
+            disbanded -> announceLine(database, localChatRoom, ChatMessage.TYPE_GROUP_DISBANDED, "The group was disbanded")
+            removedUs -> announceLine(database, localChatRoom, ChatMessage.TYPE_MEMBER_LEFT, "You were removed from the group")
+        }
+        if ((disbanded || removedUs) && localChatRoom.chatRoom.leftGroupAt == null) {
+            database.chatRoomDao().upsert(localChatRoom.chatRoom.copy(leftGroupAt = Clock.System.now()))
+        }
+    }
+
+    private suspend fun memberName(database: CurareDatabase, publicKey: HexKey): String =
+        database.profileDao().getProfileByPublicKey(publicKey)?.humanReadableNameOrPubkey()
+            ?: publicKey.take(8)
+
+    /** A membership caption, this device's own account of what the group's state said. */
+    private suspend fun announceLine(
+        database: CurareDatabase,
+        localChatRoom: LocalChatRoom,
+        messageType: String,
+        content: String,
+    ) {
+        database.chatMessageDao().upsert(
+            ChatMessage(
+                content = content,
+                messageType = messageType,
+                chatRoomId = localChatRoom.chatRoom.id,
+                senderPublicKey = localChatRoom.chatRoom.userPublicKey,
+                isUserMessage = true,
+                giftWrapPayloadId = null,
+                marmotGroupEventId = null,
+                marmotInnerEventId = null,
+            )
+        )
     }
 
     suspend fun processGroupEvent(

@@ -137,6 +137,18 @@ sealed interface ChatRoomDetailUIState {
          * missing and what to do about it.
          */
         val canAddSubgroup: Boolean = false,
+        /**
+         * Whether this device administers a current-profile room: it may remove a
+         * member and disband the group, both commits through the publish gate. A
+         * legacy room has neither action, and a member who is not an admin has
+         * neither either. See docs/marmot-v2.md, Phase 7.
+         */
+        val canGovern: Boolean = false,
+        /**
+         * The group's lifecycle says it is over. Absorbing: nothing is sent into it
+         * and nobody rejoins, so every write entrance is hidden and the room says so.
+         */
+        val isDisbanded: Boolean = false,
     ): ChatRoomDetailUIState
 
     data class Error(

@@ -521,6 +521,26 @@ data class ChatMessage(
         const val TYPE_MEMBER_INVITE_FAILED = "memberInviteFailed"
 
         /**
+         * What the group's state said changed, as lines in the group's chat.
+         *
+         * Derived, never received. v2 spells these as kind `1210` system rows and
+         * is explicit that a row which arrives over the wire is one member's
+         * assertion, not a fact; a row derived from the commit this device applied
+         * cannot be forged by one member, and every device applying that commit
+         * derives the same one. So these are written by `processGroupMembershipChanges`
+         * from the difference between the room's members before a commit and after
+         * it, on every device that applies it -- and by the device that made the
+         * change, for what it did. See docs/marmot-v2.md, Phase 7.
+         *
+         * [TYPE_MEMBER_LEFT] covers a member who left and one an admin removed
+         * alike: the tree does not say which, and a line that guessed would be a
+         * caption no other device writes.
+         */
+        const val TYPE_MEMBER_ADDED = "memberAdded"
+        const val TYPE_MEMBER_LEFT = "memberLeft"
+        const val TYPE_GROUP_DISBANDED = "groupDisbanded"
+
+        /**
          * Every membership line, for the one check the transcript dispatches on.
          *
          * A type missing from here renders as a chat bubble -- silently, and looking
@@ -530,6 +550,9 @@ data class ChatMessage(
             TYPE_MEMBER_INVITED,
             TYPE_MEMBER_INVITE_SENT,
             TYPE_MEMBER_INVITE_FAILED,
+            TYPE_MEMBER_ADDED,
+            TYPE_MEMBER_LEFT,
+            TYPE_GROUP_DISBANDED,
         )
 
         const val TYPE_UNDECRYPTABLE_OUTER_LAYER = "undecryptableOuterLayer"
