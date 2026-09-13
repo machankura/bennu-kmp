@@ -1245,6 +1245,10 @@ fun CurareNavHost(
                     chatRoomId = route.chatRoomId,
                     relayHint = route.relayHint,
                     chatRepository = databaseChatRepository,
+                    // The pool itself, for "Broadcast all": the same send as the
+                    // broadcast screen's, for the same reason it does not go
+                    // through the queue. See `BroadcastGroupSignedEventViewModel`.
+                    publishTransport = synchronizationViewModel.relaysSocketManager,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
                     },
@@ -1399,9 +1403,10 @@ fun CurareNavHost(
                     relayHint = route.relayHint,
                     signedEventId = route.signedEventId,
                     chatRepository = databaseChatRepository,
-                    // The one screen handed the pool itself rather than a queue
-                    // to write to: a group-signed event must not become a
-                    // `NostrEvent` row, and the queue hangs off one. See
+                    // Handed the pool itself rather than a queue to write to,
+                    // as the entries screen is for its "Broadcast all": a
+                    // group-signed event must not become a `NostrEvent` row, and
+                    // the queue hangs off one. See
                     // `BroadcastGroupSignedEventViewModel`.
                     publishTransport = synchronizationViewModel.relaysSocketManager,
                     onNavigateBack = {

@@ -10,9 +10,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -21,25 +26,43 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import com.vitorpamplona.quartz.nip01Core.relay.normalizer.displayUrl
 import curare.composeapp.generated.resources.Res
+import curare.composeapp.generated.resources.accepted_by_every_relay_for_n_of_m_entries
+import curare.composeapp.generated.resources.accepted_by_n_of_m_relays
+import curare.composeapp.generated.resources.broadcast_all
 import curare.composeapp.generated.resources.curated_entries
 import curare.composeapp.generated.resources.in_list
+import curare.composeapp.generated.resources.no_relays_to_send_it_to
+import curare.composeapp.generated.resources.relay_and_answer
+import curare.composeapp.generated.resources.relay_sending
+import curare.composeapp.generated.resources.sending_entry_n_of_m
 import curare.composeapp.generated.resources.signed_by_the_group_on
 import curare.composeapp.generated.resources.suggested_by
 import curare.composeapp.generated.resources.this_group_has_not_accepted_anything_into_a_list_yet
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import org.jetbrains.compose.resources.stringResource
 import to.curare.compose.database.model.ChatRoom
 import to.curare.compose.database.model.GroupSignedEvent
+import to.curare.compose.database.model.NostrEvent
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.extensions.shortened
 import to.curare.compose.extensions.toFormattedTimeAndDateString
+import to.curare.compose.network.dto.RelayDTO
+import to.curare.compose.network.relays.EventPublishTransport
+import to.curare.compose.network.relays.NostrPublishResult
 import to.curare.compose.nostr.GroupCuratedEntry
 import to.curare.compose.nostr.GroupCuratedSchema
 import to.curare.compose.nostr.curated.CuratedEntry
@@ -59,11 +82,14 @@ import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.buttons.BroadcastButton
+import to.curare.compose.ui.composable.widgets.label
 import to.curare.compose.ui.theme.ConformancePreviews
 import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.spacing
 import to.curare.compose.ui.view.model.GroupCuratedEntriesViewModel
+import to.curare.compose.ui.view.model.GroupCuratedEntriesViewModel.BroadcastAllProgress
+import to.curare.compose.ui.view.model.GroupCuratedEntriesViewModel.EntryBroadcast
 import to.curare.compose.ui.view.state.GroupCuratedEntriesUIState
 import kotlin.time.Instant
 
@@ -72,9 +98,16 @@ import kotlin.time.Instant
  *
  * Pushed from its row on the group's screen, which counts the entries and
  * nothing more. This is where they are read: one card per entry with a
- * broadcast under it. No gate on either, because reading what the group
- * decided takes no share of the key, and neither does repeating its signature
- * to a relay.
+ * broadcast under it, and one button at the bottom that broadcasts all of
+ * them. No gate on any of it, because reading what the group decided takes
+ * no share of the key, and neither does repeating its signature to a relay.
+ *
+ * The two broadcasts differ in what the member sees first. The button under
+ * a card opens `BroadcastGroupSignedEventScreen`, where the relays are shown
+ * and can be changed before the send; the one at the bottom sends every
+ * entry straight to where that screen would have started, one after another,
+ * and says under each card what its relays answered. See
+ * `GroupCuratedEntriesViewModel.broadcastAll` for why one at a time.
  *
  * There is no way in to add one here, because an entry is accepted from the
  * queue it was suggested to, which is reached from its schema's card on the
@@ -89,6 +122,7 @@ fun GroupCuratedEntriesScreen(
     initialGroupCuratedEntriesUIState: GroupCuratedEntriesUIState =
         GroupCuratedEntriesUIState.Loading,
     chatRepository: ChatRepository,
+    publishTransport: EventPublishTransport,
     onNavigateToRoute: (Route) -> Unit,
     onNavigateBack: () -> Unit,
 ) {
@@ -97,6 +131,7 @@ fun GroupCuratedEntriesScreen(
             chatRoomId = chatRoomId,
             initialGroupCuratedEntriesUIState = initialGroupCuratedEntriesUIState,
             chatRepository = chatRepository,
+            publishTransport = publishTransport,
         )
     )
 
@@ -119,6 +154,53 @@ fun GroupCuratedEntriesScreen(
                 },
                 navigationIcon = { NavigateBackButton(onNavigateBack) }
             )
+        },
+        bottomBar = {
+            // Only over a list with something in it. The empty state already
+            // says why there is nothing to send, and a button that sends
+            // nothing under it would say the opposite.
+            val loaded = groupCuratedEntriesViewModel.groupCuratedEntriesUIState
+                as? GroupCuratedEntriesUIState.Loaded
+
+            if (loaded != null && loaded.groupCuratedEntries.isNotEmpty()) {
+                val canSend = !groupCuratedEntriesViewModel.isActionPending.value
+
+                // M3 gives a FAB no `enabled`, so borrow the disabled colours every
+                // other button in the app uses rather than inventing a shade here.
+                val buttonColors = ButtonDefaults.buttonColors()
+
+                BottomAppBar(
+                    actions = {},
+                    floatingActionButton = {
+                        ExtendedFloatingActionButton(
+                            modifier = if (canSend) {
+                                Modifier
+                            } else {
+                                // Looking unavailable is not being unavailable.
+                                Modifier.semantics { disabled() }
+                            },
+                            containerColor = if (canSend) {
+                                FloatingActionButtonDefaults.containerColor
+                            } else {
+                                buttonColors.disabledContainerColor
+                            },
+                            contentColor = if (canSend) {
+                                contentColorFor(FloatingActionButtonDefaults.containerColor)
+                            } else {
+                                buttonColors.disabledContentColor
+                            },
+                            onClick = {
+                                if (!canSend) return@ExtendedFloatingActionButton
+
+                                groupCuratedEntriesViewModel.broadcastAll()
+                            }
+                        ) {
+                            Icon(Icons.Default.CellTower, contentDescription = Decorative)
+                            Text(stringResource(Res.string.broadcast_all))
+                        }
+                    }
+                )
+            }
         }
     ) { padding ->
         ScreenStateTransition(groupCuratedEntriesViewModel.groupCuratedEntriesUIState) { uiState ->
@@ -162,18 +244,36 @@ fun GroupCuratedEntriesScreen(
                                 )
                             }
                         } else {
+                            // The last press of "Broadcast all", summed up, above
+                            // the cards that break it down. Persistent rather than
+                            // a snackbar, because it is the answer the member came
+                            // for and a snackbar would be gone before the last
+                            // card had been read.
+                            groupCuratedEntriesViewModel.broadcastAllProgress?.let { progress ->
+                                item(key = "broadcast-all-progress") {
+                                    BroadcastAllProgressLine(progress = progress)
+                                }
+                            }
+
                             items(
                                 items = state.groupCuratedEntries,
                                 key = { accepted -> accepted.signedEvent.id }
                             ) { accepted ->
-                                // The card and its broadcast as one item, so the
-                                // button stays under the entry it sends however
-                                // the list is arranged.
+                                // The card, what its relays answered, and its
+                                // broadcast as one item, so all three stay under
+                                // the entry they are about however the list is
+                                // arranged. The answer sits above the button
+                                // because the button is what a refusal calls for:
+                                // it opens the screen where the relay can be
+                                // changed and the send tried again.
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     GroupCuratedEntryCard(accepted = accepted)
+
+                                    groupCuratedEntriesViewModel.entryBroadcasts[accepted.signedEvent.id]
+                                        ?.let { EntryBroadcastLines(broadcast = it) }
 
                                     BroadcastButton(
                                         onClick = {
@@ -191,6 +291,106 @@ fun GroupCuratedEntriesScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Where "Broadcast all" has got to: which entry is out while the batch runs,
+ * and how many were accepted everywhere once it is done -- in the primary
+ * colour when that is all of them, and the error colour when the cards below
+ * have a refusal to show.
+ */
+@Composable
+private fun BroadcastAllProgressLine(progress: BroadcastAllProgress) {
+    Text(
+        text = when (progress) {
+            is BroadcastAllProgress.Sending ->
+                stringResource(Res.string.sending_entry_n_of_m, progress.entry, progress.total)
+            is BroadcastAllProgress.Done ->
+                stringResource(
+                    Res.string.accepted_by_every_relay_for_n_of_m_entries,
+                    progress.acceptedEverywhere,
+                    progress.total
+                )
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        color = when (progress) {
+            is BroadcastAllProgress.Sending -> MaterialTheme.colorScheme.onSurfaceVariant
+            is BroadcastAllProgress.Done -> if (progress.acceptedEverywhere == progress.total) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.error
+            }
+        },
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+/**
+ * What one entry's relays answered to "Broadcast all", under its card.
+ *
+ * The count first, in the words the one-event screen uses for its own; then
+ * one line per relay that did not say OK, in the relay's words, because
+ * "blocked: not on the allow list" is something a member can act on and a
+ * count of two out of three is not. A relay that said OK is in the count and
+ * nowhere else.
+ */
+@Composable
+private fun EntryBroadcastLines(broadcast: EntryBroadcast) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = MaterialTheme.spacing.relatedGap),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        when (broadcast) {
+            EntryBroadcast.Sending -> Text(
+                text = stringResource(Res.string.relay_sending),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            EntryBroadcast.NoRelays -> Text(
+                text = stringResource(Res.string.no_relays_to_send_it_to),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center
+            )
+
+            is EntryBroadcast.Sent -> {
+                Text(
+                    text = stringResource(
+                        Res.string.accepted_by_n_of_m_relays,
+                        broadcast.accepted,
+                        broadcast.asked
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (broadcast.isAcceptedEverywhere) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                    textAlign = TextAlign.Center
+                )
+
+                broadcast.refusals.forEach { (relay, outcome) ->
+                    Text(
+                        text = stringResource(
+                            Res.string.relay_and_answer,
+                            // The host rather than the whole URL, as the
+                            // one-event screen's rows: every relay here starts
+                            // `wss://`.
+                            relay.displayUrl(),
+                            outcome.label()
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }
@@ -357,6 +557,12 @@ private fun GroupCuratedEntriesScreenPreview() {
                     )
                 ),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
+                publishTransport = object : EventPublishTransport {
+                    override suspend fun publishEvent(
+                        nostrEvent: NostrEvent,
+                        relays: Set<RelayDTO>
+                    ): Flow<NostrPublishResult> = emptyFlow()
+                },
                 onNavigateToRoute = {},
                 onNavigateBack = {},
             )

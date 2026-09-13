@@ -52,6 +52,11 @@ import kotlin.time.Duration.Companion.milliseconds
  * event exactly as the group signed it -- the signature is the group's, so any
  * member holding the event can send it and no share of the key is needed.
  *
+ * The send itself, [sendToRelays], is also what the entries screen's "Broadcast
+ * all" uses, one entry after another and each to the relays [defaultRelaysFor]
+ * would have seeded here; what is this screen's is the list the member edits
+ * and the rows that show each relay's answer.
+ *
  * ### Why not the broadcast queue
  *
  * Everything the app publishes as itself goes through `BroadcastNostrEventRequest`,
@@ -87,8 +92,6 @@ class BroadcastGroupSignedEventViewModel(
         initialBroadcastGroupSignedEventUIState
     )
         private set
-
-    private val logger = Logger.withTag(TAG)
 
     val isActionPending: MutableState<Boolean> = mutableStateOf(false)
 
@@ -238,17 +241,15 @@ class BroadcastGroupSignedEventViewModel(
     /**
      * Sends [signedEvent] to every relay in the list and records what each said.
      *
-     * One call to the pool for the whole list, which opens a socket to any relay
-     * it does not hold and answers once per relay -- an OK, a rejection with the
-     * relay's reason, or the error that stopped it being asked. Each answer lands
-     * in [outcomes] as it arrives, so the rows fill in one by one rather than all
-     * at the end; a relay that has not answered when the whole thing runs out of
-     * time is marked so, which is different from having been refused.
+     * The send itself is [sendToRelays], which the entries screen's
+     * "Broadcast all" shares; what is this screen's is the state around it.
+     * Each answer lands in [outcomes] as it arrives, so the rows fill in one
+     * by one rather than all at the end, and [lastBroadcast] sums it up once
+     * every row has settled.
      *
-     * [lastBroadcast] sums it up once every row has settled. [onNoRelays] instead
-     * of a send to nobody: an empty list is a question rather than a mistake, and
-     * the pool would otherwise fall back to the *member's* relays, which is not
-     * what an empty list on this screen means.
+     * [onNoRelays] instead of a send to nobody: an empty list is a question
+     * rather than a mistake, and the pool would otherwise fall back to the
+     * *member's* relays, which is not what an empty list on this screen means.
      *
      * Returns the send, for a caller that has to wait for it, and null when
      * nothing was sent.
@@ -272,43 +273,13 @@ class BroadcastGroupSignedEventViewModel(
         outcomes.clear()
         targets.forEach { outcomes[it] = RelayOutcome.Sending }
 
-        val wireEvent = wireEventOf(signedEvent)
-
         return viewModelScope.launch(Dispatchers.IO) {
-            try {
-                withTimeout(BROADCAST_TIMEOUT) {
-                    publishTransport.publishEvent(
-                        nostrEvent = wireEvent,
-                        relays = targets.map { RelayDTO(url = it.url, read = false, write = true) }.toSet(),
-                    )
-                        // One answer per relay is all the pool ever gives, and the
-                        // flow underneath never completes on its own.
-                        .take(targets.size)
-                        .collect { result -> record(targets, result) }
-                }
-            } catch (e: TimeoutCancellationException) {
-                // Ordinary: a relay that never answers is what the timeout is
-                // for. The rows still marked as sending are settled below.
-                logger.w("Broadcast of ${signedEvent.id} ran out of time")
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                // The pool refused the whole call rather than one relay's part of
-                // it, so every row that was waiting gets the same answer.
-                logger.e("Broadcast of ${signedEvent.id} failed before any relay answered", e)
-                targets.forEach { relay ->
-                    if (outcomes[relay] == RelayOutcome.Sending) {
-                        outcomes[relay] = RelayOutcome.Failed(e.message ?: "Could not send")
-                    }
-                }
-            }
-
-            targets.forEach { relay ->
-                if (outcomes[relay] == RelayOutcome.Sending) outcomes[relay] = RelayOutcome.NoAnswer
+            val settled = sendToRelays(publishTransport, signedEvent, targets) { relay, outcome ->
+                outcomes[relay] = outcome
             }
 
             lastBroadcast = BroadcastSummary(
-                accepted = targets.count { outcomes[it] == RelayOutcome.Accepted },
+                accepted = settled.count { it.value == RelayOutcome.Accepted },
                 asked = targets.size,
             )
 
@@ -316,36 +287,10 @@ class BroadcastGroupSignedEventViewModel(
         }
     }
 
-    /**
-     * Files one relay's answer against the row that asked it.
-     *
-     * Matched by host rather than by string, because the pool names a relay by
-     * the URL it first opened a socket with, and that may carry a trailing slash
-     * this list's spelling does not.
-     */
-    private fun record(targets: List<NormalizedRelayUrl>, result: NostrPublishResult) {
-        val answered = NormalizedRelayUrl(result.relayUrl).displayUrl()
-        val relay = targets.firstOrNull { it.displayUrl() == answered } ?: run {
-            logger.w("Answer from ${result.relayUrl}, which was not asked")
-            return
-        }
-
-        val error = result.error
-        val ok = result.result as? NostrIncomingMessage.OkMessage
-
-        outcomes[relay] = when {
-            // The pool wraps a relay's ["OK", id, false, reason] in this one
-            // exception type and nothing else in it, so the message is the
-            // relay's reason in the relay's words.
-            error is NostrPublishException -> RelayOutcome.Rejected(error.message ?: "Rejected")
-            error != null -> RelayOutcome.Failed(error.message ?: "Could not send")
-            ok?.success == true -> RelayOutcome.Accepted
-            else -> RelayOutcome.Failed("No OK from the relay")
-        }
-    }
-
     companion object {
         private const val TAG = "BroadcastGroupSignedEventViewModel"
+
+        private val logger = Logger.withTag(TAG)
 
         /**
          * A ceiling on the whole broadcast, past the pool's own per-relay wait,
@@ -353,6 +298,103 @@ class BroadcastGroupSignedEventViewModel(
          * down forever. The same bound the queue drainer puts on one attempt.
          */
         val BROADCAST_TIMEOUT = (RelayPool.PUBLISH_TIMEOUT * 2).milliseconds
+
+        /**
+         * Sends [signedEvent] to [targets] and says what each relay answered.
+         *
+         * One call to the pool for the whole list, which opens a socket to any
+         * relay it does not hold and answers once per relay -- an OK, a
+         * rejection with the relay's reason, or the error that stopped it being
+         * asked. Each answer goes to [onOutcome] as it arrives, so a caller
+         * showing rows can fill them in one by one rather than all at the end;
+         * a relay that has not answered when the whole thing runs out of time
+         * is marked so, which is different from having been refused, and one
+         * the pool refused to ask at all is marked failed with the pool's reason.
+         *
+         * Returns once every relay has settled, with the answers in the order
+         * [targets] gave them. Shared by the one-event screen and the entries
+         * screen's "Broadcast all", so that what a relay's answer becomes is
+         * decided in one place.
+         */
+        suspend fun sendToRelays(
+            publishTransport: EventPublishTransport,
+            signedEvent: GroupSignedEvent,
+            targets: List<NormalizedRelayUrl>,
+            onOutcome: (NormalizedRelayUrl, RelayOutcome) -> Unit = { _, _ -> },
+        ): Map<NormalizedRelayUrl, RelayOutcome> {
+            val outcomes = mutableMapOf<NormalizedRelayUrl, RelayOutcome>()
+
+            fun settle(relay: NormalizedRelayUrl, outcome: RelayOutcome) {
+                outcomes[relay] = outcome
+                onOutcome(relay, outcome)
+            }
+
+            try {
+                withTimeout(BROADCAST_TIMEOUT) {
+                    publishTransport.publishEvent(
+                        nostrEvent = wireEventOf(signedEvent),
+                        relays = targets.map { RelayDTO(url = it.url, read = false, write = true) }.toSet(),
+                    )
+                        // One answer per relay is all the pool ever gives, and the
+                        // flow underneath never completes on its own.
+                        .take(targets.size)
+                        .collect { result ->
+                            outcomeOf(targets, result)?.let { (relay, outcome) -> settle(relay, outcome) }
+                        }
+                }
+            } catch (e: TimeoutCancellationException) {
+                // Ordinary: a relay that never answers is what the timeout is
+                // for. The relays still unanswered are settled below.
+                logger.w("Broadcast of ${signedEvent.id} ran out of time")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // The pool refused the whole call rather than one relay's part of
+                // it, so every relay that was waiting gets the same answer.
+                logger.e("Broadcast of ${signedEvent.id} failed before any relay answered", e)
+                targets.forEach { relay ->
+                    if (relay !in outcomes) settle(relay, RelayOutcome.Failed(e.message ?: "Could not send"))
+                }
+            }
+
+            targets.forEach { relay ->
+                if (relay !in outcomes) settle(relay, RelayOutcome.NoAnswer)
+            }
+
+            return targets.associateWith { outcomes.getValue(it) }
+        }
+
+        /**
+         * One relay's answer, against the relay that was asked.
+         *
+         * Matched by host rather than by string, because the pool names a relay
+         * by the URL it first opened a socket with, and that may carry a
+         * trailing slash the caller's spelling does not. Null for an answer
+         * from a relay nobody asked, which is logged and dropped.
+         */
+        private fun outcomeOf(
+            targets: List<NormalizedRelayUrl>,
+            result: NostrPublishResult,
+        ): Pair<NormalizedRelayUrl, RelayOutcome>? {
+            val answered = NormalizedRelayUrl(result.relayUrl).displayUrl()
+            val relay = targets.firstOrNull { it.displayUrl() == answered } ?: run {
+                logger.w("Answer from ${result.relayUrl}, which was not asked")
+                return null
+            }
+
+            val error = result.error
+            val ok = result.result as? NostrIncomingMessage.OkMessage
+
+            return relay to when {
+                // The pool wraps a relay's ["OK", id, false, reason] in this one
+                // exception type and nothing else in it, so the message is the
+                // relay's reason in the relay's words.
+                error is NostrPublishException -> RelayOutcome.Rejected(error.message ?: "Rejected")
+                error != null -> RelayOutcome.Failed(error.message ?: "Could not send")
+                ok?.success == true -> RelayOutcome.Accepted
+                else -> RelayOutcome.Failed("No OK from the relay")
+            }
+        }
 
         /**
          * The event as the pool wants it, and nothing more.

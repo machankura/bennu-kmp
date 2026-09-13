@@ -185,7 +185,14 @@ internal object GroupSignedWorkFixtures {
                 chatRoomId = chatRoomId,
                 publicKey = chatRoomId,
                 kind = CuratedEntryEvent.CANONICAL_KIND,
-                tags = arrayOf(arrayOf("d", identifier), arrayOf("title", title)),
+                // The root names the list, as a real entry's does: it is how
+                // the reading matched the entry to its schema, and how the
+                // broadcast finds the list's relays.
+                tags = arrayOf(
+                    arrayOf("a", list.coordinate(), "", "root"),
+                    arrayOf("d", identifier),
+                    arrayOf("title", title)
+                ),
                 content = "",
                 signature = "f".repeat(128),
                 createdAt = Instant.fromEpochSeconds(createdAt)
