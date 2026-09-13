@@ -2,18 +2,15 @@ package to.curare.compose.ui.composable
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.PersonSearch
-import androidx.compose.material3.Button
+import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
@@ -28,7 +25,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -58,6 +54,7 @@ import to.curare.compose.ui.composable.widgets.LocalCanSign
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.buttons.ExtendedFab
 import to.curare.compose.ui.composable.widgets.profile.ProfileAvatar
 import to.curare.compose.ui.theme.ConformancePreviews
 import to.curare.compose.ui.theme.CurareTheme
@@ -76,9 +73,13 @@ import to.curare.compose.ui.view.state.ProfilePreviewUIState.Readiness
  * where it has always been made, and this screen is popped under it, as the profile
  * detail is under a chat started from it.
  *
- * The button reads the state's readiness: a chat that exists opens, one that can be
- * started starts, and one that cannot yet says why under a disabled button rather
- * than twenty seconds into the next screen. See docs/npub-profile-preview.md.
+ * The action is the app's extended FAB, in the bottom bar where every screen's
+ * primary action goes, and it reads the state's readiness: a chat that exists opens,
+ * one that can be started starts, and one that cannot yet is disabled with the
+ * reason in the body above it rather than twenty seconds into the next screen. Hidden
+ * altogether, bar and all, for a read-only identity: a message is a gift wrap sealed
+ * with the sender's key, and there is nothing such an identity can do here but look.
+ * See docs/npub-profile-preview.md.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -105,6 +106,8 @@ fun ProfilePreviewScreen(
     // pasted, and the block is not a confirmation without them.
     val npub = remember(profilePublicKey) { profilePublicKey.hexToNpubHrp() }
 
+    val canSign = LocalCanSign.current
+
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
         topBar = {
@@ -113,8 +116,42 @@ fun ProfilePreviewScreen(
                 navigationIcon = { NavigateBackButton(onNavigateBack) },
             )
         },
+        bottomBar = {
+            // Read straight off the view model rather than inside the transition below:
+            // the bar is a slot of the scaffold, not of the content, and it exists only
+            // once there is a person to act on.
+            val state = profilePreviewViewModel.profilePreviewUIState
+            if (canSign && state is ProfilePreviewUIState.Loaded) {
+                BottomAppBar(
+                    floatingActionButton = {
+                        ChatAction(
+                            readiness = state.readiness,
+                            onOpenChat = { chatRoomId, relayHint ->
+                                onStartChat(
+                                    ChatRoomMessagingRoute(
+                                        activeUserPublicKey = activeUserPublicKey,
+                                        chatRoomId = chatRoomId,
+                                        relayHint = relayHint,
+                                    )
+                                )
+                            },
+                            onStartChat = {
+                                onStartChat(
+                                    ChatRoomMessagingRoute(
+                                        activeUserPublicKey = activeUserPublicKey,
+                                        chatRoomId = profilePublicKey,
+                                        relayHint = null,
+                                    )
+                                )
+                            },
+                        )
+                    },
+                    actions = {},
+                )
+            }
+        },
     ) { innerPadding ->
-        // The bar is constant, so the transition wraps the content alone. None of the
+        // The bars are constant, so the transition wraps the content alone. None of the
         // branches needs `ColumnScope`, which is the one thing that costs.
         ScreenStateTransition(profilePreviewViewModel.profilePreviewUIState) { uiState ->
             when (val state = uiState) {
@@ -141,30 +178,12 @@ fun ProfilePreviewScreen(
                     ) {
                         ProfileBlock(profile = state.profile, publicKey = profilePublicKey, npub = npub)
 
-                        // A message is a gift wrap, sealed with the sender's key. Not for a
-                        // read-only identity, which is shown the person and nothing to do.
-                        if (LocalCanSign.current) {
-                            ChatAction(
+                        // Why the button in the bar below is or is not pressable. Nothing
+                        // for a read-only identity: there is no button to explain.
+                        if (canSign) {
+                            ReadinessLine(
                                 name = state.profile.humanReadableNameOrPubkey(),
                                 readiness = state.readiness,
-                                onOpenChat = { chatRoomId, relayHint ->
-                                    onStartChat(
-                                        ChatRoomMessagingRoute(
-                                            activeUserPublicKey = activeUserPublicKey,
-                                            chatRoomId = chatRoomId,
-                                            relayHint = relayHint,
-                                        )
-                                    )
-                                },
-                                onStartChat = {
-                                    onStartChat(
-                                        ChatRoomMessagingRoute(
-                                            activeUserPublicKey = activeUserPublicKey,
-                                            chatRoomId = profilePublicKey,
-                                            relayHint = null,
-                                        )
-                                    )
-                                },
                                 onRetry = { profilePreviewViewModel.retry() },
                             )
                         }
@@ -266,62 +285,59 @@ private fun Npub(npub: String) {
 /**
  * The one thing to do about the person, and whether it can be done yet.
  *
- * A `Button`, not the bottom-bar `ExtendedFloatingActionButton` the invite
- * confirmation uses, because a FAB has no disabled state in M3 or in the API, and a
- * disabled button with the reason under it is what the action needs while the relays
- * are still answering: the action exists and is unavailable, which is what M3's
- * disabled state is for, and a screen that lost its only button would read as broken.
+ * The app's extended FAB, so that this screen's primary action is shaped where every
+ * other screen's is. Its `enabled` is what the readiness decides, and while the key
+ * package is still owed the icon's slot holds the indicator, as the two screens with an
+ * action out on the relays do.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ChatAction(
-    name: String,
     readiness: Readiness,
     onOpenChat: (chatRoomId: String, relayHint: String?) -> Unit,
     onStartChat: () -> Unit,
+) {
+    ExtendedFab(
+        label = stringResource(
+            if (readiness is Readiness.ExistingChat) Res.string.open_chat else Res.string.start_new_chat
+        ),
+        icon = {
+            if (readiness == Readiness.Checking) {
+                LoadingIndicator()
+            } else {
+                Icon(
+                    Icons.Default.Mail,
+                    // The label is beside it.
+                    contentDescription = Decorative,
+                )
+            }
+        },
+        enabled = readiness is Readiness.ExistingChat || readiness == Readiness.CanStartChat,
+        onClick = {
+            when (readiness) {
+                is Readiness.ExistingChat -> onOpenChat(readiness.chatRoomId, readiness.relayHint)
+                else -> onStartChat()
+            }
+        },
+    )
+}
+
+/**
+ * The reason the button below is or is not pressable: a supporting line, not a second
+ * message, and nothing at all when the answer is simply yes.
+ */
+@Composable
+private fun ReadinessLine(
+    name: String,
+    readiness: Readiness,
     onRetry: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap),
-    ) {
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = readiness is Readiness.ExistingChat || readiness == Readiness.CanStartChat,
-            onClick = {
-                when (readiness) {
-                    is Readiness.ExistingChat -> onOpenChat(readiness.chatRoomId, readiness.relayHint)
-                    else -> onStartChat()
-                }
-            },
-        ) {
-            Icon(
-                Icons.Default.Mail,
-                // The label is beside it.
-                contentDescription = Decorative,
-            )
-            Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
-            Text(
-                stringResource(
-                    if (readiness is Readiness.ExistingChat) Res.string.open_chat else Res.string.start_new_chat
-                )
-            )
-        }
-
-        // A supporting line, not a second message.
-        when (readiness) {
-            is Readiness.ExistingChat -> SupportingLine(stringResource(Res.string.you_already_have_a_chat_with_s, name))
-            Readiness.CanStartChat -> Unit
-            Readiness.Checking -> {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap),
-                ) {
-                    LoadingIndicator()
-                    SupportingLine(stringResource(Res.string.checking_whether_s_can_receive_messages_here, name))
-                }
-            }
-            Readiness.NotYetOnCurare -> {
+    when (readiness) {
+        is Readiness.ExistingChat -> SupportingLine(stringResource(Res.string.you_already_have_a_chat_with_s, name))
+        Readiness.CanStartChat -> Unit
+        Readiness.Checking -> SupportingLine(stringResource(Res.string.checking_whether_s_can_receive_messages_here, name))
+        Readiness.NotYetOnCurare -> {
+            Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
                 SupportingLine(stringResource(Res.string.s_hasn_t_set_up_messaging_on_curare_yet, name))
                 TextButton(onClick = onRetry) {
                     Text(stringResource(Res.string.try_again))

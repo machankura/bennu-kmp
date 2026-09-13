@@ -26,6 +26,7 @@ reasoning; where the implementation chose differently the table below says so:
 | `initiate()` "runs from a `LaunchedEffect`" | and is idempotent besides: a recomposition that calls it again opens no second collect, which the view-model test asserts |
 | a screenshot pass under `docs/material-design-conformance.md` | five PNGs from a throwaway `jvmTest` with `captureToImage`, looked at and deleted — the found, not-found, checking, not-yet-on-Curare and existing-chat states, at a phone's width |
 | Phase 2's screen with one repository | Phase 4 adds `chatRepository` to the screen, its host entry and its tests, as the plan said it would; the Phase 2 commit is the screen without it |
+| a `Button` under the block, "because a FAB has no disabled state in M3 or in the API" | **superseded on the way in**: `curated` gained `ExtendedFab` while this was built — every screen's bottom-bar action, with an `enabled` that borrows the disabled colours, marks the node disabled and drops the press — so the reason for the `Button` was gone before the branch merged. The action is that FAB in a `BottomAppBar`, the indicator in its icon slot while the key package is owed, and the reason line stays in the body above it |
 
 One thing found on the way that is in no phase: the dialog's `Dialog` renders inside
 the desktop test root, so `onNodeWithText` finds its field and its button without a
@@ -404,7 +405,8 @@ Button(onClick = {
 
 A `Button`, not the bottom-bar `ExtendedFloatingActionButton` the invite
 confirmation uses, because Phase 4 will disable it with a reason beside it, and a
-FAB has no disabled state in M3 or in the API.
+FAB has no disabled state in M3 or in the API. (Superseded before the merge — see the
+table at the top.)
 
 A read-only identity sees the block and no button. The screen is not reachable by
 one today — the sheet is behind `canSign` — but the route will be reachable from a
