@@ -28,7 +28,6 @@ import to.curare.compose.exceptions.MarmotMissingChatGroupException
 import to.curare.compose.exceptions.MarmotMissingKeyPackageBundleException
 import to.curare.compose.exceptions.MarmotMissingNostrGroupDataExtension
 import to.curare.compose.exceptions.MarmotNotMemberOfChatGroupException
-import to.curare.compose.exceptions.MarmotWelcomeEventMissingKeyPackageEventIdException
 import to.curare.compose.extensions.toHex
 import to.curare.compose.managers.ChillDkgRitualManager
 import to.curare.compose.nostr.Relays
@@ -39,18 +38,20 @@ import to.curare.compose.managers.GroupKeyStateManager
 import to.curare.compose.managers.MlsGroupCache
 import to.curare.compose.managers.MarmotInboundManager
 import to.curare.compose.managers.MarmotReindexSweep
+import to.curare.compose.managers.WelcomeBundleMatch
+import to.curare.compose.managers.roomDescription
+import to.curare.compose.managers.roomName
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CancellationException
 import com.vitorpamplona.quartz.marmot.GroupEventResult
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageEvent
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageRelayListEvent
+import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageUtils
 import com.vitorpamplona.quartz.marmot.mip02Welcome.WelcomeEvent
 import to.curare.compose.managers.CommitOrdering
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
-import com.vitorpamplona.quartz.marmot.mls.codec.TlsReader
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
 import com.vitorpamplona.quartz.marmot.mls.messages.KeyPackageBundle
-import com.vitorpamplona.quartz.marmot.mls.messages.MlsKeyPackage
 import com.vitorpamplona.quartz.marmot.mls.tree.Credential
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
@@ -427,13 +428,33 @@ abstract class NostrDao(
         // MLSGroupEvent handling...
         nostrEvent.toKeyPackageEvent()?.let { keyPackageEvent ->
             logger.d("KeyPackageEvent: ${keyPackageEvent.toJson()}")
+
+            // Checked before it is stored, because nothing downstream checks it:
+            // the invite decodes the bytes and adds the leaf, and until this line
+            // a package with the wrong tags, a signature that does not verify, a
+            // lifetime already over or -- on the current profile -- an identity
+            // proof that does not bind the leaf to its account was stored like any
+            // other and failed at addMember, or worse, did not. The validator is
+            // the one a conformant peer runs on ours, so what it refuses here is
+            // what they would refuse there.
+            if (!KeyPackageUtils.isCryptographicallyValid(keyPackageEvent)) {
+                logger.w("KeyPackage ${keyPackageEvent.id} from ${keyPackageEvent.pubKey} failed validation, not stored")
+                return@let
+            }
+
+            // Stored bare, whichever way it was published. A current-profile
+            // kind:30443 frames its KeyPackage in an MLSMessage; a legacy one does
+            // not; MlsGroup.proposeAdd reads only the bare form. Unframing once
+            // here is what lets every consumer of this row stay as it is.
+            val keyPackageBytes = KeyPackageUtils.decodeKeyPackage(
+                Base64.decode(source = keyPackageEvent.keyPackageBase64())
+            ).toTlsBytes()
+
             database.marmotKeyPackageDao().upsert(
                 MarmotKeyPackage(
                     id = keyPackageEvent.id,
                     publicKey = keyPackageEvent.pubKey,
-                    tlsEncodedMarmotKeyPackage = Base64.decode(
-                        source = keyPackageEvent.keyPackageBase64()
-                    ),
+                    tlsEncodedMarmotKeyPackage = keyPackageBytes,
                     createdAt = Instant.fromEpochSeconds(keyPackageEvent.createdAt)
                 )
             )
@@ -710,36 +731,40 @@ abstract class NostrDao(
                                 )
                                 logger.d("welcomeEvent: ${welcomeEvent.toJson()}")
 
-                                // TODO: Find keypackage and decrypt welcome...
-                                // TODO: Get keyPackage from
-                                val keyPackageEventId = welcomeEvent.keyPackageEventId() ?: throw MarmotWelcomeEventMissingKeyPackageEventIdException(
-                                    "Couldn't find keyPackageEventId for $welcomeEvent"
-                                )
-                                logger.d("keyPackageEventId: $keyPackageEventId")
-                                val marmotKeyPackageBundle = database.marmotKeyPackageBundleDao().getMarmotKeyPackageBundleById(
-                                    keyPackageEventId
-                                ) ?: throw MarmotMissingKeyPackageBundleException(
-                                    "Couldn't find marmotKeyPackageBundle for $welcomeEvent"
-                                )
-                                logger.d("marmotKeyPackageBundle: $marmotKeyPackageBundle")
-
                                 val welcomeBytes = Base64.decode(
                                     welcomeEvent.welcomeBase64()
                                 )
+
+                                // The Welcome names the KeyPackage it was encrypted to;
+                                // the `e` tag names the one the inviter thinks it used.
+                                // The first is the authority and the second a hint that
+                                // an inviter working from a cached copy gets wrong, so
+                                // the refs are tried first and the tag only when they
+                                // name nothing of ours -- see WelcomeBundleMatch.
+                                val userPublicKeyHex = activeKeyPair.pubKey.toHex()
+                                val keyPackageEventId = welcomeEvent.keyPackageEventId()
+                                val marmotKeyPackageBundle = WelcomeBundleMatch.select(
+                                    welcomeBytes = welcomeBytes,
+                                    candidates = database.marmotKeyPackageBundleDao()
+                                        .getAllMarmotKeyPackageBundles(userPublicKeyHex),
+                                    keyPackageBytesOf = { it.tlsEncodedMarmotKeyPackage },
+                                ) ?: keyPackageEventId?.let { eventId ->
+                                    logger.d("keyPackageEventId: $eventId")
+                                    database.marmotKeyPackageBundleDao().getMarmotKeyPackageBundleById(eventId)
+                                } ?: throw MarmotMissingKeyPackageBundleException(
+                                    "Couldn't find marmotKeyPackageBundle for $welcomeEvent"
+                                )
+                                logger.d("marmotKeyPackageBundle: $marmotKeyPackageBundle")
 
                                 val initPrivateKey = marmotKeyPackageBundle.ncryptsecInitPrivateKey.hexToByteArray() // TODO: Decrypt
                                 val signaturePrivateKey = marmotKeyPackageBundle.ncryptsecSignaturePrivateKey.hexToByteArray() // TODO: Decrypt
                                 val encryptionPrivateKey = marmotKeyPackageBundle.ncryptsecEncryptionPrivateKey.hexToByteArray() // TODO: Decrypt
 
-                                val tlsReader = TlsReader(
-                                    data = marmotKeyPackageBundle.tlsEncodedMarmotKeyPackage
-                                )
-
                                 val group = MlsGroup.processWelcome(
                                     welcomeBytes,
                                     bundle = KeyPackageBundle(
-                                        keyPackage = MlsKeyPackage.decodeTls(
-                                            tlsReader
+                                        keyPackage = KeyPackageUtils.decodeKeyPackage(
+                                            marmotKeyPackageBundle.tlsEncodedMarmotKeyPackage
                                         ),
                                         initPrivateKey = initPrivateKey,
                                         signaturePrivateKey = signaturePrivateKey,
@@ -748,7 +773,11 @@ abstract class NostrDao(
                                 )
                                 logger.d("Group: $group")
 
-                                val nostrGroupId = group.currentMarmotData()?.nostrGroupId ?: throw MarmotMissingNostrGroupDataExtension("Didn't find group data for $group")
+                                // From whichever profile the group is on: the routing
+                                // component for a current-profile group, the 0xF2EE
+                                // extension for a legacy one. A group with neither is
+                                // not a Marmot group and there is no room to make of it.
+                                val nostrGroupId = group.currentNostrGroupId() ?: throw MarmotMissingNostrGroupDataExtension("Didn't find group data for $group")
 
                                 logger.d("nostrGroupId: $nostrGroupId")
 
@@ -758,7 +787,7 @@ abstract class NostrDao(
 
                                 if (localChatRoom == null) {
                                     logger.d("processWelcome: welcomeBytes=${welcomeBytes.size}B")
-                                    logger.d("Marmot Data: ${group.currentMarmotData()}")
+                                    logger.d("Marmot state: ${group.currentGroupState()} legacy=${group.currentMarmotData()}")
 
 
                                     // TODO: Save the chat room We can now s
@@ -767,8 +796,8 @@ abstract class NostrDao(
                                         ChatRoom(
                                             id = nostrGroupId,
                                             userPublicKey = userPublicKey,
-                                            subject = group.currentMarmotData()?.name?.ifBlank { null },
-                                            description = group.currentMarmotData()?.description?.ifBlank { null },
+                                            subject = group.roomName(),
+                                            description = group.roomDescription(),
                                             initialGiftWrapPayloadId = decryptedGiftWrapPayload.id,
                                             createdAt = decryptedGiftWrapPayload.createdAt,
                                             // The Welcome's own `created_at`, which the

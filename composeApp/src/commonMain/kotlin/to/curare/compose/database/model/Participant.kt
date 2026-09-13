@@ -8,6 +8,7 @@ import to.curare.compose.database.model.traits.LocalStoreEntity
 import to.curare.compose.database.model.traits.SoftDeletableEntity
 import to.curare.compose.database.model.traits.TimestampedEntity
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
+import to.curare.compose.managers.roomRelays
 import com.vitorpamplona.quartz.marmot.mls.tree.Credential
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
@@ -72,7 +73,7 @@ data class Participant(
                     Participant(
                         participantPublicKey = pubkey,
                         chatRoomId = nostrGroupId,
-                        relayHint = mlsGroup.currentMarmotData()?.relays?.firstOrNull() ?: relayHint
+                        relayHint = mlsGroup.roomRelays().firstOrNull() ?: relayHint
                     )
                 } else {
                     null

@@ -110,8 +110,9 @@ object SubgroupManager {
         // says nobody administers a group whose epoch-0 context names three
         // admins.
         //
-        // The group data is the thing that column is a cache of: MIP-01 stamps
-        // `admin_pubkeys` into the epoch-0 group context, every member gets it in
+        // The group's state is the thing that column is a cache of: the admins
+        // are in the epoch-0 group context -- MIP-01's `admin_pubkeys`, or the
+        // current profile's admin-policy component -- every member gets it in
         // their Welcome, and `processGroupMembershipChanges` reads exactly this
         // when it writes the flag. Reading it directly cannot drift from what the
         // group agreed, and is right on both sides from the first moment.
@@ -120,7 +121,7 @@ object SubgroupManager {
         // ceremony is opened over the second while running in a room governed by
         // the first.
         val parentAdminPublicKeys = runCatching {
-            parentRoom.chatRoom.toMlsGroup()?.currentMarmotData()?.adminPubkeys
+            parentRoom.chatRoom.toMlsGroup()?.currentAdminIdentities()
         }.getOrNull()
 
         if (parentAdminPublicKeys == null) {

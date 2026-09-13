@@ -9,8 +9,8 @@ import to.curare.compose.database.model.traits.SoftDeletableEntity
 import to.curare.compose.database.model.traits.TimestampedEntity
 import to.curare.compose.database.model.traits.UserViewableEntity
 import co.touchlab.kermit.Logger
-import com.vitorpamplona.quartz.marmot.mip01Groups.MarmotGroupData
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
+import to.curare.compose.managers.retentionSeconds
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nipC7Chats.ChatEvent
@@ -110,18 +110,20 @@ data class MarmotInnerEvent( // TODO: Rename this to GiftWrapPayload...
          * Compute the NIP-40 expiration timestamp for outbound application messages,
          * or `null` when the group does not have disappearing messages configured.
          *
-         * Per MIP-01/MIP-03, when `disappearing_message_secs` is set in the Marmot
-         * Group Data Extension, clients MUST auto-apply an `expiration` tag on
-         * kind:445 events at `created_at + disappearing_message_secs`.
+         * When the group carries a retention -- MIP-01's `disappearing_message_secs`
+         * in the group data extension, or the current profile's message-retention
+         * component -- clients MUST auto-apply an `expiration` tag on kind:445
+         * events at `created_at + disappearing_message_secs`. Read through
+         * [retentionSeconds] so both profiles count: reading only the first is how
+         * the library's own outbound processor once dropped the tag on every
+         * current-profile group, and disappearing messages simply did not.
          */
         fun disappearingExpiration(
             group: MlsGroup,
             createdAt: Long,
         ): Long? {
-            val extensions = group.extensions ?: return null
-            val marmotData = MarmotGroupData.fromExtensions(extensions) ?: return null
-            val secs = marmotData.disappearingMessageSecs ?: return null
-            return createdAt + secs.toLong()
+            val secs = group.retentionSeconds() ?: return null
+            return createdAt + secs
         }
     }
 

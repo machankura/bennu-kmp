@@ -9,6 +9,7 @@ import to.curare.compose.extensions.exporterSecret
 import to.curare.compose.extensions.toHex
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.marmot.GroupEventResult
+import com.vitorpamplona.quartz.marmot.foundation.appEvents.MarmotAppEvent
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageEvent
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageRelayListEvent
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
@@ -107,12 +108,12 @@ object MarmotInboundManager {
         mlsGroup: MlsGroup,
     ) {
         logger.d("processGroupMembershipChanges")
-        val adminPublicKeys = mlsGroup.currentMarmotData()?.adminPubkeys
+        val adminPublicKeys = mlsGroup.currentAdminIdentities()
 
         val commitedGroupMembers = Participant.fromMlsGroup(
             mlsGroup = mlsGroup,
             nostrGroupId = localChatRoom.chatRoom.id,
-            relayHint = mlsGroup.currentMarmotData()?.relays?.firstOrNull()
+            relayHint = mlsGroup.roomRelays().firstOrNull()
         )
         val committedGroupMembersPublicKeys = commitedGroupMembers.map { it.participantPublicKey }
         val excludedParticipants = localChatRoom.localParticipants.filter { localParticipant ->
@@ -128,7 +129,7 @@ object MarmotInboundManager {
             existingParticipantPublicKeys.contains(committedGroupMember.participantPublicKey).not()
         }.map { newParticipant ->
             newParticipant.copy(
-                adminAt = if (adminPublicKeys?.contains(newParticipant.participantPublicKey) == true) {
+                adminAt = if (adminPublicKeys.contains(newParticipant.participantPublicKey)) {
                     Clock.System.now()
                 } else {
                     null
@@ -137,7 +138,7 @@ object MarmotInboundManager {
         }
         logger.d("newParticipants: $newParticipants")
         val removedAdmins = localChatRoom.localParticipants.filter { localParticipant ->
-            localParticipant.participant.adminAt != null && adminPublicKeys?.contains(localParticipant.participant.participantPublicKey) != true
+            localParticipant.participant.adminAt != null && !adminPublicKeys.contains(localParticipant.participant.participantPublicKey)
         }.map { localParticipant ->
             localParticipant.participant.copy(
                 adminAt = null
@@ -146,7 +147,7 @@ object MarmotInboundManager {
         logger.d("removedAdmins: $removedAdmins")
 
         val graduatedAdmins = localChatRoom.localParticipants.filter { localParticipant ->
-            localParticipant.participant.adminAt == null && adminPublicKeys?.contains(localParticipant.participant.participantPublicKey) == true
+            localParticipant.participant.adminAt == null && adminPublicKeys.contains(localParticipant.participant.participantPublicKey)
         }.map { localParticipant ->
             localParticipant.participant.copy(
                 adminAt = Clock.System.now()
@@ -292,7 +293,7 @@ object MarmotInboundManager {
         mlsMessage: MlsMessage,
         groupEvent: GroupEvent
     ): GroupEventResult  {
-        val groupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val groupId = mlsGroup.roomId()
 
         // Peek at content type from the PrivateMessage header
         val privMsg = PrivateMessage.decodeTls(TlsReader(mlsMessage.payload))
@@ -308,19 +309,30 @@ object MarmotInboundManager {
                 logger.d("decrypted: $decrypted")
                 val innerJson = decrypted.content.decodeToString()
 
-                // MIP-03: if the inner application payload is a Nostr event,
-                // its `pubkey` field MUST equal the MLS sender's credential
-                // identity. Reject any mismatch — otherwise a group member
+                // If the inner application payload is a Nostr event, its
+                // `pubkey` field MUST equal the MLS sender's credential
+                // identity. Reject any mismatch -- otherwise a group member
                 // could mint events claiming a different author. Non-event
                 // payloads (raw bytes via buildGroupEventFromBytes) bypass
                 // this check since there is no author field to verify.
-                val innerEvent = Event.fromJsonOrNull(innerJson)
-                logger.d("innerEvent: ${innerEvent?.toJson()}")
+                //
+                // The canonical shape is decoded first, strictly: six members,
+                // no `sig`, an id that rehashes, no duplicate keys. The legacy
+                // shape -- a rumor serialised with `"sig":""`, which is what
+                // every build before docs/marmot-v2.md Phase 2 sent -- is the
+                // fallback, and only that: Event.fromJsonOrNull would accept
+                // the canonical shape too, but by defaulting the signature
+                // rather than by checking anything, and a payload that is
+                // neither still has no author and still fails the comparison.
+                val innerAuthor: Pair<Int, HexKey>? = MarmotAppEvent.decodeOrNull(innerJson)
+                    ?.let { it.kind to it.pubKey }
+                    ?: Event.fromJsonOrNull(innerJson)?.let { it.kind to it.pubKey }
+                logger.d("innerAuthor: $innerAuthor")
 
-                if (innerEvent != null) {
+                if (innerAuthor != null) {
                     val senderIdentity = mlsGroup.memberIdentityHex(decrypted.senderLeafIndex)
 
-                    mip03Rejection(innerEvent.kind, innerEvent.pubKey, senderIdentity)?.let { reason ->
+                    mip03Rejection(innerAuthor.first, innerAuthor.second, senderIdentity)?.let { reason ->
                         return GroupEventResult.Error(groupId, reason)
                     }
                 }
@@ -352,7 +364,7 @@ object MarmotInboundManager {
         mlsGroup: MlsGroup,
         messageBytes: ByteArray,
     ): DecryptedMessage {
-        val nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val nostrGroupId = mlsGroup.roomId()
 
         // Try current epoch. If we hit an exception here we MUST surface
         // it — commits that throw mid-processCommit leave the in-memory
@@ -399,7 +411,7 @@ object MarmotInboundManager {
         mlsMessage: MlsMessage,
         groupEvent: GroupEvent
     ): GroupEventResult {
-        val groupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val groupId = mlsGroup.roomId()
 
         val pubMsg = PublicMessage.decodeTls(TlsReader(mlsMessage.payload))
 
@@ -443,7 +455,7 @@ object MarmotInboundManager {
         groupEvent: GroupEvent
     ): GroupEventResult {
         logger.d("handleCommitEvent: ${groupEvent.id}")
-        val nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val nostrGroupId = mlsGroup.roomId()
 
         val currentEpoch = mlsGroup.epoch
         commitTracker.addCommit(nostrGroupId, currentEpoch, groupEvent)
@@ -494,7 +506,7 @@ object MarmotInboundManager {
         commitEvent: GroupEvent,
     ): GroupEventResult =
         try {
-            val groupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+            val groupId = mlsGroup.roomId()
 
             val mlsBytes =
                 tryDecryptOuterLayer(mlsGroup, commitEvent.encryptedContent())
@@ -615,7 +627,7 @@ object MarmotInboundManager {
             }
         } catch (e: Exception) {
             GroupEventResult.Error(
-                groupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex(),
+                groupId = mlsGroup.roomId(),
                 "Failed to apply commit: ${e.message}",
                 e
             )
@@ -649,7 +661,7 @@ object MarmotInboundManager {
         mlsGroup.processCommit(commitBytes, senderLeafIndex, confirmationTag, signature, wireFormat)
 
         pushRetainedEpoch(
-            nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex(),
+            nostrGroupId = mlsGroup.roomId(),
             retainedBefore
         )
         persistGroup(
@@ -689,7 +701,7 @@ object MarmotInboundManager {
         // Try retained epoch exporter keys (most recent first)
         logger.d("Try retained")
         val retainedKeys = retainedExporterSecrets(
-            nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+            nostrGroupId = mlsGroup.roomId()
         )
         for (retainedKey in retainedKeys) {
             try {
@@ -706,7 +718,7 @@ object MarmotInboundManager {
         database: CurareDatabase,
         mlsGroup: MlsGroup
     ) {
-        val nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val nostrGroupId = mlsGroup.roomId()
 
         try {
             val state = mlsGroup.saveState()

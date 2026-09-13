@@ -28,14 +28,13 @@ import to.curare.compose.nostr.MarmotDelivery
 import to.curare.compose.nostr.MarmotDirectMessage
 import to.curare.compose.nostr.Relays
 import co.touchlab.kermit.Logger
+import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageUtils
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.tags.EncodingTag
 import com.vitorpamplona.quartz.marmot.mip01Groups.MarmotGroupData
 import com.vitorpamplona.quartz.marmot.mip02Welcome.WelcomeEvent
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEventEncryption
-import com.vitorpamplona.quartz.marmot.mls.codec.TlsReader
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
-import com.vitorpamplona.quartz.marmot.mls.messages.MlsKeyPackage
 import com.vitorpamplona.quartz.marmot.mls.tree.Credential
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -267,7 +266,7 @@ abstract class MarmotOutboundDao(
         )
 
         peers.forEach { (peerPublicKey, peerKeyPackage) ->
-            val keyPackage = MlsKeyPackage.decodeTls(TlsReader(peerKeyPackage.tlsEncodedMarmotKeyPackage))
+            val keyPackage = KeyPackageUtils.decodeKeyPackage(peerKeyPackage.tlsEncodedMarmotKeyPackage)
 
             val credential = keyPackage.leafNode.credential
             require(credential is Credential.Basic) { "KeyPackage must use BasicCredential" }
@@ -475,10 +474,14 @@ abstract class MarmotOutboundDao(
         // True exactly once per group, whatever its final size: see
         // docs/marmot-membership.md.
         val isOneMemberInitialGroupCreation = mlsGroup.members().size == 1
-        val keyPackage = MlsKeyPackage.decodeTls(
-            TlsReader(
-                peerKeyPackage.tlsEncodedMarmotKeyPackage
-            )
+
+        // Through the sniffing decoder rather than MlsKeyPackage.decodeTls. The
+        // ingest stores every KeyPackage bare, so both read the same bytes today;
+        // this one also reads a framed row -- the current profile's published
+        // shape -- should one ever be stored that way, rather than taking the
+        // frame's version and wire-format words for the package's own.
+        val keyPackage = KeyPackageUtils.decodeKeyPackage(
+            peerKeyPackage.tlsEncodedMarmotKeyPackage
         )
 
         val credential = keyPackage.leafNode.credential
