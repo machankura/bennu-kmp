@@ -2,7 +2,6 @@ package to.curare.compose.nostr
 
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
-import to.curare.compose.database.GENESIS_AT
 import to.curare.compose.database.model.NegentropySynchronizeRequest
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.database.model.types.SynchronizationFilter
@@ -11,7 +10,7 @@ import to.curare.compose.database.model.types.SynchronizationFilter
  * Asking the relays who a room's members are, for the members this device cannot name.
  *
  * A pubkey gets a Profile row the moment it is first seen, and that row is a
- * placeholder: the "LOADING..." display name, stamped [GENESIS_AT] so it is
+ * placeholder: the "LOADING..." display name, stamped `GENESIS_AT` so it is
  * distinguishable from a profile actually read off a kind:0. What replaces it is a
  * kind:0, and every path that mints a placeholder asks for one -- exactly once, on
  * whichever relay that pubkey happened to arrive on.
@@ -55,7 +54,7 @@ object MemberProfileSync {
     ): List<HexKey> =
         rooms
             .flatMap { it.localParticipants }
-            .filter { participant -> participant.profile?.let { it.createdAt > GENESIS_AT } != true }
+            .filter { participant -> participant.profile?.isResolved() != true }
             .map { it.participant.participantPublicKey }
             .filter { it != activeUserPublicKey }
             .distinct()

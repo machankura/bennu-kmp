@@ -24,6 +24,7 @@ import to.curare.compose.ui.composable.navigation.routes.NostrEventDetailRoute
 import to.curare.compose.ui.composable.widgets.profile.ProfileAvatar
 import to.curare.compose.ui.composable.widgets.profile.ProfileColor
 import to.curare.compose.ui.theme.CurareTheme
+import to.curare.compose.database.GENESIS_AT
 import kotlin.time.Clock
 import kotlin.time.Instant
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -72,6 +73,14 @@ data class Profile(
     to.curare.compose.database.model.traits.UserViewableEntity,
     to.curare.compose.database.model.traits.BroadcastableEntity,
     to.curare.compose.database.model.traits.SoftDeletableEntity {
+    /**
+     * Read off a kind 0, as against the "LOADING..." placeholder minted when a pubkey
+     * is first seen (`NostrDao.indexNostrEvent`), which is stamped [GENESIS_AT] so that
+     * the two can be told apart. A missing row and a placeholder row mean the same
+     * thing to a reader: nobody has read a kind 0 for that pubkey.
+     */
+    fun isResolved(): Boolean = createdAt > GENESIS_AT
+
     fun humanReadableNameOrPubkey(): String {
         return if (!displayName.isNullOrBlank()) {
             displayName
