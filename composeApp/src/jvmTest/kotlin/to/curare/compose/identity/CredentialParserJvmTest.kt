@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 
 /**
  * Every row of the sign-in screen's table, in and out.
@@ -113,5 +114,28 @@ class CredentialParserJvmTest {
         assertEquals(CredentialProblem.InvalidKey, refused(nsec.dropLast(1) + "q"))
         assertEquals(CredentialProblem.InvalidKey, refused("0".repeat(64)))
         assertEquals(CredentialProblem.InvalidKey, refused("f".repeat(64)))
+    }
+
+    // --- the address form: an npub or nothing ---
+
+    /** The three spellings the sign-in accepts, plus the whitespace a paste brings. */
+    @Test
+    fun `an address is an npub in any of its spellings`() {
+        for (input in listOf(npub, "nostr:$npub", npub.uppercase(), "  $npub\n")) {
+            assertEquals(publicKey, CredentialParser.npubOrNull(input), "for '$input'")
+        }
+    }
+
+    /**
+     * A field asking whom to write to must never take a secret for an answer, and it
+     * takes nothing else either: the hex the sign-in reads as a secret, an nprofile's
+     * TLV, and an npub with a bad checksum are all nothing here.
+     */
+    @Test
+    fun `an address is not a secret, a hex, an nprofile or a broken npub`() {
+        val nprofile = "nprofile1qqsrhuxx8l9ex335q7he0f09aej04zpazpl0ne2cgukyawd24mayt8gpp4mhxue69uhhytnc9e3k7mgpz4mhxue69uhkg6nzv9ejuumpv34kytnrdaksjlyr9p"
+        for (input in listOf(nsec, "nostr:$nsec", hex, publicKey, nprofile, npub.dropLast(1) + "q", "", "   ")) {
+            assertNull(CredentialParser.npubOrNull(input), "for '$input'")
+        }
     }
 }

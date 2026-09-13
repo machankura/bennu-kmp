@@ -132,19 +132,38 @@ object CredentialParser {
     }
 
     /**
+     * The x-only key under an `npub1…`, with or without a `nostr:` prefix, or null.
+     *
+     * The one shape a message address can arrive in, for the field that takes one. Hex
+     * stays a secret here for the reason [parse] gives, and an nsec is null because it is
+     * not an address -- a field asking whom to write to must never take a secret for an
+     * answer. Same decode as the sign-in branch, so the two cannot disagree.
+     */
+    fun npubOrNull(raw: String): HexKey? {
+        val token = raw.trim().removePrefix("nostr:").lowercase()
+        if (!token.startsWith("npub1")) return null
+        return decodeNpub(token)
+    }
+
+    private fun npub(token: String): Result =
+        decodeNpub(token)
+            ?.let { Result.Recognised(SignInCredential.NostrPublicKey(it)) }
+            ?: Result.Refused(CredentialProblem.InvalidKey)
+
+    /**
      * Thirty-two bytes under the `npub` prefix that name a point on the curve -- the
      * counterpart of the `isValid()` a secret is checked with, since not every x
      * coordinate has a point above it.
      */
-    private fun npub(token: String): Result {
+    private fun decodeNpub(token: String): HexKey? {
         val bytes = runCatching {
             val (hrp, data) = Bech32.decodeBytes(token)
             require(hrp == "npub") { "not an npub" }
             require(data.size == 32) { "not an x-only key" }
             data
-        }.getOrNull() ?: return Result.Refused(CredentialProblem.InvalidKey)
+        }.getOrNull() ?: return null
         val xOnly = XonlyPublicKey(ByteVector32(bytes))
-        if (!xOnly.publicKey.isValid()) return Result.Refused(CredentialProblem.InvalidKey)
-        return Result.Recognised(SignInCredential.NostrPublicKey(xOnly.value.toHex()))
+        if (!xOnly.publicKey.isValid()) return null
+        return xOnly.value.toHex()
     }
 }

@@ -234,7 +234,6 @@
     <string name="source_dialect">Source dialect</string>
     <string name="start">Start</string>
     <string name="start_a_group_chat">Start a group chat</string>
-    <string name="start_chat">Start chat</string>
     <string name="start_chat_via_npub_or_nip05">Start chat via npub or nip05</string>
     <string name="start_key_ceremony">Start key ceremony</string>
     <string name="startup_error">Startup error</string>
@@ -719,6 +718,7 @@
     <string name="switch_to_it">Switch to it</string>
     <string name="the_profile_you_are_in_stays_on_this_device">The profile you are in stays on this device.</string>
     <!-- The profile preview: the person behind a pasted npub, before a chat with them is started. -->
+    <string name="find_profile">Find profile</string>
     <string name="looking_for_this_profile_on_the_relays">Looking for this profile on the relays.</string>
     <string name="start_new_chat">Start new chat</string>
 </resources>

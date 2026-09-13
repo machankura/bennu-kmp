@@ -14,7 +14,7 @@ import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Start
+import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,9 +32,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import to.curare.compose.extensions.bech32ToHexOrNull
-import to.curare.compose.ui.composable.navigation.routes.ChatRoomMessagingRoute
+import to.curare.compose.identity.CredentialParser
 import to.curare.compose.ui.composable.navigation.routes.ImplementationPendingRoute
+import to.curare.compose.ui.composable.navigation.routes.ProfilePreviewRoute
 import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.theme.CurareTheme
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -47,11 +47,22 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
+import curare.composeapp.generated.resources.find_profile
 import curare.composeapp.generated.resources.input_npub_or_nip05
-import curare.composeapp.generated.resources.start_chat
 import curare.composeapp.generated.resources.start_chat_via_npub_or_nip05
+import to.curare.compose.ui.composable.widgets.Decorative
 import to.curare.compose.ui.theme.ConformancePreviews
 
+/**
+ * Whom to write to, as an npub or a nip05.
+ *
+ * An npub no longer starts a chat from here: it opens the person's profile, and the
+ * chat is started from there once the user has seen who it is. The field keeps what
+ * it parsed rather than whether it parsed -- the enabled button and the route it
+ * pushes read the same decoded key, which is what closed the gap where `nostr:npub1…`
+ * passed the check and then failed the decode in silence. A nip05 still lands on the
+ * placeholder; resolving one is out of scope. See docs/npub-profile-preview.md.
+ */
 @Composable
 fun StartDirectMessageToNpubOrNip05Dialog(
     activeUserPublicKey: HexKey,
@@ -65,7 +76,10 @@ fun StartDirectMessageToNpubOrNip05Dialog(
 
         }
     ) {
-        val startChatButtonEnabled = remember { mutableStateOf(false) }
+        // The key under a pasted npub, or null while the field holds anything else.
+        val parsedPublicKey = remember { mutableStateOf<HexKey?>(null) }
+        // A nip05 is recognised by shape alone; nothing resolves it yet.
+        val emailLikeAddressEntered = remember { mutableStateOf(false) }
 
         Card(
             modifier = Modifier
@@ -123,63 +137,52 @@ fun StartDirectMessageToNpubOrNip05Dialog(
                     },
                     lineLimits = TextFieldLineLimits.SingleLine,
                     inputTransformation = {
-                        val input = asCharSequence().toString().lowercase()
+                        val input = asCharSequence().toString()
 
-                        if (input.startsWith("npub1") || input.startsWith("nostr:npub1")) {
-                            // Check for valid npub
-                            startChatButtonEnabled.value = true
-                        } else if (Parser.parseEmailLikeAddress(input) != null) {
-                            // Check for valid npub
-                            startChatButtonEnabled.value = true
-                        } else {
-                            startChatButtonEnabled.value = false
-                        }
+                        parsedPublicKey.value = CredentialParser.npubOrNull(input)
+                        emailLikeAddressEntered.value = parsedPublicKey.value == null &&
+                            Parser.parseEmailLikeAddress(input.lowercase()) != null
                     }
                 )
 
                 TextButton(
-                    enabled = startChatButtonEnabled.value,
+                    enabled = parsedPublicKey.value != null || emailLikeAddressEntered.value,
                     onClick = {
+                        // Read before the dialog closes: the state lives in it.
+                        val publicKey = parsedPublicKey.value
+                        val input = textFieldState.text.toString()
+
                         scope.launch {
                             toggleOpenDialogSetting.invoke(false)
                         }.invokeOnCompletion {
-                            val input = textFieldState.text.toString()
-
-                            val emailLikeAddress = Parser.parseEmailLikeAddress(input)
-
-                            if (emailLikeAddress != null) {
-                                // TODO: Get public Key from hex...
+                            if (publicKey != null) {
                                 onNavigateToRoute.invoke(
-                                    ImplementationPendingRoute(
-                                        "Direct Message to ${textFieldState.text}"
+                                    ProfilePreviewRoute(
+                                        activeUserPublicKey = activeUserPublicKey,
+                                        profilePublicKey = publicKey,
                                     )
                                 )
                             } else {
-                                val publicKey = input.bech32ToHexOrNull()
-
-                                if (publicKey != null) {
-                                    onNavigateToRoute.invoke(
-                                        ChatRoomMessagingRoute(
-                                            activeUserPublicKey = activeUserPublicKey,
-                                            chatRoomId = publicKey,
-                                            relayHint = null
-                                        )
+                                // TODO: Resolve the nip05 to a public key, then the same route.
+                                onNavigateToRoute.invoke(
+                                    ImplementationPendingRoute(
+                                        "Direct Message to $input"
                                     )
-                                }
+                                )
                             }
-
                         }
                     }
                 ) {
-                    Text(stringResource(Res.string.start_chat))
+                    Text(stringResource(Res.string.find_profile))
 
                     Spacer(
                         modifier = Modifier.width(MaterialTheme.spacing.space125)
                     )
 
                     Icon(
-                        Icons.Default.Start,
-                        contentDescription = "Start chat"
+                        Icons.Default.PersonSearch,
+                        // The label is beside it.
+                        contentDescription = Decorative
                     )
                 }
             }
