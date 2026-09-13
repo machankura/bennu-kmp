@@ -12,6 +12,10 @@ import to.curare.compose.database.model.MarmotKeyPackageBundle
 import to.curare.compose.repository.MarmotRepository
 import to.curare.compose.ui.view.state.KeyPackageManagementUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import co.touchlab.kermit.Logger
+import kotlinx.coroutines.flow.StateFlow
+import to.curare.compose.identity.Identity
+import to.curare.compose.identity.toKeyPair
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -21,7 +25,12 @@ class KeyPackageManagementViewModel(
     val activeUserPublicKey: HexKey,
     val nostrEventId: HexKey,
     initialActiveProfileUIState: KeyPackageManagementUIState,
-    val marmotRepository: MarmotRepository
+    val marmotRepository: MarmotRepository,
+    /**
+     * The identity, not just its public key: publishing a current-profile package means
+     * signing an identity proof with the account key, which the public key cannot do.
+     */
+    val activeIdentityStateFlow: StateFlow<Identity?>,
 ): ViewModel() {
     var keyPackageManagementUIState: KeyPackageManagementUIState by mutableStateOf(initialActiveProfileUIState)
         private set
@@ -47,11 +56,16 @@ class KeyPackageManagementViewModel(
      */
     fun publishNewKeyPackage(onDone: () -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
+            // A read-only identity has nothing to sign the proof with, and no way to
+            // sign the kind:30443 either; the notary would refuse it downstream, so
+            // refuse it here and report nothing rather than "published".
+            val keyPair = activeIdentityStateFlow.value?.takeIf { it.canSign }?.toKeyPair()
+            if (keyPair == null) {
+                logger.w("Not publishing a key package: the active identity cannot sign")
+                return@launch
+            }
             // TODO: Rotate all other keys...
-            marmotRepository.publishMarmotKeyPackageBundle(
-                publicKey = activeUserPublicKey,
-                nsecPassword = "" // TODO: Implement nsecPassword logic...
-            )
+            marmotRepository.publishMarmotKeyPackageBundle(keyPair = keyPair)
             onDone()
         }
     }
@@ -66,6 +80,8 @@ class KeyPackageManagementViewModel(
         }
     }
 
+    private val logger = Logger.withTag(TAG)
+
     companion object {
         const val TAG = "KeyPackageManagementViewModel"
 
@@ -73,14 +89,16 @@ class KeyPackageManagementViewModel(
             nostrEventId: HexKey,
             activeUserPublicKey: HexKey,
             initialActiveProfileUIState: KeyPackageManagementUIState = KeyPackageManagementUIState.Loading,
-            marmotRepository: MarmotRepository
+            marmotRepository: MarmotRepository,
+            activeIdentityStateFlow: StateFlow<Identity?>,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 KeyPackageManagementViewModel(
                     nostrEventId = nostrEventId,
                     initialActiveProfileUIState = initialActiveProfileUIState,
                     marmotRepository = marmotRepository,
-                    activeUserPublicKey = activeUserPublicKey
+                    activeUserPublicKey = activeUserPublicKey,
+                    activeIdentityStateFlow = activeIdentityStateFlow,
                 )
             }
         }

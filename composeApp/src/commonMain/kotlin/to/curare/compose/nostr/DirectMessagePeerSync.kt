@@ -4,6 +4,7 @@ import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageEvent
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip17Dm.settings.ChatMessageRelayListEvent
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import to.curare.compose.database.model.NegentropySynchronizeRequest
 import to.curare.compose.database.model.SynchronizeNostrEventRequest
 import to.curare.compose.database.model.types.SynchronizationFilter
@@ -35,18 +36,21 @@ object DirectMessagePeerSync {
     const val PROFILE_PURPOSE = "profile-preview"
 
     /**
-     * What a chat needs: the peer's metadata, their MLS key package and their DM
-     * relay list.
+     * What a chat needs: the peer's metadata, their MLS key package, their DM relay
+     * list -- and their NIP-65 list, which is where a current-profile peer publishes
+     * their key packages (`transports/nostr.md`: there is no dedicated KeyPackage
+     * relay list), so a later fetch can look where they actually write.
      *
      * No `limit` on the filter built from these: it is ignored on the negentropy path
      * but honoured on the REQ fallback, where `limit = 1` returned a single newest
-     * event across all three kinds -- almost always the kind 0 -- so the key package
+     * event across all the kinds -- almost always the kind 0 -- so the key package
      * never arrived.
      */
     val KINDS = arrayOf(
         MetadataEvent.KIND,
         KeyPackageEvent.KIND,
         ChatMessageRelayListEvent.KIND,
+        AdvertisedRelayListEvent.KIND,
     )
 
     /**

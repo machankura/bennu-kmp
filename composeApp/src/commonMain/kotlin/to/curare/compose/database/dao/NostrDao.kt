@@ -30,6 +30,7 @@ import to.curare.compose.exceptions.MarmotMissingNostrGroupDataExtension
 import to.curare.compose.exceptions.MarmotNotMemberOfChatGroupException
 import to.curare.compose.extensions.toHex
 import to.curare.compose.managers.ChillDkgRitualManager
+import to.curare.compose.nostr.MarmotProfile
 import to.curare.compose.nostr.Relays
 import to.curare.compose.nostr.dkg.DkgRitualEvents
 import to.curare.compose.nostr.frost.FrostSigningEvents
@@ -455,6 +456,7 @@ abstract class NostrDao(
                     id = keyPackageEvent.id,
                     publicKey = keyPackageEvent.pubKey,
                     tlsEncodedMarmotKeyPackage = keyPackageBytes,
+                    profile = if (keyPackageEvent.isCurrentProfile()) MarmotProfile.CURRENT.wireName else MarmotProfile.LEGACY.wireName,
                     createdAt = Instant.fromEpochSeconds(keyPackageEvent.createdAt)
                 )
             )

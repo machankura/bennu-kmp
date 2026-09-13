@@ -8,11 +8,15 @@ import to.curare.compose.repository.MarmotRepository
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
+import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageEvent
+import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageFetcher
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
+import to.curare.compose.nostr.SignInSync
+import to.curare.compose.nostr.MarmotProfile
 import com.vitorpamplona.quartz.nip01Core.signers.NostrSignerSync
 import com.vitorpamplona.quartz.nip51Lists.encryption.PrivateTagsInContent
 import to.curare.compose.identity.Identity
-import fr.acinq.phoenix.managers.nsecPassword
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
@@ -74,7 +78,6 @@ class NotaryViewModel(
                     val keyPair = KeyPair(
                         privKey = nostrPrivateKey.value.toByteArray()
                     )
-                    val nsecPassword = nostrPrivateKey.nsecPassword()
                     logger.d("Notary observing: ${keyPair.pubKey.toHexKey()}")
 
                     // The observers run as children of collectLatest: when the active
@@ -84,7 +87,7 @@ class NotaryViewModel(
                         launch { observeUnsignedNostrEvents(keyPair) }
                         launch { observeUnsealedGiftWrapPayloads(keyPair) }
                         launch { observeUnprocessedMarmotInnerEvents(keyPair) }
-                        launch { observeActiveMarmotKeyPackageBundle(keyPair, nsecPassword) }
+                        launch { observeActiveMarmotKeyPackageBundles(keyPair) }
                     }
                 }
         }
@@ -92,6 +95,30 @@ class NotaryViewModel(
 
     init {
         observeActiveNostrKey()
+    }
+
+    /**
+     * Where a signed event goes.
+     *
+     * Everything goes to the default DM relays, as it always has. A KeyPackage also
+     * goes to the account's NIP-65 write set, because that is where
+     * `transports/nostr.md` has a conformant peer look for it -- "there is no
+     * dedicated KeyPackage relay list" -- and a package published only where the
+     * legacy kind:10051 points is invisible to them. Union rather than replace, so a
+     * peer still on the MIP-era path keeps finding us on the relays it always did.
+     */
+    private suspend fun publishRelaysFor(event: Event): List<String> {
+        val defaults = to.curare.compose.nostr.Relays.DefaultDMRelayList
+        if (event.kind != KeyPackageEvent.KIND) return defaults.map { it.url }
+
+        val outbox = nostrRepository.getNostrEvent(event.pubKey, AdvertisedRelayListEvent.KIND)
+            ?.let { SignInSync.writeRelaysOf(it.tags, alreadyAsked = emptyList()) }
+            .orEmpty()
+
+        return KeyPackageFetcher.publishRelaysFor(
+            myOutbox = outbox,
+            legacyKeyPackageRelayList = defaults,
+        ).map { it.url }
     }
 
     // Keeps one failing item from killing the collector for the rest of the session.
@@ -159,7 +186,7 @@ class NotaryViewModel(
                             sig = event.sig,
                             unsignedNostrEventId = unsignedNostrEvent.id
                         ),
-                        relayURLs = to.curare.compose.nostr.Relays.DefaultDMRelayList.map { normalizedRelayUrl -> normalizedRelayUrl.url },
+                        relayURLs = publishRelaysFor(event),
                         activeKeyPair = keyPair
                     )
                 }
@@ -251,24 +278,34 @@ class NotaryViewModel(
     }
 
 
-    private suspend fun observeActiveMarmotKeyPackageBundle(
+    /**
+     * Keeps one publishable bundle per Marmot profile on the relays.
+     *
+     * A bundle leaves the active set when a Welcome consumes it or the user rotates
+     * it, and whichever profile is then left without one gets a fresh package. Per
+     * profile rather than "any bundle at all", because a peer on the current profile
+     * consumes only the current-profile package and the legacy one still being active
+     * would otherwise mean nothing is republished for them.
+     */
+    private suspend fun observeActiveMarmotKeyPackageBundles(
         keyPair: KeyPair,
-        nsecPassword: String
     ) {
-        logger.i { "observeActiveMarmotKeyPackageBundle: ${keyPair.pubKey.toHexKey()}" }
-        marmotRepository.observeActiveMarmotKeyPackageBundle(
+        logger.i { "observeActiveMarmotKeyPackageBundles: ${keyPair.pubKey.toHexKey()}" }
+        marmotRepository.observeActiveMarmotKeyPackageBundles(
             publicKey = keyPair.pubKey.toHexKey()
-        ).distinctUntilChanged().collect { marmotKeyPackageBundleOrNull ->
+        ).distinctUntilChanged().collect { activeBundles ->
+            val covered = activeBundles.map { it.profileOrLegacy }.toSet()
+            val missing = MarmotProfile.entries.filterNot { it in covered }.toSet()
 
-            if (marmotKeyPackageBundleOrNull == null) {
+            if (missing.isNotEmpty()) {
                 guardNotarization("key package bundle for ${keyPair.pubKey.toHexKey()}") {
                     delay(3.seconds)
                     // TODO: We shouldn't try to create a key package without profile
                     //  we should be check profile in the query to get updates
-                    logger.d("Need to create new key package bundle")
+                    logger.d("Need to create new key package bundle(s): $missing")
                     marmotRepository.publishMarmotKeyPackageBundle(
-                        publicKey = keyPair.pubKey.toHexKey(),
-                        nsecPassword = nsecPassword
+                        keyPair = keyPair,
+                        profiles = missing,
                     )
                 }
             }

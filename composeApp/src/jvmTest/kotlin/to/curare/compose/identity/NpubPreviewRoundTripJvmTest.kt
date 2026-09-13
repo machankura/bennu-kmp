@@ -48,6 +48,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import to.curare.compose.nostr.MarmotProfile
 import kotlin.time.Instant
 
 /**
@@ -234,9 +235,16 @@ class NpubPreviewRoundTripJvmTest {
             scope = scope,
         )
 
-        withTimeout(20_000) {
-            marmotRepository.observeActiveMarmotKeyPackageBundle(publicKey).first { it != null }
+        // One per profile: the notary keeps a current-profile bundle and a legacy one
+        // publishable at all times -- docs/marmot-v2.md, Phase 3.
+        val bundles = withTimeout(20_000) {
+            marmotRepository.observeActiveMarmotKeyPackageBundles(publicKey).first { it.size >= 2 }
         }
+        assertEquals(
+            MarmotProfile.entries.toSet(),
+            bundles.map { it.profileOrLegacy }.toSet(),
+            "the notary did not publish one bundle per profile",
+        )
         assertTrue(db.marmotKeyPackageBundleDao().getAllMarmotKeyPackageBundles(publicKey).isNotEmpty())
     }
 

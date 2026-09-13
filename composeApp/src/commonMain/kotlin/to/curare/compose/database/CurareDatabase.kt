@@ -177,7 +177,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 20,
+    version = 21,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -321,6 +321,14 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // which is what they were, and any identity may drain them. The broadcast
         // queue deliberately gets no owner: a signed event is anyone's to carry.
         AutoMigration(from = 19, to = 20),
+        // v21 adds three nullable columns for the Marmot current profile (see
+        // docs/marmot-v2.md, Phase 3): MarmotKeyPackageBundle.profile and .dTag, and
+        // MarmotKeyPackage.profile. A bundle's profile decides which shape a rotation
+        // republishes into which slot, its dTag is the kind:30443 slot it reuses so a
+        // replacement supersedes rather than accumulates, and a peer package's profile
+        // is what a room picks by. Rows from before read back null, which every
+        // reader takes as legacy -- what they were.
+        AutoMigration(from = 20, to = 21),
     ]
 )
 @ColumnTypeConverters(CurareConverters::class)

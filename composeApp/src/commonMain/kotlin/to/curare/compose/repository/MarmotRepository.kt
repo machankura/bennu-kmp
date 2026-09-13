@@ -3,14 +3,21 @@ package to.curare.compose.repository
 import to.curare.compose.database.model.MarmotInnerEvent
 import to.curare.compose.database.model.MarmotKeyPackageBundle
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
+import to.curare.compose.nostr.MarmotProfile
 import com.vitorpamplona.quartz.nip01Core.signers.NostrSignerSync
 import kotlinx.coroutines.flow.Flow
 
 interface MarmotRepository {
 
+    /**
+     * Publish this identity's KeyPackages -- one per profile in [profiles], both by
+     * default -- and keep the bundles that back them. Needs a [keyPair] that can sign:
+     * the current profile's leaf carries a proof only the account key can make.
+     */
     suspend fun publishMarmotKeyPackageBundle(
-        publicKey: HexKey,
-        nsecPassword: String
+        keyPair: KeyPair,
+        profiles: Set<MarmotProfile> = MarmotProfile.entries.toSet(),
     )
 
     suspend fun rotateMarmotKeyPackageBundle(marmotKeyPackageBundle: MarmotKeyPackageBundle)
@@ -28,15 +35,16 @@ interface MarmotRepository {
      */
     suspend fun observeUnprocessedMarmotInnerEvents(publicKey: HexKey): Flow<List<MarmotInnerEvent>>
 
-    suspend fun observeActiveMarmotKeyPackageBundle(publicKey: HexKey): Flow<MarmotKeyPackageBundle?>
+    /** The bundles still publishable for [publicKey]: neither consumed nor rotated, any profile. */
+    suspend fun observeActiveMarmotKeyPackageBundles(publicKey: HexKey): Flow<List<MarmotKeyPackageBundle>>
 
     suspend fun encryptAndSendMarmotInnerEvent(marmotInnerEvent: MarmotInnerEvent, nostrSignerSync: NostrSignerSync)
 
     companion object {
         val NO_OP_MARMOT_KEY_PACKAGE_BUNDLE = object: MarmotRepository {
             override suspend fun publishMarmotKeyPackageBundle(
-                publicKey: HexKey,
-                nsecPassword: String
+                keyPair: KeyPair,
+                profiles: Set<MarmotProfile>,
             ) {
                 TODO("Not yet implemented")
             }
@@ -57,7 +65,7 @@ interface MarmotRepository {
                 TODO("Not yet implemented")
             }
 
-            override suspend fun observeActiveMarmotKeyPackageBundle(publicKey: HexKey): Flow<MarmotKeyPackageBundle?> {
+            override suspend fun observeActiveMarmotKeyPackageBundles(publicKey: HexKey): Flow<List<MarmotKeyPackageBundle>> {
                 TODO("Not yet implemented")
             }
 

@@ -32,6 +32,7 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip17Dm.settings.ChatMessageRelayListEvent
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import com.vitorpamplona.quartz.nip59Giftwrap.wraps.GiftWrapEvent
 import to.curare.compose.database.GENESIS_AT
 import to.curare.compose.database.model.NegentropySynchronizeRequest
@@ -200,6 +201,10 @@ object MarmotInboundManager {
                     MetadataEvent.KIND,
                     ChatMessageRelayListEvent.KIND,
                     KeyPackageEvent.KIND,
+                    // Where a current-profile peer publishes their KeyPackages: the
+                    // NIP-65 write set, per transports/nostr.md. Kind 10051 stays as
+                    // the legacy hint it has become.
+                    AdvertisedRelayListEvent.KIND,
                     KeyPackageRelayListEvent.KIND,
                 )
             )
