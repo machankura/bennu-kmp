@@ -22,7 +22,7 @@ silent, or a decision that looked arbitrary and was not.
 | [jvm-target.md](./jvm-target.md) | what desktop support cost, phased — why the native chain was already done, why an empty source set in our phoenix fork was the real blocker, and why DAO tests need none of it |
 | [npub-profile-preview.md](./npub-profile-preview.md) | showing the person before a direct message is started from a pasted npub — why the preview is a screen keyed by public key, what "found" means when a row can be a placeholder, and the phase that makes the button honest about a key package that never comes |
 | [material-design-conformance.md](./material-design-conformance.md) | what the M3 foundations actually require, measured against all 43 screens — the colour pairing that renders the app's own proposals invisible, and eight phases that put the decisions back in the theme |
-| [marmot-v2.md](./marmot-v2.md) | bringing the group layer onto the Marmot current profile after the quartz 1.15.2 bump — the nine rules that reach this app, why the room's id and the routing id have to become two values, and nine phases from reading both profiles to publishing before applying |
+| [marmot-v2.md](./marmot-v2.md) | bringing the group layer onto the Marmot current profile after the quartz 1.15.2 bump — the nine rules that reach this app, why the room's id and the routing id have to become two values, nine phases from reading both profiles to publishing before applying, and the one fork the library cannot yet settle |
 
 Start with the ceremony if you are new to this area; the Marmot notes all assume it.
 Read the skipped-keys note before debugging any "the other device never got it"
@@ -59,8 +59,11 @@ smallest of the plans: it changes the entrance to the direct-message flow and
 nothing past it, so read it with `StartDirectMessageToNpubOrNip05Dialog` and
 `ChatRoomMessagingViewModel.initiateNewChat` open, its four decisions before its
 four phases, and its table of where the build chose differently first.
-The Marmot v2 note is a phased plan that has not been built, and is the largest of
+The Marmot v2 note is a phased plan that has been built, and is the largest of
 them: it assumes the membership and derivation notes, takes the quartz 1.15.2 bump
 as its Phase 0, and is ordered so that the phases that reach other clients come
 before the ones that make the app's forks settle the way theirs do; read its table
-of nine rules and its two constraints before any phase.
+of nine rules and its two constraints before any phase, and its table of where the
+build chose differently before any of the code -- its first row, that a room's
+profile picks its pipeline, is the shape of everything that follows, and its last
+is the one fork the library cannot yet settle.

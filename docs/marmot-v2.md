@@ -15,12 +15,57 @@ invite race the current pipeline has, which v2's publish rule is the real fix fo
 The second explains why a room's id *is* a key -- and that is the thing v2's routing
 rule is about to collide with.
 
-**Not built.** Phase 0 is done in a worktree and is a two-file compile fix; nothing
-after it exists. The estimates add up to about five weeks, which makes this the
-largest of the plans, and it is deliberately ordered so that the phases that buy
-interoperability with other v2 clients come before the phases that make the app
-*conform* -- a member can talk to White Noise a month before its forks settle the
-way White Noise's do.
+**Built**, phases 0-8, one commit each and three follow-ups where a phase's commit
+had left a line of its own phase unbuilt; Phase 9 is the rollout and is process
+rather than code, and where it stands is noted at its end. The phases are kept as
+written because they are the reasoning, and the code reads better against the
+argument it came from than against a summary of itself. It is deliberately ordered
+so that the phases that buy interoperability with other v2 clients come before the
+phases that make the app *conform* -- a member can talk to White Noise before its
+forks settle the way White Noise's do. Where the implementation chose differently
+the table below says so, and the first of its rows is the one to read before any
+of the code:
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 5: the library's engine *replaces* the app's pipeline -- `MarmotInboundManager` shrinks to the membership helpers, `MlsGroupCache` and the vendored `CommitOrdering` are deleted | **a room's profile picks its pipeline.** A legacy room keeps the app's pipeline exactly as it was, comparator and cache included; a current-profile room goes through `MarmotEngine`, and `NostrDao.indexMarmotGroupEvent` branches on `ChatRoom.marmotProfile()`. The library's processor has no bare-wrap carve-out, so under it every legacy direct message would have stopped decrypting, and the legacy pipeline is frozen anyway: it retires with the profile, not before |
+| Phase 1: the accessors, "in a small extension file beside `MlsGroupCache`" | `MlsGroupProfile.kt`, and six of them rather than three, because Phase 4 made the room's id a thing a group has to say about itself: `roomId()` reads the "Room id:" line `MarmotRoomIdentity` puts in the profile's description, then `0x8004`, then the MLS group id; `routingId()` is the address without the first step |
+| Phase 2: the kind guard in `mip03Rejection` "goes", and `MarmotMip03CarveOutTest` inverts into the test that it is gone | it stays, for legacy rooms: `mip03Rejection(..., legacyRoom)`. A current-profile room refuses the bare wrap as a conformant peer would; a legacy room admits it, because every build in one still sends it. The test holds both halves |
+| Phase 2: the envelope's kind is "the next free number above 30329" | 30330, `MarmotDirectMessage.ENVELOPE_KIND`; `wrap` is unchanged and `envelope` goes around it, `wrapInside` takes it off |
+| Phase 2: bring `MAX_PAGE_BYTES` to 48 KiB and re-size `MAX_PAGE_EVENTS` | 48 KiB and 96 -- measured *escaped*. A page's JSON travels as a string inside the payload's `content`, so the bound that matters is `ChronicleEvent.escapedByteSize`, and a dense page that measured 48 KiB raw escaped to 70 KiB |
+| Phase 3: `createKeyPackage(signer, lastResort = true)` | not last-resort. The notary republishes a fresh package for whichever profile is left without one when a Welcome consumes a bundle; a last-resort leaf is for a client that cannot |
+| Phase 3: run `isValid` and `isCryptographicallyValid` at ingest | the second alone, which runs the first |
+| Phase 3: schema 20 -> 21 | 20 -> 23: the two `profile` columns (Phase 3), `MarmotRouting` (Phase 4), `MarmotPublishObligation` and `MarmotOutboundGate` (Phase 6), each an `AutoMigration` |
+| Phase 4: the two creation sites call `CurrentProfileGroupFactory.createGroup` directly | `MarmotGroupFactory.create`, one wrapper for both profiles and three sites -- the plan missed `createMlsDirectMessageChatRoom`, which makes the room behind a direct message. On the current profile it mints the routing id, and the description carries the derivation sentence *and* a "Room id: <hex>" line, because a member joining from a Welcome has nothing but the group's own state to learn the room's id from |
+| Phase 4: "extend `Outcome.BlockedOn` to a package that cannot be used" | `MarmotKeyPackageProfileException` at the add step, whose message the confirmation screen shows. `BlockedOn` still means missing, because the picker -- `getMarmotKeyPackageForPublicKey(publicKey, roomProfile)` -- refuses the wrong profile before creation ever asks, so there a wrong-profile package *is* a missing one |
+| Phase 5: four stores | one, `RoomMlsGroupStateStore`, over the state blob, `MarmotRetainedEpochSecret` and `MarmotRouting`. No `KeyPackageBundleStore` and no snapshot table: the `KeyPackageRotationManager` is constructed because the processor's constructor demands one and is never consulted, and bundles stay the app's rows with the notary's per-profile republish over them. No `MarmotIngestDedupStore`: 1.15.2's processor takes no such store, so there is nothing to mark into |
+| Phase 5: `MarmotGroupEvent` gains a `marmotMessageId` column | not added. The processor dedups by message id in memory for the life of the process; the reindex sweep still dedups by event id. The follow-up if a relay ever redelivers under a second id |
+| Phase 5: one engine "held by the identity's scope" | `CurareDatabase.marmotEngine`, one per database, restored on first use. The DAOs that need it hold the database and not a view model's scope, and a switch of identity is a restart |
+| Phase 5: the timer "beside `LiveSubscriptionManager`"; an outbound row "stays on the queue" while a pass is open | `MarmotEngine.settleLater`, armed by the ingest whenever a pass opens and ticking on the engine's own scope; and `awaitSettled` on the outbound side -- a wait of up to three ticks rather than a refusal, because the outbound queue re-emits on a table change and a pass settling is not one |
+| Phase 6: "a terminal rejection resolves `FAILED`" | built in a follow-up, once "terminal" had a definition: a NIP-01 `OK` reason a relay will keep giving (`blocked:`, `invalid:`, `pow:`, `restricted:`) is a new "rejected" status that the launch-time requeue leaves alone, `rate-limited:` and `error:` are "failed" like a timeout, and `duplicate:` is "published". The obligation goes only when every relay in scope has rejected -- `BroadcastStatus`, `MarmotEngine.discardRejected` -- and the room gets a line in the relay's words |
+| Phase 6: `gate.satisfyEmptyObligation` for the group that is only its creator | `installState` straight after `stageAddMember`, keyed off the `isOneMemberInitialGroupCreation` the app already computed |
+| Phase 7: leaving is `leaveGroup` behind a `LEAVING` gate; an admin commits the proposal "on receipt, or behind a confirmation" | on receipt (`commitStagedProposals` from `ProposalStaged`), and an admin is refused before anything is raised or dropped: the library refuses an admin's SelfRemove, so the app says "hand over admin first", or, for the only admin, "make another member an admin, or disband the group" |
+| Phase 7: captions from `MarmotGroupSnapshot` against a `marmotSnapshot` column | from the diff `processGroupMembershipChanges` already made against the participants table, on every device that applies a commit, and without a `TYPE_MEMBER_REMOVED`: the tree does not say whether a member left or was removed, so `TYPE_MEMBER_LEFT` covers both. No snapshot column |
+| Phase 7: rename is `stageAppDataUpdate` and "the button is small" | not built. There is no rename for either profile today; the subject on the detail screen is display only |
+| Phase 7: a received 1210 or 1009 gets no bubble, "and neither does any other unknown kind" | those two only, in a follow-up. The bubble stays for the rest: the kind:1 arm reaches it on purpose, and it is the only trace an unrecognised payload leaves |
+| Phase 8: four scenarios in one test | spread over four: `CurrentProfileInteropJvmTest` (the join, both directions, envelope included), `GroupLifecycleJvmTest.roomWithMember` (the app's room, the stand-in joining, routing id not room id), `ConvergenceForkJvmTest` (the fork) and `PublishBeforeApplyJvmTest` (the restart). The wire-vector test is `MarmotAppPayloadTest` and `MarmotPayloadBoundsTest` in `commonTest` |
+| Phase 8: the fork -- "whichever branch won, they agree" | proven for the case the app depends on and pinned for the case it cannot yet have. Two *other* members fork; the app and a second observer are handed both commits in opposite orders and settle on the same state byte for byte. A fork *this device authored* does not: see below |
+
+One thing found on the way that is the library's and not this app's. quartz 1.15.2's
+convergence rebuilds each candidate branch by replaying its commits against the
+retained parent state, and a member cannot replay a commit it authored --
+`processFramedCommit` on its own commit fails with "UpdatePath at common ancestor
+carries no ciphertext for us", since a committer holds no key for its own copath.
+So a fork this device is half of is scored with its own branch stale, and two
+committers *swap* branches rather than agree; every device that only observed
+still agrees, which the first fork test holds. The second fork test pins the swap
+exactly as observed and says in its last assertion what to do the day it fails:
+the state the missing replay would produce is already retained, and using it is
+the fix. Until then the practical exposure is small -- a device that never applies
+before publishing rarely authors one side of a fork -- and the follow-up in Phase 5
+(marking a losing branch's rows withdrawn) waits on the same fix.
+
+Written against the code as it stood at `2bbe1fc9`.
 
 ## Where "v2" comes from, and what it asks
 
@@ -798,6 +843,13 @@ The three doors: the state blob (Phase 0; a downgrade loses every room touched),
 the first current-profile room a user creates (Phase 4 flipped; it can never hold
 an old build), and the envelope (Phase 2; a legacy room that ever sends one has a
 member who cannot read it, which is why it never does).
+
+**Where it stands.** Everything above ships built and unflipped:
+`MarmotProfile.DEFAULT_FOR_NEW_ROOMS` is `LEGACY`, both KeyPackage slots are
+published and kept, and no room this app has made is on the current profile
+unless a caller asked for one by name -- the tests do; the creation screens do
+not. The first door is behind us the moment a build with the bump runs. The
+other two wait on the flip, which waits on the people this app's users invite.
 
 ---
 

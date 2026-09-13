@@ -49,6 +49,14 @@ import to.curare.compose.exceptions.MarmotConvergencePendingException
  * matched to this device's bundles by the app's own table, which is profile-aware
  * and matched by reference since Phase 1, and the processor reads the rotation
  * manager only on its own Welcome path, which the app does not use.
+ *
+ * Two gaps the app's own pipeline had are not closed by moving to this one, and
+ * should not be read as closed. A late application message decrypted under a
+ * retained prior epoch is decrypted without the sender's leaf signature being
+ * verified -- the library's `tryDecryptWithRetainedEpoch` has the same gap the
+ * app's had. And the secret tree's skipped keys do not survive `saveState`
+ * (docs/mls-skipped-keys.md); the manager holding the live group covers that
+ * within a process, exactly as `MlsGroupCache` did, and no further.
  */
 class MarmotEngine(
     private val database: CurareDatabase,
