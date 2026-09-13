@@ -9,10 +9,28 @@ Read this with `HomeScreen.kt`, `StartDirectMessageToNpubOrNip05Dialog.kt` and
 flow and nothing past it: the room is still created where it is created today, by
 the code that creates it today.
 
-**Not built.** Four phases, one commit each, in the order given. Phases 1–3 are the
+**Built**, phases 1–4, one commit each, in the order given. Phases 1–3 are the
 request as stated — a preview, and a button on it — and ship as a strict improvement
 on today. Phase 4 is what makes the button honest, and it is last so that the first
-three do not wait on it.
+three do not wait on it. The phases are kept as written because they are the
+reasoning; where the implementation chose differently the table below says so:
+
+| what the plan said | what it turned out to be |
+|---|---|
+| a new string, `no_profile_was_found_for_this_npub` | the sign-in screen's `we_could_not_find_a_profile_for_this_key` — "We could not find a profile for this key on the relays we asked." One string, two screens, one meaning, as the npub plan found with `use_a_different_key` |
+| a new string, `open_chat` | it existed: `SelectChatRoomTypeScreen`'s. The build failed on the duplicate key, which is the catalogue doing its job |
+| `findDirectMessageRoom` as "the rule `initiateNewChat` applied" | the rule's *intent*: a room whose members are exactly the two keys, or the one key when they are the same. The old size-one branch would have opened any room in which the peer sat alone, whoever the peer was; the new rule needs that lone member to be you, and the repository test pins a room the peer has with somebody else as not yours |
+| `retry()` from `NotYetOnCurare` | from any `Loaded`: it re-asks the DM relays alone and touches the readiness only when it was `NotYetOnCurare`, so a retry never takes an "Open chat" back to "Checking" |
+| the timeout "fires with a person on screen" | a flag, `relaysHadTheirTime`, because the profile can arrive *after* the timeout and has to read not-yet-on-Curare rather than checking; cleared by a retry, and `@Volatile` because the timeout and the collect are different coroutines |
+| the view model tested on `TestScope` virtual time | real time, as the other view-model tests: `Dispatchers.setMain(UnconfinedTestDispatcher())`, a poll under `withTimeout`, and the twenty seconds cut to three hundred milliseconds through the constructor |
+| `initiate()` "runs from a `LaunchedEffect`" | and is idempotent besides: a recomposition that calls it again opens no second collect, which the view-model test asserts |
+| a screenshot pass under `docs/material-design-conformance.md` | five PNGs from a throwaway `jvmTest` with `captureToImage`, looked at and deleted — the found, not-found, checking, not-yet-on-Curare and existing-chat states, at a phone's width |
+| Phase 2's screen with one repository | Phase 4 adds `chatRepository` to the screen, its host entry and its tests, as the plan said it would; the Phase 2 commit is the screen without it |
+
+One thing found on the way that is in no phase: the dialog's `Dialog` renders inside
+the desktop test root, so `onNodeWithText` finds its field and its button without a
+popup matcher, and `performTextInput` drives the `inputTransformation` on every
+edit — which is what made the `nostr:npub1…` row a four-line test.
 
 ## The flow today
 
@@ -708,6 +726,10 @@ collect and the one timer that means two things. `ChatRoomMessagingViewModel` ha
 the same shape and got it wrong twice before it was right — the comments at lines
 116 and 138 are the record — so the view model test's ordering cases (profile first, key
 package first, neither, late) are the phase, and the screen is what is left.
+
+Phases 1–4 are now implemented, in one sitting and in order. The Phase 4
+uncertainty resolved as predicted: the ordering cases are where the flag in the
+table above came from, and the screen was what was left.
 
 ## Out of scope
 

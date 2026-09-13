@@ -53,8 +53,8 @@ identities, and its first phase changes one rule the other two share — a seed'
 key becomes a credential like any other — so read it with `StoredIdentity.merge`,
 `SovereignWalletViewModel.switchToIdentity` and the startup screen open, and read
 its table of where the build chose differently first.
-The npub profile preview note is a phased plan that has not been built, and is the
+The npub profile preview note is a phased plan that has been built, and is the
 smallest of the plans: it changes the entrance to the direct-message flow and
 nothing past it, so read it with `StartDirectMessageToNpubOrNip05Dialog` and
-`ChatRoomMessagingViewModel.initiateNewChat` open, and its four decisions before
-its four phases.
+`ChatRoomMessagingViewModel.initiateNewChat` open, its four decisions before its
+four phases, and its table of where the build chose differently first.
