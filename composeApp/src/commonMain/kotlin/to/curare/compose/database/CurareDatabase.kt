@@ -95,6 +95,7 @@ import to.curare.compose.database.model.MarmotInnerEvent
 import to.curare.compose.database.model.MarmotKeyPackage
 import to.curare.compose.database.model.MarmotKeyPackageBundle
 import to.curare.compose.database.model.MarmotRouting
+import to.curare.compose.managers.MarmotEngine
 import to.curare.compose.database.model.MarmotRetainedEpochSecret
 import to.curare.compose.database.model.Mention
 import to.curare.compose.database.model.NegentropySynchronizeRequest
@@ -344,6 +345,14 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
 )
 @ColumnTypeConverters(CurareConverters::class)
 abstract class CurareDatabase: RoomDatabase() {
+    /**
+     * The Marmot engine for this database's current-profile rooms, made on first use
+     * and living as long as the database does. Owned here rather than registered
+     * elsewhere because the DAOs that need it are made by Room from this instance and
+     * can be handed nothing else. See [MarmotEngine].
+     */
+    val marmotEngine: MarmotEngine by lazy { MarmotEngine(this) }
+
     abstract fun broadcastNostrEventReceiptDao(): BroadcastNostrEventReceiptDao
     abstract fun broadcastNostrEventRequestDao(): BroadcastNostrEventRequestDao
 

@@ -1,0 +1,143 @@
+package to.curare.compose.managers
+
+import co.touchlab.kermit.Logger
+import com.vitorpamplona.quartz.marmot.GroupEventResult
+import com.vitorpamplona.quartz.marmot.MarmotInboundProcessor
+import com.vitorpamplona.quartz.marmot.MarmotOutboundProcessor
+import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageRotationManager
+import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
+import com.vitorpamplona.quartz.marmot.mls.group.MlsGroupManager
+import com.vitorpamplona.quartz.marmot.mls.group.MlsGroupState
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import to.curare.compose.database.CurareDatabase
+
+/**
+ * quartz's Marmot engine, over this database, for the rooms on the current profile.
+ *
+ * `MlsGroupManager` holds the live `MlsGroup` of every group and persists through
+ * [RoomMlsGroupStateStore]; `MarmotInboundProcessor` reads kind:445s against them,
+ * settling same-epoch commits through its convergence engine and recognising
+ * redelivery by the Marmot message id; `MarmotOutboundProcessor` builds the kind:445s
+ * this device sends. Everything in docs/marmot-v2.md's "v2 says" column that is not a
+ * wire shape lives in these three, and they are built around the store rather than
+ * the app's own copy of their logic.
+ *
+ * **A room's profile picks its pipeline.** Legacy rooms keep the app's own path --
+ * `MarmotInboundManager` over `MlsGroupCache`, unchanged -- and retire with it;
+ * current-profile rooms go through here. A room is on one profile for its whole
+ * life, so the two never hold the same group, which is what keeps the manager's live
+ * instance the single writer of a current-profile room's state. The library's
+ * processor also has no carve-out for the bare gift wrap a legacy room carries a
+ * direct message in, which is the other reason legacy rooms stay where they are.
+ *
+ * One engine per database, owned by it ([CurareDatabase.marmotEngine]): the manager
+ * keys groups by routing address, which is unique across identities, and a room row
+ * belongs to one identity anyway.
+ *
+ * The library's KeyPackage rotation manager is constructed but not fed: Welcomes are
+ * matched to this device's bundles by the app's own table, which is profile-aware
+ * and matched by reference since Phase 1, and the processor reads the rotation
+ * manager only on its own Welcome path, which the app does not use.
+ */
+class MarmotEngine(
+    private val database: CurareDatabase,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+) {
+    private val logger = Logger.withTag("MarmotEngine")
+
+    val store = RoomMlsGroupStateStore(database)
+    val groupManager = MlsGroupManager(store)
+    val inbound = MarmotInboundProcessor(groupManager, KeyPackageRotationManager())
+    val outbound = MarmotOutboundProcessor(groupManager)
+
+    private val restoreMutex = Mutex()
+    private var restored = false
+
+    /**
+     * Load every group from the store, once, and seed convergence with each.
+     *
+     * Convergence cannot see a fork in a group whose current state it never
+     * retained, so a restored group is tracked before its first inbound commit.
+     */
+    suspend fun ensureRestored() {
+        restoreMutex.withLock {
+            if (restored) return
+            groupManager.restoreAll()
+            groupManager.activeGroupIds().forEach { inbound.trackGroup(it) }
+            restored = true
+            logger.d("Restored ${groupManager.activeGroupIds().size} group(s)")
+        }
+    }
+
+    /**
+     * The live group addressed by [routingId], or null when this device holds no
+     * state for it.
+     *
+     * A room made or joined after the restore is loaded from its row the first time
+     * it is asked for and handed to the manager, which owns it from then on.
+     */
+    suspend fun groupFor(routingId: HexKey): MlsGroup? {
+        ensureRestored()
+        groupManager.getGroup(routingId)?.let { return it }
+        val bytes = store.load(routingId) ?: return null
+        val group = MlsGroup.restore(MlsGroupState.decodeTls(bytes))
+        groupManager.adoptGroup(routingId, group)
+        inbound.trackGroup(routingId)
+        return group
+    }
+
+    /**
+     * Tick convergence, and keep ticking while any pass is open.
+     *
+     * Inbound traffic is only an opportunistic tick: a group that goes quiet
+     * mid-pass has nothing else to drive it to its cutoff, so this loop runs at the
+     * quiescence window until the processor reports no open pass. A resolution that
+     * rewound canonical state is logged and nothing more for now -- see
+     * docs/marmot-v2.md, Phase 5, on why the transcript is not yet corrected.
+     */
+    fun settleLater(): Job = scope.launch {
+        while (true) {
+            delay(SETTLE_TICK_MS)
+            val resolutions = runCatching { inbound.settleDueConvergence() }
+                .onFailure { logger.e("Convergence tick failed", it) }
+                .getOrDefault(emptyList())
+            resolutions.forEach { resolution ->
+                logger.i(
+                    "Convergence for ${resolution.groupId.take(8)}…: ${resolution.status}, epoch ${resolution.canonicalEpoch}" +
+                        if (resolution.rewound) " -- REWOUND, the state that was canonical lost" else ""
+                )
+            }
+            if (inbound.openConvergencePasses().isEmpty()) return@launch
+        }
+    }
+
+    companion object {
+        /** The convergence policy's quiescence window: a pass may settle after one quiet second. */
+        const val SETTLE_TICK_MS = 1_000L
+
+        /**
+         * [result] as filed under [chatRoomId]. The processor names a group by its
+         * routing address; every row the app writes is keyed by the room, so the
+         * result is re-addressed once, here, rather than at each consumer.
+         */
+        fun GroupEventResult.inRoom(chatRoomId: HexKey): GroupEventResult = when (this) {
+            is GroupEventResult.ApplicationMessage -> copy(groupId = chatRoomId)
+            is GroupEventResult.CommitProcessed -> copy(groupId = chatRoomId)
+            is GroupEventResult.CommitPending -> copy(groupId = chatRoomId)
+            is GroupEventResult.Duplicate -> copy(groupId = chatRoomId)
+            is GroupEventResult.UndecryptableOuterLayer -> copy(groupId = chatRoomId)
+            is GroupEventResult.ProposalStaged -> copy(groupId = chatRoomId)
+            is GroupEventResult.AppMessageOnCandidateBranch -> copy(groupId = chatRoomId)
+            is GroupEventResult.RefusedByLifecycle -> copy(groupId = chatRoomId)
+            is GroupEventResult.Error -> copy(groupId = chatRoomId)
+        }
+    }
+}

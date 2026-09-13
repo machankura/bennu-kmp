@@ -86,6 +86,23 @@ interface ChatRoomDao {
     )
     fun observeByParentChatRoomId(parentChatRoomId: String): Flow<List<LocalChatRoom>>
 
+    /**
+     * The ids of every room holding MLS state that this device is still in. What the
+     * Marmot engine restores at startup -- ids only, because it loads each state on
+     * its own and the relations the room queries above carry would be wasted here.
+     */
+    @Query("SELECT id FROM ChatRoom WHERE mlsGroupState IS NOT NULL AND deletedAt IS NULL AND leftGroupAt IS NULL")
+    suspend fun getChatRoomIdsWithMlsState(): List<String>
+
+    @Query("SELECT mlsGroupState FROM ChatRoom WHERE id = :id")
+    suspend fun getMlsGroupState(id: String): String?
+
+    @Query("SELECT COUNT(*) > 0 FROM ChatRoom WHERE id = :id")
+    suspend fun exists(id: String): Boolean
+
+    @Query("UPDATE ChatRoom SET mlsGroupState = :mlsGroupState WHERE id = :id")
+    suspend fun updateMlsGroupState(id: String, mlsGroupState: String?)
+
     @Upsert
     suspend fun upsert(chatRoom: ChatRoom)
 

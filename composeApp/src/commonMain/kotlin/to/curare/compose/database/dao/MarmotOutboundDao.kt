@@ -130,25 +130,47 @@ abstract class MarmotOutboundDao(
             )
         )
 
-        // Invite peer...
+        // Invite peer. On the current profile the manager owns the group from the row
+        // just written, and the invite moves that instance rather than the one the
+        // factory handed back.
+        val liveGroup = liveGroupFor(LocalChatRoom(chatRoom = chatRoom, routings = listOf(MarmotRouting(created.routingId, chatRoom.id))))
+            ?: throw MarmotMissingChatGroupException("The room just made holds no MLS state")
         inviteMember(
             chatRoomId = nostrGroupId,
-            mlsGroup = mlsGroup,
+            mlsGroup = liveGroup,
             userPublicKey = userPublicKey,
             peerPublicKey = peerPublicKey,
             peerKeyPackage = peerKeyPackage,
             relays = relays
         )
 
-        // Update chatRoom
-        database.chatRoomDao().upsert(
-            chatRoom.copy(
-                mlsGroupState = mlsGroup.saveState().encodeTls().toHex(),
+        // Update chatRoom -- a legacy room's state from the instance the invite moved;
+        // a current-profile room's was persisted by the manager.
+        if (created.profile == MarmotProfile.LEGACY) {
+            database.chatRoomDao().upsert(
+                chatRoom.copy(
+                    mlsGroupState = liveGroup.saveState().encodeTls().toHex(),
+                )
             )
-        )
+        }
 
         return nostrGroupId
     }
+
+    /**
+     * The room's live group, by the room's profile.
+     *
+     * A legacy room's is rebuilt from its row, as it always was, and written back by
+     * the caller. A current-profile room's is the one the engine's manager holds --
+     * the single writer of that room's state -- and the caller must not write it
+     * back: every manager operation persists itself, and a state saved from a
+     * second instance would be a stale one. See MarmotEngine.
+     */
+    private suspend fun liveGroupFor(localChatRoom: LocalChatRoom): MlsGroup? =
+        when (localChatRoom.chatRoom.marmotProfile()) {
+            MarmotProfile.LEGACY -> localChatRoom.chatRoom.toMlsGroup()
+            MarmotProfile.CURRENT -> database.marmotEngine.groupFor(localChatRoom.routingId)
+        }
 
     @Transaction
     open suspend fun inviteMemberToChatRoom(
@@ -159,7 +181,7 @@ abstract class MarmotOutboundDao(
         // A room restored from an inbound gift wrap has no persisted MLS state, so there is
         // nothing to add a member to. Say so instead of silently doing nothing and letting the
         // caller report success.
-        val mlsGroup = localChatRoom.chatRoom.toMlsGroup()
+        val mlsGroup = liveGroupFor(localChatRoom)
             ?: throw MarmotMissingChatGroupException(
                 "No MLS group state for chat room ${localChatRoom.chatRoom.id}; cannot invite $peerPublicKey"
             )
@@ -191,11 +213,15 @@ abstract class MarmotOutboundDao(
         // `addMember` advanced the in-memory group to the next epoch. Without persisting it the
         // creator kept encrypting under the old epoch — which the new member cannot decrypt —
         // and the next invite would re-derive from stale state and produce a conflicting commit.
-        database.chatRoomDao().upsert(
-            localChatRoom.chatRoom.copy(
-                mlsGroupState = mlsGroup.saveState().encodeTls().toHex()
+        // A current-profile room's state was persisted by the manager that moved it, and a
+        // write from here would be of a stale instance.
+        if (localChatRoom.chatRoom.marmotProfile() == MarmotProfile.LEGACY) {
+            database.chatRoomDao().upsert(
+                localChatRoom.chatRoom.copy(
+                    mlsGroupState = mlsGroup.saveState().encodeTls().toHex()
+                )
             )
-        )
+        }
     }
 
     /**
@@ -229,7 +255,7 @@ abstract class MarmotOutboundDao(
     ): List<HexKey> {
         if (peers.isEmpty()) return emptyList()
 
-        val mlsGroup = localChatRoom.chatRoom.toMlsGroup()
+        val mlsGroup = liveGroupFor(localChatRoom)
             ?: throw MarmotMissingChatGroupException(
                 "No MLS state for chat room ${localChatRoom.chatRoom.id}; cannot add members"
             )
@@ -288,32 +314,59 @@ abstract class MarmotOutboundDao(
             require(credential.identity.toHexKey() == peerPublicKey) {
                 "KeyPackage credential identity does not match memberPubKey"
             }
-
-            mlsGroup.proposeAdd(peerKeyPackage.tlsEncodedMarmotKeyPackage)
+            if (!MarmotGroupFactory.leafFits(mlsGroup, keyPackage)) {
+                throw MarmotKeyPackageProfileException(
+                    "${memberName(peerPublicKey)}'s key package is from an older Marmot profile; ask them to update"
+                )
+            }
         }
 
-        val retainedBefore = mlsGroup.retainedSecrets()
-        val commitResult = mlsGroup.commit()
+        val commitResult = when (localChatRoom.chatRoom.marmotProfile()) {
+            MarmotProfile.CURRENT -> {
+                // Staged on a clone and installed at once: the manager retains the
+                // epoch it is leaving and persists, so nothing below writes the state
+                // for this room. Installing here rather than on a relay's OK is what
+                // docs/marmot-v2.md Phase 6 changes.
+                val manager = database.marmotEngine.groupManager
+                val staged = manager.stageAddMembers(
+                    nostrGroupId = localChatRoom.routingId,
+                    keyPackagesBytes = peers.map { (_, peerKeyPackage) -> peerKeyPackage.tlsEncodedMarmotKeyPackage },
+                )
+                manager.installState(localChatRoom.routingId, staged.pendingState)
+                staged.result
+            }
 
-        database.marmotRetainedEpochSecretDao().insert(
-            MarmotRetainedEpochSecret(
-                chatRoomId = localChatRoom.chatRoom.id,
-                epoch = retainedBefore.epoch,
-                senderDataSecret = retainedBefore.senderDataSecret,
-                encryptionSecret = retainedBefore.encryptionSecret,
-                leafCount = retainedBefore.leafCount,
-                exporterSecret = retainedBefore.exporterSecret,
-            )
-        )
+            MarmotProfile.LEGACY -> {
+                peers.forEach { (_, peerKeyPackage) ->
+                    mlsGroup.proposeAdd(peerKeyPackage.tlsEncodedMarmotKeyPackage)
+                }
 
-        // `commit` advanced the in-memory group. Persist before delivering, so a
-        // crash between the two leaves the group at the epoch the Welcomes describe
-        // rather than one behind it.
-        database.chatRoomDao().upsert(
-            localChatRoom.chatRoom.copy(
-                mlsGroupState = mlsGroup.saveState().encodeTls().toHex()
-            )
-        )
+                val retainedBefore = mlsGroup.retainedSecrets()
+                val commitResult = mlsGroup.commit()
+
+                database.marmotRetainedEpochSecretDao().insert(
+                    MarmotRetainedEpochSecret(
+                        chatRoomId = localChatRoom.chatRoom.id,
+                        epoch = retainedBefore.epoch,
+                        senderDataSecret = retainedBefore.senderDataSecret,
+                        encryptionSecret = retainedBefore.encryptionSecret,
+                        leafCount = retainedBefore.leafCount,
+                        exporterSecret = retainedBefore.exporterSecret,
+                    )
+                )
+
+                // `commit` advanced the in-memory group. Persist before delivering, so a
+                // crash between the two leaves the group at the epoch the Welcomes describe
+                // rather than one behind it.
+                database.chatRoomDao().upsert(
+                    localChatRoom.chatRoom.copy(
+                        mlsGroupState = mlsGroup.saveState().encodeTls().toHex()
+                    )
+                )
+
+                commitResult
+            }
+        }
 
         // One line each, as `inviteMember` writes for the invites it makes -- this
         // path does its own commit and never goes through it. Written before the
@@ -534,32 +587,45 @@ abstract class MarmotOutboundDao(
             content = "Invited ${memberName(peerPublicKey)} to the group",
         )
 
-        val retainedBefore = mlsGroup.retainedSecrets()
-        val commitResult = mlsGroup.addMember(
-            peerKeyPackage.tlsEncodedMarmotKeyPackage
-        )
-
-        database.marmotRetainedEpochSecretDao().insert(
-            MarmotRetainedEpochSecret(
-                chatRoomId = chatRoomId,
-                epoch = retainedBefore.epoch,
-                senderDataSecret = retainedBefore.senderDataSecret,
-                encryptionSecret = retainedBefore.encryptionSecret,
-                leafCount = retainedBefore.leafCount,
-                exporterSecret = retainedBefore.exporterSecret,
+        val commitResult = if (mlsGroup.currentGroupState().isCurrentProfile) {
+            // Staged on a clone and installed at once by the manager, which retains
+            // the epoch it is leaving and persists the state itself; the caller
+            // must not write it back. Installing here rather than on a relay's OK
+            // is what docs/marmot-v2.md Phase 6 changes.
+            val manager = database.marmotEngine.groupManager
+            val staged = manager.stageAddMember(routingId, peerKeyPackage.tlsEncodedMarmotKeyPackage)
+            manager.installState(routingId, staged.pendingState)
+            staged.result
+        } else {
+            val retainedBefore = mlsGroup.retainedSecrets()
+            val commitResult = mlsGroup.addMember(
+                peerKeyPackage.tlsEncodedMarmotKeyPackage
             )
-        )
 
-        // Trim retained epochs out of the retention window...
-        val defenestratableMarmotRetainedEpochSecrets = database.marmotRetainedEpochSecretDao()
-            .getDefenestratableMarmotRetainedEpochSecretForChatRoomId(
-                chatRoomId = chatRoomId,
-                epochCutOffPoint = retainedBefore.epoch - EPOCH_RETENTION_WINDOW.toLong()
+            database.marmotRetainedEpochSecretDao().insert(
+                MarmotRetainedEpochSecret(
+                    chatRoomId = chatRoomId,
+                    epoch = retainedBefore.epoch,
+                    senderDataSecret = retainedBefore.senderDataSecret,
+                    encryptionSecret = retainedBefore.encryptionSecret,
+                    leafCount = retainedBefore.leafCount,
+                    exporterSecret = retainedBefore.exporterSecret,
+                )
             )
-        logger.d("Defenestratable Retained Epochs: ${defenestratableMarmotRetainedEpochSecrets.map { it.epoch }}")
-        database.marmotRetainedEpochSecretDao().defenestrate(
-            defenestratableMarmotRetainedEpochSecrets
-        )
+
+            // Trim retained epochs out of the retention window...
+            val defenestratableMarmotRetainedEpochSecrets = database.marmotRetainedEpochSecretDao()
+                .getDefenestratableMarmotRetainedEpochSecretForChatRoomId(
+                    chatRoomId = chatRoomId,
+                    epochCutOffPoint = retainedBefore.epoch - EPOCH_RETENTION_WINDOW.toLong()
+                )
+            logger.d("Defenestratable Retained Epochs: ${defenestratableMarmotRetainedEpochSecrets.map { it.epoch }}")
+            database.marmotRetainedEpochSecretDao().defenestrate(
+                defenestratableMarmotRetainedEpochSecrets
+            )
+
+            commitResult
+        }
 
         if (isOneMemberInitialGroupCreation) {
             // Send welcome event to participant
@@ -771,12 +837,13 @@ abstract class MarmotOutboundDao(
         marmotInnerEvent: MarmotInnerEvent,
         nostrSignerSync: NostrSignerSync
     ): GroupEvent {
-        // The room's profile decides the shape of what goes into MLS. See
-        // docs/marmot-v2.md, Phase 2: it is the feature flag for every wire change
-        // an old build cannot read, because a current-profile room admits only
-        // leaves that carry an identity proof, and only a build past Phase 3 can
-        // make one.
-        val isCurrentProfileRoom = mlsGroup.currentGroupState().isCurrentProfile
+        // The room's profile decides the shape of what goes into MLS and which
+        // pipeline encrypts it. See docs/marmot-v2.md, Phase 2: it is the feature
+        // flag for every wire change an old build cannot read, because a
+        // current-profile room admits only leaves that carry an identity proof, and
+        // only a build past Phase 3 can make one; and Phase 5: a current-profile
+        // room's group is the engine's, not this function's argument.
+        val isCurrentProfileRoom = localChatRoom.chatRoom.marmotProfile() == MarmotProfile.CURRENT
 
         val plainTextBytes: ByteArray = marmotInnerEvent.directMessageRecipientPublicKey?.let { recipient ->
             // A direct message is gift wrapped for one member before it goes into
@@ -832,47 +899,63 @@ abstract class MarmotOutboundDao(
 
         logger.d("plainTextBytes: ${plainTextBytes.toHex()}")
 
-        // Step 1: MLS encrypt
-        val mlsCipherText = mlsGroup.encrypt(plainTextBytes)
-        logger.d("mlsCipherText: ${mlsCipherText.toHex()}")
+        val groupEvent: GroupEvent = if (isCurrentProfileRoom) {
+            // The library's outbound processor over the engine's live group: MLS
+            // encrypt, the outer layer, the template with its expiration, the
+            // ephemeral signer -- and the manager persists the ratchet it advanced,
+            // so nothing here writes the room's state. The `mlsGroup` this function
+            // was handed is another instance of the same group and is not used to
+            // encrypt: two instances of one ratchet is how a message gets a key the
+            // other side has already moved past.
+            val engine = database.marmotEngine
+            engine.groupFor(localChatRoom.routingId)
+                ?: throw MarmotMissingChatGroupException("No live group for ${localChatRoom.chatRoom.id}")
+            engine.outbound.buildGroupEventFromBytes(localChatRoom.routingId, plainTextBytes).signedEvent
+        } else {
+            // Step 1: MLS encrypt
+            val mlsCipherText = mlsGroup.encrypt(plainTextBytes)
+            logger.d("mlsCipherText: ${mlsCipherText.toHex()}")
 
-        // Step 2: Outer ChaCha20-Poly1305 encryption
-        val exportKey = mlsGroup.exporterSecret()
-        logger.d("exporterKey: ${exportKey.toHex()}")
-        val encryptedContent = GroupEventEncryption.encrypt(
-            mlsMessageBytes = mlsCipherText,
-            groupKey = exportKey
-        )
-        logger.d("encryptedContent: $encryptedContent")
-
-        // Step 3: Build the GroupEvent template (auto-apply NIP-40 expiration
-        // if the group has disappearing_message_secs configured per MIP-01/03).
-        val createdAt = TimeUtils.now()
-        val expirationTime = disappearingExpiration(mlsGroup, createdAt)
-
-        // No `encoding` tag. `transports/nostr.md`: a sender MUST NOT add one to any
-        // event shape -- a receiver that switched decoders on it could be steered
-        // into a different parse of the same bytes -- and the commit template below
-        // never carried one either.
-        val template = GroupEvent.build(
-            encryptedContentBase64 = encryptedContent,
-            nostrGroupId = localChatRoom.routingId,
-            createdAt = createdAt,
-        ) {
-            if (expirationTime != null) expiration(expirationTime)
-        }
-
-        // Step 4: Sign with a fresh ephemeral keypair
-        val ephemeralSigner = NostrSignerInternal(KeyPair())
-        val groupEvent: GroupEvent = ephemeralSigner.sign(template)
-        logger.d("groupEvent: ${groupEvent.toJson()}")
-
-        // May need to update chatRoom mlsGroupState... or last sent message
-        database.chatRoomDao().upsert(
-            localChatRoom.chatRoom.copy(
-                mlsGroupState = mlsGroup.saveState().encodeTls().toHex()
+            // Step 2: Outer ChaCha20-Poly1305 encryption
+            val exportKey = mlsGroup.exporterSecret()
+            logger.d("exporterKey: ${exportKey.toHex()}")
+            val encryptedContent = GroupEventEncryption.encrypt(
+                mlsMessageBytes = mlsCipherText,
+                groupKey = exportKey
             )
-        )
+            logger.d("encryptedContent: $encryptedContent")
+
+            // Step 3: Build the GroupEvent template (auto-apply NIP-40 expiration
+            // if the group has disappearing_message_secs configured per MIP-01/03).
+            val createdAt = TimeUtils.now()
+            val expirationTime = disappearingExpiration(mlsGroup, createdAt)
+
+            // No `encoding` tag. `transports/nostr.md`: a sender MUST NOT add one to any
+            // event shape -- a receiver that switched decoders on it could be steered
+            // into a different parse of the same bytes -- and the commit template below
+            // never carried one either.
+            val template = GroupEvent.build(
+                encryptedContentBase64 = encryptedContent,
+                nostrGroupId = localChatRoom.routingId,
+                createdAt = createdAt,
+            ) {
+                if (expirationTime != null) expiration(expirationTime)
+            }
+
+            // Step 4: Sign with a fresh ephemeral keypair
+            val ephemeralSigner = NostrSignerInternal(KeyPair())
+            val signed: GroupEvent = ephemeralSigner.sign(template)
+
+            // The ratchet advanced; persist it, or the next message reuses a key.
+            database.chatRoomDao().upsert(
+                localChatRoom.chatRoom.copy(
+                    mlsGroupState = mlsGroup.saveState().encodeTls().toHex()
+                )
+            )
+
+            signed
+        }
+        logger.d("groupEvent: ${groupEvent.toJson()}")
 
         database.nostrEventDao().upsert(
             NostrEvent(
