@@ -65,6 +65,7 @@
     <string name="creating_new_chat">Creating new chat.</string>
     <string name="currently_no_contacts_please_search_and_chat">Currently no contacts. Please search and chat with a few people.</string>
     <string name="currently_no_messages_have_been_shared">Currently no messages have been shared.\nBreak the ice.</string>
+    <string name="declined_to_sign">Declined to sign</string>
     <string name="delete_group">Delete group</string>
     <string name="details">Details</string>
     <string name="dialect_name">Dialect name</string>

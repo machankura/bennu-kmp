@@ -177,7 +177,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 20,
+    version = 21,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -321,6 +321,14 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // which is what they were, and any identity may drain them. The broadcast
         // queue deliberately gets no owner: a signed event is anyone's to carry.
         AutoMigration(from = 19, to = 20),
+        // v21 adds the nullable FrostSigningSession.signDeclinedAt, the other
+        // answer to the question signApprovedAt records: a member who refused to
+        // sign, on a session that runs on without them. Refusing used to end the
+        // session outright, so no row written before this can be one where the
+        // owner declined and the session is still open -- every such session is
+        // FAILED, and null reads as "not declined", which is true of all the
+        // rest. A nullable column is a shape Room migrates itself.
+        AutoMigration(from = 20, to = 21),
     ]
 )
 @ColumnTypeConverters(CurareConverters::class)

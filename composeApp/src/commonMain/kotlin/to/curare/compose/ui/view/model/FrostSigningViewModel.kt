@@ -72,6 +72,10 @@ class FrostSigningViewModel(
                         signed = messages
                             .filter { it.kind == FrostSigningEvents.PARTIAL_SIGNATURE }
                             .map { it.signerPublicKey }
+                            .toSet(),
+                        declined = messages
+                            .filter { it.kind == FrostSigningEvents.DECLINE }
+                            .map { it.signerPublicKey }
                             .toSet()
                     )
                 }

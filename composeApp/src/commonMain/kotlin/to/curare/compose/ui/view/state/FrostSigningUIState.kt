@@ -23,6 +23,14 @@ sealed interface FrostSigningUIState {
 
         /** Who has signed their part. */
         val signed: Set<HexKey> = emptySet(),
+
+        /**
+         * Who has refused. Named for the same reason the other two are: a
+         * t-of-n session survives some number of refusals and not one more, so
+         * which members those are is the difference between a session that is
+         * one refusal from ending and one that is nowhere near.
+         */
+        val declined: Set<HexKey> = emptySet(),
     ): FrostSigningUIState
 
     data class Error(

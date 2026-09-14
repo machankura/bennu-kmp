@@ -77,14 +77,40 @@ class TranscriptRequestStateTest {
     }
 
     @Test
-    fun `declining settles the request without claiming it was signed`() {
-        // Declining publishes nothing, so there is no fulfilment to find. The
-        // failure the refusal writes is the only trace, and it has to be enough --
-        // otherwise the line goes on offering a decision already made.
+    fun `a refusal that abandons the session settles the request without claiming it was signed`() {
+        // Declining publishes no nonce, so there is no fulfilment to find. When
+        // the refusal is the one that leaves too few members to sign, the failure
+        // it writes is the only trace, and it has to be enough -- otherwise the
+        // line goes on offering a decision already made.
         val request = line(ChatMessage.TYPE_FROST_APPROVAL_NEEDED, at = 10)
         val transcript = listOf(request, line(ChatMessage.TYPE_FROST_FAILED, at = 11))
 
         assertEquals(setOf(request.id), ChatMessage.settledRequests(transcript))
+        assertEquals(emptySet(), ChatMessage.answeredRequests(transcript))
+    }
+
+    @Test
+    fun `a refusal the session survives settles the refuser's request and nothing else`() {
+        // A t-of-n key can do without this member, so their refusal ends nothing
+        // -- the session is still open and the others may sign it. What has gone
+        // is this reader's decision, so their line stops asking, and it earns no
+        // tick: nothing of theirs is in whatever the group goes on to sign.
+        val request = line(ChatMessage.TYPE_FROST_APPROVAL_NEEDED, at = 10)
+        val transcript = listOf(request, line(ChatMessage.TYPE_FROST_DECLINED, at = 11))
+
+        assertEquals(setOf(request.id), ChatMessage.settledRequests(transcript))
+        assertEquals(emptySet(), ChatMessage.answeredRequests(transcript))
+    }
+
+    @Test
+    fun `somebody else's refusal leaves the request asking`() {
+        // Another member declining takes one of the n away and changes nothing
+        // about what this reader is being asked -- if anything the group needs
+        // their answer more.
+        val request = line(ChatMessage.TYPE_FROST_APPROVAL_NEEDED, at = 10)
+        val transcript = listOf(request, line(ChatMessage.TYPE_FROST_DECLINED, at = 11, sender = other))
+
+        assertEquals(emptySet(), ChatMessage.settledRequests(transcript))
         assertEquals(emptySet(), ChatMessage.answeredRequests(transcript))
     }
 

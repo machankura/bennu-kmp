@@ -29,12 +29,23 @@ import to.curare.compose.nostr.frost.tags.FrostSignerIdsTag
  *  signer   --[ 30323 partial    ]-> everyone   this device's partial signature
  *  proposer --[ 30324 signature  ]-> everyone   the finished 64-byte signature
  *  anyone   --[ 30325 failure    ]-> everyone   abandon + blame
+ *  signer   --[ 30330 decline    ]-> everyone   this member will not sign
  * ```
  *
- * [GroupKeyStateEvent] sits just past them on 30326. It is not part of a
- * session -- it is the standing fact a session is opened against, saying which
+ * A decline is not a failure, which is why it is a kind of its own. A t-of-n
+ * key needs t willing members, not n, so one member saying no leaves the
+ * session open for the rest -- and every device counts the refusals it has
+ * seen against the same arithmetic, abandoning only once fewer than t members
+ * could still sign. See `FrostSigningManager.recordDecline`. A failure is the
+ * other thing: a fault that no quorum can work around, and it ends the session
+ * wherever it lands.
+ *
+ * [GroupKeyStateEvent] sits just past the first six on 30326. It is not part of
+ * a session -- it is the standing fact a session is opened against, saying which
  * key the room signs with -- so it is deliberately outside [ALL], which is what
- * the inbound path dispatches a session message on.
+ * the inbound path dispatches a session message on. 30327-30329 went to the
+ * chronicle and subgroup families before a session needed a seventh kind, which
+ * is why the decline sits at 30330 rather than in the run.
  *
  * ### Why 3032x
  *
@@ -82,6 +93,18 @@ object FrostSigningEvents {
     /** Session abandoned. Content is the reason, for showing to the group. */
     val FAILURE: Kind = 30325
 
+    /**
+     * One member will not sign. Content is their reason, for showing to the
+     * group; the session goes on without them unless too few are left.
+     *
+     * A build predating this kind does not route it -- it is not in that build's
+     * [ALL] -- so an old device never learns of a refusal and simply keeps
+     * waiting, which is what it did for a member who said nothing. It still
+     * sends its own refusals as [FAILURE], and a new device honours those as
+     * the abandonment they always were.
+     */
+    val DECLINE: Kind = 30330
+
     /** Every kind above, for filtering inbound payloads in one check. */
     val ALL: Set<Kind> = setOf(
         PROPOSAL,
@@ -89,7 +112,8 @@ object FrostSigningEvents {
         SIGNER_SET,
         PARTIAL_SIGNATURE,
         SIGNATURE,
-        FAILURE
+        FAILURE,
+        DECLINE
     )
 
     fun isFrostSigningKind(kind: Kind): Boolean = kind in ALL

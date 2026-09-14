@@ -279,6 +279,17 @@ data class ChatMessage(
         const val TYPE_FROST_COMPLETE = "frostComplete"
         const val TYPE_FROST_FAILED = "frostFailed"
 
+        /**
+         * A member refused to sign, and the session went on without them.
+         *
+         * Its own type rather than a failure, because it is not one: a t-of-n key
+         * can do without `n - t` members, and this line is one of the refusals
+         * the key can absorb. The refusal that leaves too few to sign is written
+         * as [TYPE_FROST_FAILED] instead, saying both that the member declined
+         * and that it was the one that ended the session.
+         */
+        const val TYPE_FROST_DECLINED = "frostDeclined"
+
         /** Addressed to the reader rather than said by anyone -- see [DKG_REQUEST_TYPES]. */
         const val TYPE_FROST_APPROVAL_NEEDED = "frostApprovalNeeded"
 
@@ -300,14 +311,18 @@ data class ChatMessage(
          * The signing lines that end a session, whichever way it went.
          *
          * A request usually stops being one by being answered, but that is not
-         * the only way. A member who declines publishes nothing, and a quorum
-         * that signs without them asks them for nothing further -- from the
-         * transcript both look the same, nothing of the reader's own either
-         * side of the request, so the session's own ending is the only thing
-         * left to read it from.
+         * the only way. A quorum that signs without the reader asks them for
+         * nothing further, and a session that is abandoned asks nobody for
+         * anything -- in both there is nothing of the reader's own either side
+         * of the request, so the session's own ending is the only thing left to
+         * read it from.
          *
          * A ceremony has no equivalent because a ceremony step can only be
-         * taken or waited for. Signing is the one thing a member can refuse.
+         * taken or waited for. Signing is the one thing a member can refuse --
+         * and a refusal the session survives is the third way a request can be
+         * over, read by [settledRequests] from the reader's own
+         * [TYPE_FROST_DECLINED] line rather than from here: it settles only
+         * the refuser's request, where these settle everybody's.
          */
         val FROST_SETTLEMENTS = setOf(TYPE_FROST_COMPLETE, TYPE_FROST_FAILED)
 
@@ -320,6 +335,7 @@ data class ChatMessage(
             TYPE_FROST_SIGNATURE,
             TYPE_FROST_COMPLETE,
             TYPE_FROST_FAILED,
+            TYPE_FROST_DECLINED,
             TYPE_FROST_APPROVAL_NEEDED,
         )
 
@@ -336,6 +352,7 @@ data class ChatMessage(
             TYPE_FROST_PARTIAL_SIGNATURE,
             TYPE_FROST_SIGNATURE,
             TYPE_FROST_FAILED,
+            TYPE_FROST_DECLINED,
         )
 
         val DKG_AUTHORED_TYPES = setOf(
@@ -645,16 +662,23 @@ data class ChatMessage(
          * earned no tick and claiming otherwise would credit them with a
          * signature they refused or were never needed for. What they have run
          * out of is a decision to make -- see [FROST_SETTLEMENTS].
+         *
+         * The reader's own refusal settles their request too, and only theirs.
+         * The session is still open -- the others may yet sign it -- so it is
+         * not an ending, and another member's refusal leaves the reader with
+         * exactly the decision they had.
          */
         fun settledRequests(messages: List<ChatMessage>): Set<Long> = messages
             .filter { request ->
                 request.messageType in FROST_REQUEST_TYPES &&
-                    messages.any {
-                        it.messageType in FROST_SETTLEMENTS && it.isAbout(request)
-                    }
+                    messages.any { it.settles() && it.isAbout(request) }
             }
             .map { it.id }
             .toSet()
+
+        private fun ChatMessage.settles(): Boolean =
+            messageType in FROST_SETTLEMENTS ||
+                (messageType == TYPE_FROST_DECLINED && isUserMessage)
 
         /**
          * Files one direct message, from whichever side of it this device is on.
