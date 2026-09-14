@@ -16,6 +16,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import to.curare.compose.database.CurareDatabase
 import to.curare.compose.database.builder.getRoomDatabase
@@ -27,6 +28,7 @@ import to.curare.compose.database.model.FrostSigningItem
 import to.curare.compose.database.model.FrostSigningSession
 import to.curare.compose.database.model.NostrEvent
 import to.curare.compose.database.model.Profile
+import to.curare.compose.database.repository.DatabaseFrostSigningRepository
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.database.model.types.DkgRitualStage
 import to.curare.compose.database.model.types.FrostSigningStage
@@ -432,6 +434,23 @@ class FrostSigningDeclineJvmTest {
         assertEquals(1, queued(FrostSigningEvents.DECLINE).size)
         assertNotNull(db.frostSigningSessionDao().getMessage(session.id, FrostSigningEvents.DECLINE, bob))
         assertEquals(FrostSigningStage.COLLECTING_NONCES, session(session.id).stage)
+    }
+
+    @Test
+    fun `who can answer is read off the ceremony, not off the room`() = runBlocking {
+        openDevice()
+        val session = propose()
+
+        // A member invited to the room after the key was made holds no share:
+        // the proposal is dropped before it becomes a session on their device,
+        // and no refusal or nonce of theirs would count. What the screen lists
+        // is who put a host key into the ceremony -- the same rows the manager
+        // places signer ids over -- and the room's roster is never consulted.
+        val shareHolders = DatabaseFrostSigningRepository(db, this)
+            .observeShareHolders(session.dkgSessionId)
+            .first()
+
+        assertEquals(setOf(alice, bob, carol), shareHolders)
     }
 
     @Test

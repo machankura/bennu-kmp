@@ -194,69 +194,72 @@ fun FrostSigningScreen(
                     // Named rather than counted, for the same reason the ceremony's
                     // ladder names people: "1 of 2" does not tell anyone whose door
                     // to knock on, and a session stalls until somebody knocks.
-                    state.localChatRoom.localParticipants
-                        .distinctBy { it.participant.participantPublicKey }
-                        .forEach { localParticipant ->
-                            val member = localParticipant.participant.participantPublicKey
+                    //
+                    // The share holders, not the room. A member added to the room
+                    // after its key was made holds no share, and so can neither
+                    // sign nor refuse -- listing them would name a door that cannot
+                    // answer. See FrostSigningUIState.Loaded.members.
+                    state.members.forEach { localParticipant ->
+                        val member = localParticipant.participant.participantPublicKey
 
-                            Card {
-                                ListItem(
-                                    leadingContent = {
-                                        ProfileAvatar(
-                                            publicKey = member,
-                                            profile = localParticipant.profile
+                        Card {
+                            ListItem(
+                                leadingContent = {
+                                    ProfileAvatar(
+                                        publicKey = member,
+                                        profile = localParticipant.profile
+                                    )
+                                },
+                                trailingContent = {
+                                    when {
+                                        member in state.signed -> Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = "Signed",
+                                            tint = MaterialTheme.colorScheme.primary
                                         )
-                                    },
-                                    trailingContent = {
-                                        when {
-                                            member in state.signed -> Icon(
-                                                Icons.Default.CheckCircle,
-                                                contentDescription = "Signed",
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
 
-                                            member in state.offeredNonce -> Icon(
-                                                Icons.Default.HourglassEmpty,
-                                                contentDescription = "Ready to sign"
-                                            )
-
-                                            // Quiet rather than red: a refusal the
-                                            // session survives is not an error, and
-                                            // the one it does not survive ends the
-                                            // session, which the status line says.
-                                            member in state.declined -> Icon(
-                                                Icons.Default.Block,
-                                                contentDescription = "Declined",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-
-                                            else -> Icon(
-                                                Icons.Default.RadioButtonUnchecked,
-                                                contentDescription = "Not yet",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    },
-                                    headlineContent = {
-                                        Text(
-                                            text = localParticipant.profile
-                                                ?.humanReadableNameOrPubkey()
-                                                ?: member
+                                        member in state.offeredNonce -> Icon(
+                                            Icons.Default.HourglassEmpty,
+                                            contentDescription = "Ready to sign"
                                         )
-                                    },
-                                    supportingContent = {
-                                        Text(
-                                            text = when {
-                                                member in state.signed -> stringResource(Res.string.signed_their_part)
-                                                member in state.offeredNonce -> stringResource(Res.string.ready_to_sign)
-                                                member in state.declined -> stringResource(Res.string.declined_to_sign)
-                                                else -> stringResource(Res.string.has_not_taken_part_yet)
-                                            }
+
+                                        // Quiet rather than red: a refusal the
+                                        // session survives is not an error, and
+                                        // the one it does not survive ends the
+                                        // session, which the status line says.
+                                        member in state.declined -> Icon(
+                                            Icons.Default.Block,
+                                            contentDescription = "Declined",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+
+                                        else -> Icon(
+                                            Icons.Default.RadioButtonUnchecked,
+                                            contentDescription = "Not yet",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                )
-                            }
+                                },
+                                headlineContent = {
+                                    Text(
+                                        text = localParticipant.profile
+                                            ?.humanReadableNameOrPubkey()
+                                            ?: member
+                                    )
+                                },
+                                supportingContent = {
+                                    Text(
+                                        text = when {
+                                            member in state.signed -> stringResource(Res.string.signed_their_part)
+                                            member in state.offeredNonce -> stringResource(Res.string.ready_to_sign)
+                                            member in state.declined -> stringResource(Res.string.declined_to_sign)
+                                            else -> stringResource(Res.string.has_not_taken_part_yet)
+                                        }
+                                    )
+                                }
+                            )
                         }
+                    }
 
                     // Asked rather than re-derived: the manager owns when a session
                     // is still waiting on its owner, and a second copy of that rule

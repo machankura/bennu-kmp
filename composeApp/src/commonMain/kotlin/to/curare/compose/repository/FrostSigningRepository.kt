@@ -33,6 +33,23 @@ interface FrostSigningRepository {
     fun observeMessages(sessionId: String): Flow<List<FrostSignerMessage>>
 
     /**
+     * Who holds a share of the key a ceremony made, and so can take part in a
+     * session signing with it.
+     *
+     * The members who put a host key into the ceremony -- the same rows
+     * `FrostSigningManager` places signer ids over, so this cannot disagree with
+     * whose nonces, partial signatures and refusals the session counts. A
+     * ceremony cannot complete without every participant's host key, so for a
+     * completed one this is the whole participant set.
+     *
+     * Not the room's roster. A room can hold members who were added after its
+     * ceremony and hold no share, and a subgroup's ceremony runs in the parent's
+     * room, which holds everybody the subgroup is not. A screen listing the room
+     * would show people the session is not waiting on and cannot be answered by.
+     */
+    fun observeShareHolders(dkgSessionId: String): Flow<Set<HexKey>>
+
+    /**
      * The events a session signs, in the order its proposal fixed.
      *
      * Separate from the session because a session signs a batch, and what
@@ -138,6 +155,9 @@ interface FrostSigningRepository {
 
             override fun observeMessages(sessionId: String): Flow<List<FrostSignerMessage>> =
                 flowOf(emptyList())
+
+            override fun observeShareHolders(dkgSessionId: String): Flow<Set<HexKey>> =
+                flowOf(emptySet())
 
             override fun observeItems(sessionId: String): Flow<List<FrostSigningItem>> =
                 flowOf(emptyList())

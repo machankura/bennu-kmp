@@ -13,9 +13,13 @@ import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import to.curare.compose.database.model.FrostSignerMessage
 import to.curare.compose.database.model.FrostSigningItem
 import to.curare.compose.database.model.FrostSigningSession
 import to.curare.compose.nostr.frost.FrostSigningEvents
@@ -44,7 +48,12 @@ class FrostSigningViewModel(
      *
      * A session moves on messages arriving from other members, so a screen that
      * read it once would sit still while the rest of the group signed around it.
+     *
+     * Who can take part is read off the ceremony the session names, not off the
+     * room: the room can hold members who were added after its key was made and
+     * hold no share of it, and the screen is a list of whose door to knock on.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun initiate() {
         viewModelScope.launch(Dispatchers.IO) {
             val localChatRoom = chatRepository.getChatRoomByIdentifier(chatRoomId)
@@ -55,16 +64,24 @@ class FrostSigningViewModel(
 
             frostSigningUIState = FrostSigningUIState.Loaded(localChatRoom = localChatRoom)
 
+            val sessions = frostSigningRepository.observeSessionById(sessionId)
+            val shareHolders = sessions.flatMapLatest { session ->
+                session?.let { frostSigningRepository.observeShareHolders(it.dkgSessionId) }
+                    ?: flowOf(emptySet())
+            }
+
             combine(
-                frostSigningRepository.observeSessionById(sessionId),
+                sessions,
                 frostSigningRepository.observeMessages(sessionId),
-                frostSigningRepository.observeItems(sessionId)
-            ) { session, messages, items -> Triple(session, messages, items) }
-                .collect { (session, messages, items) ->
+                frostSigningRepository.observeItems(sessionId),
+                shareHolders
+            ) { session, messages, items, holders -> Observed(session, messages, items, holders) }
+                .collect { (session, messages, items, holders) ->
                     frostSigningUIState = FrostSigningUIState.Loaded(
                         localChatRoom = localChatRoom,
                         session = session,
                         items = items,
+                        shareHolders = holders,
                         offeredNonce = messages
                             .filter { it.kind == FrostSigningEvents.NONCE }
                             .map { it.signerPublicKey }
@@ -81,6 +98,14 @@ class FrostSigningViewModel(
                 }
         }
     }
+
+    /** One emission of everything the screen is drawn from -- the fourth flow outgrew `Triple`. */
+    private data class Observed(
+        val session: FrostSigningSession?,
+        val messages: List<FrostSignerMessage>,
+        val items: List<FrostSigningItem>,
+        val shareHolders: Set<HexKey>,
+    )
 
     /** The events the group is being asked to sign, for showing them before they agree. */
     fun proposedEvents(items: List<FrostSigningItem>): List<Event> =

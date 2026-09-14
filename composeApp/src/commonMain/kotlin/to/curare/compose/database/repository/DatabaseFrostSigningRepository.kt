@@ -7,6 +7,7 @@ import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nip01Core.signers.EventTemplate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import to.curare.compose.database.CurareDatabase
 import to.curare.compose.database.model.FrostSignerMessage
 import to.curare.compose.database.model.FrostSigningItem
@@ -14,6 +15,7 @@ import to.curare.compose.database.model.FrostSigningSession
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.database.model.intermdiate.LocalFrostSigningSession
 import to.curare.compose.managers.FrostSigningManager
+import to.curare.compose.nostr.dkg.DkgRitualEvents
 import to.curare.compose.repository.FrostSigningRepository
 
 class DatabaseFrostSigningRepository(
@@ -30,6 +32,14 @@ class DatabaseFrostSigningRepository(
 
     override fun observeMessages(sessionId: String): Flow<List<FrostSignerMessage>> =
         database.frostSigningSessionDao().observeMessages(sessionId)
+
+    override fun observeShareHolders(dkgSessionId: String): Flow<Set<HexKey>> =
+        database.dkgSessionDao().observeMessages(dkgSessionId).map { messages ->
+            messages
+                .filter { it.kind == DkgRitualEvents.HOST_KEY }
+                .map { it.participantPublicKey }
+                .toSet()
+        }
 
     override fun observeItems(sessionId: String): Flow<List<FrostSigningItem>> =
         database.frostSigningSessionDao().observeItems(sessionId)
