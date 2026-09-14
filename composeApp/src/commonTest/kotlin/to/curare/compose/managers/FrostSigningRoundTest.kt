@@ -382,6 +382,39 @@ class FrostSigningSessionTest {
     }
 
     @Test
+    fun `a member who declined is not asked again while the session runs on`() {
+        // The other answer to the one question. The session is still open --
+        // a t-of-n key can do without this member -- but the decision was theirs
+        // to make once, and offering it again would be offering a refusal that
+        // has already been counted, or an approval contradicting it.
+        val open = session(signerId = 2, signerIds = null)
+
+        assertFalse(
+            FrostSigningManager.isAwaitingApproval(
+                open.copy(signDeclinedAt = Instant.fromEpochSeconds(1)),
+                items()
+            )
+        )
+    }
+
+    @Test
+    fun `it takes one more refusal than the key can do without to abandon a session`() {
+        // A t-of-n key needs t willing members, so n - t may refuse and the rest
+        // still sign; the refusal after that is the one that ends it. In a 2-of-3
+        // group one member may decline and two still sign, which is the whole
+        // point of a threshold; only the second refusal abandons it.
+        val twoOfThree = session(signerId = 0, signerIds = null)
+        assertEquals(2, twoOfThree.declinesThatAbandon())
+
+        // Every member is needed in an n-of-n group, so any refusal is fatal.
+        assertEquals(1, twoOfThree.copy(threshold = 3, participantCount = 3).declinesThatAbandon())
+        assertEquals(1, twoOfThree.copy(threshold = 2, participantCount = 2).declinesThatAbandon())
+
+        // And a 3-of-5 group can lose two members before a third refusal ends it.
+        assertEquals(3, twoOfThree.copy(threshold = 3, participantCount = 5).declinesThatAbandon())
+    }
+
+    @Test
     fun `a member left out of the signer set is not a signer`() {
         assertTrue(session(signerId = 1, signerIds = "0,1").isSigner())
         assertFalse(session(signerId = 2, signerIds = "0,1").isSigner())

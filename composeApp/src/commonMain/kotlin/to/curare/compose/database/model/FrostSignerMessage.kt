@@ -13,8 +13,11 @@ import kotlin.time.Instant
  * rather than accumulates — relays redeliver, and feeding the same nonce in
  * twice would make the coordinator's signer set the wrong length.
  *
- * Covers the nonce and the partial signature; the coordinator's own broadcasts
- * live on [FrostSigningSession] because there is only ever one of each.
+ * Covers the nonce, the partial signature and the refusal; the coordinator's
+ * own broadcasts live on [FrostSigningSession] because there is only ever one
+ * of each. A refusal is here rather than on the session for the same reason a
+ * nonce is: there is one per member, and how many there are is what decides
+ * whether the session goes on -- see `FrostSigningSession.declinesThatAbandon`.
  *
  * Keyed on `(sessionId, signerPublicKey, kind)`, which also means a member
  * cannot replace their own nonce once the coordinator has aggregated it — a
@@ -45,7 +48,10 @@ data class FrostSignerMessage(
     /** One of the `FrostSigningEvents` kinds. */
     val kind: Kind,
 
-    /** Hex of the protocol bytes: a public nonce, or a partial signature. */
+    /**
+     * Hex of the protocol bytes: a public nonce, or a partial signature. For a
+     * refusal there are no bytes, and this is the reason the member gave.
+     */
     val payload: HexKey,
 
     val createdAt: Instant = Clock.System.now(),

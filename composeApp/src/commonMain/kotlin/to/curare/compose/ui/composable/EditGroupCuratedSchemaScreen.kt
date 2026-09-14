@@ -92,6 +92,7 @@ import to.curare.compose.nostr.curated.CuratedField
 import to.curare.compose.nostr.curated.CuratedFieldType
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.curated.CuratedSchemaProblem
+import to.curare.compose.nostr.curated.CuratedSchemaTemplate
 import to.curare.compose.nostr.curated.CuratedVisibility
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
@@ -250,6 +251,12 @@ import org.jetbrains.compose.resources.stringResource
  * suggestion to the list replies to, so changing it would not edit the list but
  * start a second one and orphan the first's queue. The field is read-only on an
  * edit and says why; a new list is "Add schema" on the group's screen.
+ *
+ * **A new list starts from a template.** "Add schema" opens
+ * `SelectCuratedSchemaTemplateScreen` first, and the shape chosen there arrives
+ * as [template] -- the fields and rules the form is seeded with, in place of the
+ * bare two every list has. The form is the same either way: a template is a
+ * starting point, and everything in it can be changed before the group signs.
  */
 @OptIn(
     ExperimentalMaterial3ExpressiveApi::class,
@@ -262,6 +269,8 @@ fun EditGroupCuratedSchemaScreen(
     chatRoomId: String,
     relayHint: String?,
     identifier: String?,
+    /** The key of the `CuratedSchemaTemplate` a new schema starts from. Ignored on an edit. */
+    template: String? = null,
     initialEditGroupCuratedSchemaUIState: EditGroupCuratedSchemaUIState =
         EditGroupCuratedSchemaUIState.Loading,
     chatRepository: ChatRepository,
@@ -274,6 +283,7 @@ fun EditGroupCuratedSchemaScreen(
             chatRoomId = chatRoomId,
             relayHint = relayHint,
             identifier = identifier,
+            template = template,
             initialEditGroupCuratedSchemaUIState = initialEditGroupCuratedSchemaUIState,
             activeUserPublicKey = activeUserPublicKey,
             chatRepository = chatRepository,
@@ -1472,6 +1482,9 @@ private fun EditGroupCuratedSchemaScreenPreview() {
                 chatRoomId = "publicKey",
                 relayHint = null,
                 identifier = null,
+                // The shape a new list most often starts from, so the preview
+                // shows a templated form rather than the bare two fields.
+                template = CuratedSchemaTemplate.Links.key,
                 initialEditGroupCuratedSchemaUIState = EditGroupCuratedSchemaUIState.Loaded(
                     localChatRoom = LocalChatRoom(
                         chatRoom = ChatRoom(
@@ -1483,9 +1496,9 @@ private fun EditGroupCuratedSchemaScreenPreview() {
                             mlsGroupState = "state"
                         ),
                     ),
-                    // A new schema, so the editor seeds the two fields every list
-                    // has and the preview shows what a group actually starts from
-                    // rather than an empty form.
+                    // A new schema, so the editor seeds the template's fields and
+                    // the preview shows what a group actually starts from rather
+                    // than an empty form.
                     defaultRelays = listOf("wss://relay.example.com"),
                     // A group that can sign, so the form renders in the state a
                     // member actually meets it in rather than greyed out.

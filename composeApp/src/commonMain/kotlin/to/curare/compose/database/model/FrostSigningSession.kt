@@ -35,7 +35,7 @@ import to.curare.compose.managers.SharedKeyDerivation
  * | ceremony, threshold, participant count | the unsigned event and its id |
  * | [signerIds] and the signer set | nonce seed, and the nonce from it |
  * | [derivationPath] and its tweak cache | aggregated nonce |
- * | [signApprovedAt] -- one decision | the signature |
+ * | [signApprovedAt] or [signDeclinedAt] -- one decision | the signature |
  *
  * ### The nonce, and why one item means one message
  *
@@ -136,6 +136,19 @@ data class FrostSigningSession(
      */
     val signApprovedAt: Instant? = null,
 
+    /**
+     * When this device's owner refused instead. The other answer to the same
+     * question, and the same shape: a decision, recorded before anything is
+     * published on the strength of it, and never revisited. `advance` publishes
+     * the refusal the way it publishes a nonce for an approval -- whenever the
+     * row says so and no copy of the message is on file yet.
+     *
+     * Refusing does not end the session. A t-of-n key needs t willing members,
+     * so what one refusal does is take one member out of the n; the session is
+     * abandoned only once fewer than t are left -- see [declinesThatAbandon].
+     */
+    val signDeclinedAt: Instant? = null,
+
     /** Whether the chat line asking for that approval has been written. */
     val approvalRequestedAt: Instant? = null,
 
@@ -153,6 +166,17 @@ data class FrostSigningSession(
 
     /** Whether this device was picked to sign. A t-of-n key does not need everyone. */
     fun isSigner(): Boolean = signerIdList()?.contains(signerId) ?: false
+
+    /**
+     * How many members have to refuse before the signature cannot be made.
+     *
+     * A t-of-n key can do without `n - t` members, so it is the refusal after
+     * that -- the one leaving fewer than t who could still sign -- that abandons
+     * the session. In a 2-of-3 group one member may decline and the other two
+     * still sign; the second refusal is the one that ends it. In an n-of-n group
+     * every member is needed and a single refusal is enough.
+     */
+    fun declinesThatAbandon(): Int = participantCount - threshold + 1
 
     /**
      * [derivationPath] as indices, and an empty list when there is none.

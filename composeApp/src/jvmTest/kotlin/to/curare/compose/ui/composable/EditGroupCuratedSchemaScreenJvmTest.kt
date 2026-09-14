@@ -8,7 +8,10 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -24,6 +27,7 @@ import to.curare.compose.nostr.curated.CuratedFieldConfig
 import to.curare.compose.nostr.curated.CuratedFieldType
 import to.curare.compose.nostr.curated.CuratedSchema
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
+import to.curare.compose.nostr.curated.CuratedSchemaTemplate
 import to.curare.compose.nostr.curated.CuratedVisibility
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
@@ -42,7 +46,9 @@ import kotlin.time.Instant
  * own relays are on the form before anything is typed, because they are what the
  * group will sign whether or not the member adds to them -- and a form that
  * showed an empty list and then signed two fields would be lying about what it
- * proposed.
+ * proposed. A new list from a template starts at the template: its fields as
+ * rows and its rules as chips, since the picker before this screen promised
+ * that shape and the form is where the promise is kept.
  *
  * **An existing list opens as an edit.** Its identifier is locked and the form
  * says why, its rules show which fields they name, and the suggesters a closed
@@ -111,6 +117,37 @@ class EditGroupCuratedSchemaScreenJvmTest {
         // Nothing locks a new identifier: the member is choosing it.
         onNodeWithText("The identifier names this list in every reply", substring = true)
             .assertDoesNotExist()
+    }
+
+    @Test
+    fun `a new list from a template starts at the template's fields and rules`() = render(
+        state(existing = null, defaultRelays = listOf("wss://relay.one.example/")),
+        template = CuratedSchemaTemplate.Links.key
+    ) {
+        // The template's fields, in its order, the mandatory two included --
+        // and the identifier still marked derived, since the template records
+        // its rule in the hint rather than prompting for the value.
+        onNodeWithText("identifier · Token · Required · Derived").assertIsDisplayed()
+        val title = onNodeWithText("title · Text · Required").getBoundsInRoot().top
+        val link = onNodeWithText("link · Url · Optional").getBoundsInRoot().top
+        val body = onNodeWithText("body · Long text · Optional").getBoundsInRoot().top
+        val image = onNodeWithText("image · Image · Optional").getBoundsInRoot().top
+        val flair = onNodeWithText("flair · One of a list · Optional").getBoundsInRoot().top
+        assertTrue(title < link && link < body && body < image && image < flair, "the fields were drawn out of order")
+
+        // The rule the template carries, as a row of chips with its two fields
+        // selected. The chip is the one node saying exactly "link": the row
+        // above is headed by the label, "Link", and its supporting line says more.
+        onNodeWithText("At least one of").assertIsDisplayed()
+        onAllNodesWithText("link").assertCountEquals(1)
+        onNodeWithText("link").assertIsSelected()
+        onNodeWithText("body").assertIsSelected()
+        onNodeWithText("flair").assertIsNotSelected()
+
+        // Everything else is as a new list is.
+        onNodeWithText("wss://relay.one.example/").assertIsDisplayed()
+        onNodeWithText("Public").assertIsSelected()
+        onNodeWithText("Propose schema").assertIsDisplayed()
     }
 
     @Test
@@ -210,6 +247,7 @@ class EditGroupCuratedSchemaScreenJvmTest {
      */
     private fun render(
         uiState: EditGroupCuratedSchemaUIState,
+        template: String? = null,
         assertions: ComposeUiTest.() -> Unit
     ) = runDesktopComposeUiTest(width = 400, height = 3000) {
         setContent {
@@ -222,6 +260,7 @@ class EditGroupCuratedSchemaScreenJvmTest {
                             relayHint = null,
                             identifier = (uiState as? EditGroupCuratedSchemaUIState.Loaded)
                                 ?.existing?.identifier,
+                            template = template,
                             initialEditGroupCuratedSchemaUIState = uiState,
                             chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                             frostSigningRepository =

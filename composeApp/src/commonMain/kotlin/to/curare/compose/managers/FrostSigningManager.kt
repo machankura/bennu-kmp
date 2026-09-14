@@ -106,6 +106,12 @@ import to.curare.compose.nostr.frost.FrostSigningEvents
  * threshold to be reachable, picks a signer set, and says who is in it. Members
  * outside the set do nothing and are not stalling anything.
  *
+ * The same arithmetic runs the other way. A member who refuses takes one of
+ * the n away rather than ending the session, and it is abandoned only once
+ * fewer than t are left who could still sign -- see [recordDecline]. In a
+ * 2-of-3 group one refusal is nothing the other two cannot sign around; the
+ * second is the one that ends it.
+ *
  * ### Restart-safety is forced, not chosen
  *
  * `SecretNonce` cannot be serialised and refuses to be used twice. Storing the
@@ -634,6 +640,105 @@ object FrostSigningManager {
                 )
                 return false
             }
+
+            FrostSigningEvents.DECLINE -> {
+                return recordDecline(
+                    database = database,
+                    session = session,
+                    member = innerEvent.pubKey,
+                    reason = innerEvent.content
+                )
+            }
+        }
+
+        return true
+    }
+
+    /**
+     * Files one member's refusal, and ends the session if it is the refusal
+     * that leaves too few members to sign. Returns false when it is, so the
+     * caller stops rather than trying to advance a dead one.
+     *
+     * The count is this device's own, made from the refusals it has received,
+     * and every device makes the same one: the threshold and the participant
+     * count came off the ceremony, and a refusal is a message like any other.
+     * Nobody announces the abandonment, because nobody has to -- each device
+     * reaches it on its own the way each writes its own transcript, and a
+     * FAILURE sent to say so would name one member as the culprit for what was
+     * the group's arithmetic.
+     *
+     * Only a ceremony participant's refusal counts, and only theirs is kept. A
+     * subgroup's ceremony runs in the parent's room over a subset of it, so a
+     * message here can come from a member who holds no share, and a refusal to
+     * sign from somebody who could not have signed takes nobody out of the n.
+     * A member who has already offered a nonce cannot refuse through the app --
+     * the screen offers one answer or the other -- so a refusal is never
+     * counted against a signer.
+     *
+     * The transcript line is written once, on the first delivery; the count is
+     * recomputed on every one, which costs nothing and is idempotent by
+     * [fail]'s own guard.
+     */
+    private suspend fun recordDecline(
+        database: CurareDatabase,
+        session: FrostSigningSession,
+        member: HexKey,
+        reason: String
+    ): Boolean {
+        val key = database.dkgSessionDao().getSessionById(session.dkgSessionId) ?: return true
+        val participants = signerIds(database, key).keys
+
+        if (member !in participants) {
+            logger.w(
+                "Session ${session.id}: refusal from ${member.take(8)}, who holds no share of " +
+                    "key ${key.id}; ignoring"
+            )
+            return true
+        }
+
+        val known = database.frostSigningSessionDao()
+            .getMessage(session.id, FrostSigningEvents.DECLINE, member) != null
+
+        database.frostSigningSessionDao().upsert(
+            FrostSignerMessage(
+                sessionId = session.id,
+                signerPublicKey = member,
+                kind = FrostSigningEvents.DECLINE,
+                payload = reason
+            )
+        )
+
+        val declined = database.frostSigningSessionDao()
+            .getMessagesByKind(session.id, FrostSigningEvents.DECLINE)
+            .map { it.signerPublicKey }
+            .filter { it in participants }
+            .toSet()
+            .size
+        val willing = session.participantCount - declined
+
+        if (declined >= session.declinesThatAbandon()) {
+            fail(
+                database = database,
+                session = session,
+                reason = "Abandoned: $declined of ${session.participantCount} members declined " +
+                    "to sign, leaving fewer than the ${session.threshold} it takes.",
+                culprit = member,
+                content = "declined to sign. That leaves fewer than the ${session.threshold} of " +
+                    "${session.participantCount} members it takes, so the signature is " +
+                    "abandoned. Nothing was signed, and it is safe to ask again."
+            )
+            return false
+        }
+
+        if (!known) {
+            announce(
+                database = database,
+                session = session,
+                messageType = ChatMessage.TYPE_FROST_DECLINED,
+                content = "declined to sign. It takes ${session.threshold} of " +
+                    "${session.participantCount} members, and $willing could still sign.",
+                actor = member
+            )
         }
 
         return true
@@ -690,8 +795,22 @@ object FrostSigningManager {
             // Returns rather than throws: the session is not failing, it is waiting
             // on a person, and everything received stays stored so it resumes the
             // moment they approve.
+            //
+            // A refusal is the other way of having said so, and it returns from
+            // the same place: there is nothing more of this device's to publish,
+            // and the session goes on around it -- the signature arriving is what
+            // closes it, at the top of this pass. What a refusal does publish is
+            // itself, on the same terms as a nonce below: whenever the row says
+            // the owner refused and no copy of the message is on file, so that a
+            // device killed between deciding and sending says it on the next
+            // message rather than leaving the group to wait on a member who has
+            // already answered.
             if (session.signApprovedAt == null) {
-                announceApprovalNeeded(database, session)
+                if (session.signDeclinedAt == null) {
+                    announceApprovalNeeded(database, session)
+                } else if (ownMessage(database, session, FrostSigningEvents.DECLINE) == null) {
+                    publishDecline(database, localChatRoom, session)
+                }
                 return
             }
 
@@ -1550,17 +1669,32 @@ object FrostSigningManager {
         if (settled || current.stage.ordinal >= stage.ordinal) current else current.copy(stage = stage)
     }
 
+    /**
+     * Ends the session, and puts the line saying so in the group's chat with
+     * [culprit]'s name in front of it.
+     *
+     * [content] is that line's predicate. The default is the one a fault gets;
+     * a refusal that tips the count writes its own, because what happened there
+     * is that a member declined, and the abandonment is the arithmetic of it.
+     */
     private suspend fun fail(
         database: CurareDatabase,
         session: FrostSigningSession,
         reason: String,
-        culprit: HexKey = session.userPublicKey
+        culprit: HexKey = session.userPublicKey,
+        content: String = "abandoned the signature. Nothing was signed, and it is safe to ask again."
     ) {
         // Read before writing so the notice goes out once. A session can be failed
         // from two directions -- a FAILURE message from a member, and a fault
         // raised locally -- and the group does not need to be told twice.
+        //
+        // A signature the group has made is not abandoned by anything that
+        // arrives afterwards. A member who refused before their device had seen
+        // the signature has refused something that no longer needed them, and
+        // marking a signed session failed on their say-so would be reporting
+        // a signature that exists as one that does not.
         val current = database.frostSigningSessionDao().getSessionById(session.id) ?: session
-        if (current.stage == FrostSigningStage.FAILED) return
+        if (current.stage == FrostSigningStage.FAILED || current.stage == FrostSigningStage.COMPLETE) return
 
         update(database, current) {
             it.copy(stage = FrostSigningStage.FAILED, failureReason = reason)
@@ -1569,7 +1703,7 @@ object FrostSigningManager {
             database = database,
             session = current,
             messageType = ChatMessage.TYPE_FROST_FAILED,
-            content = "abandoned the signature. Nothing was signed, and it is safe to ask again.",
+            content = content,
             actor = culprit
         )
     }
@@ -1599,10 +1733,13 @@ object FrostSigningManager {
         // The group signed it without needing this member, and [advance] closes
         // the session on its next pass without asking them anything. Offering the
         // decision anyway would be offering two bad answers: a nonce nobody is
-        // waiting for, or a refusal that abandons a signature already made.
+        // waiting for, or a refusal nobody is counting.
         if (items.isNotEmpty() && items.all { it.isSigned() }) return false
 
-        return session.signApprovedAt == null
+        // Either answer is an answer. A member who refused is not asked again,
+        // even though the session is still open around them: the question was
+        // theirs to answer once, and it has been.
+        return session.signApprovedAt == null && session.signDeclinedAt == null
     }
 
     /**
@@ -1639,6 +1776,17 @@ object FrostSigningManager {
      * A t-of-n group can sign without this member, so declining is a normal
      * outcome and not a failure of the session — but only if it is said out loud.
      * Silence is indistinguishable from a phone in a pocket.
+     *
+     * It used to end the session on the spot, which made one member's no into
+     * everybody's. Now it is one refusal among however many the key can do
+     * without: [recordDecline] counts them, on this device as on every other,
+     * and the session is abandoned only once fewer than the threshold could
+     * still sign -- so in a 2-of-3 group the first refusal changes nothing the
+     * other two can do, and the second ends it.
+     *
+     * The same shape as [approve]: the decision is written to the row, and
+     * [advance] does the publishing, so that a device killed in between says
+     * it on the next message rather than never.
      */
     suspend fun decline(
         database: CurareDatabase,
@@ -1648,20 +1796,46 @@ object FrostSigningManager {
         val session = database.frostSigningSessionDao().getSessionById(sessionId) ?: return
         val items = database.frostSigningSessionDao().getItems(sessionId)
 
-        if (!isAwaitingApproval(session, items)) return
+        if (!isAwaitingApproval(session, items)) {
+            logger.i("Session $sessionId is not waiting on an approval; ignoring the refusal")
+            return
+        }
 
-        fail(
-            database = database,
-            session = session,
-            reason = "Declined on this device",
-            culprit = session.userPublicKey
-        )
+        update(database, session) { it.copy(signDeclinedAt = Clock.System.now()) }
+
+        logger.i("Session $sessionId: signing declined")
+
+        advance(database, localChatRoom, sessionId)
+    }
+
+    /**
+     * Broadcasts this device's refusal AND files it, so it is counted here the
+     * way it will be everywhere else.
+     *
+     * Not [publishOwn], although it is the same two steps in the same order,
+     * because the local copy is not just a copy: filing it is what may end the
+     * session, and [recordDecline] is the one place that decides.
+     */
+    private suspend fun publishDecline(
+        database: CurareDatabase,
+        localChatRoom: LocalChatRoom,
+        session: FrostSigningSession
+    ) {
+        val reason = "Declined to sign"
+
         broadcast(
             database = database,
             localChatRoom = localChatRoom,
             session = session,
-            kind = FrostSigningEvents.FAILURE,
-            content = "Declined to sign"
+            kind = FrostSigningEvents.DECLINE,
+            content = reason
+        )
+
+        recordDecline(
+            database = database,
+            session = session,
+            member = session.userPublicKey,
+            reason = reason
         )
     }
 
@@ -1746,8 +1920,8 @@ object FrostSigningManager {
                 "combined the parts into the group's " +
                     (if (batch) "$count signatures." else "signature.")
 
-            // PROPOSAL and FAILURE are announced by the code that acts on them --
-            // both say more than the message itself carries.
+            // PROPOSAL, FAILURE and DECLINE are announced by the code that acts on
+            // them -- each says more than the message itself carries.
             else -> return
         }
 

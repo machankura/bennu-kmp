@@ -27,6 +27,7 @@ import curare.composeapp.generated.resources.the_key_ceremony_needs_you
 import curare.composeapp.generated.resources.ceremonies_need_you
 import to.curare.compose.database.model.types.DkgApprovalStep
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
@@ -821,6 +822,9 @@ private fun RitualNotice(
         ChatMessage.TYPE_FROST_SIGNATURE -> Icons.Default.WorkspacePremium
         ChatMessage.TYPE_FROST_COMPLETE -> Icons.Default.CheckCircle
         ChatMessage.TYPE_FROST_FAILED -> Icons.Default.ErrorOutline
+        // A refusal the session survived. Quiet on purpose: it is not an error,
+        // and the one that ends a session is written as a failure instead.
+        ChatMessage.TYPE_FROST_DECLINED -> Icons.Default.Block
         ChatMessage.TYPE_FROST_APPROVAL_NEEDED -> Icons.Default.Draw
 
         ChatMessage.TYPE_CHRONICLE_REQUESTED -> Icons.Default.History
@@ -844,9 +848,9 @@ private fun RitualNotice(
     // quiet; these are not.
     // An answered request is history, not a summons: it keeps its stage's icon so
     // the step is still recognisable, but drops the colour and the call to action.
-    // So is a settled one -- declined, or signed by a quorum that did not need this
-    // member. Nothing was answered there, so it gets no tick, but offering to
-    // review it would be offering a decision that has already gone by.
+    // So is a settled one -- declined, abandoned, or signed by a quorum that did
+    // not need this member. Nothing was answered there, so it gets no tick, but
+    // offering to review it would be offering a decision that has already gone by.
     val isRequest = (
         chatMessage.messageType in ChatMessage.DKG_REQUEST_TYPES ||
             chatMessage.messageType in ChatMessage.FROST_REQUEST_TYPES

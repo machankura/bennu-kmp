@@ -65,6 +65,7 @@
     <string name="creating_new_chat">Creating new chat.</string>
     <string name="currently_no_contacts_please_search_and_chat">Currently no contacts. Please search and chat with a few people.</string>
     <string name="currently_no_messages_have_been_shared">Currently no messages have been shared.\nBreak the ice.</string>
+    <string name="declined_to_sign">Declined to sign</string>
     <string name="delete_group">Delete group</string>
     <string name="details">Details</string>
     <string name="dialect_name">Dialect name</string>
@@ -476,6 +477,18 @@
     <string name="edit_schema">Edit schema</string>
     <string name="propose_schema">Propose schema</string>
     <string name="fields_colon">Fields: %1$s</string>
+    <!-- The template picker a new schema starts on: curare.to's "Start a list" page, with its four shapes. -->
+    <string name="start_a_list">Start a list</string>
+    <string name="a_list_is_a_schema_what_an_entry_may_contain">A list is a schema: what an entry may contain, who may suggest one, and where it lives. The group signs it with its shared key, and only that key can put an entry on the list.</string>
+    <string name="pick_a_shape_to_start_from">Pick a shape to start from. Everything in it can be changed before the group signs.</string>
+    <string name="template_links">Links &amp; text</string>
+    <string name="template_links_description">Reddit’s default: a title with a link or some text, a picture if you like, and a flair.</string>
+    <string name="template_discussion">Discussion</string>
+    <string name="template_discussion_description">Text posts only: a title and a body, with a flair.</string>
+    <string name="template_catalogue">Catalogue</string>
+    <string name="template_catalogue_description">bitcoin.mov’s shape: things with a year, a type, an external id and links — one entry per thing however often it is suggested.</string>
+    <string name="template_custom">Custom</string>
+    <string name="template_custom_description">Just the two fields every list has — an identifier and a title — and whatever you add.</string>
     <string name="visibility_public">Public</string>
     <string name="visibility_closed">Closed</string>
     <string name="visibility_private">Private</string>

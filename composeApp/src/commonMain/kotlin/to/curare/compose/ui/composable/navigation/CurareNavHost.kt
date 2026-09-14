@@ -45,6 +45,7 @@ import to.curare.compose.ui.composable.EditGroupNostrProfileScreen
 import to.curare.compose.ui.composable.AddGroupPostScreen
 import to.curare.compose.ui.composable.AcceptCuratedSuggestionScreen
 import to.curare.compose.ui.composable.EditGroupCuratedSchemaScreen
+import to.curare.compose.ui.composable.SelectCuratedSchemaTemplateScreen
 import to.curare.compose.ui.composable.BroadcastGroupSignedEventScreen
 import to.curare.compose.ui.composable.CuratedSuggestionListScreen
 import to.curare.compose.ui.composable.ProposeGroupEventScreen
@@ -152,6 +153,7 @@ import to.curare.compose.ui.composable.navigation.routes.EditGroupNostrProfileRo
 import to.curare.compose.ui.composable.navigation.routes.AddGroupPostRoute
 import to.curare.compose.ui.composable.navigation.routes.AcceptCuratedSuggestionRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupCuratedSchemaRoute
+import to.curare.compose.ui.composable.navigation.routes.SelectCuratedSchemaTemplateRoute
 import to.curare.compose.ui.composable.navigation.routes.BroadcastGroupSignedEventRoute
 import to.curare.compose.ui.composable.navigation.routes.CuratedSuggestionListRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
@@ -1330,6 +1332,23 @@ fun CurareNavHost(
                     }
                 )
             }
+            composable<SelectCuratedSchemaTemplateRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<SelectCuratedSchemaTemplateRoute>()
+
+                SelectCuratedSchemaTemplateScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    relayHint = route.relayHint,
+                    // Pushed rather than replaced, so back from the editor is
+                    // this screen and another shape.
+                    onNavigateToRoute = { editorRoute ->
+                        navController.navigate(route = editorRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
             composable<EditGroupCuratedSchemaRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<EditGroupCuratedSchemaRoute>()
 
@@ -1338,14 +1357,24 @@ fun CurareNavHost(
                     chatRoomId = route.chatRoomId,
                     relayHint = route.relayHint,
                     identifier = route.identifier,
+                    template = route.template,
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
                     onNavigateToRouteAndPopUpInclusive = { signingRoute ->
                         // Replace the editor so back returns to the group rather
-                        // than to a schema whose proposal has already gone out.
+                        // than to a schema whose proposal has already gone out --
+                        // and, for a new list, the template picker under it, for
+                        // the same reason: the shape has been chosen and signed
+                        // for, and offering it again would offer a second list.
                         navController.navigate(route = signingRoute) {
-                            popUpTo<EditGroupCuratedSchemaRoute> {
-                                inclusive = true
+                            if (route.identifier == null) {
+                                popUpTo<SelectCuratedSchemaTemplateRoute> {
+                                    inclusive = true
+                                }
+                            } else {
+                                popUpTo<EditGroupCuratedSchemaRoute> {
+                                    inclusive = true
+                                }
                             }
                         }
                     },

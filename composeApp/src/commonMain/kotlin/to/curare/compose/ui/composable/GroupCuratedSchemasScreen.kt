@@ -57,6 +57,7 @@ import to.curare.compose.ui.composable.navigation.routes.BroadcastGroupSignedEve
 import to.curare.compose.ui.composable.navigation.routes.CuratedSuggestionListRoute
 import to.curare.compose.ui.composable.navigation.routes.EditGroupCuratedSchemaRoute
 import to.curare.compose.ui.composable.navigation.routes.Route
+import to.curare.compose.ui.composable.navigation.routes.SelectCuratedSchemaTemplateRoute
 import to.curare.compose.ui.composable.widgets.Decorative
 import to.curare.compose.ui.composable.widgets.EmptyState
 import to.curare.compose.ui.composable.widgets.ErrorState
@@ -80,7 +81,9 @@ import kotlin.time.Instant
  * nothing more. This is where they are read: one card per list, most recently
  * signed first, each with its queue and its broadcast under it, and -- for a
  * member holding a share of the key -- the way into the editor, on the card
- * for a revision and at the end for a new list.
+ * for a revision, and at the end the way to a new list, which starts with the
+ * template picker rather than with the editor: a new list has a shape to
+ * choose and a revision has one already.
  *
  * A schema exists to be read by people who were never in the room, so a member
  * without a share reads it like anybody else, and reads its queue, which the
@@ -155,16 +158,28 @@ fun GroupCuratedSchemasScreen(
                 }
 
                 is GroupCuratedSchemasUIState.Loaded -> {
-                    // The one way into the editor, for a revision and for a new
-                    // list alike: the editor takes the identifier of the schema
-                    // to revise, and null for one that does not exist yet.
-                    val edit: (String?) -> Unit = { identifier ->
+                    // A revision opens the editor on the schema to revise, which
+                    // needs no template: it starts from the schema itself.
+                    val edit: (String) -> Unit = { identifier ->
                         onNavigateToRoute.invoke(
                             EditGroupCuratedSchemaRoute(
                                 activeUserPublicKey = activeUserPublicKey,
                                 chatRoomId = chatRoomId,
                                 relayHint = relayHint,
-                                identifier = identifier
+                                identifier = identifier,
+                                template = null
+                            )
+                        )
+                    }
+
+                    // A new list opens the template picker, which opens the
+                    // editor in turn on the shape chosen there.
+                    val add: () -> Unit = {
+                        onNavigateToRoute.invoke(
+                            SelectCuratedSchemaTemplateRoute(
+                                activeUserPublicKey = activeUserPublicKey,
+                                chatRoomId = chatRoomId,
+                                relayHint = relayHint
                             )
                         )
                     }
@@ -182,7 +197,7 @@ fun GroupCuratedSchemasScreen(
                                         Res.string.this_group_has_not_published_a_curated_schema_yet
                                     ),
                                     action = if (state.canSign) {
-                                        { AddSchemaButton(onClick = { edit(null) }) }
+                                        { AddSchemaButton(onClick = add) }
                                     } else {
                                         null
                                     }
@@ -272,7 +287,7 @@ fun GroupCuratedSchemasScreen(
 
                             if (state.canSign) {
                                 item {
-                                    AddSchemaButton(onClick = { edit(null) })
+                                    AddSchemaButton(onClick = add)
                                 }
                             }
                         }
@@ -370,8 +385,9 @@ private fun GroupCuratedSchemaCard(
 }
 
 /**
- * The way into `EditGroupCuratedSchemaScreen` for a list that does not exist
- * yet. The icon is decorative because the label is beside it.
+ * The way to a list that does not exist yet: `SelectCuratedSchemaTemplateScreen`,
+ * and through it the editor. The icon is decorative because the label is
+ * beside it.
  */
 @Composable
 private fun AddSchemaButton(onClick: () -> Unit) {

@@ -186,7 +186,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 23,
+    version = 24,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -330,28 +330,37 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // which is what they were, and any identity may drain them. The broadcast
         // queue deliberately gets no owner: a signed event is anyone's to carry.
         AutoMigration(from = 19, to = 20),
-        // v21 adds three nullable columns for the Marmot current profile (see
+        // v21 adds the nullable FrostSigningSession.signDeclinedAt, the other
+        // answer to the question signApprovedAt records: a member who refused to
+        // sign, on a session that runs on without them. Refusing used to end the
+        // session outright, so no row written before this can be one where the
+        // owner declined and the session is still open -- every such session is
+        // FAILED, and null reads as "not declined", which is true of all the
+        // rest. A nullable column is a shape Room migrates itself.
+        AutoMigration(from = 20, to = 21),
+        // v22 adds three nullable columns for the Marmot current profile (see
         // docs/marmot-v2.md, Phase 3): MarmotKeyPackageBundle.profile and .dTag, and
         // MarmotKeyPackage.profile. A bundle's profile decides which shape a rotation
         // republishes into which slot, its dTag is the kind:30443 slot it reuses so a
         // replacement supersedes rather than accumulates, and a peer package's profile
         // is what a room picks by. Rows from before read back null, which every
-        // reader takes as legacy -- what they were.
-        AutoMigration(from = 20, to = 21),
-        // v22 adds MarmotRouting: the address a room's kind:445 traffic is carried
+        // reader takes as legacy -- what they were. (v22-v24 were v21-v23 on the
+        // branch that made them; they moved up one when the branch met v21 above.)
+        AutoMigration(from = 21, to = 22),
+        // v23 adds MarmotRouting: the address a room's kind:445 traffic is carried
         // under, separate from the room's id (docs/marmot-v2.md, Phase 4). A
         // current-profile room this app creates mints a random routing id -- the
         // room's own id is a derived key, which v2's routing component says must
         // never be the address -- and every reader keyed on the `h` tag resolves it
         // through this table. No rows are backfilled: a room with none is addressed
         // by its own id, which is what every room before the table was.
-        AutoMigration(from = 21, to = 22),
-        // v23 adds MarmotPublishObligation and MarmotOutboundGate: the commits this
+        AutoMigration(from = 22, to = 23),
+        // v24 adds MarmotPublishObligation and MarmotOutboundGate: the commits this
         // device prepared and has not yet heard a relay accept, and the gates a room
         // is under (docs/marmot-v2.md, Phase 6). Both have to outlive the process --
         // an obligation forgotten at a crash is a replacement commit at the next
         // start, which forks the group against whoever took the first one.
-        AutoMigration(from = 22, to = 23),
+        AutoMigration(from = 23, to = 24),
     ]
 )
 @ColumnTypeConverters(CurareConverters::class)

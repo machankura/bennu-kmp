@@ -20,6 +20,7 @@ import to.curare.compose.nostr.curated.CuratedFieldType
 import to.curare.compose.nostr.curated.CuratedSchema
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.curated.CuratedSchemaProblem
+import to.curare.compose.nostr.curated.CuratedSchemaTemplate
 import to.curare.compose.nostr.curated.CuratedVisibility
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
@@ -49,6 +50,16 @@ import kotlinx.coroutines.launch
  * identifier is a new list, with a queue of its own, and the group's screen
  * offers that as adding a schema rather than as editing this one.
  *
+ * ### Starting from a template
+ *
+ * A new schema is seeded from a [CuratedSchemaTemplate] -- curare.to's four
+ * shapes, chosen on the screen before this one and named by [template] -- so
+ * that the form opens on a list's worth of fields rather than on the two every
+ * list has, and so that the identifier field records how a client derives an
+ * entry's `d`, which is what lets that site's form post to a list started here.
+ * The template decides only what the working copy starts as: it is not kept,
+ * and nothing about the schema remembers which one it came from.
+ *
  * The comparison for "nothing changed" is against the schema as the group signed
  * it, normalized on both sides, because re-signing an identical schema would put
  * a second statement on the record with a newer timestamp: harmless, since the
@@ -61,6 +72,12 @@ class EditGroupCuratedSchemaViewModel(
     val relayHint: String?,
     /** The `d` of the schema being edited, or null for a new one. */
     val identifier: String?,
+    /**
+     * The key of the [CuratedSchemaTemplate] a new schema starts from; see
+     * [CuratedSchemaTemplate.byKey] for what null and an unknown key get. Not
+     * read on an edit, which starts from the schema itself.
+     */
+    val template: String? = null,
     initialEditGroupCuratedSchemaUIState: EditGroupCuratedSchemaUIState,
     val chatRepository: ChatRepository,
     val frostSigningRepository: FrostSigningRepository,
@@ -204,10 +221,11 @@ class EditGroupCuratedSchemaViewModel(
     /**
      * Fills the working copy from the schema the group signed, once.
      *
-     * An existing schema starts at itself. A new one starts at the two fields
-     * every list has -- the identifier and the title, which `CuratedSchema.normalized`
-     * would put back anyway, shown up front so that what the member sees is what
-     * the group will sign -- and at the group's own relays.
+     * An existing schema starts at itself. A new one starts at its [template]'s
+     * fields and rules -- every template carrying the identifier and the title,
+     * which `CuratedSchema.normalized` would put back anyway, shown up front so
+     * that what the member sees is what the group will sign -- and at the
+     * group's own relays.
      *
      * Called from the screen rather than from [initiateEditGroupCuratedSchema],
      * because the loader is not the only way a loaded state arrives: a preview
@@ -226,8 +244,10 @@ class EditGroupCuratedSchemaViewModel(
             suggesters.addAll(schema.suggesters)
             relays.addAll(schema.relays)
         } else {
+            val shape = CuratedSchemaTemplate.byKey(template)
             visibility = CuratedVisibility.Public
-            fields.addAll(listOf(CuratedField.IDENTIFIER, CuratedField.TITLE))
+            fields.addAll(shape.fields)
+            requireAny.addAll(shape.requireAny)
             relays.addAll(state.defaultRelays)
         }
     }
@@ -523,6 +543,7 @@ class EditGroupCuratedSchemaViewModel(
             chatRoomId: String,
             relayHint: String?,
             identifier: String?,
+            template: String? = null,
             initialEditGroupCuratedSchemaUIState: EditGroupCuratedSchemaUIState =
                 EditGroupCuratedSchemaUIState.Loading,
             chatRepository: ChatRepository,
@@ -534,6 +555,7 @@ class EditGroupCuratedSchemaViewModel(
                     chatRoomId = chatRoomId,
                     relayHint = relayHint,
                     identifier = identifier,
+                    template = template,
                     initialEditGroupCuratedSchemaUIState = initialEditGroupCuratedSchemaUIState,
                     chatRepository = chatRepository,
                     frostSigningRepository = frostSigningRepository

@@ -377,8 +377,13 @@ private fun statusOf(proposal: ProposalListUIState.Proposal): String {
     if (proposal.awaitsYou) return "Needs your review"
 
     return when (session.stage) {
+        // Not awaiting the reader and still collecting means they answered, one
+        // way or the other. A refusal leaves the session open -- a t-of-n key
+        // can do without this member -- so it is still a session in progress,
+        // and the row has to say which answer was given.
         FrostSigningStage.COLLECTING_NONCES ->
-            "You agreed. Waiting for ${session.threshold} of " +
+            (if (session.signDeclinedAt != null) "You declined. " else "You agreed. ") +
+                "Waiting for ${session.threshold} of " +
                 "${session.participantCount} members to take part."
 
         FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES ->
