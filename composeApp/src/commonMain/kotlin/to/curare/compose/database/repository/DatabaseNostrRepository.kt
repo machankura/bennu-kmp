@@ -1,7 +1,9 @@
 package to.curare.compose.database.repository
 
+import to.curare.compose.database.model.MarmotCommitResult
 import to.curare.compose.database.GENESIS_AT
 import to.curare.compose.database.model.BroadcastNostrEventRequest
+import to.curare.compose.database.model.BroadcastStatus
 import to.curare.compose.database.model.NostrEvent
 import to.curare.compose.database.model.Profile
 import to.curare.compose.database.model.UnsignedNostrEvent
@@ -472,7 +474,8 @@ class DatabaseNostrRepository(
 
     override suspend fun broadcastProcessed(
         broadcastNostrEventRequest: BroadcastNostrEventRequest,
-        status: String
+        status: String,
+        reason: String?,
     ) {
         database.broadcastNostrEventRequestDao().upsert(
             broadcastNostrEventRequest.copy(
@@ -480,7 +483,11 @@ class DatabaseNostrRepository(
             )
         )
 
-        if (status == "published") {
+        if (status == BroadcastStatus.REJECTED) {
+            discardCommitRejectedEverywhere(broadcastNostrEventRequest.nostrEventId, reason)
+        }
+
+        if (status == BroadcastStatus.PUBLISHED) {
             val broadcastNostrEventReceiptId = database.broadcastNostrEventReceiptDao().upsert(
                 to.curare.compose.database.model.BroadcastNostrEventReceipt(
                     nostrEventId = broadcastNostrEventRequest.nostrEventId,
@@ -506,6 +513,19 @@ class DatabaseNostrRepository(
                 nostrEventId = broadcastNostrEventRequest.nostrEventId
             )?.let { marmotCommitResult ->
                 logger.d("marmotCommitResult: $marmotCommitResult")
+
+                // Publish before apply: a relay accepted the commit, so the state it
+                // makes canonical is installed now -- and only now, and before the
+                // Welcome below, which is the MIP-02 ordering enforced by sequence
+                // rather than by hope. See docs/marmot-v2.md, Phase 6.
+                marmotCommitResult.obligationId?.let { obligationId ->
+                    database.marmotEngine.confirmPublished(obligationId)
+                }
+
+                // A removal, a committed leave or a disband invites nobody, and so
+                // has no Welcome to send once it is applied.
+                if (marmotCommitResult.peerKeyPackageEventId == MarmotCommitResult.NO_INVITEE) return@let
+
                 if (marmotCommitResult.isOneMemberInitialGroupCreation.not()) {
                     logger.d("Deliver Welcome")
                     database.chatRoomDao().findChatRoomById(marmotCommitResult.chatRoomId)?.let { localChatRoom ->
@@ -531,7 +551,7 @@ class DatabaseNostrRepository(
 
                         logger.d("welcomeBytes: ${welcomeBytes.toHex()}")
                         val delivered = database.marmotOutboundDao().deliveryWelcome(
-                            nostrGroupId = marmotCommitResult.chatRoomId,
+                            chatRoomId = marmotCommitResult.chatRoomId,
                             userPublicKey = marmotCommitResult.userPublicKey,
                             welcomeBytes = welcomeBytes,
                             peerKeyPackageEventId = marmotCommitResult.peerKeyPackageEventId,
@@ -555,6 +575,47 @@ class DatabaseNostrRepository(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Publish before apply, the other half: a commit every relay in its scope has
+     * refused is discarded, and the room is free to make another.
+     *
+     * One relay's refusal decides nothing -- another may still accept, and a
+     * timeout on another is retried on the next launch with the same bytes -- so
+     * the obligation goes only when every request row for the event is
+     * "rejected". Then the gate drops the pending state, the live group having
+     * never advanced, and `canPrepareLocalCommit` is true again; the invite or
+     * the removal that was asked for is simply not done, and the room says so in
+     * the relay's words, because the screen that asked closed when the commit
+     * was made and the line is the only account the user gets. See
+     * docs/marmot-v2.md, Phase 6.
+     */
+    private suspend fun discardCommitRejectedEverywhere(nostrEventId: HexKey, reason: String?) {
+        val marmotCommitResult = database.marmotCommitResultDao().getMarmotCommitRequestById(nostrEventId) ?: return
+        val obligationId = marmotCommitResult.obligationId ?: return
+        val requests = database.broadcastNostrEventRequestDao().getBroadcastNostrEventRequestsByNostrEventId(nostrEventId)
+        if (requests.any { it.status != BroadcastStatus.REJECTED }) return
+
+        if (!database.marmotEngine.discardRejected(obligationId)) return
+        logger.w("Commit $nostrEventId rejected by every relay in scope; its obligation is discarded: $reason")
+
+        if (marmotCommitResult.peerKeyPackageEventId != MarmotCommitResult.NO_INVITEE) {
+            database.marmotOutboundDao().announceInviteFailed(
+                chatRoomId = marmotCommitResult.chatRoomId,
+                userPublicKey = marmotCommitResult.userPublicKey,
+                peerPublicKey = database.marmotKeyPackageDao()
+                    .getMarmotKeyPackageById(marmotCommitResult.peerKeyPackageEventId)
+                    ?.publicKey,
+                reason = reason?.let { "the relays refused it ($it)" } ?: "the relays refused it",
+            )
+        } else {
+            database.marmotOutboundDao().announceChangeRejected(
+                chatRoomId = marmotCommitResult.chatRoomId,
+                userPublicKey = marmotCommitResult.userPublicKey,
+                reason = reason,
+            )
         }
     }
 
@@ -806,12 +867,14 @@ class DatabaseNostrRepository(
             NostrEventFilterQuery.NO_LIMIT
         }
 
-        val chatRoomIds = synchronizationFilter.marmotGroupChatRoomIds()
-        if (chatRoomIds != null) {
+        val routingIds = synchronizationFilter.marmotGroupChatRoomIds()
+        if (routingIds != null) {
             // Group messages live in their own table, which carries the NIP-40 expiry a relay
             // uses to decide whether it still serves the event, and an indexed chatRoomId
-            // rather than a scan of the tags JSON.
+            // rather than a scan of the tags JSON. The filter names routing addresses, as a
+            // relay indexes them; the table is keyed by room, so each is resolved first.
             logger.d("getMarmotGroupEvents($applyLimits): $synchronizationFilter")
+            val chatRoomIds = routingIds.map { database.marmotRoutingDao().chatRoomIdFor(it) }.distinct().toTypedArray()
             return database.nostrEventDao().getMarmotGroupEvents(
                 chatRoomIds = chatRoomIds,
                 since = synchronizationFilter.since ?: GENESIS_AT,

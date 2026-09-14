@@ -272,6 +272,13 @@ a chronicle is the second place in this protocol where a remote party decides ho
 much work everyone else does. Measure the 64 KB against a finished kind:445
 rather than trusting it -- MLS framing and NIP-44 expansion both sit outside it.
 
+**Re-sized since: 48 KiB and 96.** A conformant Marmot decoder bounds the whole
+app payload at 64 KiB, and a page rides inside one as its JSON-escaped `content`
+plus six envelope members, so a 64 KiB page was over that bound by construction
+and an MDK peer dropped it without a word. 48 KiB leaves room for the escaping
+whatever the mix of payloads, and 96 is the count that still binds under it.
+See [marmot-v2.md](./marmot-v2.md), Phase 2.
+
 **Test:** codec round-trip; a page over either cap is refused on receive; an
 array containing a non-event is refused whole.
 

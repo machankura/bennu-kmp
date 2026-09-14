@@ -3,6 +3,7 @@ package to.curare.compose.nostr
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageEvent
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip17Dm.settings.ChatMessageRelayListEvent
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import to.curare.compose.database.model.NegentropySynchronizeRequest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -33,7 +34,7 @@ class DirectMessagePeerSyncTest {
             // Level 0: somebody is waiting on this one.
             assertEquals(0, request.level)
             assertEquals(
-                listOf(MetadataEvent.KIND, KeyPackageEvent.KIND, ChatMessageRelayListEvent.KIND),
+                listOf(MetadataEvent.KIND, KeyPackageEvent.KIND, ChatMessageRelayListEvent.KIND, AdvertisedRelayListEvent.KIND),
                 request.synchronizationFilter.kinds?.toList(),
             )
             assertEquals(listOf(alice), request.synchronizationFilter.authors?.toList())

@@ -1,5 +1,6 @@
 package to.curare.compose.ui.view.model
 
+import to.curare.compose.nostr.MarmotProfile
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -116,7 +117,7 @@ class ProfilePreviewViewModel(
 
             combine(
                 nostrRepository.observeProfileWithPublicKey(profilePublicKey),
-                chatRepository.observeMarmotKeyPackageForPublicKey(profilePublicKey),
+                chatRepository.observeMarmotKeyPackageForPublicKey(profilePublicKey, MarmotProfile.DEFAULT_FOR_NEW_ROOMS),
             ) { profile, keyPackage ->
                 // A placeholder is not a person. Mapping it to null here is what keeps
                 // "LOADING..." off a screen whose one job is to say who this is.

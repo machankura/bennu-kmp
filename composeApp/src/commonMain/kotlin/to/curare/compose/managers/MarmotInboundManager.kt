@@ -1,6 +1,7 @@
 package to.curare.compose.managers
 
 import to.curare.compose.database.CurareDatabase
+import to.curare.compose.database.model.ChatMessage
 import to.curare.compose.database.model.Participant
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.exceptions.MarmotMissingChatGroupException
@@ -9,9 +10,9 @@ import to.curare.compose.extensions.exporterSecret
 import to.curare.compose.extensions.toHex
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.marmot.GroupEventResult
+import com.vitorpamplona.quartz.marmot.foundation.appEvents.MarmotAppEvent
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageEvent
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageRelayListEvent
-import com.vitorpamplona.quartz.marmot.mip03GroupMessages.CommitOrdering
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEventEncryption
 import com.vitorpamplona.quartz.marmot.mls.codec.TlsReader
@@ -32,6 +33,7 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip17Dm.settings.ChatMessageRelayListEvent
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import com.vitorpamplona.quartz.nip59Giftwrap.wraps.GiftWrapEvent
 import to.curare.compose.database.GENESIS_AT
 import to.curare.compose.database.model.NegentropySynchronizeRequest
@@ -66,21 +68,25 @@ object MarmotInboundManager {
     /**
      * Why an inner application event may not be accepted from this sender, or null.
      *
-     * MIP-03: an inner event's `pubkey` MUST equal the MLS sender's credential identity,
-     * so a member cannot mint events claiming a different author.
+     * An inner event's `pubkey` MUST equal the MLS sender's credential identity, so a
+     * member cannot mint events claiming a different author. MIP-03 said so and
+     * `foundation/application-messages.md` says the same.
      *
-     * A gift wrap is exempt. Its pubkey is a throwaway key by construction -- see
-     * [MarmotDirectMessage] -- so there is no author field to compare and the check
-     * cannot be applied as written. The authorship claim moves inside, to the signed
-     * kind:13 seal, which [MarmotDirectMessage.classify] binds to this same identity
-     * before a word is rendered: a verified signature bound to an MLS leaf, rather than a
-     * plaintext field compared to one.
+     * In a legacy room a gift wrap is exempt. Its pubkey is a throwaway key by
+     * construction -- see [MarmotDirectMessage] -- so there is no author field to
+     * compare and the check cannot be applied as written. The authorship claim moves
+     * inside, to the signed kind:13 seal, which [MarmotDirectMessage.classify] binds to
+     * this same identity before a word is rendered: a verified signature bound to an
+     * MLS leaf, rather than a plaintext field compared to one.
      *
-     * The exemption is on kind:1059 alone. Widening it to any other kind, or dropping the
-     * kind guard, hands every member the ability to publish events as anybody.
-     *
-     * Other Marmot clients do not have this carve-out and drop these messages as
-     * impersonation. See docs/marmot-direct-messages.md.
+     * The exemption is on kind:1059 alone, and on legacy rooms alone. Widening it to any
+     * other kind, or dropping the kind guard, hands every member the ability to publish
+     * events as anybody. A current-profile room never carries a bare wrap -- a direct
+     * message there travels inside an envelope authored by the sender, which passes the
+     * check like any other payload -- so a bare wrap arriving in one is what every other
+     * conformant client says it is: an author that is not the sender, refused. Other
+     * Marmot clients have no carve-out at all and drop legacy wraps as impersonation.
+     * See docs/marmot-direct-messages.md and docs/marmot-v2.md, Phase 2.
      *
      * [senderIdentity] is required rather than merely compared: every sender-derived
      * field downstream reads from it -- who a message is from, and whether it is ours --
@@ -90,30 +96,50 @@ object MarmotInboundManager {
         innerEventKind: Int,
         innerEventPubKey: HexKey,
         senderIdentity: HexKey?,
+        legacyRoom: Boolean,
     ): String? {
         if (senderIdentity == null) {
             return "No MLS credential identity for the sender leaf"
         }
 
-        if (innerEventKind != GiftWrapEvent.KIND && innerEventPubKey != senderIdentity) {
+        val bareWrapInLegacyRoom = legacyRoom && innerEventKind == GiftWrapEvent.KIND
+        if (!bareWrapInLegacyRoom && innerEventPubKey != senderIdentity) {
             return "MIP-03: inner event pubkey ($innerEventPubKey) does not match MLS sender identity ($senderIdentity)"
         }
 
         return null
     }
 
+    /**
+     * Brings the room's members into line with the group's tree after a commit, and
+     * says what changed.
+     *
+     * The lines are derived from the difference, never received -- see
+     * [ChatMessage.TYPE_MEMBER_ADDED]. [announceAdditions] is false for a commit this
+     * device made itself, whose invite lines were written when the invites were
+     * made. Departures are always captioned, on every device including the one that
+     * committed them: the caption is the state's, not the actor's.
+     *
+     * Two changes are about this device rather than the room. A commit that removed
+     * our own leaf, or that disbanded the group, ends the room for us: the line says
+     * so and `leftGroupAt` is set, which is what stops the subscriptions and greys
+     * the room out. Both are a terminal state on the other side too -- a removed
+     * member cannot decrypt the next epoch, and a disbanded group refuses every
+     * later event -- so nothing is lost by closing here.
+     */
     suspend fun processGroupMembershipChanges(
         database: CurareDatabase,
         localChatRoom: LocalChatRoom,
         mlsGroup: MlsGroup,
+        announceAdditions: Boolean = true,
     ) {
         logger.d("processGroupMembershipChanges")
-        val adminPublicKeys = mlsGroup.currentMarmotData()?.adminPubkeys
+        val adminPublicKeys = mlsGroup.currentAdminIdentities()
 
         val commitedGroupMembers = Participant.fromMlsGroup(
             mlsGroup = mlsGroup,
             nostrGroupId = localChatRoom.chatRoom.id,
-            relayHint = mlsGroup.currentMarmotData()?.relays?.firstOrNull()
+            relayHint = mlsGroup.roomRelays().firstOrNull()
         )
         val committedGroupMembersPublicKeys = commitedGroupMembers.map { it.participantPublicKey }
         val excludedParticipants = localChatRoom.localParticipants.filter { localParticipant ->
@@ -129,7 +155,7 @@ object MarmotInboundManager {
             existingParticipantPublicKeys.contains(committedGroupMember.participantPublicKey).not()
         }.map { newParticipant ->
             newParticipant.copy(
-                adminAt = if (adminPublicKeys?.contains(newParticipant.participantPublicKey) == true) {
+                adminAt = if (adminPublicKeys.contains(newParticipant.participantPublicKey)) {
                     Clock.System.now()
                 } else {
                     null
@@ -138,7 +164,7 @@ object MarmotInboundManager {
         }
         logger.d("newParticipants: $newParticipants")
         val removedAdmins = localChatRoom.localParticipants.filter { localParticipant ->
-            localParticipant.participant.adminAt != null && adminPublicKeys?.contains(localParticipant.participant.participantPublicKey) != true
+            localParticipant.participant.adminAt != null && !adminPublicKeys.contains(localParticipant.participant.participantPublicKey)
         }.map { localParticipant ->
             localParticipant.participant.copy(
                 adminAt = null
@@ -147,7 +173,7 @@ object MarmotInboundManager {
         logger.d("removedAdmins: $removedAdmins")
 
         val graduatedAdmins = localChatRoom.localParticipants.filter { localParticipant ->
-            localParticipant.participant.adminAt == null && adminPublicKeys?.contains(localParticipant.participant.participantPublicKey) == true
+            localParticipant.participant.adminAt == null && adminPublicKeys.contains(localParticipant.participant.participantPublicKey)
         }.map { localParticipant ->
             localParticipant.participant.copy(
                 adminAt = Clock.System.now()
@@ -194,6 +220,10 @@ object MarmotInboundManager {
                     MetadataEvent.KIND,
                     ChatMessageRelayListEvent.KIND,
                     KeyPackageEvent.KIND,
+                    // Where a current-profile peer publishes their KeyPackages: the
+                    // NIP-65 write set, per transports/nostr.md. Kind 10051 stays as
+                    // the legacy hint it has become.
+                    AdvertisedRelayListEvent.KIND,
                     KeyPackageRelayListEvent.KIND,
                 )
             )
@@ -218,6 +248,58 @@ object MarmotInboundManager {
         database.participantDao().delete(excludedParticipants)
         database.participantDao().upsert(newParticipants)
         database.participantDao().upsert(graduatedAdmins)
+
+        val userPublicKey = localChatRoom.chatRoom.userPublicKey
+        val disbanded = mlsGroup.currentGroupState().isDisbanded
+        val removedUs = !mlsGroup.isLocalMember()
+
+        if (announceAdditions) {
+            newParticipants.forEach { participant ->
+                announceLine(database, localChatRoom, ChatMessage.TYPE_MEMBER_ADDED,
+                    "${memberName(database, participant.participantPublicKey)} joined the group")
+            }
+        }
+        excludedParticipants
+            .filterNot { it.participantPublicKey == userPublicKey }
+            // A disband removes everyone; one line for it below, not one per member.
+            .takeUnless { disbanded }
+            ?.forEach { participant ->
+                announceLine(database, localChatRoom, ChatMessage.TYPE_MEMBER_LEFT,
+                    "${memberName(database, participant.participantPublicKey)} left the group")
+            }
+
+        when {
+            disbanded -> announceLine(database, localChatRoom, ChatMessage.TYPE_GROUP_DISBANDED, "The group was disbanded")
+            removedUs -> announceLine(database, localChatRoom, ChatMessage.TYPE_MEMBER_LEFT, "You were removed from the group")
+        }
+        if ((disbanded || removedUs) && localChatRoom.chatRoom.leftGroupAt == null) {
+            database.chatRoomDao().upsert(localChatRoom.chatRoom.copy(leftGroupAt = Clock.System.now()))
+        }
+    }
+
+    private suspend fun memberName(database: CurareDatabase, publicKey: HexKey): String =
+        database.profileDao().getProfileByPublicKey(publicKey)?.humanReadableNameOrPubkey()
+            ?: publicKey.take(8)
+
+    /** A membership caption, this device's own account of what the group's state said. */
+    private suspend fun announceLine(
+        database: CurareDatabase,
+        localChatRoom: LocalChatRoom,
+        messageType: String,
+        content: String,
+    ) {
+        database.chatMessageDao().upsert(
+            ChatMessage(
+                content = content,
+                messageType = messageType,
+                chatRoomId = localChatRoom.chatRoom.id,
+                senderPublicKey = localChatRoom.chatRoom.userPublicKey,
+                isUserMessage = true,
+                giftWrapPayloadId = null,
+                marmotGroupEventId = null,
+                marmotInnerEventId = null,
+            )
+        )
     }
 
     suspend fun processGroupEvent(
@@ -293,7 +375,7 @@ object MarmotInboundManager {
         mlsMessage: MlsMessage,
         groupEvent: GroupEvent
     ): GroupEventResult  {
-        val groupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val groupId = mlsGroup.roomId()
 
         // Peek at content type from the PrivateMessage header
         val privMsg = PrivateMessage.decodeTls(TlsReader(mlsMessage.payload))
@@ -309,19 +391,35 @@ object MarmotInboundManager {
                 logger.d("decrypted: $decrypted")
                 val innerJson = decrypted.content.decodeToString()
 
-                // MIP-03: if the inner application payload is a Nostr event,
-                // its `pubkey` field MUST equal the MLS sender's credential
-                // identity. Reject any mismatch — otherwise a group member
+                // If the inner application payload is a Nostr event, its
+                // `pubkey` field MUST equal the MLS sender's credential
+                // identity. Reject any mismatch -- otherwise a group member
                 // could mint events claiming a different author. Non-event
                 // payloads (raw bytes via buildGroupEventFromBytes) bypass
                 // this check since there is no author field to verify.
-                val innerEvent = Event.fromJsonOrNull(innerJson)
-                logger.d("innerEvent: ${innerEvent?.toJson()}")
+                //
+                // The canonical shape is decoded first, strictly: six members,
+                // no `sig`, an id that rehashes, no duplicate keys. The legacy
+                // shape -- a rumor serialised with `"sig":""`, which is what
+                // every build before docs/marmot-v2.md Phase 2 sent -- is the
+                // fallback, and only that: Event.fromJsonOrNull would accept
+                // the canonical shape too, but by defaulting the signature
+                // rather than by checking anything, and a payload that is
+                // neither still has no author and still fails the comparison.
+                val innerAuthor: Pair<Int, HexKey>? = MarmotAppEvent.decodeOrNull(innerJson)
+                    ?.let { it.kind to it.pubKey }
+                    ?: Event.fromJsonOrNull(innerJson)?.let { it.kind to it.pubKey }
+                logger.d("innerAuthor: $innerAuthor")
 
-                if (innerEvent != null) {
+                if (innerAuthor != null) {
                     val senderIdentity = mlsGroup.memberIdentityHex(decrypted.senderLeafIndex)
 
-                    mip03Rejection(innerEvent.kind, innerEvent.pubKey, senderIdentity)?.let { reason ->
+                    mip03Rejection(
+                        innerEventKind = innerAuthor.first,
+                        innerEventPubKey = innerAuthor.second,
+                        senderIdentity = senderIdentity,
+                        legacyRoom = !mlsGroup.currentGroupState().isCurrentProfile,
+                    )?.let { reason ->
                         return GroupEventResult.Error(groupId, reason)
                     }
                 }
@@ -353,7 +451,7 @@ object MarmotInboundManager {
         mlsGroup: MlsGroup,
         messageBytes: ByteArray,
     ): DecryptedMessage {
-        val nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val nostrGroupId = mlsGroup.roomId()
 
         // Try current epoch. If we hit an exception here we MUST surface
         // it — commits that throw mid-processCommit leave the in-memory
@@ -400,7 +498,7 @@ object MarmotInboundManager {
         mlsMessage: MlsMessage,
         groupEvent: GroupEvent
     ): GroupEventResult {
-        val groupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val groupId = mlsGroup.roomId()
 
         val pubMsg = PublicMessage.decodeTls(TlsReader(mlsMessage.payload))
 
@@ -444,7 +542,7 @@ object MarmotInboundManager {
         groupEvent: GroupEvent
     ): GroupEventResult {
         logger.d("handleCommitEvent: ${groupEvent.id}")
-        val nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val nostrGroupId = mlsGroup.roomId()
 
         val currentEpoch = mlsGroup.epoch
         commitTracker.addCommit(nostrGroupId, currentEpoch, groupEvent)
@@ -495,7 +593,7 @@ object MarmotInboundManager {
         commitEvent: GroupEvent,
     ): GroupEventResult =
         try {
-            val groupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+            val groupId = mlsGroup.roomId()
 
             val mlsBytes =
                 tryDecryptOuterLayer(mlsGroup, commitEvent.encryptedContent())
@@ -616,7 +714,7 @@ object MarmotInboundManager {
             }
         } catch (e: Exception) {
             GroupEventResult.Error(
-                groupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex(),
+                groupId = mlsGroup.roomId(),
                 "Failed to apply commit: ${e.message}",
                 e
             )
@@ -650,7 +748,7 @@ object MarmotInboundManager {
         mlsGroup.processCommit(commitBytes, senderLeafIndex, confirmationTag, signature, wireFormat)
 
         pushRetainedEpoch(
-            nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex(),
+            nostrGroupId = mlsGroup.roomId(),
             retainedBefore
         )
         persistGroup(
@@ -690,7 +788,7 @@ object MarmotInboundManager {
         // Try retained epoch exporter keys (most recent first)
         logger.d("Try retained")
         val retainedKeys = retainedExporterSecrets(
-            nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+            nostrGroupId = mlsGroup.roomId()
         )
         for (retainedKey in retainedKeys) {
             try {
@@ -707,7 +805,7 @@ object MarmotInboundManager {
         database: CurareDatabase,
         mlsGroup: MlsGroup
     ) {
-        val nostrGroupId = mlsGroup.currentMarmotData()?.nostrGroupId ?: mlsGroup.groupId.toHex()
+        val nostrGroupId = mlsGroup.roomId()
 
         try {
             val state = mlsGroup.saveState()

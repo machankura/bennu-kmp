@@ -160,7 +160,12 @@ class LiveSubscriptionManager(
             rooms
                 .filter { it.chatRoom.mlsGroupState != null }
                 .filter { it.chatRoom.leftGroupAt == null && it.chatRoom.deletedAt == null }
-                .map { it.chatRoom.id }
+                // The addresses, not the ids: a relay indexes the `h` tag, and on the
+                // current profile that is a routing id apart from the room's own. Every
+                // address a room has had, so a message published to a prior one while
+                // it is still inside the retention window is not missed.
+                .flatMap { it.routingIds }
+                .distinct()
                 .sorted()
 
         internal fun groupChunks(groupIds: List<HexKey>): List<List<HexKey>> =

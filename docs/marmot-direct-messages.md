@@ -102,6 +102,28 @@ the first was asserted the wrong way round until one of them failed.
 > divergence from the spec, and a reason to raise it upstream rather than carry it
 > indefinitely.
 
+### The envelope, in current-profile rooms
+
+The carve-out is now confined to legacy rooms, and the upstream answer turned out
+to be a shape rather than a rule change. A current-profile room ([marmot-v2.md](./marmot-v2.md),
+Phase 2) carries the wrap *inside* an unsigned Marmot app event of
+`MarmotDirectMessage.ENVELOPE_KIND` (30330), whose `pubkey` is the sender's account,
+whose one tag is `["p", recipient]` and whose `content` is the wrap's JSON. The
+envelope passes the author check like any other payload, so there is nothing to
+exempt, and `mip03Rejection` takes a `legacyRoom` flag: in a current-profile room a
+bare kind:1059 is refused as what every other conformant client refuses it as.
+
+The properties above survive intact. The envelope is unsigned — a `MarmotAppEvent`
+has no signature to give — so a lifted envelope is a *claim* of authorship and not a
+proof; the wrap inside is still signed by nobody; the seal-to-leaf binding in
+`classify` still decides who wrote the words. What a bystander sees is unchanged:
+that a private message was sent, and to whom.
+
+An old build renders the envelope as a raw-JSON bubble, which is why a legacy room
+keeps sending the bare wrap: a current-profile room admits only leaves carrying an
+identity proof, and only a build past Phase 3 can make one, so nobody in one runs
+an old build. The room's profile is the flag.
+
 ### The sender cannot read their own messages back
 
 The throwaway private key is discarded at send time, so nothing can reopen the wrap

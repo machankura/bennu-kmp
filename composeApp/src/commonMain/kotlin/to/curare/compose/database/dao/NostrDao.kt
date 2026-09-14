@@ -28,9 +28,9 @@ import to.curare.compose.exceptions.MarmotMissingChatGroupException
 import to.curare.compose.exceptions.MarmotMissingKeyPackageBundleException
 import to.curare.compose.exceptions.MarmotMissingNostrGroupDataExtension
 import to.curare.compose.exceptions.MarmotNotMemberOfChatGroupException
-import to.curare.compose.exceptions.MarmotWelcomeEventMissingKeyPackageEventIdException
 import to.curare.compose.extensions.toHex
 import to.curare.compose.managers.ChillDkgRitualManager
+import to.curare.compose.nostr.MarmotProfile
 import to.curare.compose.nostr.Relays
 import to.curare.compose.nostr.dkg.DkgRitualEvents
 import to.curare.compose.nostr.frost.FrostSigningEvents
@@ -39,18 +39,24 @@ import to.curare.compose.managers.GroupKeyStateManager
 import to.curare.compose.managers.MlsGroupCache
 import to.curare.compose.managers.MarmotInboundManager
 import to.curare.compose.managers.MarmotReindexSweep
+import to.curare.compose.managers.MarmotEngine.Companion.inRoom
+import to.curare.compose.managers.WelcomeBundleMatch
+import to.curare.compose.managers.roomDescription
+import to.curare.compose.managers.roomName
+import to.curare.compose.managers.roomId
+import to.curare.compose.managers.routingId
+import to.curare.compose.database.model.MarmotRouting
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CancellationException
 import com.vitorpamplona.quartz.marmot.GroupEventResult
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageEvent
 import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageRelayListEvent
+import com.vitorpamplona.quartz.marmot.mip00KeyPackages.KeyPackageUtils
 import com.vitorpamplona.quartz.marmot.mip02Welcome.WelcomeEvent
-import com.vitorpamplona.quartz.marmot.mip03GroupMessages.CommitOrdering
+import to.curare.compose.managers.CommitOrdering
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
-import com.vitorpamplona.quartz.marmot.mls.codec.TlsReader
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
 import com.vitorpamplona.quartz.marmot.mls.messages.KeyPackageBundle
-import com.vitorpamplona.quartz.marmot.mls.messages.MlsKeyPackage
 import com.vitorpamplona.quartz.marmot.mls.tree.Credential
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
@@ -427,13 +433,34 @@ abstract class NostrDao(
         // MLSGroupEvent handling...
         nostrEvent.toKeyPackageEvent()?.let { keyPackageEvent ->
             logger.d("KeyPackageEvent: ${keyPackageEvent.toJson()}")
+
+            // Checked before it is stored, because nothing downstream checks it:
+            // the invite decodes the bytes and adds the leaf, and until this line
+            // a package with the wrong tags, a signature that does not verify, a
+            // lifetime already over or -- on the current profile -- an identity
+            // proof that does not bind the leaf to its account was stored like any
+            // other and failed at addMember, or worse, did not. The validator is
+            // the one a conformant peer runs on ours, so what it refuses here is
+            // what they would refuse there.
+            if (!KeyPackageUtils.isCryptographicallyValid(keyPackageEvent)) {
+                logger.w("KeyPackage ${keyPackageEvent.id} from ${keyPackageEvent.pubKey} failed validation, not stored")
+                return@let
+            }
+
+            // Stored bare, whichever way it was published. A current-profile
+            // kind:30443 frames its KeyPackage in an MLSMessage; a legacy one does
+            // not; MlsGroup.proposeAdd reads only the bare form. Unframing once
+            // here is what lets every consumer of this row stay as it is.
+            val keyPackageBytes = KeyPackageUtils.decodeKeyPackage(
+                Base64.decode(source = keyPackageEvent.keyPackageBase64())
+            ).toTlsBytes()
+
             database.marmotKeyPackageDao().upsert(
                 MarmotKeyPackage(
                     id = keyPackageEvent.id,
                     publicKey = keyPackageEvent.pubKey,
-                    tlsEncodedMarmotKeyPackage = Base64.decode(
-                        source = keyPackageEvent.keyPackageBase64()
-                    ),
+                    tlsEncodedMarmotKeyPackage = keyPackageBytes,
+                    profile = if (keyPackageEvent.isCurrentProfile()) MarmotProfile.CURRENT.wireName else MarmotProfile.LEGACY.wireName,
                     createdAt = Instant.fromEpochSeconds(keyPackageEvent.createdAt)
                 )
             )
@@ -443,10 +470,13 @@ abstract class NostrDao(
         )?.let { groupEvent ->
             logger.d("groupEvent: ${groupEvent.toJson()}")
 
-            groupEvent.groupId()?.let { chatRoomId ->
+            // The `h` tag is the room's address, which on the current profile is not
+            // its id; the routing table says which room, and a room with no row is
+            // addressed by its own id. See MarmotRouting.
+            groupEvent.groupId()?.let { routingId ->
                 indexMarmotGroupEvent(
                     groupEvent = groupEvent,
-                    chatRoomId = chatRoomId,
+                    chatRoomId = database.marmotRoutingDao().chatRoomIdFor(routingId),
                     activeKeyPair = activeKeyPair,
                 )
             }
@@ -710,36 +740,40 @@ abstract class NostrDao(
                                 )
                                 logger.d("welcomeEvent: ${welcomeEvent.toJson()}")
 
-                                // TODO: Find keypackage and decrypt welcome...
-                                // TODO: Get keyPackage from
-                                val keyPackageEventId = welcomeEvent.keyPackageEventId() ?: throw MarmotWelcomeEventMissingKeyPackageEventIdException(
-                                    "Couldn't find keyPackageEventId for $welcomeEvent"
-                                )
-                                logger.d("keyPackageEventId: $keyPackageEventId")
-                                val marmotKeyPackageBundle = database.marmotKeyPackageBundleDao().getMarmotKeyPackageBundleById(
-                                    keyPackageEventId
-                                ) ?: throw MarmotMissingKeyPackageBundleException(
-                                    "Couldn't find marmotKeyPackageBundle for $welcomeEvent"
-                                )
-                                logger.d("marmotKeyPackageBundle: $marmotKeyPackageBundle")
-
                                 val welcomeBytes = Base64.decode(
                                     welcomeEvent.welcomeBase64()
                                 )
+
+                                // The Welcome names the KeyPackage it was encrypted to;
+                                // the `e` tag names the one the inviter thinks it used.
+                                // The first is the authority and the second a hint that
+                                // an inviter working from a cached copy gets wrong, so
+                                // the refs are tried first and the tag only when they
+                                // name nothing of ours -- see WelcomeBundleMatch.
+                                val userPublicKeyHex = activeKeyPair.pubKey.toHex()
+                                val keyPackageEventId = welcomeEvent.keyPackageEventId()
+                                val marmotKeyPackageBundle = WelcomeBundleMatch.select(
+                                    welcomeBytes = welcomeBytes,
+                                    candidates = database.marmotKeyPackageBundleDao()
+                                        .getAllMarmotKeyPackageBundles(userPublicKeyHex),
+                                    keyPackageBytesOf = { it.tlsEncodedMarmotKeyPackage },
+                                ) ?: keyPackageEventId?.let { eventId ->
+                                    logger.d("keyPackageEventId: $eventId")
+                                    database.marmotKeyPackageBundleDao().getMarmotKeyPackageBundleById(eventId)
+                                } ?: throw MarmotMissingKeyPackageBundleException(
+                                    "Couldn't find marmotKeyPackageBundle for $welcomeEvent"
+                                )
+                                logger.d("marmotKeyPackageBundle: $marmotKeyPackageBundle")
 
                                 val initPrivateKey = marmotKeyPackageBundle.ncryptsecInitPrivateKey.hexToByteArray() // TODO: Decrypt
                                 val signaturePrivateKey = marmotKeyPackageBundle.ncryptsecSignaturePrivateKey.hexToByteArray() // TODO: Decrypt
                                 val encryptionPrivateKey = marmotKeyPackageBundle.ncryptsecEncryptionPrivateKey.hexToByteArray() // TODO: Decrypt
 
-                                val tlsReader = TlsReader(
-                                    data = marmotKeyPackageBundle.tlsEncodedMarmotKeyPackage
-                                )
-
                                 val group = MlsGroup.processWelcome(
                                     welcomeBytes,
                                     bundle = KeyPackageBundle(
-                                        keyPackage = MlsKeyPackage.decodeTls(
-                                            tlsReader
+                                        keyPackage = KeyPackageUtils.decodeKeyPackage(
+                                            marmotKeyPackageBundle.tlsEncodedMarmotKeyPackage
                                         ),
                                         initPrivateKey = initPrivateKey,
                                         signaturePrivateKey = signaturePrivateKey,
@@ -748,7 +782,17 @@ abstract class NostrDao(
                                 )
                                 logger.d("Group: $group")
 
-                                val nostrGroupId = group.currentMarmotData()?.nostrGroupId ?: throw MarmotMissingNostrGroupDataExtension("Didn't find group data for $group")
+                                // The room's address, from whichever profile the group
+                                // is on: the routing component for a current-profile
+                                // group, the 0xF2EE extension for a legacy one. A group
+                                // with neither is not a Marmot group and there is no
+                                // room to make of it. The room's *id* is what the group
+                                // says it is -- the address, unless its description names
+                                // the room, as a current-profile room this app created
+                                // does. See MarmotRoomIdentity and MarmotRouting.
+                                val routingId = group.routingId().takeIf { group.currentNostrGroupId() != null }
+                                    ?: throw MarmotMissingNostrGroupDataExtension("Didn't find group data for $group")
+                                val nostrGroupId = group.roomId()
 
                                 logger.d("nostrGroupId: $nostrGroupId")
 
@@ -758,7 +802,7 @@ abstract class NostrDao(
 
                                 if (localChatRoom == null) {
                                     logger.d("processWelcome: welcomeBytes=${welcomeBytes.size}B")
-                                    logger.d("Marmot Data: ${group.currentMarmotData()}")
+                                    logger.d("Marmot state: ${group.currentGroupState()} legacy=${group.currentMarmotData()}")
 
 
                                     // TODO: Save the chat room We can now s
@@ -767,8 +811,8 @@ abstract class NostrDao(
                                         ChatRoom(
                                             id = nostrGroupId,
                                             userPublicKey = userPublicKey,
-                                            subject = group.currentMarmotData()?.name?.ifBlank { null },
-                                            description = group.currentMarmotData()?.description?.ifBlank { null },
+                                            subject = group.roomName(),
+                                            description = group.roomDescription(),
                                             initialGiftWrapPayloadId = decryptedGiftWrapPayload.id,
                                             createdAt = decryptedGiftWrapPayload.createdAt,
                                             // The Welcome's own `created_at`, which the
@@ -781,6 +825,10 @@ abstract class NostrDao(
                                             joinedGroupAt = decryptedGiftWrapPayload.createdAt,
                                             mlsGroupState = group.saveState().encodeTls().toHex(),
                                         )
+                                    )
+
+                                    database.marmotRoutingDao().upsert(
+                                        MarmotRouting(routingId = routingId, chatRoomId = nostrGroupId)
                                     )
 
                                     database.marmotKeyPackageBundleDao().upsert(
@@ -1321,6 +1369,62 @@ abstract class NostrDao(
             return
         }
 
+        // The room's profile picks its pipeline -- see MarmotEngine. A legacy room
+        // is read by the app's own manager over the cache, as it always was; a
+        // current-profile room by the library's processor over its manager, which
+        // is where convergence and message-id dedup live.
+        when (localChatRoom.chatRoom.marmotProfile()) {
+            MarmotProfile.LEGACY -> indexLegacyMarmotGroupEvent(groupEvent, localChatRoom, activeKeyPair)
+            MarmotProfile.CURRENT -> indexCurrentProfileGroupEvent(groupEvent, localChatRoom, activeKeyPair)
+        }
+    }
+
+    private suspend fun indexCurrentProfileGroupEvent(
+        groupEvent: GroupEvent,
+        localChatRoom: LocalChatRoom,
+        activeKeyPair: KeyPair,
+    ) {
+        val chatRoomId = localChatRoom.chatRoom.id
+        val routingId = groupEvent.groupId()
+            ?: throw MarmotMissingNostrGroupDataExtension("${groupEvent.id} carries no h tag")
+        val engine = database.marmotEngine
+        val mlsGroup = engine.groupFor(routingId)
+            ?: throw MarmotMissingNostrGroupDataExtension("Couldn't restore the group for ${groupEvent.id}")
+
+        if (!mlsGroup.currentMemberIdentities().contains(activeKeyPair.pubKey.toHex())) {
+            throw MarmotNotMemberOfChatGroupException("We are not a member of the chat room $chatRoomId")
+        }
+
+        upsertMarmotGroupEvent(groupEvent, chatRoomId, activeKeyPair)
+
+        // The processor names the group by its address; every row below is keyed by
+        // the room, so the result is re-addressed once.
+        val groupEventResult = engine.inbound.processGroupEvent(groupEvent).inRoom(chatRoomId)
+        logger.d("groupEventResult: $groupEventResult")
+
+        fileGroupEventResult(
+            localChatRoom = localChatRoom,
+            groupEvent = groupEvent,
+            groupEventResult = groupEventResult,
+            activeKeyPair = activeKeyPair,
+            // The live group the manager holds, which the commit just moved.
+            mlsGroup = engine.groupManager.getGroup(routingId) ?: mlsGroup,
+        )
+
+        // A commit that forked the group opened a pass, and a quiet group has
+        // nothing else to drive it to its cutoff.
+        if (engine.inbound.openConvergencePasses().isNotEmpty()) {
+            engine.settleLater()
+        }
+    }
+
+    private suspend fun indexLegacyMarmotGroupEvent(
+        groupEvent: GroupEvent,
+        localChatRoom: LocalChatRoom,
+        activeKeyPair: KeyPair,
+    ) {
+        val chatRoomId = localChatRoom.chatRoom.id
+
         // Through the cache rather than rebuilt here, so the secret
         // tree's skipped-generation keys survive from one message to
         // the next. Two events published in the same instant arrive in
@@ -1348,18 +1452,7 @@ abstract class NostrDao(
             }
 
             if (memberPubkeys.contains(activeKeyPair.pubKey.toHex())) {
-                database.marmotGroupEventDao().upsert(
-                    MarmotGroupEvent(
-                        id = groupEvent.id,
-                        userPublicKey = activeKeyPair.pubKey.toHex(),
-                        publicKey = groupEvent.pubKey,
-                        encryptedContent = groupEvent.encryptedContent(),
-                        chatRoomId = chatRoomId,
-                        createdAt = Instant.fromEpochSeconds(groupEvent.createdAt),
-                        expiresAt = groupEvent.expiration()?.let { Instant.fromEpochSeconds(it) },
-                        signature = groupEvent.sig
-                    )
-                )
+                upsertMarmotGroupEvent(groupEvent, chatRoomId, activeKeyPair)
                 MarmotInboundManager.processGroupEvent(
                     database = database,
                     activeKeyPair = activeKeyPair,
@@ -1369,79 +1462,13 @@ abstract class NostrDao(
                 )?.let { groupEventResult ->
                     logger.d("groupEventResult: $groupEventResult")
 
-                    when(groupEventResult) {
-                        is GroupEventResult.CommitProcessed -> {
-                            MarmotInboundManager.processGroupMembershipChanges(
-                                database = database,
-                                mlsGroup = mlsGroup,
-                                localChatRoom = localChatRoom
-                            )
-                        }
-                        else -> {
-                            logger.i("No app logic to handle: $groupEventResult")
-                        }
-                    }
-
-                    ChatMessage.fromGroupEventResult(
-                        database = database,
-                        activeKeyPair = activeKeyPair,
+                    fileGroupEventResult(
+                        localChatRoom = localChatRoom,
                         groupEvent = groupEvent,
                         groupEventResult = groupEventResult,
-                        // Who sent it comes from the MLS frame, not the
-                        // payload. Resolved here because this is where the
-                        // group is; the leaf index is on the result, and the
-                        // tree has not moved -- an application message
-                        // advances no epoch.
-                        senderIdentity = (groupEventResult as? GroupEventResult.ApplicationMessage)
-                            ?.let { mlsGroup.memberIdentityHex(it.senderLeafIndex) },
-                    )?.let { chatMessage ->
-                        logger.d("chatMessage: $chatMessage")
-                        persistMarmotChatMessage(chatMessage)
-                    }
-
-                    // A signing or ceremony message for this group. Driven
-                    // from here rather than from ChatMessage because each
-                    // manager needs the room to publish its own replies
-                    // into, and because both write their transcript lines
-                    // themselves. Both are idempotent, so a redelivered
-                    // message re-runs a step already taken.
-                    //
-                    // A ceremony arrives here when the group is standing up
-                    // a subgroup: the child's ChillDKG runs in this room,
-                    // over the admins the proposal p-tags, because the
-                    // child has no room of its own until the ceremony has
-                    // produced the key its id is derived from. A member of
-                    // this room who was not picked drops the proposal in
-                    // `acceptProposal` and never opens a session.
-                    //
-                    // A GroupKeyStateEvent is deliberately not dispatched
-                    // here. It is no longer something a member says --
-                    // it is what a session like this one produces -- and
-                    // `ChatMessage.applyInnerEvent` files it alongside
-                    // every other event the group has signed.
-                    if (groupEventResult is GroupEventResult.ApplicationMessage) {
-                        Event.fromJsonOrNull(groupEventResult.innerEventJson)
-                            ?.let { innerEvent ->
-                                when {
-                                    FrostSigningEvents.isFrostSigningKind(innerEvent.kind) ->
-                                        FrostSigningManager.processSigningPayload(
-                                            database = database,
-                                            localChatRoom = localChatRoom,
-                                            innerEvent = innerEvent,
-                                            userPublicKey = activeKeyPair.pubKey.toHex()
-                                        )
-
-                                    DkgRitualEvents.isDkgRitualKind(innerEvent.kind) ->
-                                        ChillDkgRitualManager.processRitualPayload(
-                                            database = database,
-                                            localChatRoom = localChatRoom,
-                                            innerEvent = innerEvent,
-                                            userPublicKey = activeKeyPair.pubKey.toHex(),
-                                            nostrPrivateKey = activeKeyPair.privKey!!
-                                        )
-                                }
-                            }
-                    }
+                        activeKeyPair = activeKeyPair,
+                        mlsGroup = mlsGroup,
+                    )
                 }
             } else {
                 throw MarmotNotMemberOfChatGroupException("We are not a member of the chat room ${localChatRoom.chatRoom.id}")
@@ -1452,6 +1479,122 @@ abstract class NostrDao(
         // a failed toMlsGroup() meant before the cache existed.
         if (handled == null) {
             throw MarmotMissingNostrGroupDataExtension("Couldn't find chatRoom for ${groupEvent.id}")
+        }
+    }
+
+    private suspend fun upsertMarmotGroupEvent(
+        groupEvent: GroupEvent,
+        chatRoomId: String,
+        activeKeyPair: KeyPair,
+    ) {
+        database.marmotGroupEventDao().upsert(
+            MarmotGroupEvent(
+                id = groupEvent.id,
+                userPublicKey = activeKeyPair.pubKey.toHex(),
+                publicKey = groupEvent.pubKey,
+                encryptedContent = groupEvent.encryptedContent(),
+                chatRoomId = chatRoomId,
+                createdAt = Instant.fromEpochSeconds(groupEvent.createdAt),
+                expiresAt = groupEvent.expiration()?.let { Instant.fromEpochSeconds(it) },
+                signature = groupEvent.sig
+            )
+        )
+    }
+
+    /**
+     * Turns what a kind:445 turned out to be into rows: the membership changes a
+     * commit made, the chat line, and the signing or ceremony step a payload drives.
+     * The same for either pipeline, which is why it is one function.
+     *
+     * [mlsGroup] is the room's live group after the event was applied: the tree
+     * the sender's leaf index is resolved against, and the membership a commit is
+     * diffed against.
+     */
+    private suspend fun fileGroupEventResult(
+        localChatRoom: LocalChatRoom,
+        groupEvent: GroupEvent,
+        groupEventResult: GroupEventResult,
+        activeKeyPair: KeyPair,
+        mlsGroup: MlsGroup,
+    ) {
+        when(groupEventResult) {
+            is GroupEventResult.CommitProcessed -> {
+                MarmotInboundManager.processGroupMembershipChanges(
+                    database = database,
+                    mlsGroup = mlsGroup,
+                    localChatRoom = localChatRoom
+                )
+            }
+            // A member's standalone proposal -- their SelfRemove -- sits in the
+            // pool until an admin commits it. An admin's device does so on
+            // receipt; on any other device this does nothing.
+            is GroupEventResult.ProposalStaged -> {
+                database.marmotOutboundDao().commitStagedProposals(localChatRoom)
+            }
+            else -> {
+                logger.i("No app logic to handle: $groupEventResult")
+            }
+        }
+
+        ChatMessage.fromGroupEventResult(
+            database = database,
+            activeKeyPair = activeKeyPair,
+            groupEvent = groupEvent,
+            groupEventResult = groupEventResult,
+            // Who sent it comes from the MLS frame, not the
+            // payload. Resolved here because this is where the
+            // group is; the leaf index is on the result, and the
+            // tree has not moved -- an application message
+            // advances no epoch.
+            senderIdentity = (groupEventResult as? GroupEventResult.ApplicationMessage)
+                ?.let { mlsGroup.memberIdentityHex(it.senderLeafIndex) },
+        )?.let { chatMessage ->
+            logger.d("chatMessage: $chatMessage")
+            persistMarmotChatMessage(chatMessage)
+        }
+
+        // A signing or ceremony message for this group. Driven
+        // from here rather than from ChatMessage because each
+        // manager needs the room to publish its own replies
+        // into, and because both write their transcript lines
+        // themselves. Both are idempotent, so a redelivered
+        // message re-runs a step already taken.
+        //
+        // A ceremony arrives here when the group is standing up
+        // a subgroup: the child's ChillDKG runs in this room,
+        // over the admins the proposal p-tags, because the
+        // child has no room of its own until the ceremony has
+        // produced the key its id is derived from. A member of
+        // this room who was not picked drops the proposal in
+        // `acceptProposal` and never opens a session.
+        //
+        // A GroupKeyStateEvent is deliberately not dispatched
+        // here. It is no longer something a member says --
+        // it is what a session like this one produces -- and
+        // `ChatMessage.applyInnerEvent` files it alongside
+        // every other event the group has signed.
+        if (groupEventResult is GroupEventResult.ApplicationMessage) {
+            Event.fromJsonOrNull(groupEventResult.innerEventJson)
+                ?.let { innerEvent ->
+                    when {
+                        FrostSigningEvents.isFrostSigningKind(innerEvent.kind) ->
+                            FrostSigningManager.processSigningPayload(
+                                database = database,
+                                localChatRoom = localChatRoom,
+                                innerEvent = innerEvent,
+                                userPublicKey = activeKeyPair.pubKey.toHex()
+                            )
+
+                        DkgRitualEvents.isDkgRitualKind(innerEvent.kind) ->
+                            ChillDkgRitualManager.processRitualPayload(
+                                database = database,
+                                localChatRoom = localChatRoom,
+                                innerEvent = innerEvent,
+                                userPublicKey = activeKeyPair.pubKey.toHex(),
+                                nostrPrivateKey = activeKeyPair.privKey!!
+                            )
+                    }
+                }
         }
     }
 
@@ -1517,16 +1660,19 @@ abstract class NostrDao(
         val userPublicKey = activeKeyPair.pubKey.toHex()
         val chatRoom = database.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom
 
-        // The query's LIKE only narrows; the h tag is what decides the room. Sorted
-        // by CommitOrdering's own comparator rather than left in createdAt order, so
-        // that where two commits compete for an epoch the first one replayed is the
-        // one every other member also picked.
-        val groupEvents = database.nostrEventDao()
-            .getMarmotGroupNostrEventsByChatRoomId(chatRoomId)
+        // The query's LIKE only narrows; the h tag is what decides the room, and the
+        // h tag is one of the room's routing addresses -- its own id, or the ones the
+        // routing table records. Sorted by CommitOrdering's own comparator rather
+        // than left in createdAt order, so that where two commits compete for an
+        // epoch the first one replayed is the one every other member also picked.
+        val routingIds = database.marmotRoutingDao().findByChatRoomId(chatRoomId).map { it.routingId }.ifEmpty { listOf(chatRoomId) }
+        val groupEvents = routingIds
+            .flatMap { database.nostrEventDao().getMarmotGroupNostrEventsByChatRoomId(it) }
+            .distinctBy { it.id }
             .mapNotNull { storedNostrEvent ->
                 storedNostrEvent
                     .toGroupEvent(userPublicKey = userPublicKey)
-                    ?.takeIf { it.groupId() == chatRoomId }
+                    ?.takeIf { it.groupId() in routingIds }
             }
             .sortedWith(CommitOrdering.comparator)
 
@@ -1547,7 +1693,19 @@ abstract class NostrDao(
 
         // Held commits are what a replay is most often for, and they are only ever
         // cleared by one applying -- see MarmotInboundManager.forgetPendingCommits.
-        MarmotInboundManager.forgetPendingCommits(chatRoomId)
+        // A current-profile room holds nothing of the kind: its competing commits
+        // are candidates in a convergence pass, which is closed here so the replay
+        // runs against settled state rather than a branch a pass is about to drop.
+        when (chatRoom?.marmotProfile()) {
+            MarmotProfile.CURRENT -> {
+                val engine = database.marmotEngine
+                routingIds.forEach { routingId ->
+                    engine.groupFor(routingId)
+                    engine.inbound.resolveConvergence(routingId)
+                }
+            }
+            else -> MarmotInboundManager.forgetPendingCommits(chatRoomId)
+        }
 
         val resolved = database.chatMessageDao().getResolvedMarmotGroupEventIds(
             chatRoomId = chatRoomId,

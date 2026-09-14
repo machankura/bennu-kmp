@@ -3,6 +3,7 @@ package to.curare.compose.managers
 import com.vitorpamplona.quartz.marmot.mip03GroupMessages.GroupEvent
 import com.vitorpamplona.quartz.nip59Giftwrap.wraps.GiftWrapEvent
 import to.curare.compose.database.model.ChatRoom
+import to.curare.compose.database.model.MarmotRouting
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.managers.LiveSubscriptionManager.Companion.GIFT_WRAP_SUB_ID
 import to.curare.compose.managers.LiveSubscriptionManager.Companion.GROUP_SUB_ID_PREFIX
@@ -106,6 +107,28 @@ class LiveSubscriptionPlanTest {
         val rooms = listOf("c", "a", "b").map { room(id = it, mlsGroupState = "state") }
 
         assertEquals(listOf("a", "b", "c"), groupIdsFrom(rooms))
+    }
+
+    /**
+     * The filter names addresses, not rooms. A current-profile room is addressed by a
+     * routing id apart from its own, and every address it has had is watched, so a
+     * message published to a prior one inside the retention window is not missed. A
+     * room with no routing recorded is its own one address. See docs/marmot-v2.md,
+     * Phase 4.
+     */
+    @Test
+    fun `rooms are watched by their routing addresses`() {
+        val routed = room(id = "room", mlsGroupState = "state").copy(
+            routings = listOf(
+                MarmotRouting(routingId = "addr-old", chatRoomId = "room", activeFromEpoch = 0, retiredAtEpoch = 3),
+                MarmotRouting(routingId = "addr-new", chatRoomId = "room", activeFromEpoch = 3),
+            ),
+        )
+        val unrouted = room(id = "legacy", mlsGroupState = "state")
+
+        assertEquals(listOf("addr-new", "addr-old", "legacy"), groupIdsFrom(listOf(routed, unrouted)))
+        assertEquals("addr-new", routed.routingId)
+        assertEquals("legacy", unrouted.routingId)
     }
 
     // --- chunking and subscription ids -------------------------------------------------

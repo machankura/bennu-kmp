@@ -39,6 +39,9 @@ import to.curare.compose.repository.MarmotRepository
 import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.view.model.KeyPackageManagementViewModel
+import to.curare.compose.identity.Identity
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import to.curare.compose.ui.view.state.KeyPackageManagementUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import to.curare.compose.ui.theme.spacing
@@ -69,7 +72,8 @@ fun KeyPackageManagementScreen(
     nostrEventId: HexKey,
     onNavigateBack: () -> Unit,
     onNavigateToRoute: (Route) -> Unit,
-    marmotRepository: MarmotRepository
+    marmotRepository: MarmotRepository,
+    activeIdentityStateFlow: StateFlow<Identity?>,
 ) {
 
     // Read outside the click handlers: stringResource and rememberNotifier are both
@@ -83,7 +87,8 @@ fun KeyPackageManagementScreen(
             nostrEventId = nostrEventId,
             initialActiveProfileUIState = initialActiveProfileUIState,
             marmotRepository = marmotRepository,
-            activeUserPublicKey = activeUserPublicKey
+            activeUserPublicKey = activeUserPublicKey,
+            activeIdentityStateFlow = activeIdentityStateFlow,
         ),
     )
 
@@ -257,7 +262,8 @@ private fun UnannouncedProfileScreenPreview() {
                 nostrEventId = "",
                 marmotRepository = MarmotRepository.NO_OP_MARMOT_KEY_PACKAGE_BUNDLE,
                 onNavigateToRoute = {},
-                onNavigateBack = {}
+                onNavigateBack = {},
+                activeIdentityStateFlow = MutableStateFlow(null),
             )
         }
     }

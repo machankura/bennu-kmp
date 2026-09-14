@@ -55,6 +55,15 @@ data class MarmotCommitResult( // TODO: Rename this to GiftWrapPayload...
     val preCommitExporterSecret: ByteArray = ByteArray(0),
 
     /**
+     * The publish obligation this commit is the outbound half of, or null for a
+     * commit applied before it was published -- every legacy room's, and every
+     * current-profile room's before docs/marmot-v2.md Phase 6. A relay's OK on the
+     * commit event resolves it, which installs the pending state, before the Welcome
+     * this row also holds goes out.
+     */
+    val obligationId: HexKey? = null,
+
+    /**
      * Current time
      */
     override val createdAt: Instant = Clock.System.now(),
@@ -72,6 +81,15 @@ data class MarmotCommitResult( // TODO: Rename this to GiftWrapPayload...
 
     companion object {
         const val TAG = "MarmotCommitResult"
+
+        /**
+         * The `peerKeyPackageEventId` of a commit that invites nobody -- a removal, a
+         * committed leave, a disband. Such a commit still waits for a relay's OK to
+         * be applied, which is what this row is keyed for, and has no Welcome to
+         * send afterwards. The column is not nullable, and a blank is the one value
+         * no event id can be.
+         */
+        const val NO_INVITEE: HexKey = ""
 
         /**
          * The persisted record of a commit, built from the [CommitResult] that produced it.
@@ -94,6 +112,7 @@ data class MarmotCommitResult( // TODO: Rename this to GiftWrapPayload...
             peerKeyPackageEventId: HexKey,
             isOneMemberInitialGroupCreation: Boolean,
             createdAt: Instant,
+            obligationId: HexKey? = null,
         ): MarmotCommitResult = MarmotCommitResult(
             id = commitEventId,
             userPublicKey = userPublicKey,
@@ -105,6 +124,7 @@ data class MarmotCommitResult( // TODO: Rename this to GiftWrapPayload...
             groupInfoBytes = commitResult.groupInfoBytes,
             framedCommitBytes = commitResult.framedCommitBytes,
             preCommitExporterSecret = commitResult.preCommitExporterSecret,
+            obligationId = obligationId,
             createdAt = createdAt,
         )
     }
@@ -117,6 +137,7 @@ data class MarmotCommitResult( // TODO: Rename this to GiftWrapPayload...
 
         if (isOneMemberInitialGroupCreation != other.isOneMemberInitialGroupCreation) return false
         if (id != other.id) return false
+        if (obligationId != other.obligationId) return false
         if (userPublicKey != other.userPublicKey) return false
         if (chatRoomId != other.chatRoomId) return false
         if (!commitBytes.contentEquals(other.commitBytes)) return false
@@ -137,6 +158,7 @@ data class MarmotCommitResult( // TODO: Rename this to GiftWrapPayload...
     override fun hashCode(): Int {
         var result = isOneMemberInitialGroupCreation.hashCode()
         result = 31 * result + id.hashCode()
+        result = 31 * result + (obligationId?.hashCode() ?: 0)
         result = 31 * result + userPublicKey.hashCode()
         result = 31 * result + chatRoomId.hashCode()
         result = 31 * result + commitBytes.contentHashCode()

@@ -1,5 +1,6 @@
 package to.curare.compose.ui.view.model
 
+import to.curare.compose.nostr.MarmotProfile
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -74,7 +75,7 @@ class ProfilePreviewViewModelJvmTest {
         val keyPackage: MutableStateFlow<MarmotKeyPackage?> = MutableStateFlow(null),
         private val existingRoom: LocalChatRoom? = null,
     ) : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
-        override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: HexKey): Flow<MarmotKeyPackage?> = keyPackage
+        override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: HexKey, roomProfile: MarmotProfile): Flow<MarmotKeyPackage?> = keyPackage
         override suspend fun findDirectMessageRoom(userPublicKey: HexKey, peerPublicKey: HexKey): LocalChatRoom? = existingRoom
     }
 

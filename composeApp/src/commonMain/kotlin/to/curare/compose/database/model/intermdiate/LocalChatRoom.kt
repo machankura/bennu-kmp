@@ -11,6 +11,7 @@ import androidx.room3.Embedded
 import androidx.room3.Relation
 import to.curare.compose.database.model.ChatMessage
 import to.curare.compose.database.model.ChatRoom
+import to.curare.compose.database.model.MarmotRouting
 import to.curare.compose.database.model.Participant
 import to.curare.compose.extensions.memberName
 import to.curare.compose.ui.composable.widgets.profile.ProfileColor
@@ -36,7 +37,31 @@ data class LocalChatRoom(
      */
     @Embedded(prefix = "lastMessage_")
     val lastChatMessage: ChatRoomLastMessage? = null,
+    /**
+     * The addresses this room's kind:445 traffic travels under. Empty for a room from
+     * before the table, which is addressed by its own id -- see [routingId].
+     */
+    @Relation(
+        entity = MarmotRouting::class,
+        parentColumns = ["id"],
+        entityColumns = ["chatRoomId"],
+    )
+    val routings: List<MarmotRouting> = emptyList(),
 ) {
+    /**
+     * The `h` tag to stamp on what this room sends now: its current routing id, or its
+     * own id when it has none recorded. See [MarmotRouting].
+     */
+    val routingId: HexKey
+        get() = routings.filter { it.isActive }.maxByOrNull { it.activeFromEpoch }?.routingId ?: chatRoom.id
+
+    /**
+     * Every address this room has ever been reachable at, current first, for the
+     * filters that fetch its history. A room with no row is its own one address.
+     */
+    val routingIds: List<HexKey>
+        get() = routings.sortedByDescending { it.activeFromEpoch }.map { it.routingId }.ifEmpty { listOf(chatRoom.id) }
+
     @Composable
     fun RenderChatRoomTitleText() {
         if (chatRoom.subject != null) {

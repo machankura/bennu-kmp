@@ -1,5 +1,6 @@
 package to.curare.compose.nostr
 
+import com.vitorpamplona.quartz.marmot.foundation.appEvents.MarmotAppEvent
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.firstTagValue
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
@@ -181,5 +182,56 @@ class MarmotDirectMessageTest {
             )
 
         assertNull(MarmotDirectMessage.open(notAWrap, bob))
+    }
+
+    // ---- The envelope, for current-profile rooms -----------------------------
+
+    @Test
+    fun `the envelope is unsigned, by the sender, and carries the wrap whole`() {
+        val wrap = aliceWrapsForBob()
+        val envelope = MarmotDirectMessage.envelope(alice.pubKey, bobPublicKey, wrap, at)
+
+        // Six members and no signature: what a conformant decoder accepts, and what a
+        // leak cannot republish as a signed statement by anybody.
+        val json = envelope.toJson()
+        assertTrue(!json.contains("\"sig\""), "the envelope carries a signature")
+        assertEquals(alice.pubKey, MarmotAppEvent.decode(json).pubKey)
+        assertEquals(MarmotDirectMessage.ENVELOPE_KIND, MarmotAppEvent.decode(json).kind)
+        assertEquals(bobPublicKey, envelope.tags.firstTagValue("p"))
+
+        // The wrap inside is the wrap, untouched, and Bob opens it as before.
+        val inside = assertNotNull(MarmotDirectMessage.wrapInside(Event.fromJsonOrNull(json)!!))
+        assertEquals(wrap.id, inside.id)
+        assertEquals(text, assertNotNull(MarmotDirectMessage.open(inside, bob)).rumor.content)
+    }
+
+    @Test
+    fun `the envelope's createdAt is the wrap's, unfuzzed`() {
+        val envelope = MarmotDirectMessage.envelope(alice.pubKey, bobPublicKey, aliceWrapsForBob(), at)
+
+        assertEquals(at, envelope.createdAt)
+    }
+
+    @Test
+    fun `something that is not an envelope holds no wrap`() {
+        val wrap = aliceWrapsForBob()
+        val wrongKind = Event(
+            id = "1".repeat(64), pubKey = alice.pubKey, createdAt = at,
+            kind = MarmotDirectMessage.ENVELOPE_KIND + 1, tags = emptyArray(), content = wrap.toJson(), sig = "",
+        )
+        val notAWrapInside = Event(
+            id = "2".repeat(64), pubKey = alice.pubKey, createdAt = at,
+            kind = MarmotDirectMessage.ENVELOPE_KIND, tags = emptyArray(), content = "not json", sig = "",
+        )
+        val sealInside = Event(
+            id = "3".repeat(64), pubKey = alice.pubKey, createdAt = at,
+            kind = MarmotDirectMessage.ENVELOPE_KIND, tags = emptyArray(),
+            content = alice.signNormal<Event>(createdAt = at, kind = SealedRumorEvent.KIND, tags = emptyArray(), content = "").toJson(),
+            sig = "",
+        )
+
+        assertNull(MarmotDirectMessage.wrapInside(wrongKind))
+        assertNull(MarmotDirectMessage.wrapInside(notAWrapInside))
+        assertNull(MarmotDirectMessage.wrapInside(sealInside))
     }
 }

@@ -9,7 +9,9 @@ import to.curare.compose.database.model.traits.SoftDeletableEntity
 import to.curare.compose.database.model.traits.TimestampedEntity
 import to.curare.compose.database.model.traits.UserViewableEntity
 import co.touchlab.kermit.Logger
+import com.vitorpamplona.quartz.marmot.appComponents.MarmotGroupState
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
+import to.curare.compose.nostr.MarmotProfile
 import com.vitorpamplona.quartz.marmot.mls.group.MlsGroupState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
@@ -230,5 +232,22 @@ data class ChatRoom(
                 )
             )
         }
+    }
+
+    /**
+     * Which Marmot profile this room's group is on, read off the stored state's group
+     * context without rebuilding the group -- no key schedule, no secret tree, just
+     * the extensions. A room with no state, or state this build cannot read, answers
+     * legacy: that is the profile every room was on before there were two, and it is
+     * the pipeline that already copes with a room it cannot process.
+     *
+     * The profile picks the room's pipeline -- see `MarmotEngine`.
+     */
+    fun marmotProfile(): MarmotProfile {
+        val state = mlsGroupState ?: return MarmotProfile.LEGACY
+        return runCatching {
+            val extensions = MlsGroupState.decodeTls(state.hexToByteArray()).groupContext.extensions
+            if (MarmotGroupState.fromExtensions(extensions).isCurrentProfile) MarmotProfile.CURRENT else MarmotProfile.LEGACY
+        }.getOrDefault(MarmotProfile.LEGACY)
     }
 }

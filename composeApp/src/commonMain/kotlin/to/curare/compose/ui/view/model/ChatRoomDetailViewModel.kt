@@ -1,5 +1,6 @@
 package to.curare.compose.ui.view.model
 
+import to.curare.compose.nostr.MarmotProfile
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,6 +81,12 @@ class ChatRoomDetailViewModel(
                 val canSign = localChatRoom.chatRoom.mlsGroupState != null &&
                     chatRepository.canSign(chatRoomId)
 
+                // Governance is the current profile's: a leaf the group's admin policy
+                // names, in a room still open. Read off the stored state once.
+                val group = localChatRoom.chatRoom.takeIf { it.marmotProfile() == MarmotProfile.CURRENT }?.toMlsGroup()
+                val isDisbanded = group?.currentGroupState()?.isDisbanded == true
+                val canGovern = group != null && group.isLocalAdmin() && !isDisbanded && localChatRoom.chatRoom.leftGroupAt == null
+
                 ChatRoomDetailUIState.Loaded(
                     localChatRoom = localChatRoom,
                     groupKeyState = chatRepository.groupKeyState(chatRoomId),
@@ -93,7 +100,37 @@ class ChatRoomDetailViewModel(
                     groupCuratedEntries = chatRepository.groupCuratedEntries(chatRoomId),
                     canEditNostrProfile = canSign,
                     canAddSubgroup = canSign,
+                    canGovern = canGovern,
+                    isDisbanded = isDisbanded,
                 )
+            }
+        }
+    }
+
+    /**
+     * Removes [memberPublicKey] as an admin, and reloads the screen. The commit is
+     * applied when a relay accepts it, so the member's row stays until then; the
+     * line saying they were removed is there at once.
+     */
+    fun removeMember(localChatRoom: LocalChatRoom, memberPublicKey: HexKey, onDone: (String?) -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val failure = runCatching { chatRepository.removeMember(localChatRoom, memberPublicKey) }
+                .exceptionOrNull()
+            initiateChatRoomDetail()
+            viewModelScope.launch(Dispatchers.Main) { onDone(failure?.message) }
+        }
+    }
+
+    /** Disbands the group as an admin, then leaves the screen: there is nothing left to show. */
+    fun disbandGroup(localChatRoom: LocalChatRoom, onPopBackToRoute: (Route) -> Unit, onFailed: (String?) -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val failure = runCatching { chatRepository.disbandChatRoom(localChatRoom) }.exceptionOrNull()
+            viewModelScope.launch(Dispatchers.Main) {
+                if (failure == null) {
+                    onPopBackToRoute.invoke(HomeRoute(activeUserPublicKey = activeUserPublicKey))
+                } else {
+                    onFailed(failure.message)
+                }
             }
         }
     }

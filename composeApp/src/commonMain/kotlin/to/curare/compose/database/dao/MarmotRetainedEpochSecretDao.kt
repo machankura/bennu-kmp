@@ -25,4 +25,7 @@ interface MarmotRetainedEpochSecretDao {
     @Delete
     suspend fun defenestrate(marmotRetainedEpochSecrets: List<MarmotRetainedEpochSecret>)
 
+    @Query("DELETE FROM MarmotRetainedEpochSecret WHERE chatRoomId = :chatRoomId")
+    suspend fun deleteForChatRoomId(chatRoomId: HexKey)
+
 }

@@ -18,7 +18,9 @@ import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Ballot
 import androidx.compose.material.icons.filled.Campaign
@@ -36,6 +38,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -134,6 +137,11 @@ import curare.composeapp.generated.resources.direct_message_detail
 import curare.composeapp.generated.resources.direct_message_functionality_will_be_here
 import curare.composeapp.generated.resources.invite_new_member
 import curare.composeapp.generated.resources.leave_group
+import curare.composeapp.generated.resources.remove_from_group
+import curare.composeapp.generated.resources.disband_group
+import curare.composeapp.generated.resources.disband_group_explainer
+import curare.composeapp.generated.resources.group_disbanded
+import curare.composeapp.generated.resources.member_removal_requested
 import curare.composeapp.generated.resources.members_2
 import curare.composeapp.generated.resources.proposals
 import curare.composeapp.generated.resources.reindex_events
@@ -185,6 +193,11 @@ fun ChatRoomDetailScreen(
             activeUserPublicKey = activeUserPublicKey
         )
     )
+
+    // Read outside the click handlers: stringResource and rememberNotifier are both
+    // composable, and a lambda passed to onClick is not.
+    val notify = rememberNotifier(rememberCoroutineScope())
+    val removalRequested = stringResource(Res.string.member_removal_requested)
 
     ScreenStateTransition(chatRoomDetailViewModel.chatRoomDetailUIState) { uiState ->
     when (val chatRoomDetailUIState = uiState) {
@@ -753,10 +766,30 @@ fun ChatRoomDetailScreen(
                                             )
                                         },
                                         trailingContent = {
-                                            Icon(
-                                                Icons.Default.ChevronRight,
-                                                contentDescription = "View profile"
-                                            )
+                                            val memberPublicKey = localParticipant.participant.participantPublicKey
+                                            if (chatRoomDetailUIState.canGovern && memberPublicKey != activeUserPublicKey) {
+                                                // An admin's removal of a member: a commit through the
+                                                // publish gate, applied when a relay accepts it, which is
+                                                // why the row stays until then. See docs/marmot-v2.md, Phase 7.
+                                                IconButton(
+                                                    onClick = {
+                                                        chatRoomDetailViewModel.removeMember(
+                                                            localChatRoom = chatRoomDetailUIState.localChatRoom,
+                                                            memberPublicKey = memberPublicKey,
+                                                        ) { failure -> notify(failure ?: removalRequested) }
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.PersonRemove,
+                                                        contentDescription = stringResource(Res.string.remove_from_group)
+                                                    )
+                                                }
+                                            } else {
+                                                Icon(
+                                                    Icons.Default.ChevronRight,
+                                                    contentDescription = "View profile"
+                                                )
+                                            }
                                         },
                                         headlineContent = {
                                             Text(
@@ -781,13 +814,67 @@ fun ChatRoomDetailScreen(
                                 HorizontalDivider()
                             }
 
+                            if (chatRoomDetailUIState.isDisbanded) {
+                                item {
+                                    Text(
+                                        text = stringResource(Res.string.group_disbanded),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(
+                                            horizontal = MaterialTheme.spacing.containerPadding,
+                                            vertical = MaterialTheme.spacing.compactPadding,
+                                        )
+                                    )
+                                }
+                            }
+
+                            if (chatRoomDetailUIState.canGovern) {
+                                item {
+                                    TextButton(
+                                        colors = ButtonDefaults.textButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error
+                                        ),
+                                        onClick = {
+                                            chatRoomDetailViewModel.disbandGroup(
+                                                localChatRoom = chatRoomDetailUIState.localChatRoom,
+                                                onPopBackToRoute = onPopBackToRoute,
+                                                onFailed = { failure -> notify(failure ?: "Couldn't disband the group") },
+                                            )
+                                        }
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = stringResource(Res.string.disband_group)
+                                        )
+
+                                        Spacer(
+                                            modifier = Modifier.width(MaterialTheme.spacing.space125)
+                                        )
+
+                                        Text(stringResource(Res.string.disband_group))
+                                    }
+
+                                    Text(
+                                        text = stringResource(Res.string.disband_group_explainer),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(
+                                            start = MaterialTheme.spacing.space600,
+                                            end = MaterialTheme.spacing.containerPadding,
+                                            bottom = MaterialTheme.spacing.compactPadding,
+                                        )
+                                    )
+                                }
+                            }
+
                             item {
 
                                 TextButton(
                                     colors = ButtonDefaults.textButtonColors(
                                         contentColor = MaterialTheme.colorScheme.secondary
                                     ),
-                                    enabled = chatRoomDetailUIState.localChatRoom.chatRoom.leftGroupAt == null, // Disable after we leave group...
+                                    // Disabled after we leave, and after the group ends.
+                                    enabled = chatRoomDetailUIState.localChatRoom.chatRoom.leftGroupAt == null && !chatRoomDetailUIState.isDisbanded,
                                     onClick = {
                                         chatRoomDetailViewModel.leaveGroup(
                                             localChatRoom = chatRoomDetailUIState.localChatRoom,

@@ -824,6 +824,12 @@ object ChronicleManager {
      * checked because they bind different chronicles -- a room of one-line dialects
      * hits the count first and a room of chapters hits the bytes.
      *
+     * The bytes are the page's *escaped* bytes -- what it will occupy as the
+     * `content` of the Marmot app event that carries it, which is what a
+     * conformant decoder bounds. Dense JSON payloads grow by half on the way in,
+     * and a page measured raw was over that bound while under this one. See
+     * [ChronicleEvent.escapedByteSize].
+     *
      * An event too large to share a page with anything is given one of its own.
      * One too large for even that is dropped with a log rather than failing the
      * chronicle: a chapter nobody can chronicle is a hole, and a member who gets
@@ -837,7 +843,7 @@ object ChronicleManager {
 
         events.forEach { event ->
             // Plus the comma this event needs if it is not first on its page.
-            val size = event.toJson().encodeToByteArray().size + 1
+            val size = ChronicleEvent.escapedByteSize(event.toJson()) + 1
 
             if (2 + size > ChronicleEvent.MAX_PAGE_BYTES) {
                 logger.w(

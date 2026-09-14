@@ -2,6 +2,12 @@ package to.curare.compose.database.repository
 
 import to.curare.compose.database.GENESIS_AT
 import to.curare.compose.database.CurareDatabase
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import to.curare.compose.database.model.MarmotRouting
+import to.curare.compose.nostr.MarmotProfile
+import to.curare.compose.identity.Identity
+import to.curare.compose.identity.toKeyPair
 import to.curare.compose.database.model.GroupKeyState
 import to.curare.compose.database.model.GroupSignedEvent
 import to.curare.compose.managers.ChronicleManager
@@ -51,9 +57,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlin.time.Clock
 import kotlin.time.Instant
 
+/**
+ * @param activeIdentity the identity the app runs as. Read by the one write here that
+ *   has to sign as it -- creating a direct-message room on the current profile puts
+ *   an account identity proof in the creator's leaf -- and by nothing else; a caller
+ *   that has only the public key still gets a legacy room without it.
+ */
 class DatabaseChatRepository(
     private val database: CurareDatabase,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val activeIdentity: StateFlow<Identity?> = MutableStateFlow(null),
 ): to.curare.compose.repository.ChatRepository {
     val logger = Logger.withTag(TAG)
 
@@ -306,13 +319,19 @@ class DatabaseChatRepository(
         }
     }
 
-    override suspend fun getMarmotKeyPackageForPublicKey(publicKey: HexKey): MarmotKeyPackage? {
-        return database.marmotKeyPackageDao().getMarmotKeyPackageForPublicKey(publicKey)
-    }
+    override suspend fun getMarmotKeyPackageForPublicKey(publicKey: HexKey, roomProfile: MarmotProfile): MarmotKeyPackage? =
+        when (roomProfile) {
+            MarmotProfile.LEGACY -> database.marmotKeyPackageDao().getMarmotKeyPackageForPublicKey(publicKey)
+            MarmotProfile.CURRENT -> database.marmotKeyPackageDao()
+                .getMarmotKeyPackageForPublicKeyAndProfile(publicKey, MarmotProfile.CURRENT.wireName)
+        }
 
-    override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: HexKey): Flow<MarmotKeyPackage?> {
-        return database.marmotKeyPackageDao().observeMarmotKeyPackageForPublicKey(publicKey)
-    }
+    override suspend fun observeMarmotKeyPackageForPublicKey(publicKey: HexKey, roomProfile: MarmotProfile): Flow<MarmotKeyPackage?> =
+        when (roomProfile) {
+            MarmotProfile.LEGACY -> database.marmotKeyPackageDao().observeMarmotKeyPackageForPublicKey(publicKey)
+            MarmotProfile.CURRENT -> database.marmotKeyPackageDao()
+                .observeMarmotKeyPackageForPublicKeyAndProfile(publicKey, MarmotProfile.CURRENT.wireName)
+        }
 
     override suspend fun createNip17ChatRoom(
         userPublicKey: HexKey,
@@ -338,13 +357,25 @@ class DatabaseChatRepository(
         peerPublicKey: HexKey,
         peerKeyPackage: MarmotKeyPackage
     ): String {
+        // The active identity's key pair when it is the creator; otherwise a read-only
+        // pair, which is enough for a legacy room and refused by the factory for a
+        // current-profile one.
+        val creator = activeIdentity.value
+            ?.takeIf { it.nostrPublicKey.equals(userPublicKey, ignoreCase = true) }
+            ?.toKeyPair()
+            ?: KeyPair(privKey = null, pubKey = userPublicKey.hexToByteArray())
+
         return database.marmotOutboundDao().createMlsDirectMessageChatRoom(
             name = name,
             description = description,
-            userPublicKey = userPublicKey,
+            creator = creator,
             peerPublicKey = peerPublicKey,
             peerKeyPackage = peerKeyPackage
         )
+    }
+
+    override suspend fun recordMarmotRouting(chatRoomId: HexKey, routingId: HexKey) {
+        database.marmotRoutingDao().upsert(MarmotRouting(routingId = routingId, chatRoomId = chatRoomId))
     }
 
     override suspend fun inviteMember(
@@ -656,6 +687,16 @@ class DatabaseChatRepository(
         localChatRoom: LocalChatRoom,
         onCompletion: () -> Unit
     ) {
+        // A current-profile room is left by a SelfRemove proposal the admins commit,
+        // the local state dropped and the room closed here -- see MarmotOutboundDao.leave.
+        // A legacy room, or one this device holds no state for, is left the way it
+        // always was: the flag, and a line.
+        if (localChatRoom.chatRoom.marmotProfile() == MarmotProfile.CURRENT && localChatRoom.chatRoom.leftGroupAt == null) {
+            database.marmotOutboundDao().leave(localChatRoom)
+            onCompletion.invoke()
+            return
+        }
+
         database.chatRoomDao().upsert(
             chatRoom = localChatRoom.chatRoom.copy(
                 leftGroupAt = Clock.System.now()
@@ -670,6 +711,14 @@ class DatabaseChatRepository(
         )
 
         onCompletion.invoke()
+    }
+
+    override suspend fun removeMember(localChatRoom: LocalChatRoom, memberPublicKey: HexKey) {
+        database.marmotOutboundDao().removeMember(localChatRoom, memberPublicKey)
+    }
+
+    override suspend fun disbandChatRoom(localChatRoom: LocalChatRoom) {
+        database.marmotOutboundDao().disband(localChatRoom)
     }
 
     override suspend fun softDeleteChatRoom(

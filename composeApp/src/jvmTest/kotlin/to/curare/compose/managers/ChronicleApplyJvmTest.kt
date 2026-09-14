@@ -890,7 +890,7 @@ class ChronicleApplyJvmTest {
         seedSenderWork()
 
         sender.marmotOutboundDao().deliveryWelcome(
-            nostrGroupId = chatRoomId,
+            chatRoomId = chatRoomId,
             userPublicKey = oldMember,
             welcomeBytes = ByteArray(8),
             peerKeyPackageEventId = seedInviteeKeyPackage(),
@@ -918,7 +918,7 @@ class ChronicleApplyJvmTest {
         seedRoom(sender, oldMember)
 
         sender.marmotOutboundDao().deliveryWelcome(
-            nostrGroupId = chatRoomId,
+            chatRoomId = chatRoomId,
             userPublicKey = oldMember,
             welcomeBytes = ByteArray(8),
             peerKeyPackageEventId = seedInviteeKeyPackage(),

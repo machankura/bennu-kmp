@@ -109,9 +109,11 @@ class ChatRoomListViewModel(
 
             // Get/observe groupIds for publicKey
             val chatRooms = chatRepository.getChatRoomListByPublicKey(publicKey)
+            // The addresses the rooms' traffic travels under, not their ids: a relay
+            // indexes the `h` tag, and on the current profile that is the routing id.
             val relayChatRoomMaps = Relays.DefaultDMRelayList.map { dmRelay ->
-                dmRelay.url to chatRooms.map { localChatRoom ->
-                    localChatRoom.chatRoom.id
+                dmRelay.url to chatRooms.flatMap { localChatRoom ->
+                    localChatRoom.routingIds
                 }
             }
 

@@ -838,6 +838,7 @@ private fun RitualNotice(
         ChatMessage.TYPE_MEMBER_INVITED -> Icons.Default.PersonAdd
         ChatMessage.TYPE_MEMBER_INVITE_SENT -> Icons.Default.Upload
         ChatMessage.TYPE_MEMBER_INVITE_FAILED -> Icons.Default.ErrorOutline
+        ChatMessage.TYPE_CHANGE_REJECTED -> Icons.Default.ErrorOutline
 
         else -> Icons.Default.PanTool
     }
@@ -858,7 +859,8 @@ private fun RitualNotice(
     val tint = when {
         chatMessage.messageType == ChatMessage.TYPE_DKG_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_FROST_FAILED ||
-            chatMessage.messageType == ChatMessage.TYPE_MEMBER_INVITE_FAILED ->
+            chatMessage.messageType == ChatMessage.TYPE_MEMBER_INVITE_FAILED ||
+            chatMessage.messageType == ChatMessage.TYPE_CHANGE_REJECTED ->
             MaterialTheme.colorScheme.error
         isRequest -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.onSurfaceVariant

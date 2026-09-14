@@ -225,7 +225,8 @@ fun CurareNavHost(
     val databaseChatRepository = remember {
         DatabaseChatRepository(
             database = auxDatabaseManager.auxDatabase,
-            applicationIOScope
+            applicationIOScope,
+            activeIdentity = sovereignWalletViewModel.activeIdentity,
         )
     }
 
@@ -924,6 +925,7 @@ fun CurareNavHost(
                     activeUserPublicKey = route.activeUserPublicKey,
                     nostrEventId = route.nostrEventId,
                     marmotRepository = databaseMarmotRepository,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     onNavigateBack = {
                         navController.popBackStack()
                     },
