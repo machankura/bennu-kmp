@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import curare.composeapp.generated.resources.Res
+import curare.composeapp.generated.resources.a_date_as_yyyy_yyyy_mm_or_yyyy_mm_dd
 import curare.composeapp.generated.resources.a_whole_number
 import curare.composeapp.generated.resources.add_another
 import curare.composeapp.generated.resources.at_least_n
@@ -65,6 +66,8 @@ import curare.composeapp.generated.resources.filled_in_by_the_suggester_s_app_an
 import curare.composeapp.generated.resources.kept_from_the_suggestion
 import curare.composeapp.generated.resources.more_than_zero
 import curare.composeapp.generated.resources.must_match_the_pattern
+import curare.composeapp.generated.resources.n_or_earlier
+import curare.composeapp.generated.resources.n_or_later
 import curare.composeapp.generated.resources.one_word_without_spaces
 import curare.composeapp.generated.resources.only_one_value_for_this_field
 import curare.composeapp.generated.resources.pick_one_of_the_options
@@ -79,6 +82,7 @@ import curare.composeapp.generated.resources.the_group_signs_an_entry_so_it_take
 import curare.composeapp.generated.resources.this_entry_cannot_be_signed_as_it_is
 import curare.composeapp.generated.resources.this_field_is_required
 import curare.composeapp.generated.resources.this_group_has_no_shared_key_to_sign_an_entry
+import curare.composeapp.generated.resources.this_list_uses_a_field_type_this_app_does_not_support
 import org.jetbrains.compose.resources.stringResource
 import to.curare.compose.database.model.ChatRoom
 import to.curare.compose.database.model.GroupSignedEvent
@@ -391,11 +395,12 @@ internal fun AcceptCuratedSuggestionForm(
 
                     entryProblems.forEach { problem ->
                         val field = schema.fields.firstOrNull { it.name == problem.field }
+                        val unsupported = schema.unsupportedFields.firstOrNull { it.name == problem.field }
 
                         Text(
                             text = stringResource(
                                 Res.string.field_and_problem,
-                                field?.labelOrName() ?: problem.field,
+                                field?.labelOrName() ?: unsupported?.labelOrName() ?: problem.field,
                                 problem.message(field, schema)
                             ),
                             style = MaterialTheme.typography.bodySmall,
@@ -568,8 +573,10 @@ private fun EnumInput(
  * schema labels it and placeholdered as the schema says.
  *
  * The keyboard follows the type -- digits for a year, a URL keyboard for a
- * link -- and a long text gets room to be one. The supporting line is the
- * problem when there is one and the schema's hint when there is not.
+ * link, and the plain one for a date, whose `2010-07` needs a hyphen the
+ * number pad does not always have -- and a long text gets room to be one. The
+ * supporting line is the problem when there is one and the schema's hint when
+ * there is not.
  */
 @Composable
 private fun EntryTextField(
@@ -656,12 +663,18 @@ internal fun CuratedEntryProblem.message(field: CuratedField?, schema: CuratedSc
     CuratedEntryProblem.Reason.NotAnOption -> stringResource(Res.string.pick_one_of_the_options)
     CuratedEntryProblem.Reason.NotAWholeNumber -> stringResource(Res.string.a_whole_number)
     CuratedEntryProblem.Reason.NotPositive -> stringResource(Res.string.more_than_zero)
+    CuratedEntryProblem.Reason.NotADate -> stringResource(Res.string.a_date_as_yyyy_yyyy_mm_or_yyyy_mm_dd)
 
-    CuratedEntryProblem.Reason.BelowMinimum ->
-        stringResource(Res.string.at_least_n, field?.config?.min?.toString() ?: "")
+    // A date's bounds are years, and "at least 2009" is not how anyone says it.
+    CuratedEntryProblem.Reason.BelowMinimum -> stringResource(
+        if (field?.type == CuratedFieldType.Date) Res.string.n_or_later else Res.string.at_least_n,
+        field?.config?.min?.toString() ?: ""
+    )
 
-    CuratedEntryProblem.Reason.AboveMaximum ->
-        stringResource(Res.string.at_most_n, field?.config?.max?.toString() ?: "")
+    CuratedEntryProblem.Reason.AboveMaximum -> stringResource(
+        if (field?.type == CuratedFieldType.Date) Res.string.n_or_earlier else Res.string.at_most_n,
+        field?.config?.max?.toString() ?: ""
+    )
 
     CuratedEntryProblem.Reason.TooLong ->
         stringResource(Res.string.at_most_n_characters, field?.config?.max?.toString() ?: "")
@@ -674,6 +687,13 @@ internal fun CuratedEntryProblem.message(field: CuratedField?, schema: CuratedSc
         schema.requireAny.firstOrNull { it.firstOrNull() == this.field }
             .orEmpty()
             .joinToString { name -> schema.fields.firstOrNull { it.name == name }?.labelOrName() ?: name }
+    )
+
+    // The one problem the schema has and the entry does not: a required field
+    // is of a type this build cannot write, named so the member knows which.
+    CuratedEntryProblem.Reason.UnsupportedType -> stringResource(
+        Res.string.this_list_uses_a_field_type_this_app_does_not_support,
+        schema.unsupportedFields.firstOrNull { it.name == this.field }?.type ?: ""
     )
 
     // None of these can come out of the form: the builder writes the kind, the

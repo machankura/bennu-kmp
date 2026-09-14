@@ -335,6 +335,46 @@ class CuratedEntryEventTest {
     }
 
     @Test
+    fun `a date is checked at whatever precision it was written`() {
+        val died = CuratedField("died", CuratedFieldType.Date, isRequired = true, config = CuratedFieldConfig(min = 2009, max = 2100))
+
+        // The three precisions the NIP allows, and a leap day on a leap year.
+        listOf("2014", "2014-02", "2014-02-28", "2016-02-29", " 2014-02-28 ").forEach { value ->
+            assertNull(CuratedEntryEvent.checkValue(died, value), "\"$value\" was refused")
+        }
+
+        // Not one of the three shapes, or a day the calendar does not have.
+        listOf("2014-13", "2014-00", "2014-02-30", "2014-02-00", "2015-02-29", "2100-02-29", "14-02-28", "2014/02/28", "2014-2-28", "2014-02-28T00:00", "twenty fourteen").forEach { value ->
+            assertEquals(CuratedEntryProblem.Reason.NotADate, CuratedEntryEvent.checkValue(died, value), "\"$value\" was accepted")
+        }
+
+        // `min` and `max` bound the year, at whatever precision.
+        assertEquals(CuratedEntryProblem.Reason.BelowMinimum, CuratedEntryEvent.checkValue(died, "2008-12-31"))
+        assertEquals(CuratedEntryProblem.Reason.BelowMinimum, CuratedEntryEvent.checkValue(died, "2008"))
+        assertEquals(CuratedEntryProblem.Reason.AboveMaximum, CuratedEntryEvent.checkValue(died, "2101-01"))
+        assertNull(CuratedEntryEvent.checkValue(died, "2009-01-03"))
+        assertNull(CuratedEntryEvent.checkValue(died, "2100"))
+
+        // A date's `max` is a year and never a length: ten characters under a
+        // bound of eight is fine. And the year 2000 was a leap year, unlike 1900.
+        val early = died.copy(config = CuratedFieldConfig(max = 8))
+        assertNull(CuratedEntryEvent.checkValue(early, "0005-06-07"))
+        assertNull(CuratedEntryEvent.checkValue(died.copy(config = CuratedFieldConfig()), "2000-02-29"))
+        assertEquals(CuratedEntryProblem.Reason.NotADate, CuratedEntryEvent.checkValue(died.copy(config = CuratedFieldConfig()), "1900-02-29"))
+
+        assertEquals(CuratedEntryProblem.Reason.Empty, CuratedEntryEvent.checkValue(died, "   "))
+    }
+
+    @Test
+    fun `a date keeps the precision it was written at`() {
+        assertEquals(CuratedDate(2014), CuratedDate.parse("2014"))
+        assertEquals(CuratedDate(2010, 7), CuratedDate.parse("2010-07"))
+        assertEquals(CuratedDate(2014, 2, 28), CuratedDate.parse(" 2014-02-28 "))
+        assertNull(CuratedDate.parse("2014-"))
+        assertNull(CuratedDate.parse(""))
+    }
+
+    @Test
     fun `a coordinate splits on the first two colons only`() {
         val parsed = assertNotNull(CuratedCoordinate.parse("31888:${suggester.uppercase()}:imdb:tt2821314"))
 
@@ -489,6 +529,95 @@ class CuratedEntryEventTest {
     }
 
     @Test
+    fun `an entry keeps its dates from the suggestion to the list`() {
+        // The case behind bitcoin.necropolis.report's fourteen dateless entries:
+        // a build that could not see a `date` field accepted suggestions that
+        // had one and signed entries that did not. The two dates have to make
+        // it through the reading and the template both.
+        val necropolis = assertNotNull(
+            CuratedSchemaEvent.parse(
+                Event(
+                    id = "a".repeat(64),
+                    pubKey = curator,
+                    createdAt = 1735689600,
+                    kind = CuratedSchemaEvent.KIND,
+                    tags = arrayOf(
+                        arrayOf("d", "bitcoin.necropolis.report"),
+                        arrayOf("title", "bitcoin.necropolis.report suggestion"),
+                        arrayOf("name", "bitcoin.necropolis.report"),
+                        arrayOf("description", "Bitcoin companies that are no more."),
+                        arrayOf("visibility", "public"),
+                        arrayOf("field", "identifier", "token", "required", "", "Identifier", "{\"tag\":\"d\",\"max\":80,\"derived\":true}"),
+                        arrayOf("field", "title", "text", "required", "", "Title", "{\"max\":200}"),
+                        arrayOf("field", "founded", "date", "optional", "2010-07", "Founded", "{\"min\":1900,\"max\":2100}"),
+                        arrayOf("field", "died", "date", "required", "2014-02-28", "Died", "{\"min\":2009,\"max\":2100}"),
+                    ),
+                    content = "",
+                    sig = "b".repeat(128),
+                )
+            )
+        )
+        val necropolisCoordinate = "31889:$curator:bitcoin.necropolis.report"
+
+        val mtGox = suggestion(
+            tags = arrayOf(
+                arrayOf("d", "domain:mtgox.com"),
+                arrayOf("title", "Mt. Gox"),
+                arrayOf("founded", "2010-07"),
+                arrayOf("died", "2014-02-28"),
+                arrayOf("a", necropolisCoordinate, "", "root"),
+            ),
+            content = "",
+        )
+        assertEquals(emptyList(), CuratedEntryEvent.verifySuggestion(mtGox, necropolis, necropolisCoordinate))
+
+        val suggested = CuratedEntryEvent.read(mtGox, necropolis)
+        assertEquals("2010-07", suggested.value("founded"))
+        assertEquals("2014-02-28", suggested.value("died"))
+
+        val template = CuratedEntryEvent.canonicalTemplate(necropolis, necropolisCoordinate, curator, suggested.values, CuratedSuggestionRef.of(suggested))
+        val tags = template.tags.map { it.toList() }
+        assertEquals(listOf(listOf("founded", "2010-07")), tags.filter { it[0] == "founded" })
+        assertEquals(listOf(listOf("died", "2014-02-28")), tags.filter { it[0] == "died" })
+
+        val entry = assertNotNull(
+            CuratedEntryEvent.canonical(CuratedEntryEvent.preview(template, curator), necropolis, necropolisCoordinate, curator)
+        )
+        assertEquals(suggested.values, entry.values)
+
+        // And without the `died`, the entry is refused for the field it lacks --
+        // which is what every conforming client did to the fourteen.
+        val dateless = CuratedEntryEvent.canonicalTemplate(necropolis, necropolisCoordinate, curator, suggested.values - "died")
+        assertEquals(
+            listOf(CuratedEntryProblem("died", CuratedEntryProblem.Reason.Missing)),
+            CuratedEntryEvent.verifyCanonical(CuratedEntryEvent.preview(dateless, curator), necropolis, necropolisCoordinate, curator)
+        )
+    }
+
+    @Test
+    fun `a required field of a type this app cannot write is a reason not to`() {
+        // What the fourteen should have run into. A type this build does not
+        // know is left out of the reading, as the NIP allows; an entry written
+        // without it, when the schema requires it, is one every other client
+        // refuses. So the write side refuses first, and names the field.
+        val stars = arrayOf("field", "rating", "stars", "required", "5", "Rating", "{}")
+        val withStars = CuratedSchemaEvent.read(schemaTags() + stars, "").normalized()
+        assertEquals(
+            listOf(CuratedEntryProblem("rating", CuratedEntryProblem.Reason.UnsupportedType)),
+            CuratedEntryEvent.verifyWritable(withStars)
+        )
+
+        // Reading is untouched: the NIP's suggestion still satisfies the schema,
+        // rating or no rating.
+        assertEquals(emptyList(), CuratedEntryEvent.verifySuggestion(suggestion(), withStars, coordinate))
+
+        // An optional one is left out the way the reading leaves it out.
+        val optional = CuratedSchemaEvent.read(schemaTags() + arrayOf("field", "rating", "stars", "optional", "", "", "{}"), "").normalized()
+        assertEquals(emptyList(), CuratedEntryEvent.verifyWritable(optional))
+        assertEquals(emptyList(), CuratedEntryEvent.verifyWritable(schema))
+    }
+
+    @Test
     fun `only a suggestion can be pointed at`() {
         val theListsOwn = assertNotNull(CuratedEntryEvent.canonical(canonical(), schema, coordinate, curator))
 
@@ -504,6 +633,9 @@ class CuratedEntryEventTest {
         assertEquals(suggester, entry.source?.pubKey)
         assertEquals(emptyMap(), entry.values)
     }
+
+    /** The NIP's schema's tags, for a test that wants one more of them. */
+    private fun schemaTags(): Array<Array<String>> = CuratedSchemaEvent.template(schema, createdAt = 1735689600).tags
 
     private fun suggestion(
         tags: Array<Array<String>> = riseAndRise,
