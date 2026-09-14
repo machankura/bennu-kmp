@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.rememberViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import to.curare.compose.database.model.NostrEvent
 import to.curare.compose.database.model.Profile
@@ -310,27 +313,49 @@ fun HomeScreen(
                                         message = stringResource(Res.string.pick_a_conversation_to_read_it_here)
                                     )
                                 } else {
-                                    // Keyed on the room, so switching rooms rebuilds the
-                                    // screen's view models rather than feeding a new id to
-                                    // ones already subscribed to another room's relay.
+                                    // Keyed on the room, and given a view model store of its
+                                    // own under that key. `viewModel()` scopes to the nearest
+                                    // owner, which on a phone is the room's own back stack
+                                    // entry: every push gets a fresh store, and the screen
+                                    // never has to think about it. The pane is not pushed.
+                                    // Every room it shows shares the home destination's
+                                    // entry, where the first room's view models sat under
+                                    // the unkeyed slot and each later `viewModel(factory =
+                                    // …)` got them back with its factory ignored -- the
+                                    // transcript stayed on the first room opened, whatever
+                                    // the list said. `key` alone rebuilds the composition,
+                                    // not the store. Keying the `viewModel()` calls on the
+                                    // room would unstick it at the price of keeping every
+                                    // room ever opened, DB observers and all, in the home
+                                    // entry's store for as long as the home screen lives.
+                                    // This is what a back stack entry gives a phone, given
+                                    // to the pane: a store cleared when the room changes,
+                                    // and parked in the home entry's so that it survives a
+                                    // rotation. ChatPaneSelectionJvmTest holds it to both.
                                     key(chatRoomId) {
-                                    ChatRoomMessagingScreen(
-                                        activeUserPublicKey = activeUserPublicKey,
-                                        chatRoomId = chatRoomId,
-                                        relayHint = selectedRelayHint,
-                                        nostrRepository = nostrRepository,
-                                        chatRepository = chatRepository,
-                                        frostSigningRepository = frostSigningRepository,
-                                        dkgRepository = dkgRepository,
-                                        // "Replace what is on screen" is a route push on a
-                                        // phone and a change of selection here. It fires when
-                                        // a conversation that did not exist yet has just been
-                                        // created and has an id at last.
-                                        onNavigateToRouteAndPopUpInclusive = onOpenChatRoom,
-                                        onNavigateToRoute = onNavigateToRoute,
-                                        // The list is beside it; there is nothing to pop.
-                                        onNavigateBack = null,
-                                    )
+                                        CompositionLocalProvider(
+                                            LocalViewModelStoreOwner provides rememberViewModelStoreOwner()
+                                        ) {
+                                            ChatRoomMessagingScreen(
+                                                activeUserPublicKey = activeUserPublicKey,
+                                                chatRoomId = chatRoomId,
+                                                relayHint = selectedRelayHint,
+                                                nostrRepository = nostrRepository,
+                                                chatRepository = chatRepository,
+                                                frostSigningRepository = frostSigningRepository,
+                                                dkgRepository = dkgRepository,
+                                                // "Replace what is on screen" is a route push
+                                                // on a phone and a change of selection here.
+                                                // It fires when a conversation that did not
+                                                // exist yet has just been created and has an
+                                                // id at last.
+                                                onNavigateToRouteAndPopUpInclusive = onOpenChatRoom,
+                                                onNavigateToRoute = onNavigateToRoute,
+                                                // The list is beside it; there is nothing to
+                                                // pop.
+                                                onNavigateBack = null,
+                                            )
+                                        }
                                     }
                                 }
                             }

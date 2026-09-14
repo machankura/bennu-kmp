@@ -831,6 +831,17 @@ panes last because both were product decisions.
    the `Scaffold`'s slot is the bottom-right of the window, which with two panes is
    on top of the transcript's send button.
 
+   One thing a route gets for free that a pane has to be given: a `ViewModelStore`.
+   `viewModel()` scopes to the nearest owner, and for a pushed conversation that is
+   its own back stack entry. In the pane every conversation is composed under the
+   home destination's one entry, so the second room opened got the first room's view
+   models back with its factory ignored, and the transcript stayed where it was
+   while the list moved on. `key(chatRoomId)` rebuilds the composition, not the
+   store. The pane now provides `rememberViewModelStoreOwner()` under that key —
+   cleared when the room changes, which keying the `viewModel()` calls instead would
+   not have done, and parked in the home entry's store so that it survives a
+   rotation. `ChatPaneSelectionJvmTest` opens two rooms and checks both halves.
+
 7. **The desktop window opens at 1100×800** — inside the expanded breakpoint, the
    narrowest window M3 recommends two panes in — with a 400×600 minimum it never
    had. The comment apologising for the old 480dp size is gone because it has
