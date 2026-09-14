@@ -142,6 +142,7 @@ import curare.composeapp.generated.resources.domain
 import curare.composeapp.generated.resources.done
 import curare.composeapp.generated.resources.edit_field
 import curare.composeapp.generated.resources.edit_schema
+import curare.composeapp.generated.resources.earliest_year
 import curare.composeapp.generated.resources.eg_1900
 import curare.composeapp.generated.resources.eg_200
 import curare.composeapp.generated.resources.eg_2100
@@ -158,6 +159,7 @@ import curare.composeapp.generated.resources.eg_watch_reference_url
 import curare.composeapp.generated.resources.eg_watchurl
 import curare.composeapp.generated.resources.eg_wss_relay_example_com
 import curare.composeapp.generated.resources.field_name
+import curare.composeapp.generated.resources.field_type_date
 import curare.composeapp.generated.resources.field_type_duration
 import curare.composeapp.generated.resources.field_type_enum
 import curare.composeapp.generated.resources.field_type_image
@@ -174,6 +176,7 @@ import curare.composeapp.generated.resources.hint
 import curare.composeapp.generated.resources.https_only
 import curare.composeapp.generated.resources.identifier
 import curare.composeapp.generated.resources.label
+import curare.composeapp.generated.resources.latest_year
 import curare.composeapp.generated.resources.marker
 import curare.composeapp.generated.resources.maximum_characters
 import curare.composeapp.generated.resources.maximum_value
@@ -841,9 +844,9 @@ private fun CuratedVisibility.purpose(): StringResource = when (this) {
  * The name of a field type, for the chips and the rows.
  *
  * A `when` rather than a field on each entry so that the enum stays what it is
- * -- the NIP's nine words and their one rule each -- with no catalogue behind
- * it, and so that a tenth type is a compile error here rather than a chip with
- * no name.
+ * -- the NIP's ten words and their one rule each -- with no catalogue behind
+ * it, and so that an eleventh type is a compile error here rather than a chip
+ * with no name.
  */
 private fun CuratedFieldType.label(): StringResource = when (this) {
     CuratedFieldType.Text -> Res.string.field_type_text
@@ -855,6 +858,7 @@ private fun CuratedFieldType.label(): StringResource = when (this) {
     CuratedFieldType.Year -> Res.string.field_type_year
     CuratedFieldType.Duration -> Res.string.field_type_duration
     CuratedFieldType.Number -> Res.string.field_type_number
+    CuratedFieldType.Date -> Res.string.field_type_date
 }
 
 /**
@@ -1299,22 +1303,29 @@ internal fun FieldEditorSheetContent(
             )
         )
 
+        // What `max` means follows the type: a cap on the characters, a bound
+        // on the number, or the latest year of a date. `min` only exists for
+        // the last two.
         SchemaTextField(
             state = maxFieldState,
             icon = Icons.Default.Numbers,
             iconDescription = "Maximum",
             label = stringResource(
-                if (type.isNumeric) Res.string.maximum_value else Res.string.maximum_characters
+                when {
+                    type.isNumeric -> Res.string.maximum_value
+                    type.isBounded -> Res.string.latest_year
+                    else -> Res.string.maximum_characters
+                }
             ),
-            placeholder = stringResource(if (type.isNumeric) Res.string.eg_2100 else Res.string.eg_200)
+            placeholder = stringResource(if (type.isBounded) Res.string.eg_2100 else Res.string.eg_200)
         )
 
-        if (type.isNumeric) {
+        if (type.isBounded) {
             SchemaTextField(
                 state = minFieldState,
                 icon = Icons.Default.Numbers,
                 iconDescription = "Minimum",
-                label = stringResource(Res.string.minimum_value),
+                label = stringResource(if (type.isNumeric) Res.string.minimum_value else Res.string.earliest_year),
                 placeholder = stringResource(Res.string.eg_1900)
             )
         }
@@ -1409,7 +1420,7 @@ internal fun FieldEditorSheetContent(
                                 },
                                 marker = markerFieldState.text.toString().trim().ifEmpty { null },
                                 max = maxFieldState.text.toString().trim().toLongOrNull(),
-                                min = if (type.isNumeric) {
+                                min = if (type.isBounded) {
                                     minFieldState.text.toString().trim().toLongOrNull()
                                 } else {
                                     null

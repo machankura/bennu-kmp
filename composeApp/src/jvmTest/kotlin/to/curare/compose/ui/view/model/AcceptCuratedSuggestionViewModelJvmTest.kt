@@ -28,6 +28,7 @@ import to.curare.compose.nostr.curated.CuratedFieldConfig
 import to.curare.compose.nostr.curated.CuratedFieldType
 import to.curare.compose.nostr.curated.CuratedSchema
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
+import to.curare.compose.nostr.curated.CuratedUnsupportedField
 import to.curare.compose.nostr.curated.CuratedVisibility
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
@@ -294,6 +295,35 @@ class AcceptCuratedSuggestionViewModelJvmTest {
         assertEquals(emptyList(), viewModel.problemsAboutTheEntry(state))
         assertNull(signing.kind, "a refused entry was proposed anyway")
         assertFalse(viewModel.isActionPending.value)
+    }
+
+    @Test
+    fun `a list with a required field this build cannot write is refused before a quorum is spent`() {
+        // The schema was written by a client that knows a type this build does
+        // not. The reading is fine without it; an entry written without it is
+        // not, and the refusal has no input to sit under, so it goes at the top
+        // with the field's own label.
+        val stars = listOf("field", "rating", "stars", "required", "5", "Rating", "{}")
+        val state = loaded().copy(
+            schema = schema.copy(
+                schema = schema.schema.copy(
+                    unsupportedFields = listOf(CuratedUnsupportedField("rating", "stars", isRequired = true, label = "Rating", tag = stars))
+                )
+            )
+        )
+        val signing = RecordingSigning(session())
+        val viewModel = viewModel(signing)
+        viewModel.seedWorkingCopy(state)
+
+        var invalid = false
+        viewModel.proposeEntry(state, onSuccess = { error("proposed") }, onInvalid = { invalid = true }, onFailure = { error("failed") })
+
+        assertTrue(invalid)
+        assertEquals(
+            listOf(CuratedEntryProblem("rating", CuratedEntryProblem.Reason.UnsupportedType)),
+            viewModel.problemsAboutTheEntry(state)
+        )
+        assertNull(signing.kind, "an entry the list's other readers would refuse was proposed anyway")
     }
 
     @Test

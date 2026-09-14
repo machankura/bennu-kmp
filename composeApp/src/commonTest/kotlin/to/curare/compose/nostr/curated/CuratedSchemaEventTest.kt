@@ -175,13 +175,54 @@ class CuratedSchemaEventTest {
     }
 
     @Test
-    fun `a field with an unknown type or no name is dropped and the rest are kept`() {
+    fun `a date field reads as one, with its bounds on the year`() {
+        // bitcoin.necropolis.report's two, as published. Fourteen of its
+        // entries lost their `died` to a build that dropped the type on the
+        // way in and then wrote entries without it.
         val schema = assertNotNull(
             CuratedSchemaEvent.parse(
                 event(
                     tags = bitcoinMov.plus(
                         listOf(
-                            arrayOf("field", "rating", "stars", "optional", "", "", "{}"),
+                            arrayOf("field", "founded", "date", "optional", "2010-07", "Founded", "{\"min\":1900,\"max\":2100,\"hint\":\"YYYY, YYYY-MM or YYYY-MM-DD.\"}"),
+                            arrayOf("field", "died", "date", "required", "2014-02-28", "Died", "{\"min\":2009,\"max\":2100}"),
+                        )
+                    )
+                )
+            )
+        )
+
+        val died = schema.fields.first { it.name == "died" }
+        assertEquals(CuratedFieldType.Date, died.type)
+        assertTrue(died.isRequired)
+        assertEquals("2014-02-28", died.placeholder)
+        assertEquals("Died", died.label)
+        assertEquals(2009L, died.config.min)
+        assertEquals(2100L, died.config.max)
+
+        // Its bounds are years, so `max` is a bound and not a length -- but the
+        // value is not a number, and no keyboard should think it is.
+        assertTrue(died.type.isBounded)
+        assertFalse(died.type.isNumeric)
+
+        assertEquals(listOf("founded", "died"), schema.formFields().takeLast(2).map { it.name })
+        assertEquals(emptyList(), schema.unsupportedFields)
+
+        assertEquals(
+            listOf("field", "died", "date", "required", "2014-02-28", "Died", "{\"max\":2100,\"min\":2009}"),
+            died.toTagArray().toList()
+        )
+    }
+
+    @Test
+    fun `a field with an unknown type is kept aside, one with no name is dropped, and the rest are kept`() {
+        val stars = arrayOf("field", "rating", "stars", "required", "5", "Rating", "{\"max\":5}")
+        val schema = assertNotNull(
+            CuratedSchemaEvent.parse(
+                event(
+                    tags = bitcoinMov.plus(
+                        listOf(
+                            stars,
                             arrayOf("field", "  ", "text", "optional", "", "", "{}"),
                             arrayOf("field", "short"),
                         )
@@ -191,6 +232,22 @@ class CuratedSchemaEventTest {
         )
 
         assertEquals(9, schema.fields.size)
+
+        // A type this build does not know is not a type nobody knows. The
+        // reader says which field it could not read rather than forgetting
+        // it, so a writer can refuse to publish an entry without it.
+        assertEquals(
+            listOf(CuratedUnsupportedField("rating", "stars", isRequired = true, label = "Rating", tag = stars.toList())),
+            schema.unsupportedFields
+        )
+
+        // And the template writes it back as it came, after the fields it does
+        // know, so that an edit here cannot sign the list's rules away.
+        val template = CuratedSchemaEvent.template(schema, createdAt = 1735689600)
+        val fields = template.tags.filter { it[0] == "field" }
+        assertEquals(10, fields.size)
+        assertEquals(stars.toList(), fields.last().toList())
+        assertEquals(schema, CuratedSchemaEvent.parse(event(tags = template.tags, content = template.content)))
     }
 
     @Test

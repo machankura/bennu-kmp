@@ -12,6 +12,7 @@ import to.curare.compose.nostr.curated.CuratedSchema
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.curated.CuratedSchemaProblem
 import to.curare.compose.nostr.curated.CuratedSchemaTemplate
+import to.curare.compose.nostr.curated.CuratedUnsupportedField
 import to.curare.compose.nostr.curated.CuratedVisibility
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
@@ -333,6 +334,40 @@ class EditGroupCuratedSchemaViewModelJvmTest {
 
         assertEquals("nothing", outcome)
         assertEquals(emptyList(), viewModel.problems)
+    }
+
+    @Test
+    fun `a field of a type this build cannot show survives an edit, and is not an edit by itself`() {
+        // A schema another client wrote may use a type this build does not know.
+        // The editor cannot show it, and must neither sign it away nor mistake
+        // its own blind spot for a change the member made.
+        val stars = listOf("field", "rating", "stars", "required", "5", "Rating", "{\"max\":5}")
+        val withStars = films.copy(
+            unsupportedFields = listOf(CuratedUnsupportedField("rating", "stars", isRequired = true, label = "Rating", tag = stars))
+        )
+        val viewModel = viewModel("films")
+        viewModel.seedWorkingCopy(editing(withStars))
+
+        var outcome = ""
+        viewModel.proposeSchema(
+            localChatRoom = localChatRoom,
+            existing = existing(withStars),
+            identifier = films.identifier,
+            title = films.title,
+            name = films.name,
+            description = films.description,
+            picture = "",
+            domain = "",
+            onSuccess = { outcome = "proposed" },
+            onInvalid = { outcome = "invalid" },
+            onNothingToPropose = { outcome = "nothing" },
+            onFailure = { outcome = "failed" },
+        )
+        assertEquals("nothing", outcome)
+
+        // And what an edit would sign carries the tag as it came.
+        val draft = viewModel.draft(films.identifier, films.title, films.name, films.description, picture = "", domain = "")
+        assertEquals(stars, GroupCuratedSchema.template(draft).tags.first { it[0] == "field" && it[1] == "rating" }.toList())
     }
 
     @Test

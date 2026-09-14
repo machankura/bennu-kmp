@@ -21,6 +21,7 @@ import to.curare.compose.nostr.curated.CuratedSchema
 import to.curare.compose.nostr.curated.CuratedSchemaEvent
 import to.curare.compose.nostr.curated.CuratedSchemaProblem
 import to.curare.compose.nostr.curated.CuratedSchemaTemplate
+import to.curare.compose.nostr.curated.CuratedUnsupportedField
 import to.curare.compose.nostr.curated.CuratedVisibility
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
@@ -98,6 +99,13 @@ class EditGroupCuratedSchemaViewModel(
 
     /** The working copy of the schema's fields, in the order they will be written. */
     val fields = mutableStateListOf<CuratedField>()
+
+    /**
+     * The fields of an existing schema this build cannot show, carried through
+     * unchanged so that an edit here does not sign them away. Not state: the
+     * editor has no control over them, which is the point.
+     */
+    private val unsupportedFields = mutableListOf<CuratedUnsupportedField>()
 
     /**
      * The working copy of the `require-any` rules, each a set of field names.
@@ -240,6 +248,7 @@ class EditGroupCuratedSchemaViewModel(
         if (schema != null) {
             visibility = schema.visibility ?: CuratedVisibility.Public
             fields.addAll(schema.fields)
+            unsupportedFields.addAll(schema.unsupportedFields)
             requireAny.addAll(schema.requireAny)
             suggesters.addAll(schema.suggesters)
             relays.addAll(schema.relays)
@@ -428,6 +437,7 @@ class EditGroupCuratedSchemaViewModel(
         picture = picture.trim().ifEmpty { null },
         domain = domain.trim().ifEmpty { null }?.let(CuratedSchemaEvent::normalizeDomain),
         fields = fields.toList(),
+        unsupportedFields = unsupportedFields.toList(),
         requireAny = requireAny.filter { it.size > 1 },
         suggesters = suggesters.toList(),
         relays = relays.toList(),

@@ -585,6 +585,9 @@
     <string name="field_type_year">Year</string>
     <string name="field_type_duration">Duration in seconds</string>
     <string name="field_type_number">Number</string>
+    <string name="field_type_date">Date</string>
+    <string name="latest_year">Latest year</string>
+    <string name="earliest_year">Earliest year</string>
     <string name="propose_event">Propose event</string>
     <string name="paste_an_unsigned_event_for_the_group_to_sign">Paste an unsigned Nostr event for the group to sign. It is filed by kind: a profile (kind 0), a post (kind 1), a relay list, or a curated schema (kind 31889).</string>
     <string name="the_group_signs_an_event_so_it_takes_a_quorum">The group signs it, so it takes a quorum. The author is the group and the time is now, whatever the paste says about either.</string>
@@ -637,8 +640,12 @@
     <string name="pick_one_of_the_options">Pick one of the options.</string>
     <string name="a_whole_number">A whole number.</string>
     <string name="more_than_zero">More than zero.</string>
+    <string name="a_date_as_yyyy_yyyy_mm_or_yyyy_mm_dd">A date, as YYYY, YYYY-MM or YYYY-MM-DD.</string>
     <string name="at_least_n">At least %1$s.</string>
     <string name="at_most_n">At most %1$s.</string>
+    <string name="n_or_later">%1$s or later.</string>
+    <string name="n_or_earlier">%1$s or earlier.</string>
+    <string name="this_list_uses_a_field_type_this_app_does_not_support">This list uses a field type this app doesn't support (%1$s).</string>
     <string name="at_most_n_characters">At most %1$s characters.</string>
     <string name="must_match_the_pattern">Must match %1$s.</string>
     <string name="at_least_one_of_these_is_needed">At least one of these is needed: %1$s.</string>

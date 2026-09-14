@@ -131,10 +131,13 @@ data class GroupCuratedSchema(
      * The same check `CuratedSuggestion.queueOf` makes on a kind 31890 off a
      * relay, made before the group is asked to sign one: a signature is the
      * most expensive thing this app does, and an entry the queue would then
-     * refuse to count is a quorum spent on nothing.
+     * refuse to count is a quorum spent on nothing. And one check the queue
+     * does not make, first: a required field this app cannot write is one
+     * every other client's queue would refuse the entry for, see
+     * [CuratedEntryEvent.verifyWritable].
      */
     fun verifyCanonical(template: EventTemplate<*>): List<CuratedEntryProblem> =
-        CuratedEntryEvent.verifyCanonical(
+        CuratedEntryEvent.verifyWritable(schema) + CuratedEntryEvent.verifyCanonical(
             event = CuratedEntryEvent.preview(template, publicKey),
             schema = schema,
             coordinate = coordinate(),

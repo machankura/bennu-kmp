@@ -80,6 +80,11 @@ data class CuratedSchema(
     val suggestionKind: Kind = CuratedSchemaEvent.SUGGESTION_KIND,
     val fields: List<CuratedField> = emptyList(),
     /**
+     * Fields of a type this app does not know, kept aside from [fields] so that
+     * a reader ignores them and a writer cannot. See [CuratedUnsupportedField].
+     */
+    val unsupportedFields: List<CuratedUnsupportedField> = emptyList(),
+    /**
      * Groups of field names of which at least one must be present on an entry.
      *
      * How a list says "a watch link or an IMDb link" without making either one
@@ -224,9 +229,10 @@ enum class CuratedVisibility(val value: String) {
  * What kind of value a field takes. One validation rule each, in the NIP's
  * table; a form picks its input from this.
  *
- * [isNumeric] decides what `max` means: a maximum *value* for these, a maximum
- * *length* for everything else. The double duty is safe because a field is one
- * or the other, never both.
+ * [isNumeric] says the value is a whole number. [isBounded] says what `max`
+ * means: a bound on the value -- the number itself, or the year of a date --
+ * for these, and a maximum *length* for everything else. The double duty is
+ * safe because a field is one or the other, never both.
  */
 enum class CuratedFieldType(val value: String, val isNumeric: Boolean = false) {
     /** Single-line string, length-capped. */
@@ -255,7 +261,22 @@ enum class CuratedFieldType(val value: String, val isNumeric: Boolean = false) {
 
     /** An integer, bounded by `min` and `max`. */
     Number("number", isNumeric = true),
+
+    /**
+     * An ISO 8601 calendar date at whatever precision the record allows --
+     * `YYYY`, `YYYY-MM` or `YYYY-MM-DD` -- with `min` and `max` bounding the
+     * year. Not numeric: the value is kept as written, since `2010-07` is a
+     * month and not a day somebody left off.
+     */
+    Date("date"),
     ;
+
+    /**
+     * Whether `min` and `max` bound the value rather than cap its length: the
+     * numeric types, and a date, whose bounds are years. What the NIP means by
+     * a date counting as numeric for `max`'s double duty.
+     */
+    val isBounded: Boolean get() = isNumeric || this == Date
 
     companion object {
         fun parse(value: String): CuratedFieldType? = entries.firstOrNull { it.value == value }
@@ -417,10 +438,11 @@ data class CuratedField(
          * The tag read back, or null for one that is not a field.
          *
          * Null for a blank name or an unknown type, which are the two things a
-         * form cannot do anything with. Everything after them is optional: a
-         * missing placeholder is empty, a missing label falls back to the name,
-         * and a missing or malformed config is no config -- see
-         * [CuratedFieldConfig.fromJson].
+         * form cannot do anything with -- though the second is not forgotten:
+         * [parseUnsupported] reads the same tag as the field this app cannot
+         * use. Everything after them is optional: a missing placeholder is
+         * empty, a missing label falls back to the name, and a missing or
+         * malformed config is no config -- see [CuratedFieldConfig.fromJson].
          */
         fun parse(tag: Array<String>): CuratedField? {
             if (tag.size < 3 || tag[0] != TAG_NAME) return null
@@ -437,6 +459,28 @@ data class CuratedField(
                 placeholder = tag.getOrNull(4) ?: "",
                 label = tag.getOrNull(5) ?: "",
                 config = CuratedFieldConfig.fromJson(tag.getOrNull(6)),
+            )
+        }
+
+        /**
+         * The tag read back as a field this app cannot use, or null for
+         * anything else: the exact complement of [parse] over named fields, so
+         * that between the two every named `field` tag lands somewhere.
+         */
+        fun parseUnsupported(tag: Array<String>): CuratedUnsupportedField? {
+            if (tag.size < 3 || tag[0] != TAG_NAME) return null
+
+            val name = tag[1].trim()
+            if (name.isEmpty()) return null
+
+            if (CuratedFieldType.parse(tag[2]) != null) return null
+
+            return CuratedUnsupportedField(
+                name = name,
+                type = tag[2].trim(),
+                isRequired = tag.getOrNull(3) == REQUIRED,
+                label = tag.getOrNull(5) ?: "",
+                tag = tag.toList(),
             )
         }
 
@@ -472,4 +516,30 @@ data class CuratedField(
             "d" to IDENTIFIER,
         )
     }
+}
+
+/**
+ * A `field` tag whose type this app does not know, kept rather than dropped.
+ *
+ * The NIP's tolerance for a field that will not parse is a reader's: an entry
+ * is checked against the fields a reader understands, and one it does not is
+ * left out of the reading. A writer cannot be so easy. An entry published
+ * without a field the schema requires is refused by every client that does
+ * know the type -- fourteen went out that way from a build that could not see
+ * a `date` -- and a schema re-signed without one has quietly changed the
+ * list's rules. So the tag is kept whole: [CuratedEntryEvent.verifyWritable]
+ * refuses to compose under a required one, naming [type], and
+ * [CuratedSchemaEvent.template] writes [tag] back as it came, the way
+ * [CuratedFieldConfig.others] keeps the config keys it does not know.
+ */
+data class CuratedUnsupportedField(
+    val name: String,
+    /** The type word as the tag has it: what a newer client would know it by. */
+    val type: String,
+    val isRequired: Boolean,
+    val label: String = "",
+    /** The whole tag, for writing back unchanged. */
+    val tag: List<String>,
+) {
+    fun labelOrName(): String = label.ifBlank { name }
 }

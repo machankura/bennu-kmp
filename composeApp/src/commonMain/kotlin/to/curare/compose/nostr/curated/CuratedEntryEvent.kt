@@ -153,6 +153,25 @@ object CuratedEntryEvent {
     }
 
     /**
+     * Every reason this app cannot compose an entry under [schema], or nothing:
+     * one problem per required field whose type it does not know.
+     *
+     * The reader's blind spot, seen from the write side. A field of a type this
+     * app does not know is left out of the reading -- an entry is checked
+     * against the fields a reader understands, and that tolerance is the NIP's
+     * -- but an entry *written* without one the schema requires is refused by
+     * every client that does know the type, for the field it lacks. So it is a
+     * reason to refuse before a quorum is spent, filed under the field and
+     * named for what it is, so the member knows it is the app and not the
+     * entry that falls short. An optional one is left out the way the reading
+     * leaves it out.
+     */
+    fun verifyWritable(schema: CuratedSchema): List<CuratedEntryProblem> =
+        schema.unsupportedFields
+            .filter { it.isRequired }
+            .map { CuratedEntryProblem(it.name, CuratedEntryProblem.Reason.UnsupportedType) }
+
+    /**
      * The unsigned canonical entry for the curator to sign: [values] laid out as
      * the schema's tags, rooted at the schema's [coordinate], and pointing back
      * at [source] when it came from a suggestion.
@@ -278,11 +297,11 @@ object CuratedEntryEvent {
      * One value against its field's type and config, or the first thing wrong
      * with it.
      *
-     * `max` is a bound on numeric types and a length on everything else, and a
-     * numeric field returns before the length check so the two never meet.
-     * A pattern the platform cannot compile counts as not matched: the schema
-     * asked for a check this reader cannot make, and an entry it cannot check
-     * is one it cannot vouch for.
+     * `max` is a bound on numeric types -- and on the year of a date -- and a
+     * length on everything else, and a bounded field returns before the length
+     * check so the two never meet. A pattern the platform cannot compile counts
+     * as not matched: the schema asked for a check this reader cannot make, and
+     * an entry it cannot check is one it cannot vouch for.
      */
     fun checkValue(field: CuratedField, value: String): CuratedEntryProblem.Reason? {
         val trimmed = value.trim()
@@ -317,6 +336,14 @@ object CuratedEntryEvent {
                 config.min?.let { if (number < it) return CuratedEntryProblem.Reason.BelowMinimum }
                 config.max?.let { if (number > it) return CuratedEntryProblem.Reason.AboveMaximum }
                 // A numeric `max` is a bound, not a length cap.
+                return null
+            }
+
+            CuratedFieldType.Date -> {
+                val date = CuratedDate.parse(trimmed) ?: return CuratedEntryProblem.Reason.NotADate
+                config.min?.let { if (date.year < it) return CuratedEntryProblem.Reason.BelowMinimum }
+                config.max?.let { if (date.year > it) return CuratedEntryProblem.Reason.AboveMaximum }
+                // A date's `max` bounds the year, not the length.
                 return null
             }
         }
@@ -555,10 +582,20 @@ data class CuratedEntryProblem(val field: String, val reason: Reason) {
         NotAnOption,
         NotAWholeNumber,
         NotPositive,
+
+        /** Not `YYYY`, `YYYY-MM` or `YYYY-MM-DD`, or a day the calendar does not have. */
+        NotADate,
+
+        /** Under `min`: a number, or the year of a date. */
         BelowMinimum,
+
+        /** Over `max`: a number, or the year of a date. */
         AboveMaximum,
         TooLong,
         PatternMismatch,
+
+        /** A required field of a type this app cannot write. See [CuratedEntryEvent.verifyWritable]. */
+        UnsupportedType,
 
         /** None of a `require-any` group's fields is present. */
         RequireAnyUnmet,
@@ -571,6 +608,45 @@ data class CuratedEntryProblem(val field: String, val reason: Reason) {
 
         /** A source pointer that is not a suggestion coordinate. */
         SourceMalformed,
+    }
+}
+
+/**
+ * A `date` value: a calendar date at whatever precision the record allows.
+ *
+ * `YYYY`, `YYYY-MM` or `YYYY-MM-DD`, and the precision is whatever was
+ * written -- [month] and [day] are null when the value stops short of them,
+ * and nothing here turns a `2010-07` into the first of the month. The month
+ * has to be one and the day has to be on the calendar for that month and year,
+ * leap days included, so `2014-02-30` is not a date and `2016-02-29` is. The
+ * calendar is the proleptic Gregorian one, which is what ISO 8601 means.
+ *
+ * What a reader keeps is the string as written; this is the check on it, and
+ * [year] is what the schema's `min` and `max` bound.
+ */
+data class CuratedDate(val year: Int, val month: Int? = null, val day: Int? = null) {
+    companion object {
+        private val SHAPE = Regex("^(\\d{4})(?:-(\\d{2})(?:-(\\d{2}))?)?$")
+
+        /** The three parts, or null for anything that is not a date at one of the three precisions. */
+        fun parse(value: String): CuratedDate? {
+            val match = SHAPE.matchEntire(value.trim()) ?: return null
+
+            val year = match.groupValues[1].toInt()
+            val month = match.groupValues[2].ifEmpty { null }?.toInt()
+            val day = match.groupValues[3].ifEmpty { null }?.toInt()
+
+            if (month != null && month !in 1..12) return null
+            if (day != null && day !in 1..daysIn(year, month!!)) return null
+
+            return CuratedDate(year, month, day)
+        }
+
+        private fun daysIn(year: Int, month: Int): Int = when (month) {
+            2 -> if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) 29 else 28
+            4, 6, 9, 11 -> 30
+            else -> 31
+        }
     }
 }
 

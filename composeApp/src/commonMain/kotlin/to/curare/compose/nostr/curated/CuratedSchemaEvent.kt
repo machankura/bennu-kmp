@@ -62,8 +62,9 @@ object CuratedSchemaEvent {
      * [CuratedSchema.problems] is null -- a schema that would be rejected on
      * publish is rejected on read, and for the same reasons. A `field` tag that
      * will not parse is dropped and the rest are kept, which is the one place
-     * the NIP asks for tolerance; a `require-any` naming fewer than two fields
-     * says nothing and goes the same way.
+     * the NIP asks for tolerance -- except that one of a type this app does not
+     * know is kept aside rather than lost, see [CuratedUnsupportedField]; a
+     * `require-any` naming fewer than two fields says nothing and is dropped.
      *
      * What comes back is [CuratedSchema.normalized]: the two mandatory fields
      * forced in, whatever the event said.
@@ -102,6 +103,7 @@ object CuratedSchemaEvent {
             domain = first(TAG_DOMAIN)?.trim()?.ifEmpty { null }?.let(::normalizeDomain),
             suggestionKind = first(TAG_KIND)?.trim()?.toIntOrNull() ?: SUGGESTION_KIND,
             fields = tags.mapNotNull(CuratedField::parse),
+            unsupportedFields = tags.mapNotNull(CuratedField::parseUnsupported),
             requireAny = tags
                 .filter { it.isNotEmpty() && it[0] == TAG_REQUIRE_ANY }
                 .map { group -> group.drop(1).map { it.trim() }.filter { it.isNotEmpty() } }
@@ -123,6 +125,10 @@ object CuratedSchemaEvent {
      *
      * The content mirrors the description so that a client reading content
      * rather than tags still shows something; the tag is the authoritative one.
+     *
+     * A field of a type this app does not know goes out as it came in, after
+     * the fields it does: the editor cannot show it, and a schema re-signed
+     * without it would have changed the list's rules behind the member's back.
      */
     fun template(
         schema: CuratedSchema,
@@ -146,6 +152,7 @@ object CuratedSchemaEvent {
             normalized.domain?.let { add(arrayOf(TAG_DOMAIN, normalizeDomain(it))) }
 
             normalized.fields.forEach { add(it.toTagArray()) }
+            normalized.unsupportedFields.forEach { add(it.tag.toTypedArray()) }
             normalized.requireAny.forEach { group -> add(arrayOf(TAG_REQUIRE_ANY, *group.toTypedArray())) }
             normalized.suggesters.forEach { add(arrayOf(TAG_SUGGESTER, it)) }
             normalized.relays.forEach { add(arrayOf(TAG_RELAY, it)) }
