@@ -5,10 +5,23 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
+import coil3.ImageLoader
+import coil3.compose.setSingletonImageLoaderFactory
+import coil3.network.ktor3.KtorNetworkFetcherFactory
+import io.ktor.client.HttpClient
+import to.curare.compose.network.platformHttpClientEngineFactory
 import to.curare.compose.ui.composable.navigation.CurareNavHost
 import to.curare.compose.ui.composable.widgets.ProvideSnackbarHost
 import to.curare.compose.ui.theme.CurareTheme
 import fr.acinq.phoenix.PhoenixGlobal
+
+/**
+ * Coil's default ktor fetcher builds a bare `HttpClient()`, whose engine is whichever the
+ * classpath happens to serve first. With CIO that means no TLS on ios, so images over
+ * https fail exactly like the relay sockets did. Pin the singleton loader to the same
+ * platform engine the sockets use.
+ */
+private val imageHttpClient by lazy { HttpClient(platformHttpClientEngineFactory()) }
 
 @Composable
 fun CurareApp(
@@ -16,6 +29,14 @@ fun CurareApp(
     curareGlobal: CurareGlobal,
     phoenixGlobal: PhoenixGlobal
 ) {
+    setSingletonImageLoaderFactory { context ->
+        ImageLoader.Builder(context)
+            .components {
+                add(KtorNetworkFetcherFactory(httpClient = { imageHttpClient }))
+            }
+            .build()
+    }
+
     CurareTheme {
         Surface(
             modifier = Modifier.fillMaxSize()

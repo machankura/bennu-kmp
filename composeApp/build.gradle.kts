@@ -153,6 +153,12 @@ kotlin {
         if (org.gradle.internal.os.OperatingSystem.current().isMacOsX) {
             iosMain.dependencies {
                 implementation(libs.sqldelight.native.driver)
+
+                // CIO has no TLS implementation on native ("TLS sessions are not
+                // supported on Native platform"), so every wss/https call it makes on
+                // a device fails at the handshake. Darwin (NSURLSession) is the engine
+                // apple targets must use.
+                implementation(libs.ktor.client.darwin)
             }
         }
     }
