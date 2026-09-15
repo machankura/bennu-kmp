@@ -286,7 +286,7 @@ class RelayPool(
             )
         }
 
-    @Throws(to.curare.compose.exceptions.NostrPublishException::class)
+    @Throws(to.curare.compose.exceptions.NostrPublishException::class, kotlin.coroutines.cancellation.CancellationException::class)
     suspend fun publishEvent(nostrEvent: to.curare.compose.database.model.NostrEvent, relays: Set<to.curare.compose.network.dto.RelayDTO> = emptySet()): Flow<NostrPublishResult> {
         val relayUrls = relays.map { NormalizedRelayUrl(it.url).displayUrl() }
 

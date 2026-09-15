@@ -30,7 +30,7 @@ class NostrPublisherRepository(
         }
     }
 
-    @Throws(to.curare.compose.exceptions.NostrPublishException::class)
+    @Throws(to.curare.compose.exceptions.NostrPublishException::class, kotlin.coroutines.cancellation.CancellationException::class)
     private suspend fun publishAndImportEvent(signedNostrEvent: to.curare.compose.database.model.NostrEvent, outboxRelays: List<String> = emptyList()) {
         relaysSocketManager.publishEvent(signedNostrEvent)
         importEvent(signedNostrEvent)
@@ -52,7 +52,7 @@ class NostrPublisherRepository(
         }
     }
 
-    @Throws(to.curare.compose.exceptions.NostrPublishException::class, to.curare.compose.exceptions.SignatureException::class)
+    @Throws(to.curare.compose.exceptions.NostrPublishException::class, to.curare.compose.exceptions.SignatureException::class, kotlin.coroutines.cancellation.CancellationException::class)
     suspend fun signPublishImportNostrEvent(
         unsignedNostrEvent: to.curare.compose.database.model.UnsignedNostrEvent,
         outboxRelays: List<String>,
@@ -63,7 +63,7 @@ class NostrPublisherRepository(
     }
 
 
-    @Throws(to.curare.compose.exceptions.NostrPublishException::class, to.curare.compose.exceptions.SignatureException::class)
+    @Throws(to.curare.compose.exceptions.NostrPublishException::class, to.curare.compose.exceptions.SignatureException::class, kotlin.coroutines.cancellation.CancellationException::class)
     suspend fun publishRelayList(userId: String, relays: List<to.curare.compose.network.dto.RelayDTO>): to.curare.compose.database.model.NostrEvent {
         val signedNostrEvent = nostrNotary.signRelayListMetadata(userId = userId, relays = relays).unwrapOrThrow()
         relaysSocketManager.publishEvent(nostrEvent = signedNostrEvent, relays = relays.toSet())

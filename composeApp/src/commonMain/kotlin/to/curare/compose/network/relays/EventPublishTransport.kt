@@ -28,5 +28,6 @@ interface EventPublishTransport {
      *
      * @see RelayPool.publishEvent
      */
+    @Throws(to.curare.compose.exceptions.NostrPublishException::class, kotlin.coroutines.cancellation.CancellationException::class)
     suspend fun publishEvent(nostrEvent: NostrEvent, relays: Set<RelayDTO>): Flow<NostrPublishResult>
 }

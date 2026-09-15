@@ -2,6 +2,7 @@ package to.curare.compose.database
 
 import androidx.room3.ColumnTypeConverters
 import androidx.room3.AutoMigration
+import androidx.room3.ConstructedBy
 import androidx.room3.Database
 import androidx.room3.RoomDatabase
 import androidx.room3.immediateTransaction
@@ -363,6 +364,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         AutoMigration(from = 23, to = 24),
     ]
 )
+@ConstructedBy(CurareDatabaseConstructor::class)
 @ColumnTypeConverters(CurareConverters::class)
 abstract class CurareDatabase: RoomDatabase() {
     /**

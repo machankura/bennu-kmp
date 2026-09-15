@@ -100,7 +100,7 @@ class RelaysSocketManager(
             relayPool.closePool()
         }
 
-    @Throws(to.curare.compose.exceptions.NostrPublishException::class)
+    @Throws(to.curare.compose.exceptions.NostrPublishException::class, kotlin.coroutines.cancellation.CancellationException::class)
     suspend fun publishEvent(nostrEvent: to.curare.compose.database.model.NostrEvent): Flow<NostrPublishResult> {
         return if (userRelays.isNotEmpty()) {
             relayPool.publishEvent(
@@ -115,7 +115,7 @@ class RelaysSocketManager(
         }
     }
 
-    @Throws(to.curare.compose.exceptions.NostrPublishException::class)
+    @Throws(to.curare.compose.exceptions.NostrPublishException::class, kotlin.coroutines.cancellation.CancellationException::class)
     override suspend fun publishEvent(nostrEvent: to.curare.compose.database.model.NostrEvent, relays: Set<to.curare.compose.network.dto.RelayDTO>): Flow<NostrPublishResult> {
         logger.d("publishEvent: $nostrEvent")
         return relayPool.publishEvent(
