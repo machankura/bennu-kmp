@@ -58,7 +58,7 @@ class LiveSubscriptionPlanTest {
      * costs; it does not bound what arrives live.
      */
     @Test
-    fun `the group filter asks for the given groups, and also carries no since`() {
+    fun `the group filter asks for the given groups and also carries no since`() {
         val filter = groupFilter(listOf("group-a", "group-b"))
 
         assertEquals(listOf(GroupEvent.KIND), filter.kinds)
@@ -168,7 +168,7 @@ class LiveSubscriptionPlanTest {
     // --- what ends a live subscription -------------------------------------------------
 
     @Test
-    fun `EOSE does not end a live subscription, CLOSED does`() {
+    fun `EOSE does not end a live subscription CLOSED does`() {
         assertFalse(NostrIncomingMessage.EoseMessage(subscriptionId = "s").endsLiveSubscription())
         assertFalse(NostrIncomingMessage.EventMessage(subscriptionId = "s").endsLiveSubscription())
         assertFalse(NostrIncomingMessage.NoticeMessage(message = "hi").endsLiveSubscription())

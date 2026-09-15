@@ -58,7 +58,7 @@ class SharedKeyDerivationTest {
     }
 
     @Test
-    fun `each step commits to the key it tweaks, so depth is not interchangeable`() {
+    fun `each step commits to the key it tweaks so depth is not interchangeable`() {
         // Index 0 applied once is not index 0 applied three times: the scalar binds
         // the key being tweaked, so a shorter path cannot collide with a deeper one
         // that happens to end on the same indices.
@@ -107,7 +107,7 @@ class SharedKeyDerivationTest {
     }
 
     @Test
-    fun `a hardened path is refused, not silently walked`() {
+    fun `a hardened path is refused not silently walked`() {
         // Hardened derivation needs the parent private key, which nobody in a
         // threshold group has. A path claiming one was never walked, so acting on it
         // would mean deriving something different from what the room says.

@@ -57,7 +57,7 @@ class ChronicleEventTest {
     // ---- The codec -------------------------------------------------------
 
     @Test
-    fun `what is encoded is what comes back, whole`() {
+    fun `what is encoded is what comes back whole`() {
         val events = listOf(
             payload(DialectEvent.KIND, "isiZulu"),
             payload(ArtifactEvent.KIND, "an artifact"),
@@ -165,7 +165,7 @@ class ChronicleEventTest {
     }
 
     @Test
-    fun `the byte cap counts bytes, not characters`() {
+    fun `the byte cap counts bytes not characters`() {
         // A multi-byte payload that fits as characters and does not as bytes. If
         // this were measured in characters the cap would let through up to four
         // times what it says.
@@ -180,7 +180,7 @@ class ChronicleEventTest {
     // ---- What a chronicle may carry ---------------------------------------
 
     @Test
-    fun `the allowlist is every kind the group signs, and only those`() {
+    fun `the allowlist is every kind the group signs and only those`() {
         listOf(
             DialectEvent.KIND,
             ArtifactEvent.KIND,
@@ -196,7 +196,7 @@ class ChronicleEventTest {
     }
 
     @Test
-    fun `the translated text is chroniclable, now that the group signs it`() {
+    fun `the translated text is chroniclable now that the group signs it`() {
         // Worth its own case because it was the feature's headline limitation for
         // as long as `saveTranslation` wrote the row and queued the member's own
         // rumor. A chronicle can only carry what the receiver can check, so a
@@ -219,7 +219,7 @@ class ChronicleEventTest {
     }
 
     @Test
-    fun `a chronicle may not carry a key state, however well signed`() {
+    fun `a chronicle may not carry a key state however well signed`() {
         // The attack the allowlist exists for, and the reason it is an allowlist
         // rather than a denylist. A GroupKeyStateEvent is signed by the room and
         // passes verification perfectly, so a chronicle carrying an old one is a
@@ -248,7 +248,7 @@ class ChronicleEventTest {
     }
 
     @Test
-    fun `a chronicle carries documents, not envelopes or protocol`() {
+    fun `a chronicle carries documents not envelopes or protocol`() {
         assertFalse(ChronicleEvent.isChroniclable(SubmissionEvent.KIND))
         assertFalse(ChronicleEvent.isChroniclable(ChronicleEvent.KIND))
         assertFalse(ChronicleEvent.isChroniclable(ChronicleRequestEvent.KIND))
@@ -270,7 +270,7 @@ class ChronicleEventTest {
     // ---- Dependency order ------------------------------------------------
 
     @Test
-    fun `the order is the foreign keys, not the kind numbers`() {
+    fun `the order is the foreign keys not the kind numbers`() {
         fun rank(kind: Int) = assertNotNull(ChronicleEvent.applyRank(kind), "kind $kind has no rank")
 
         // Every one of these is a foreign key in Room, so a chronicle applied the
@@ -343,7 +343,7 @@ class ChronicleEventTest {
     // ---- The tags --------------------------------------------------------
 
     @Test
-    fun `a page says which chronicle it is, where in it, and who for`() {
+    fun `a page says which chronicle it is where in it and who for`() {
         val template = ChronicleEvent.build(
             payloads = listOf(payload(DialectEvent.KIND)),
             chronicleId = chronicleId,
@@ -401,7 +401,7 @@ class ChronicleEventTest {
     // ---- What build refuses to make --------------------------------------
 
     @Test
-    fun `a page is not built over either cap, or out of what it may not carry`() {
+    fun `a page is not built over either cap or out of what it may not carry`() {
         // The outbound half of both checks. It is politeness rather than
         // security -- the inbound one is the boundary -- but a page nobody can
         // read back is better failed where it was made.

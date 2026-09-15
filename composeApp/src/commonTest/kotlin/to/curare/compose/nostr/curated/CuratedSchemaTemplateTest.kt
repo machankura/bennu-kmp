@@ -34,7 +34,7 @@ class CuratedSchemaTemplateTest {
     )
 
     @Test
-    fun `every template publishes a schema a reader accepts, and reads back as itself`() {
+    fun `every template publishes a schema a reader accepts and reads back as itself`() {
         for (template in CuratedSchemaTemplate.entries) {
             val schema = schemaFrom(template)
             assertEquals(emptyList(), schema.problems(), "${template.key} is not a usable schema")
@@ -108,7 +108,7 @@ class CuratedSchemaTemplateTest {
     }
 
     @Test
-    fun `the templates are the site's four, in its order`() {
+    fun `the templates are the site's four in its order`() {
         assertEquals(
             listOf("links", "discussion", "catalogue", "custom"),
             CuratedSchemaTemplate.entries.map { it.key }
@@ -131,7 +131,7 @@ class CuratedSchemaTemplateTest {
     }
 
     @Test
-    fun `a key finds its template, and anything else is custom`() {
+    fun `a key finds its template and anything else is custom`() {
         for (template in CuratedSchemaTemplate.entries) {
             assertSame(template, CuratedSchemaTemplate.byKey(template.key))
         }

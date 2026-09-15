@@ -19,7 +19,7 @@ class SignInSyncTest {
     private fun relay(url: String) = RelayUrlNormalizer.normalize(url)
 
     @Test
-    fun `the bootstrap asks every indexer and our own relay, once each`() {
+    fun `the bootstrap asks every indexer and our own relay once each`() {
         val bootstrap = SignInSync.bootstrapRelays
 
         assertTrue(bootstrap.containsAll(Relays.DefaultIndexerRelayList), "the indexers hold everyone's kinds 0, 3 and 10002")
@@ -29,7 +29,7 @@ class SignInSyncTest {
     }
 
     @Test
-    fun `one request per relay, all asking for the same things about the same key`() {
+    fun `one request per relay all asking for the same things about the same key`() {
         val relays = listOf(relay("wss://one.example"), relay("wss://two.example"))
 
         val requests = SignInSync.requests(unsignedNostrEventId = 7, publicKey = publicKey, relays = relays, level = 1)
@@ -47,7 +47,7 @@ class SignInSyncTest {
     }
 
     @Test
-    fun `a relay list yields its write relays, less those already asked`() {
+    fun `a relay list yields its write relays less those already asked`() {
         val tags = arrayOf(
             arrayOf("r", "wss://write.example", "write"),
             arrayOf("r", "wss://both.example"),

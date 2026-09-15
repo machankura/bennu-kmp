@@ -70,7 +70,7 @@ class CuratedSuggestionTest {
     private val coordinate = films.coordinate()
 
     @Test
-    fun `the queue is every suggestion that satisfies the schema, newest first`() {
+    fun `the queue is every suggestion that satisfies the schema newest first`() {
         val queue = CuratedSuggestion.queueOf(
             films,
             listOf(
@@ -91,7 +91,7 @@ class CuratedSuggestionTest {
     }
 
     @Test
-    fun `an entry its author has replaced shows once, as the newer version`() {
+    fun `an entry its author has replaced shows once as the newer version`() {
         val queue = CuratedSuggestion.queueOf(
             films,
             listOf(
@@ -110,7 +110,7 @@ class CuratedSuggestionTest {
     }
 
     @Test
-    fun `a suggestion the group has taken up is marked, and the group's entry is not in the queue`() {
+    fun `a suggestion the group has taken up is marked and the group's entry is not in the queue`() {
         val queue = CuratedSuggestion.queueOf(
             films,
             listOf(
@@ -131,7 +131,7 @@ class CuratedSuggestionTest {
     }
 
     @Test
-    fun `a suggester is named by their profile, and by their key until one arrives`() {
+    fun `a suggester is named by their profile and by their key until one arrives`() {
         val named = Profile(
             publicKey = ada,
             displayName = "Ada",

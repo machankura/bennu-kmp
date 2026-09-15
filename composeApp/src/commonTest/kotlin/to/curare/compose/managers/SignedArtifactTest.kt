@@ -157,7 +157,7 @@ class SignedArtifactTest {
     }
 
     @Test
-    fun `the artifact the group signs is authored by the group, not the proposer`() {
+    fun `the artifact the group signs is authored by the group not the proposer`() {
         val artifact = MantraArtifact.fromArtifactEvent(signedArtifactEvent(), chatRoomId)
 
         assertNotNull(artifact)
@@ -282,7 +282,7 @@ class SignedArtifactTest {
     }
 
     @Test
-    fun `the version is a second message, signed under its own nonce`() {
+    fun `the version is a second message signed under its own nonce`() {
         // Two items of a batch are two independent FROST instances: k signatures
         // over k ids, never one signature stretched over both. A version whose
         // signature verified against the artifact's id would mean a nonce had

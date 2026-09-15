@@ -45,7 +45,7 @@ class NavigationSuiteTest {
     }
 
     @Test
-    fun `nothing is drawn off a top-level destination, at any width`() {
+    fun `nothing is drawn off a top-level destination at any width`() {
         // The component belongs on the destinations it switches between. On a chat room, a
         // signing screen or an onboarding step -- reached by pushing a route and left by
         // coming back -- a persistent bar is an invitation to lose your place.

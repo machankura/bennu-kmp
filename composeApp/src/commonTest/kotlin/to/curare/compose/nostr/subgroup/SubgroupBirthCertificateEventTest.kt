@@ -242,7 +242,7 @@ class SubgroupBirthCertificateEventTest {
     }
 
     @Test
-    fun `a certificate carrying no parent, no key or no path is refused`() {
+    fun `a certificate carrying no parent no key or no path is refused`() {
         listOf("parent_group", "subgroup_key", "frost_path").forEach { dropped ->
             val incomplete = certificate(
                 tags = SubgroupBirthCertificateEvent.assembleTags(

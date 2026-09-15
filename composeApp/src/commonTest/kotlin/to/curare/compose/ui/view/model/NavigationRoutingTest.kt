@@ -176,7 +176,7 @@ class NavigationRoutingTest {
     }
 
     @Test
-    fun `asked from anywhere but startup, it sends the wallet up first`() = runTest {
+    fun `asked from anywhere but startup it sends the wallet up first`() = runTest {
         val viewModel = bootedOn(account(signed = true))
 
         viewModel.loadNostrProfile(startupRoute = null)
@@ -195,7 +195,7 @@ class NavigationRoutingTest {
      * to one state, and Landing pops the back stack.
      */
     @Test
-    fun `a key just imported is sent to fetch its profile, not to make one`() = runTest {
+    fun `a key just imported is sent to fetch its profile not to make one`() = runTest {
         val viewModel = bootedOn(placeholderAccount())
 
         viewModel.loadNostrProfile(SovereignWalletStartupRoute)

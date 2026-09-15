@@ -210,7 +210,7 @@ class SignedChapterTest {
     }
 
     @Test
-    fun `the chapter the group signs is authored by the group, not the proposer`() {
+    fun `the chapter the group signs is authored by the group not the proposer`() {
         val chapter = MantraChapter.fromChapterEvent(signedChapterEvent(), chatRoomId)
 
         assertNotNull(chapter)

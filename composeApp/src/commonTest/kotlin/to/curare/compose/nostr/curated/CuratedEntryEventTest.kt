@@ -93,7 +93,7 @@ class CuratedEntryEventTest {
     private val suggestionId = "a809ddc2ad9c7b99e739e872b1b9e99e96ca9a3a4cb28cdf220c74324277eee8"
 
     @Test
-    fun `the NIP's suggestion satisfies the NIP's schema, and reads by field`() {
+    fun `the NIP's suggestion satisfies the NIP's schema and reads by field`() {
         assertEquals(emptyList(), CuratedEntryEvent.verifySuggestion(suggestion(), schema, coordinate))
 
         val entry = assertNotNull(CuratedEntryEvent.suggestion(suggestion(), schema, coordinate))
@@ -143,7 +143,7 @@ class CuratedEntryEventTest {
     }
 
     @Test
-    fun `the NIP's canonical entry is the list's own, and points at where it came from`() {
+    fun `the NIP's canonical entry is the list's own and points at where it came from`() {
         assertEquals(emptyList(), CuratedEntryEvent.verifyCanonical(canonical(), schema, coordinate, curator))
 
         val entry = assertNotNull(CuratedEntryEvent.canonical(canonical(), schema, coordinate, curator))
@@ -432,7 +432,7 @@ class CuratedEntryEventTest {
     }
 
     @Test
-    fun `an edit on the way through is what is signed, and the d is what was suggested`() {
+    fun `an edit on the way through is what is signed and the d is what was suggested`() {
         val suggested = CuratedEntryEvent.read(suggestion(), schema)
         val corrected = suggested.values + mapOf(
             "year" to listOf("2015"),
@@ -452,7 +452,7 @@ class CuratedEntryEventTest {
     }
 
     @Test
-    fun `a value the schema refuses is refused with its field named, not clipped`() {
+    fun `a value the schema refuses is refused with its field named not clipped`() {
         val suggested = CuratedEntryEvent.read(suggestion(), schema)
         val wrong = suggested.values + mapOf(
             "year" to listOf("twenty fourteen"),
@@ -478,7 +478,7 @@ class CuratedEntryEventTest {
     }
 
     @Test
-    fun `a blank is not a value, a field that repeats takes all of them, and one that does not takes the first`() {
+    fun `a blank is not a value a field that repeats takes all of them and one that does not takes the first`() {
         val template = CuratedEntryEvent.canonicalTemplate(
             schema = schema,
             coordinate = coordinate,
@@ -512,7 +512,7 @@ class CuratedEntryEventTest {
     }
 
     @Test
-    fun `an entry nobody suggested has no source block, and the root carries the schema's first relay`() {
+    fun `an entry nobody suggested has no source block and the root carries the schema's first relay`() {
         val values = CuratedEntryEvent.read(suggestion(), schema).values
 
         val template = CuratedEntryEvent.canonicalTemplate(schema, coordinate, curator, values, source = null)

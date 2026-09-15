@@ -190,7 +190,7 @@ class GroupCuratedEntryTest {
     }
 
     @Test
-    fun `the newest per coordinate wins, and two identifiers are two entries`() {
+    fun `the newest per coordinate wins and two identifiers are two entries`() {
         val first = signed(entry(createdAt = 1_700_000_900))
         val revised = signed(entry(values = riseAndRise(year = "2015"), createdAt = 1_700_001_800))
         val another = signed(
@@ -221,7 +221,7 @@ class GroupCuratedEntryTest {
     }
 
     @Test
-    fun `the same identifier in two lists is one coordinate, and the newer decides`() {
+    fun `the same identifier in two lists is one coordinate and the newer decides`() {
         val inFilms = signed(entry(list = filmsList, createdAt = 1_700_000_900))
         val inBooks = signed(entry(list = booksList, createdAt = 1_700_001_800))
 

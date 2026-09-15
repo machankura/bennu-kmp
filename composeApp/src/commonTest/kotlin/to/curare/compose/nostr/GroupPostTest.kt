@@ -120,7 +120,7 @@ class GroupPostTest {
     }
 
     @Test
-    fun `posts accumulate rather than replace, newest first`() {
+    fun `posts accumulate rather than replace newest first`() {
         // The property that separates these from the profile and the relay lists.
         // A reading that kept only the newest would silently delete a group's whole
         // history the first time it posted twice.

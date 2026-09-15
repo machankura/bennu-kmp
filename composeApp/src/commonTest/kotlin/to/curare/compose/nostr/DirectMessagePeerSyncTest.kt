@@ -23,7 +23,7 @@ class DirectMessagePeerSyncTest {
     // --- the DM relays: everything a chat needs ----------------------------------------
 
     @Test
-    fun `one request per DM relay, asking for the three kinds a chat needs`() {
+    fun `one request per DM relay asking for the three kinds a chat needs`() {
         val requests = DirectMessagePeerSync.requests(alice)
 
         assertEquals(Relays.DefaultDMRelayList.size, requests.size)
@@ -58,7 +58,7 @@ class DirectMessagePeerSyncTest {
     // --- the indexers: the kind 0 alone -------------------------------------------------
 
     @Test
-    fun `one request per bootstrap relay, asking for the kind 0 alone`() {
+    fun `one request per bootstrap relay asking for the kind 0 alone`() {
         val requests = DirectMessagePeerSync.profileRequests(alice)
 
         assertEquals(SignInSync.bootstrapRelays.size, requests.size)

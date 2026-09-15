@@ -61,7 +61,7 @@ class NostrEventFilterQueryTest {
 
     /** AND between tag names, OR between the values of one name — as `FilterMatcher` does. */
     @Test
-    fun `tags are matched by name and value, not by substring`() {
+    fun `tags are matched by name and value Not by substring`() {
         val query = NostrEventFilterQuery.build(
             SynchronizationFilter(
                 kinds = arrayOf(1059),

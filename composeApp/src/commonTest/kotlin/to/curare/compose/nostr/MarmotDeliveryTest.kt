@@ -38,7 +38,7 @@ class MarmotDeliveryTest {
     )
 
     @Test
-    fun `a signing proposal goes out, though nothing in the chat points at it`() {
+    fun `a signing proposal goes out though nothing in the chat points at it`() {
         // The regression. A FROST message has no ChatMessage by design -- the manager
         // writes its own transcript lines from what arrives, so a row here would be a
         // second, worse account of the same thing -- and that must not be the reason the
@@ -65,7 +65,7 @@ class MarmotDeliveryTest {
     }
 
     @Test
-    fun `every relay gets a request, naming the event`() {
+    fun `every relay gets a request naming the event`() {
         val delivery = MarmotDelivery.plan(groupEventId, relays, chatMessage = chatLine)
 
         assertContentEquals(
@@ -76,7 +76,7 @@ class MarmotDeliveryTest {
     }
 
     @Test
-    fun `requests are queued pending, which is all the broadcaster looks at`() {
+    fun `requests are queued pending which is all the broadcaster looks at`() {
         // `observeBroadcastNostrEventRequestsByStatus("pending")` is the only thing that
         // picks these up. A request written in any other state is as unsent as no request.
         val delivery = MarmotDelivery.plan(groupEventId, relays, chatMessage = null)

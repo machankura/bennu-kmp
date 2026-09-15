@@ -61,7 +61,7 @@ class ArtifactEventTest {
     }
 
     @Test
-    fun `the proposal is the artifact's kind, so the signing screen can describe it`() {
+    fun `the proposal is the artifact's kind so the signing screen can describe it`() {
         // The session carries a kind and nothing else to go on. Get this wrong
         // and members are asked to sign "event of kind 30300" -- a question
         // nobody can answer.
@@ -69,7 +69,7 @@ class ArtifactEventTest {
     }
 
     @Test
-    fun `an artifact declares one version, whatever an initializer adds`() {
+    fun `an artifact declares one version whatever an initializer adds`() {
         // addUnique, not add: two labels would leave receivers deriving two
         // different first versions depending on which one they read first.
         val template = ArtifactEvent.build(

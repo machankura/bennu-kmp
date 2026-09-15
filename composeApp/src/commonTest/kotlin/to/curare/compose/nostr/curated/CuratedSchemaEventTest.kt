@@ -175,7 +175,7 @@ class CuratedSchemaEventTest {
     }
 
     @Test
-    fun `a date field reads as one, with its bounds on the year`() {
+    fun `a date field reads as one with its bounds on the year`() {
         // bitcoin.necropolis.report's two, as published. Fourteen of its
         // entries lost their `died` to a build that dropped the type on the
         // way in and then wrote entries without it.
@@ -215,7 +215,7 @@ class CuratedSchemaEventTest {
     }
 
     @Test
-    fun `a field with an unknown type is kept aside, one with no name is dropped, and the rest are kept`() {
+    fun `a field with an unknown type is kept aside one with no name is dropped and the rest are kept`() {
         val stars = arrayOf("field", "rating", "stars", "required", "5", "Rating", "{\"max\":5}")
         val schema = assertNotNull(
             CuratedSchemaEvent.parse(
@@ -337,7 +337,7 @@ class CuratedSchemaEventTest {
     }
 
     @Test
-    fun `a domain that is not a hostname is not usable, and one that is gets normalized`() {
+    fun `a domain that is not a hostname is not usable and one that is gets normalized`() {
         listOf("bitcoin", "localhost", "bit coin.mov", "-bitcoin.mov", "bitcoin_mov.example").forEach { domain ->
             assertNull(
                 CuratedSchemaEvent.parse(event(tags = replacing("domain", domain))),

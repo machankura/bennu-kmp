@@ -68,7 +68,7 @@ class MarmotDirectMessageTest {
     }
 
     @Test
-    fun `a bystander gets nothing, and no exception`() {
+    fun `a bystander gets nothing and no exception`() {
         // Null rather than a throw: the caller is midway through processing a kind:445
         // that carries a real message for somebody, and an exception would abandon it.
         assertNull(MarmotDirectMessage.open(aliceWrapsForBob(), eve))
@@ -104,7 +104,7 @@ class MarmotDirectMessageTest {
     }
 
     @Test
-    fun `a seal from somebody else is still opened, and is caught by its pubkey`() {
+    fun `a seal from somebody else is still opened and is caught by its pubkey`() {
         // open() decrypts; it does not adjudicate. Eve can seal her own rumor to Bob and
         // wrap it, and Bob's key will open it -- what stops it being rendered as Alice's
         // is the inbound check that the seal's pubkey is the MLS sender's identity. This
@@ -187,7 +187,7 @@ class MarmotDirectMessageTest {
     // ---- The envelope, for current-profile rooms -----------------------------
 
     @Test
-    fun `the envelope is unsigned, by the sender, and carries the wrap whole`() {
+    fun `the envelope is unsigned by the sender and carries the wrap whole`() {
         val wrap = aliceWrapsForBob()
         val envelope = MarmotDirectMessage.envelope(alice.pubKey, bobPublicKey, wrap, at)
 
@@ -206,7 +206,7 @@ class MarmotDirectMessageTest {
     }
 
     @Test
-    fun `the envelope's createdAt is the wrap's, unfuzzed`() {
+    fun `the envelope's createdAt is the wrap's unfuzzed`() {
         val envelope = MarmotDirectMessage.envelope(alice.pubKey, bobPublicKey, aliceWrapsForBob(), at)
 
         assertEquals(at, envelope.createdAt)

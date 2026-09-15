@@ -99,7 +99,7 @@ class UnsyncedProfileDecisionTest {
     }
 
     @Test
-    fun `a kind 0 that has arrived, indexed or not, is never not-found`() {
+    fun `a kind 0 that has arrived indexed or not is never not-found`() {
         val event = NostrEvent(
             id = "e".repeat(64),
             pubKey = publicKey,
@@ -117,7 +117,7 @@ class UnsyncedProfileDecisionTest {
     }
 
     @Test
-    fun `no account, or no request yet, is still searching`() {
+    fun `no account or no request yet is still searching`() {
         assertEquals(UnsyncedProfileUIState.Searching, UnsyncedProfileViewModel.decide(null))
         assertEquals(UnsyncedProfileUIState.Searching, UnsyncedProfileViewModel.decide(account()))
     }

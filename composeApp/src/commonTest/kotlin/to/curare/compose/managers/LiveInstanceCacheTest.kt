@@ -128,7 +128,7 @@ class LiveInstanceCacheTest {
     }
 
     @Test
-    fun `does not run the block, or cache anything, when there is nothing to build`() = runBlocking {
+    fun `does not run the block or cache anything when there is nothing to build`() = runBlocking {
         val cache = cache()
         var ran = false
 

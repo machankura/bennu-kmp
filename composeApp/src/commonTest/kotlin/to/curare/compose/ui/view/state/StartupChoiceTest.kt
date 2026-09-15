@@ -32,7 +32,7 @@ class StartupChoiceTest {
     }
 
     @Test
-    fun `what a switch or a sign-in named is opened, even after the user once asked for the list`() {
+    fun `what a switch or a sign-in named is opened even after the user once asked for the list`() {
         assertEquals(b, resolve(desired = b.id, startImmediately = false))
     }
 
@@ -53,7 +53,7 @@ class StartupChoiceTest {
     }
 
     @Test
-    fun `a default the list no longer has, or no default, shows the list`() {
+    fun `a default the list no longer has or no default shows the list`() {
         assertNull(resolve(default = WalletId("cc".repeat(20))))
         assertNull(resolve())
     }

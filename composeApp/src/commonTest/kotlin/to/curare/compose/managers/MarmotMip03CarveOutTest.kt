@@ -102,7 +102,7 @@ class MarmotMip03CarveOutTest {
     }
 
     @Test
-    fun `a sender with no credential identity is rejected, wrap or not`() {
+    fun `a sender with no credential identity is rejected wrap or not`() {
         // Required rather than merely compared: with no identity there is nothing to
         // attribute a line to, and for a gift wrap there is nothing to check the seal
         // against either. Both kinds must fail, not just the one that does a comparison.

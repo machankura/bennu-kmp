@@ -163,7 +163,7 @@ class GroupCuratedSchemaTest {
     }
 
     @Test
-    fun `the newest per identifier wins, and two identifiers are two lists`() {
+    fun `the newest per identifier wins and two identifiers are two lists`() {
         val firstFilms = signed(films, createdAt = 1_700_000_000)
         val editedFilms = signed(films.copy(description = "Films the group would subtitle."), createdAt = 1_700_000_900)
         val books = signed(films.copy(identifier = "books", name = "Books worth translating"), createdAt = 1_700_000_300)

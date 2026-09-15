@@ -48,7 +48,7 @@ class RelayPoolSubscriptionTest {
         ReqCmd(subId = subId, filters = listOf(Filter(kinds = listOf(kind))))
 
     @Test
-    fun `a query is retained, and replayed when its socket comes back`() = runTest {
+    fun `a query is retained and replayed when its socket comes back`() = runTest {
         val factory = FakeSocketClientFactory()
         val pool = pool(factory)
 
@@ -66,7 +66,7 @@ class RelayPoolSubscriptionTest {
     }
 
     @Test
-    fun `a closed query is forgotten, and the socket stops reconnecting for it`() = runTest {
+    fun `a closed query is forgotten and the socket stops reconnecting for it`() = runTest {
         val factory = FakeSocketClientFactory()
         val pool = pool(factory)
 

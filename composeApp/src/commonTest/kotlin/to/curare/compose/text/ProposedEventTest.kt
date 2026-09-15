@@ -60,7 +60,7 @@ class ProposedEventTest {
     }
 
     @Test
-    fun `a schema is said by its list, who may suggest, and how much an entry asks for`() {
+    fun `a schema is said by its list who may suggest and how much an entry asks for`() {
         val summary = ProposedEvent.summarize(
             event(
                 CuratedSchemaEvent.KIND,

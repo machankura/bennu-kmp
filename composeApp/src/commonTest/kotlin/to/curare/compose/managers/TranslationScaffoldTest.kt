@@ -103,7 +103,7 @@ class TranslationScaffoldTest {
     }
 
     @Test
-    fun `a catch-up keeps each chapter's own position, not the position in the gap`() {
+    fun `a catch-up keeps each chapter's own position not the position in the gap`() {
         val chapters = (0..5).map(::sourceChapter)
 
         // A catch-up proposes a subset, and the subset is not contiguous.
@@ -151,7 +151,7 @@ class TranslationScaffoldTest {
     }
 
     @Test
-    fun `what is missing is matched on the chapter named, not on how many there are`() {
+    fun `what is missing is matched on the chapter named not on how many there are`() {
         val chapters = (0..3).map(::sourceChapter)
 
         // Chapter 1 never landed but chapter 2 did, which a count would read as

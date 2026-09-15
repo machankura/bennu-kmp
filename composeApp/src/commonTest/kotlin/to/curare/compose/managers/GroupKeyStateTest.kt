@@ -684,7 +684,7 @@ class GroupKeyStateTest {
     }
 
     @Test
-    fun `an event edited after signing fails on the id, not on the signature`() {
+    fun `an event edited after signing fails on the id not on the signature`() {
         val signed = signedByRoom()
 
         val tampered = Event(

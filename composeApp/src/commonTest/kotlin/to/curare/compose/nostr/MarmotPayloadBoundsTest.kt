@@ -72,7 +72,7 @@ class MarmotPayloadBoundsTest {
     }
 
     @Test
-    fun `a chronicle page of the most, smallest payloads is a conformant app event`() {
+    fun `a chronicle page of the most smallest payloads is a conformant app event`() {
         val payloads = (0 until ChronicleEvent.MAX_PAGE_EVENTS).map {
             signedPayload(DialectEvent.KIND, content = "d", id = it.toString().padStart(64, '0'))
         }

@@ -29,7 +29,7 @@ class MemberProfileSyncTest {
      * once their single ask comes back empty.
      */
     @Test
-    fun `a placeholder counts as unknown, the same as no row at all`() {
+    fun `a placeholder counts as unknown the same as no row at all`() {
         val rooms = listOf(
             room(
                 members = listOf(
@@ -81,7 +81,7 @@ class MemberProfileSyncTest {
     }
 
     @Test
-    fun `one request per relay, asking those authors for kind zero`() {
+    fun `one request per relay asking those authors for kind zero`() {
         val requests = MemberProfileSync.requests(listOf(alice, bob))
 
         assertEquals(Relays.DefaultDMRelayList.size, requests.size)

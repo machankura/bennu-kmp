@@ -75,7 +75,7 @@ class MarmotDirectMessageDeliveryTest {
     }
 
     @Test
-    fun `our own message is ours, even though we cannot open it`() {
+    fun `our own message is ours even though we cannot open it`() {
         // The case that destroys data if it is missed. Alice cannot decrypt the wrap she
         // sent -- its key was discarded -- so nothing about the payload distinguishes this
         // from a bystander's view. Only the MLS sender identity does. Were it to come back

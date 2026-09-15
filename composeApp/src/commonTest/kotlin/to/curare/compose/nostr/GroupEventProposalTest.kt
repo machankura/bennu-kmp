@@ -86,7 +86,7 @@ class GroupEventProposalTest {
     """.trimIndent()
 
     @Test
-    fun `a pasted event is read as its kind, tags and content, and nothing else`() {
+    fun `a pasted event is read as its kind tags and content and nothing else`() {
         val ready = assertIs<GroupEventProposal.Ready>(GroupEventProposal.read(pastedSchema))
 
         assertEquals(31889, ready.kind)
@@ -141,7 +141,7 @@ class GroupEventProposalTest {
     }
 
     @Test
-    fun `a kind the group's screen has no place for is refused, whatever else it says`() {
+    fun `a kind the group's screen has no place for is refused whatever else it says`() {
         // A long-form article is a perfectly good nostr event and the group could
         // sign it. It would then be filed and shown nowhere, with nothing to tell
         // the member their quorum was spent on it.
@@ -159,7 +159,7 @@ class GroupEventProposalTest {
     }
 
     @Test
-    fun `a kind zero whose content is not a profile is refused, and an empty one is not`() {
+    fun `a kind zero whose content is not a profile is refused and an empty one is not`() {
         assertEquals(
             GroupEventProposal.Refused.ProfileUnreadable,
             GroupEventProposal.read("""{"kind": 0, "content": "not a profile"}""")
@@ -174,7 +174,7 @@ class GroupEventProposalTest {
     }
 
     @Test
-    fun `a blank post is refused, the way the composer refuses one`() {
+    fun `a blank post is refused the way the composer refuses one`() {
         listOf("", "   ", "\\n\\n").forEach { blank ->
             assertEquals(
                 GroupEventProposal.Refused.PostBlank,
@@ -185,7 +185,7 @@ class GroupEventProposalTest {
     }
 
     @Test
-    fun `a schema a reader would refuse is refused here, with the reader's reasons`() {
+    fun `a schema a reader would refuse is refused here with the reader's reasons`() {
         val withoutVisibility = pastedSchema.replace("""["visibility", "public"],""", "")
 
         assertEquals(
@@ -205,7 +205,7 @@ class GroupEventProposalTest {
     }
 
     @Test
-    fun `a pasted kind zero, once signed, is the group's profile`() {
+    fun `a pasted kind zero once signed is the group's profile`() {
         val ready = assertIs<GroupEventProposal.Ready>(
             GroupEventProposal.read(
                 """{"kind": 0, "pubkey": "not the group", "content": "{\"name\":\"Translation collective\",\"about\":\"We translate hard books.\"}"}"""
@@ -220,7 +220,7 @@ class GroupEventProposalTest {
     }
 
     @Test
-    fun `a pasted kind one, once signed, is one of the group's posts`() {
+    fun `a pasted kind one once signed is one of the group's posts`() {
         val ready = assertIs<GroupEventProposal.Ready>(
             GroupEventProposal.read("""{"kind": 1, "tags": [], "content": "We have finished the first chapter."}""")
         )
@@ -232,7 +232,7 @@ class GroupEventProposalTest {
     }
 
     @Test
-    fun `a pasted schema, once signed, is a list the group curates`() {
+    fun `a pasted schema once signed is a list the group curates`() {
         val ready = assertIs<GroupEventProposal.Ready>(GroupEventProposal.read(pastedSchema))
 
         val curated = assertNotNull(GroupCuratedSchema.of(signed(ready), chatRoomId))
@@ -247,7 +247,7 @@ class GroupEventProposalTest {
     }
 
     @Test
-    fun `a pasted relay list, once signed, is one of the group's relay lists`() {
+    fun `a pasted relay list once signed is one of the group's relay lists`() {
         val ready = assertIs<GroupEventProposal.Ready>(
             GroupEventProposal.read("""{"kind": 10002, "tags": [["r", "wss://relay.example.com", "write"]]}""")
         )

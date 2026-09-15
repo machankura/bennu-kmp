@@ -53,7 +53,7 @@ class ReconnectBackoffTest {
     }
 
     @Test
-    fun `adds at most the jitter fraction on top, never subtracts`() {
+    fun `adds at most the jitter fraction on top never subtracts`() {
         assertEquals(4.seconds, delay(attempt = 3, jitter = 0.0))
         assertEquals(5.seconds, delay(attempt = 3, jitter = 1.0))
 

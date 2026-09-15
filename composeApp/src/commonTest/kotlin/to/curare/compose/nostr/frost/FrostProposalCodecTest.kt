@@ -28,7 +28,7 @@ class FrostProposalCodecTest {
     )
 
     @Test
-    fun `a batch of one is the bare event, exactly as it always was`() {
+    fun `a batch of one is the bare event exactly as it always was`() {
         val one = event("just this")
 
         // The load-bearing assertion. A device on a build that predates batching
@@ -49,7 +49,7 @@ class FrostProposalCodecTest {
     }
 
     @Test
-    fun `what is encoded is what comes back, in order`() {
+    fun `what is encoded is what comes back in order`() {
         val events = listOf(event("first"), event("second"), event("third"))
 
         val decoded = FrostSigningEvents.decodeProposal(
@@ -65,7 +65,7 @@ class FrostProposalCodecTest {
     }
 
     @Test
-    fun `a bare event decodes as a batch of one, forever`() {
+    fun `a bare event decodes as a batch of one forever`() {
         // Proposals in the old shape do not stop arriving just because this build
         // stopped writing them.
         val decoded = FrostSigningEvents.decodeProposal(event("from an older build").toJson())

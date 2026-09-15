@@ -161,7 +161,7 @@ class FrostSigningRoundTest {
     }
 
     @Test
-    fun `one signer set signs a batch of three, and every signature verifies`() {
+    fun `one signer set signs a batch of three and every signature verifies`() {
         // The manager's batch, with the database taken out of the way: one signer
         // set and one tweak cache shared, and a nonce, a Session and a signature
         // per event. If any of that is wired up wrongly the aggregate simply
@@ -604,7 +604,7 @@ class FrostSigningCompletionTest {
     }
 
     @Test
-    fun `the finished event is the one that was proposed, with a signature on it`() {
+    fun `the finished event is the one that was proposed with a signature on it`() {
         // Not rebuilt and not rehashed: the id a session is pinned to is the id
         // the signature is over, so anything that changed here would produce an
         // event whose signature verifies against nothing.

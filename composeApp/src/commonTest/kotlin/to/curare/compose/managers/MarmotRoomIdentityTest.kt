@@ -30,7 +30,7 @@ class MarmotRoomIdentityTest {
     }
 
     @Test
-    fun `a description that names no room, or names it badly, yields none`() {
+    fun `a description that names no room or names it badly yields none`() {
         assertNull(MarmotRoomIdentity.parse(null))
         assertNull(MarmotRoomIdentity.parse("Admins of X."))
         assertNull(MarmotRoomIdentity.parse("Room id: not-hex"))

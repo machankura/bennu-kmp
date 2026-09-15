@@ -65,7 +65,7 @@ class FrostSigningMembersTest {
     }
 
     @Test
-    fun `names come off the room, in the room's order`() {
+    fun `names come off the room in the room's order`() {
         val state = FrostSigningUIState.Loaded(
             localChatRoom = room(carol, alice, bob),
             shareHolders = setOf(alice, bob, carol)
