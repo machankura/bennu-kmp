@@ -631,4 +631,142 @@ class FrostSigningResendJvmTest {
     /** What a resent proposal carries: the events of [proposalArrivedAt]'s session. */
     private fun proposalContent(): String =
         FrostSigningEvents.encodeProposal(listOf(unsignedEvent()))
+
+    // ---- the case the feature exists for ----------------------------------
+
+    /**
+     * A real resent proposal, taken off a coordinator device and handed to a
+     * member's.
+     *
+     * Two databases rather than a hand-written row, because this is the one test
+     * that goes through [FrostSigningManager.acceptProposal] from the outside. An
+     * event's id is rebuilt from its own fields under the author the *receiver*
+     * resolves -- the room's key at the room's derivation path, never the
+     * proposer's word for it -- and a proposal whose id does not survive that is
+     * dropped. A fabricated event cannot pass it, which is the point of the
+     * check, so the proposal has to be one a coordinator really made.
+     *
+     * Returns the session id and the resent proposal's content, with [db] and
+     * [room] left pointing at [owner]'s freshly opened device.
+     */
+    private suspend fun resentProposalFor(owner: HexKey): Pair<String, String> {
+        openDevice(alice)
+        val session = propose()
+        val resent = queuedBy(FrostSigningEvents.PROPOSAL) {
+            assertTrue(FrostSigningManager.resend(db, room, session.id))
+        }
+        val content = resent.content
+        db.close()
+
+        openDevice(owner)
+        return session.id to content
+    }
+
+    @Test
+    fun `a resend opens the session on a device that never saw the proposal`() = runBlocking {
+        val (sessionId, content) = resentProposalFor(bob)
+
+        // The case the whole feature exists for. Bob's copy of the first
+        // proposal decrypted to nothing -- MLS had moved its ratchet past the
+        // generation it arrived at, which is terminal and which the sender
+        // cannot see (docs/mls-skipped-keys.md). He has no session at all.
+        assertNull(db.frostSigningSessionDao().getSessionById(sessionId))
+
+        receive(sessionId, FrostSigningEvents.PROPOSAL, alice, content, silent = listOf(bob), includeKey = true)
+
+        val session = db.frostSigningSessionDao().getSessionById(sessionId)
+        assertNotNull(session, "the resent proposal opens the session Bob was missing")
+        assertEquals(alice, session.coordinatorPublicKey)
+        assertEquals(bob, session.userPublicKey)
+        assertEquals(1, db.frostSigningSessionDao().getItems(sessionId).size)
+
+        // And he is asked, rather than signed for. A relay delivering an event
+        // to a phone in a pocket must not be enough to make a signature happen.
+        assertTrue(
+            FrostSigningManager.isAwaitingApproval(
+                session,
+                db.frostSigningSessionDao().getItems(sessionId)
+            )
+        )
+        assertTrue(queued(FrostSigningEvents.NONCE).isEmpty())
+        assertEquals(1, transcript(ChatMessage.TYPE_FROST_APPROVAL_NEEDED).size)
+    }
+
+    @Test
+    fun `being named as silent does not sign for a device that has just learned of the session`() =
+        runBlocking {
+            val (sessionId, content) = resentProposalFor(bob)
+
+            receive(sessionId, FrostSigningEvents.PROPOSAL, alice, content, silent = listOf(bob), includeKey = true)
+
+            // Named *and* new. There is nothing of Bob's on file to republish,
+            // so the nudge finds nothing -- and must not reach for the nonce it
+            // could generate instead.
+            assertTrue(queued(FrostSigningEvents.NONCE).isEmpty())
+            assertTrue(queued(FrostSigningEvents.DECLINE).isEmpty())
+            assertNull(db.frostSigningSessionDao().getSessionById(sessionId)!!.signApprovedAt)
+        }
+
+    @Test
+    fun `a resent proposal delivered twice opens one session`() = runBlocking {
+        val (sessionId, content) = resentProposalFor(bob)
+
+        receive(sessionId, FrostSigningEvents.PROPOSAL, alice, content, silent = listOf(bob), includeKey = true)
+        val items = db.frostSigningSessionDao().getItems(sessionId)
+
+        // Relays redeliver, and a resend makes duplicates routine rather than
+        // exceptional. A second copy must not mint new nonce seeds: that is one
+        // secret nonce replaced under a message that has not changed, which is
+        // the stall the write-once rule exists to prevent.
+        receive(sessionId, FrostSigningEvents.PROPOSAL, alice, content, silent = listOf(bob), includeKey = true)
+
+        val after = db.frostSigningSessionDao().getItems(sessionId)
+        assertEquals(items.map { it.nonceRandom }, after.map { it.nonceRandom })
+        assertEquals(items.map { it.eventId }, after.map { it.eventId })
+        assertEquals(1, transcript(ChatMessage.TYPE_FROST_STARTED).size)
+        assertEquals(1, transcript(ChatMessage.TYPE_FROST_APPROVAL_NEEDED).size)
+    }
+
+    @Test
+    fun `a republished refusal is counted once`() = runBlocking {
+        openDevice()
+        val session = propose()
+
+        // What the coordinator sees when a nudged member says their refusal
+        // again: the same message twice. Counting it twice would abandon a
+        // 2-of-3 session on one member's single no.
+        receive(session.id, FrostSigningEvents.DECLINE, bob, "Declined to sign")
+        receive(session.id, FrostSigningEvents.DECLINE, bob, "Declined to sign")
+
+        assertEquals(FrostSigningStage.COLLECTING_NONCES, session(session.id).stage)
+        assertEquals(1, transcript(ChatMessage.TYPE_FROST_DECLINED).size)
+        assertEquals(
+            1,
+            db.frostSigningSessionDao()
+                .getMessagesByKind(session.id, FrostSigningEvents.DECLINE)
+                .size
+        )
+    }
+
+    @Test
+    fun `a session the group has already signed can still be resent`() = runBlocking {
+        openDevice()
+        val session = propose()
+
+        // A member who never received the signature never applied the events.
+        // Repeating it is the only thing that gets their store right, so COMPLETE
+        // is worth resending rather than treated as finished business.
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(stage = FrostSigningStage.COMPLETE)
+        )
+        db.frostSigningSessionDao().upsertItems(
+            db.frostSigningSessionDao().getItems(session.id).map {
+                it.copy(signature = "d".repeat(128))
+            }
+        )
+
+        assertTrue(resend(session.id))
+        assertEquals(1, queued(FrostSigningEvents.SIGNATURE).size)
+        assertEquals(2, queued(FrostSigningEvents.PROPOSAL).size)
+    }
 }
