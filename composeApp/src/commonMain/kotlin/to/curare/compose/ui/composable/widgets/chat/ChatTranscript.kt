@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.CallMerge
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Download
@@ -825,6 +826,10 @@ private fun RitualNotice(
         // A refusal the session survived. Quiet on purpose: it is not an error,
         // and the one that ends a session is written as a failure instead.
         ChatMessage.TYPE_FROST_DECLINED -> Icons.Default.Block
+        // Nothing moved; somebody knocked. Its own icon rather than the
+        // proposal's, so that a resend does not read as a second proposal --
+        // which is the one thing a session must never have.
+        ChatMessage.TYPE_FROST_RESENT -> Icons.Default.Campaign
         ChatMessage.TYPE_FROST_APPROVAL_NEEDED -> Icons.Default.Draw
 
         ChatMessage.TYPE_CHRONICLE_REQUESTED -> Icons.Default.History

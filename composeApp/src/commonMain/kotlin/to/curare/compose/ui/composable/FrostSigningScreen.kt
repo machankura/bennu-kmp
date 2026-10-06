@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -34,6 +35,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -58,7 +60,13 @@ import to.curare.compose.ui.theme.spacing
 import to.curare.compose.ui.composable.widgets.Decorative
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
+import curare.composeapp.generated.resources.ask_again
+import curare.composeapp.generated.resources.asked_again
+import curare.composeapp.generated.resources.asked_again_recently
 import curare.composeapp.generated.resources.declined_to_sign
+import curare.composeapp.generated.resources.everyone_has_answered_this_session
+import curare.composeapp.generated.resources.members_have_not_answered
+import curare.composeapp.generated.resources.one_member_has_not_answered
 import curare.composeapp.generated.resources.don_t_sign
 import curare.composeapp.generated.resources.has_not_taken_part_yet
 import curare.composeapp.generated.resources.members
@@ -70,6 +78,7 @@ import curare.composeapp.generated.resources.signed_their_part
 import curare.composeapp.generated.resources.events_signed_together
 import androidx.compose.material3.SnackbarHost
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.rememberNotifier
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -114,6 +123,13 @@ fun FrostSigningScreen(
             frostSigningViewModel.initiate()
         }
     }
+
+    // Both of these are composable and an onClick lambda is not, so they are
+    // read here rather than in the handler. The notifier takes the caller's
+    // scope on purpose -- see rememberNotifier.
+    val notify = rememberNotifier(rememberCoroutineScope())
+    val askedAgain = stringResource(Res.string.asked_again)
+    val everyoneAnswered = stringResource(Res.string.everyone_has_answered_this_session)
 
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
@@ -258,6 +274,57 @@ fun FrostSigningScreen(
                                     )
                                 }
                             )
+                        }
+                    }
+
+                    // The coordinator's knock, under the list of doors it is for.
+                    //
+                    // A session can wait forever on a member whose copy of the
+                    // proposal never arrived -- MLS dropped the generation it came
+                    // in at, or a disappearing-message group expired it off the
+                    // relay -- and neither heals on its own. Repeating the proposal
+                    // is the only thing that reaches them, and it also names them,
+                    // so that a member whose own answer went missing on the way
+                    // here says it again.
+                    if (state.canResend) {
+                        HorizontalDivider()
+
+                        Text(
+                            text = if (state.silent.size == 1) {
+                                stringResource(Res.string.one_member_has_not_answered)
+                            } else {
+                                stringResource(
+                                    Res.string.members_have_not_answered,
+                                    state.silent.size
+                                )
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+
+                        // Disabled rather than hidden while the cooldown runs. A
+                        // control that vanishes after a tap reads as one that
+                        // failed, and what happened is that it worked.
+                        val waiting = state.resendAvailableAt != null
+
+                        if (waiting) {
+                            Text(
+                                text = stringResource(Res.string.asked_again_recently),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Button(
+                            enabled = !waiting && !frostSigningViewModel.isActionPending.value,
+                            onClick = {
+                                frostSigningViewModel.resend { sent ->
+                                    notify(if (sent) askedAgain else everyoneAnswered)
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Campaign, contentDescription = Decorative)
+                            Spacer(modifier = Modifier.width(MaterialTheme.spacing.space125))
+                            Text(stringResource(Res.string.ask_again))
                         }
                     }
 

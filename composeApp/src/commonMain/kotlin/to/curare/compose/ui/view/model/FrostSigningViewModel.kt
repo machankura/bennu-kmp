@@ -133,6 +133,35 @@ class FrostSigningViewModel(
         }
     }
 
+    /**
+     * Asks the members this session has heard nothing from to take another look.
+     *
+     * Unlike [approve] and [decline] this does not navigate away: the point of
+     * pressing it is to go on watching whether anybody answers, and the screen
+     * is the only place that says who has. [onResult] is handed whether anything
+     * actually went out, so the caller can say which happened -- a resend inside
+     * the cooldown, or one where everybody has since answered, publishes nothing
+     * and should not claim to have.
+     */
+    fun resend(onResult: (sent: Boolean) -> Unit) {
+        val state = frostSigningUIState as? FrostSigningUIState.Loaded ?: return
+        val sessionId = state.session?.id ?: return
+
+        if (isActionPending.value) return
+        isActionPending.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val sent = frostSigningRepository.resend(
+                localChatRoom = state.localChatRoom,
+                sessionId = sessionId
+            )
+
+            isActionPending.value = false
+
+            viewModelScope.launch(Dispatchers.Main) { onResult.invoke(sent) }
+        }
+    }
+
     fun decline(onDone: () -> Unit) {
         val state = frostSigningUIState as? FrostSigningUIState.Loaded ?: return
         val sessionId = state.session?.id ?: return
