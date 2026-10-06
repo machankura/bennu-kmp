@@ -27,6 +27,7 @@ import to.curare.compose.database.model.FrostSignerMessage
 import to.curare.compose.database.model.FrostSigningItem
 import to.curare.compose.database.model.FrostSigningSession
 import to.curare.compose.database.model.GiftWrapPayload
+import to.curare.compose.database.model.MarmotInnerEvent
 import to.curare.compose.database.model.NostrEvent
 import to.curare.compose.database.model.Participant
 import to.curare.compose.database.model.Profile
@@ -96,7 +97,7 @@ class FrostSigningResendJvmTest {
      * state -- so a payload is sealed per p-tag, and narrowing a resend to the
      * quiet members is visible only if there is somebody to leave out.
      */
-    private suspend fun openDevice(owner: HexKey = alice) {
+    private suspend fun openDevice(owner: HexKey = alice, marmot: Boolean = false) {
         db = getRoomDatabase(Room.inMemoryDatabaseBuilder<CurareDatabase>())
 
         val index = members.indexOf(owner)
@@ -119,7 +120,10 @@ class FrostSigningResendJvmTest {
             userPublicKey = owner,
             subject = "#Ekklesia",
             description = SharedKeyDerivation.describe("Admins of the group."),
-            mlsGroupState = null
+            // No MLS state is what marks a room NIP-17, and it is the only thing
+            // `broadcast` reads to choose a transport. A dummy blob is what every
+            // other test in this project uses to stand a Marmot room up.
+            mlsGroupState = if (marmot) "state" else null
         )
         db.chatRoomDao().upsert(chatRoom)
 
@@ -272,6 +276,20 @@ class FrostSigningResendJvmTest {
     private suspend fun queued(kind: Kind) = db.giftWrapPayloadDao()
         .getByChatRoomAndKinds(roomId, listOf(kind))
         .filter { it.publicKey == room.chatRoom.userPublicKey }
+
+    /** What this device has queued for a Marmot room, of one kind. */
+    private suspend fun queuedInner(kind: Kind) = db.marmotInnerEventDao()
+        .getByChatRoomAndKinds(roomId, listOf(kind))
+        .filter { it.publicKey == room.chatRoom.userPublicKey }
+
+    /** [queuedBy]'s twin for the Marmot transport, and by id for the same reason. */
+    private suspend fun queuedInnerBy(kind: Kind, publish: suspend () -> Unit): MarmotInnerEvent {
+        val before = queuedInner(kind).map { it.id }.toSet()
+        publish()
+        val after = queuedInner(kind).filter { it.id !in before }
+        assertEquals(1, after.size, "expected exactly one new queued inner event of kind $kind")
+        return after.single()
+    }
 
     private fun pTags(tags: Array<Array<String>>): Set<HexKey> =
         tags.filter { it[0] == "p" }.map { it[1] }.toSet()
@@ -635,6 +653,191 @@ class FrostSigningResendJvmTest {
         // line -- and this device's session was written straight to the row,
         // so there is no first one either.
         assertTrue(transcript(ChatMessage.TYPE_FROST_STARTED).isEmpty())
+    }
+
+    // ---- the transport every ordinary session actually uses ---------------
+
+    @Test
+    fun `a resend in a Marmot room is one group event that names nobody`() = runBlocking {
+        openDevice(alice, marmot = true)
+        val session = propose()
+
+        // The transport the admin room uses, and so the one almost every
+        // signature is made on -- NIP-17 is only a group's first. One group
+        // event reaches everybody, and every receiver folds the duplicate away.
+        val resent = queuedInnerBy(FrostSigningEvents.PROPOSAL) { assertTrue(resend(session.id)) }
+
+        assertEquals(2, queuedInner(FrostSigningEvents.PROPOSAL).size)
+        assertTrue(queued(FrostSigningEvents.PROPOSAL).isEmpty(), "no gift wrap on this transport")
+
+        // A group event is encrypted to the group, and who is in it is the MLS
+        // tree's business -- so this names nobody, and there is nothing here to
+        // narrow or to get wrong the way the NIP-17 p-tags were.
+        assertTrue(pTags(resent.tags).isEmpty())
+        assertEquals(
+            setOf(bob, carol),
+            FrostSigningEvents.parseSilentMembers(resent.tags)?.toSet(),
+            "who it is for still travels, in the tag rather than the addressing"
+        )
+        assertEquals(ceremonyId, FrostSigningEvents.parseKey(resent.tags))
+    }
+
+    @Test
+    fun `a nudged member in a Marmot room republishes as a group event`() = runBlocking {
+        openDevice(bob, marmot = true)
+        val session = proposalArrivedAt(bob)
+
+        FrostSigningManager.approve(database = db, localChatRoom = room, sessionId = session.id)
+        val first = queuedInner(FrostSigningEvents.NONCE)
+        assertEquals(1, first.size)
+
+        val resent = queuedInnerBy(FrostSigningEvents.NONCE) {
+            receive(session.id, FrostSigningEvents.PROPOSAL, alice, proposalContent(), silent = listOf(bob))
+        }
+
+        assertEquals(2, queuedInner(FrostSigningEvents.NONCE).size)
+        assertEquals(first.single().content, resent.content, "the same bytes on this transport too")
+    }
+
+    @Test
+    fun `two resends in the same second do not collide in a Marmot room`() = runBlocking {
+        openDevice(alice, marmot = true)
+        val session = propose()
+
+        assertTrue(resend(session.id))
+        db.frostSigningSessionDao().upsert(session(session.id).copy(resentAt = null))
+        assertTrue(resend(session.id))
+
+        // The id guard reads whichever store the room's transport writes to, so
+        // it has to be checked on both. A collision here would put an
+        // already-sent inner event back on the queue with its
+        // marmotGroupEventId cleared, losing the group event it became.
+        val proposals = queuedInner(FrostSigningEvents.PROPOSAL)
+        assertEquals(3, proposals.size)
+        assertEquals(3, proposals.map { it.id }.toSet().size)
+    }
+
+    // ---- the branches the stage table picks -------------------------------
+
+    @Test
+    fun `a resend while collecting partial signatures repeats the signer set`() = runBlocking {
+        openDevice()
+        val session = propose()
+
+        // The middle branch of the stage table, and the one a member stalls on:
+        // they have the proposal and their nonce is in, but the signer set that
+        // tells them what to sign against never arrived.
+        db.frostSigningSessionDao().upsertItems(
+            db.frostSigningSessionDao().getItems(session.id).map {
+                it.copy(aggregatedNonce = "ab".repeat(33))
+            }
+        )
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(
+                signerIds = "0,1",
+                stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES
+            )
+        )
+
+        assertTrue(resend(session.id))
+
+        val signerSet = queued(FrostSigningEvents.SIGNER_SET)
+        assertEquals(1, signerSet.size)
+        assertEquals("ab".repeat(33), signerSet.single().content)
+        assertEquals(listOf(0, 1), FrostSigningEvents.parseSignerIds(signerSet.single().tags))
+
+        // And the proposal with it, because a device holding neither can file
+        // neither: a signer set naming ids it has no items for is dropped.
+        assertEquals(2, queued(FrostSigningEvents.PROPOSAL).size)
+        assertTrue(queued(FrostSigningEvents.SIGNATURE).isEmpty())
+    }
+
+    @Test
+    fun `a resend sends no signer set before one has been chosen`() = runBlocking {
+        openDevice()
+        val session = propose()
+
+        assertTrue(resend(session.id))
+
+        // COLLECTING_NONCES: there is nothing but the proposal to repeat.
+        assertEquals(2, queued(FrostSigningEvents.PROPOSAL).size)
+        assertTrue(queued(FrostSigningEvents.SIGNER_SET).isEmpty())
+        assertTrue(queued(FrostSigningEvents.SIGNATURE).isEmpty())
+    }
+
+    @Test
+    fun `a nudged member republishes the partial signature they already sent`() = runBlocking {
+        openDevice(bob)
+        val session = proposalArrivedAt(bob)
+
+        // The third kind `republishOwn` repeats. A partial signature is read by
+        // nobody but the coordinator, so one lost on the way to them stalls a
+        // session that has every other piece it needs.
+        db.frostSigningSessionDao().upsert(
+            FrostSignerMessage(
+                sessionId = session.id,
+                signerPublicKey = bob,
+                kind = FrostSigningEvents.PARTIAL_SIGNATURE,
+                payload = "9".repeat(64)
+            )
+        )
+
+        val resent = queuedBy(FrostSigningEvents.PARTIAL_SIGNATURE) {
+            receive(session.id, FrostSigningEvents.PROPOSAL, alice, proposalContent(), silent = listOf(bob))
+        }
+
+        assertEquals("9".repeat(64), resent.content)
+    }
+
+    // ---- refusals and wording ---------------------------------------------
+
+    @Test
+    fun `a resend refuses a proposal whose stored events will not parse`() = runBlocking {
+        openDevice()
+        val session = propose()
+
+        db.frostSigningSessionDao().upsertItems(
+            db.frostSigningSessionDao().getItems(session.id).map {
+                it.copy(unsignedEventJson = "not an event")
+            }
+        )
+
+        // Refused rather than shortened. A proposal that quietly lost an event
+        // would have every signer's contribution rejected for being the wrong
+        // length, which is a stall with nothing to blame.
+        assertFalse(resend(session.id))
+        assertEquals(1, queued(FrostSigningEvents.PROPOSAL).size)
+        assertNull(session(session.id).resentAt)
+    }
+
+    @Test
+    fun `a silent tag on anything but a proposal is ignored`() = runBlocking {
+        openDevice(bob)
+        val session = proposalArrivedAt(bob)
+
+        FrostSigningManager.approve(database = db, localChatRoom = room, sessionId = session.id)
+        assertEquals(1, queued(FrostSigningEvents.NONCE).size)
+
+        // The nudge rides a proposal because a device with no session has
+        // nowhere to file a bare one. A tag on another kind is not a nudge, and
+        // honouring it would be a publish triggered by any message at all.
+        receive(session.id, FrostSigningEvents.NONCE, alice, "f".repeat(132), silent = listOf(bob))
+
+        assertEquals(1, queued(FrostSigningEvents.NONCE).size)
+    }
+
+    @Test
+    fun `the transcript says one member when only one is quiet`() = runBlocking {
+        openDevice()
+        val session = propose()
+
+        receive(session.id, FrostSigningEvents.DECLINE, bob, "Declined to sign")
+
+        assertTrue(resend(session.id))
+
+        val line = transcript(ChatMessage.TYPE_FROST_RESENT).single()
+        assertTrue(line.content.contains("the member"), "got: ${line.content}")
+        assertFalse(line.content.contains("1 members"))
     }
 
     /** What a resent proposal carries: the events of [proposalArrivedAt]'s session. */
