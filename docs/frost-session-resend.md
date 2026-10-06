@@ -316,6 +316,10 @@ bounds how often that can happen.
 
 ## Phase 4 — schema 24 → 25: `resentAt`
 
+*Landed with Phase 2 rather than after it: `resend` needs the column for its
+cooldown, and writing it twice to keep the phases apart would have been
+ceremony.*
+
 A nullable `Instant?` on `FrostSigningSession`, written by `resend`:
 
 ```kotlin
@@ -438,8 +442,13 @@ if (state.canResend) {
 Per `CLAUDE.md`, and each of these is enforced by `./gradlew :composeApp:m3Audit`:
 
 - strings in `composeApp/src/commonMain/composeResources/values/strings.xml`, in
-  **sentence case**: `ask_again`, `these_members_have_not_answered`,
-  `asked_again`, `asked_again_recently`. Counts interpolate as `%1$d`.
+  **sentence case**: `asked_again`, `one_member_has_not_answered`,
+  `members_have_not_answered`, `asked_again_recently`,
+  `everyone_has_answered_this_session`. The count interpolates as `%1$s`, which
+  is what the catalogue's other counted strings use. `ask_again` was already
+  there for re-querying a list's relays and means exactly this, so it is reused
+  rather than duplicated — two keys with one label is how a translator comes to
+  pick two different words for one idea.
 - spacing from `MaterialTheme.spacing`; no `.dp` literal in a spacing position.
 - the icon is beside its label, so `contentDescription = Decorative` — decided, not
   `null`.
@@ -522,6 +531,25 @@ The one ordering constraint: Phase 1's tag must ship no later than Phase 2, beca
 a resent proposal with no silent tag is a resend whose second half silently does
 nothing. Phases 4 through 7 can land after, and Phase 8's tests should land with the
 phase they test rather than at the end.
+
+### What landing it turned up
+
+Two things worth recording, both of them in `broadcast` and neither of them about
+resend as such.
+
+**The id collision was real, and the guard needed a second half.** `broadcast`
+now steps past a taken id rather than upserting over it, and returns whether it
+queued anything. That return is load-bearing: `publishOwn` writes the local copy
+that stops [advance] from publishing a message again, so a `broadcast` that
+queued nothing must record nothing, or the group waits forever on a message that
+never went out. The comment on `publishOwn` had the trade written down in one
+direction only.
+
+**Narrowing is a `recipientTags` change, not a `broadcast` branch.** On NIP-17 a
+resend names the quiet members and the signers; on Marmot the parameter is
+ignored, because a group event is encrypted to the group and names nobody. One
+optional argument covers both, which is the shape `broadcast` already had for
+the transports.
 
 ## What this does not do
 

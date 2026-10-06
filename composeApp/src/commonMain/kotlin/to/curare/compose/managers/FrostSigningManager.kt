@@ -2312,6 +2312,10 @@ object FrostSigningManager {
      * has no local copy of. A crash between the two therefore costs a duplicate
      * broadcast — which every receiver folds away — rather than a message the
      * group waits on forever.
+     *
+     * Which cuts both ways, so a [broadcast] that queued nothing records
+     * nothing: the local copy is the thing that stops the next pass from trying
+     * again.
      */
     private suspend fun publishOwn(
         database: CurareDatabase,
@@ -2320,7 +2324,11 @@ object FrostSigningManager {
         kind: Kind,
         content: String
     ) {
-        broadcast(database, localChatRoom, session, kind, content)
+        // Nothing is recorded if nothing was queued. The local copy is what stops
+        // [advance] from publishing this again, so writing one for a message that
+        // did not go out would be a message the group waits on forever -- the
+        // opposite of the trade this order is for.
+        if (!broadcast(database, localChatRoom, session, kind, content)) return
 
         val known = ownMessage(database, session, kind) != null
 
@@ -2369,7 +2377,7 @@ object FrostSigningManager {
         signerIds: List<Int>? = null,
         silentMembers: List<HexKey>? = null,
         recipients: Set<HexKey>? = null
-    ) {
+    ): Boolean {
         val sessionTags = FrostSigningEvents.assembleTags(
             sessionId = session.id,
             dkgSessionId = if (includeKey) session.dkgSessionId else null,
@@ -2432,7 +2440,7 @@ object FrostSigningManager {
                 "Session ${session.id}: kind $kind already queued at every second tried; " +
                     "not publishing it again"
             )
-            return
+            return false
         }
 
         if (isMarmotRoom) {
@@ -2460,6 +2468,8 @@ object FrostSigningManager {
                 )
             )
         }
+
+        return true
     }
 
     /** Whether this id is already an outbound row on the room's transport. */
