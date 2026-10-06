@@ -91,6 +91,17 @@ interface FrostSigningSessionDao {
     @Query("SELECT * FROM FrostSignerMessage WHERE sessionId = :sessionId ORDER BY createdAt ASC")
     fun observeMessages(sessionId: String): Flow<List<FrostSignerMessage>>
 
+    /**
+     * Every message a session has received, of every kind.
+     *
+     * What a resend reads to work out who has said nothing at all: a member with
+     * any row here has answered -- offered a nonce, signed their part, or
+     * refused -- and is not somebody to knock on the door of. See
+     * `FrostSigningManager.silentMembers`.
+     */
+    @Query("SELECT * FROM FrostSignerMessage WHERE sessionId = :sessionId ORDER BY createdAt ASC")
+    suspend fun getMessagesForSession(sessionId: String): List<FrostSignerMessage>
+
     @Query("SELECT COUNT(*) FROM FrostSignerMessage WHERE sessionId = :sessionId AND kind = :kind")
     suspend fun countMessagesByKind(sessionId: String, kind: Kind): Int
 

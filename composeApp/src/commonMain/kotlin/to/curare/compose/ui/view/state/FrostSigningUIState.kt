@@ -1,11 +1,15 @@
 package to.curare.compose.ui.view.state
 
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import kotlin.time.Clock
+import kotlin.time.Instant
 import to.curare.compose.database.model.FrostSigningItem
 import to.curare.compose.database.model.FrostSigningSession
 import to.curare.compose.database.model.Participant
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.database.model.intermdiate.LocalParticipant
+import to.curare.compose.database.model.types.FrostSigningStage
+import to.curare.compose.managers.FrostSigningManager
 
 sealed interface FrostSigningUIState {
     data class Loaded(
@@ -76,6 +80,52 @@ sealed interface FrostSigningUIState {
 
             return inRoom + elsewhere
         }
+
+        /**
+         * The share holders this session has heard nothing at all from.
+         *
+         * Whose door to knock on, as a set rather than as a list of rows: it is
+         * what decides whether there is anything to knock about. A member who
+         * refused is not here -- they answered, and asking again would be asking
+         * a question they have closed.
+         *
+         * Derived rather than collected. Everything it is made of is already on
+         * this state, and a second flow for it would be a second thing that can
+         * disagree with the rows the screen draws.
+         */
+        val silent: Set<HexKey> get() =
+            shareHolders - offeredNonce - signed - declined - localChatRoom.chatRoom.userPublicKey
+
+        /**
+         * Whether this device may ask the quiet members to take another look.
+         *
+         * The coordinator's, and nobody else's: `acceptProposal` takes a
+         * session's coordinator from the author of the proposal that opened it,
+         * so a resend from anybody else would have a member who was missing the
+         * session believe the resender coordinates -- and then drop the real
+         * coordinator's signer set. See `FrostSigningManager.resend`.
+         *
+         * An abandoned session is not resent either. Its nonce seeds have been
+         * published against an aggregate already, so the retry is a fresh
+         * proposal, which is what the status line says.
+         *
+         * The cooldown is deliberately not read here. A control that vanishes
+         * after a tap reads as one that failed, so the section stays and the
+         * button inside it is what goes quiet -- see [resendAvailableAt].
+         */
+        val canResend: Boolean get() {
+            val session = session ?: return false
+
+            return session.isCoordinator() &&
+                session.stage != FrostSigningStage.FAILED &&
+                items.isNotEmpty() &&
+                silent.isNotEmpty()
+        }
+
+        /** When the next resend may go out, or null when one may go out now. */
+        val resendAvailableAt: Instant? get() = session?.resentAt
+            ?.plus(FrostSigningManager.RESEND_COOLDOWN)
+            ?.takeIf { it > Clock.System.now() }
     }
 
     data class Error(

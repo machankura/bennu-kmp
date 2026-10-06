@@ -1,12 +1,14 @@
 package to.curare.compose.nostr.frost
 
 import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
 import kotlinx.serialization.json.jsonArray
 import to.curare.compose.network.serialization.CommonJson
 import to.curare.compose.nostr.frost.tags.FrostKeyTag
 import to.curare.compose.nostr.frost.tags.FrostSessionIdTag
 import to.curare.compose.nostr.frost.tags.FrostSignerIdsTag
+import to.curare.compose.nostr.frost.tags.FrostSilentMembersTag
 
 /**
  * The nostr kinds a FROST signing session is carried on.
@@ -121,15 +123,22 @@ object FrostSigningEvents {
     /**
      * Tags for a signing message. The session id is on every kind so a message
      * from an abandoned attempt can be dropped rather than mixed in.
+     *
+     * [silentMembers] rides a resent proposal and nothing else. It is additive
+     * in the only sense that matters: a build that does not know the tag ignores
+     * it and accepts the proposal it is attached to, which is the half of a
+     * resend that fixes the common case anyway. See [FrostSilentMembersTag].
      */
     fun assembleTags(
         sessionId: String,
         dkgSessionId: String? = null,
-        signerIds: List<Int>? = null
+        signerIds: List<Int>? = null,
+        silentMembers: List<HexKey>? = null
     ): Array<Array<String>> = buildList {
         add(FrostSessionIdTag.assemble(sessionId))
         dkgSessionId?.let { add(FrostKeyTag.assemble(it)) }
         signerIds?.let { add(FrostSignerIdsTag.assemble(it)) }
+        silentMembers?.takeIf { it.isNotEmpty() }?.let { add(FrostSilentMembersTag.assemble(it)) }
     }.toTypedArray()
 
     fun parseSessionId(tags: Array<Array<String>>): String? =
@@ -140,6 +149,13 @@ object FrostSigningEvents {
 
     fun parseSignerIds(tags: Array<Array<String>>): List<Int>? =
         tags.firstNotNullOfOrNull(FrostSignerIdsTag::parse)?.signerIds
+
+    /**
+     * Who the coordinator says it has not heard from, or null on any proposal
+     * that is not a resend.
+     */
+    fun parseSilentMembers(tags: Array<Array<String>>): List<HexKey>? =
+        tags.firstNotNullOfOrNull(FrostSilentMembersTag::parse)?.members
 
     /**
      * The unsigned events of a proposal, as its content.

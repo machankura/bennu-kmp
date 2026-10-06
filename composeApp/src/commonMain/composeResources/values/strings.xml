@@ -196,6 +196,11 @@
     <string name="propose_translation">Propose translation</string>
     <string name="publish_new_key_package">Publish new key package</string>
     <string name="re_broadcast">Re-broadcast</string>
+    <string name="asked_again">Asked the members who have not answered to take another look</string>
+    <string name="everyone_has_answered_this_session">Everyone has answered. There is nobody left to ask.</string>
+    <string name="one_member_has_not_answered">One member has not answered. They may never have received it.</string>
+    <string name="members_have_not_answered">%1$s members have not answered. They may never have received it.</string>
+    <string name="asked_again_recently">Asked again just now. You can ask again in a few minutes.</string>
     <string name="read_to_the_end_of_the_list_to_sign">Read to the end of the list to sign.</string>
     <string name="recovery_phrase">Recovery phrase</string>
     <string name="ready_to_sign">Ready to sign</string>

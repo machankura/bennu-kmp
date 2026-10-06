@@ -85,7 +85,14 @@ back afterwards. So the sequence is
 4. the exception is swallowed, the event yields no `ApplicationMessage`
 
 Step 3 is terminal. The key is derived from a ratchet that has moved past it and
-cannot be recovered, and nothing asks the sender to resend.
+cannot be recovered.
+
+Nothing *asked* the sender to resend, either, which is a second gap and a
+narrower one. A FROST signing session now has a resend: the proposer repeats what
+it wrote, and the repeat names the members it has heard nothing from so their own
+devices repeat what they wrote. See
+[frost-session-resend.md](./frost-session-resend.md). It is a recovery driven by
+somebody noticing, not a fix — the fix is below, and it is in quartz.
 
 Verified against the published artifact rather than a checkout:
 `quartz-1.14.0-sources.jar`, `commonMain/com/vitorpamplona/quartz/marmot/mls/schedule/SecretTree.kt`.
@@ -194,6 +201,13 @@ It is not the fix, and it is worth being precise about what it leaves broken:
   rebuilds otherwise — dropping the skipped keys at that point, exactly as before.
 - **Nothing helps a long reorder.** A message the relay holds back until after a
   restart or an outbound send is gone.
+
+A message lost this way is gone for good, but it is not necessarily
+unrecoverable: a *new* message carrying the same payload is encrypted at a
+generation the receiver has not passed, so it decrypts normally. That is the
+whole mechanism behind
+[frost-session-resend.md](./frost-session-resend.md), and the same move would
+work for any other flow in the table above that someone can be asked to repeat.
 
 The staleness check is what keeps the cache from being *worse* than no cache: a
 group that has been overtaken by another writer is never carried on with, so the

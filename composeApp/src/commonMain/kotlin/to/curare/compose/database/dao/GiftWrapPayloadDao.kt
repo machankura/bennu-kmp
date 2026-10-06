@@ -53,6 +53,15 @@ interface GiftWrapPayloadDao {
     @Upsert
     suspend fun upsert(giftWrapPayload: GiftWrapPayload)
 
+    /**
+     * One row by its id. The same job as `MarmotInnerEventDao.getById`, for the
+     * other transport: an id is a hash over `created_at` to the second, so a
+     * re-publish inside that second collides with the copy it is repeating and
+     * an upsert would un-send it.
+     */
+    @Query("SELECT * FROM GiftWrapPayload WHERE id = :id")
+    suspend fun getById(id: String): GiftWrapPayload?
+
     @Insert
     suspend fun insert(giftWrapPayload: GiftWrapPayload)
 }
