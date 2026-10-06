@@ -1994,8 +1994,7 @@ object FrostSigningManager {
             kind = FrostSigningEvents.PROPOSAL,
             content = FrostSigningEvents.encodeProposal(unsigned),
             includeKey = true,
-            silentMembers = silent.toList(),
-            recipients = silent
+            silentMembers = silent.toList()
         )
 
         when (session.stage) {
@@ -2009,8 +2008,7 @@ object FrostSigningManager {
                         session = session,
                         kind = FrostSigningEvents.SIGNER_SET,
                         content = joinPayload(aggregated.map { it!! }),
-                        signerIds = chosen,
-                        recipients = silent
+                        signerIds = chosen
                     )
                 }
             }
@@ -2023,8 +2021,7 @@ object FrostSigningManager {
                         localChatRoom = localChatRoom,
                         session = session,
                         kind = FrostSigningEvents.SIGNATURE,
-                        content = joinPayload(signatures.map { it!! }),
-                        recipients = silent
+                        content = joinPayload(signatures.map { it!! })
                     )
                 }
             }
@@ -2109,14 +2106,18 @@ object FrostSigningManager {
                 "republishing ${own.size} message(s) it already sent"
         )
 
+        // To the room, not to the coordinator alone. Only the coordinator reads a
+        // nonce, so addressing one would be the honest shape -- but on NIP-17 the
+        // p-tag set is the room's identity rather than a recipient list, and
+        // naming fewer members files the message under a different room. See
+        // [recipientTags].
         own.forEach { message ->
             broadcast(
                 database = database,
                 localChatRoom = localChatRoom,
                 session = session,
                 kind = message.kind,
-                content = message.payload,
-                recipients = setOf(session.coordinatorPublicKey)
+                content = message.payload
             )
         }
     }
@@ -2375,8 +2376,7 @@ object FrostSigningManager {
         content: String,
         includeKey: Boolean = false,
         signerIds: List<Int>? = null,
-        silentMembers: List<HexKey>? = null,
-        recipients: Set<HexKey>? = null
+        silentMembers: List<HexKey>? = null
     ): Boolean {
         val sessionTags = FrostSigningEvents.assembleTags(
             sessionId = session.id,
@@ -2393,7 +2393,7 @@ object FrostSigningManager {
         val tags = if (isMarmotRoom) {
             sessionTags
         } else {
-            recipientTags(localChatRoom, session.userPublicKey, recipients) + sessionTags
+            recipientTags(localChatRoom, session.userPublicKey) + sessionTags
         }
 
         // The rumor id the outbound pipeline will recompute from these same
@@ -2491,21 +2491,29 @@ object FrostSigningManager {
      * records it locally. Deduplicated by member, since `localParticipants` is a
      * row list and a room can carry the same person twice.
      *
-     * [only] narrows it, for a resend: a wrap is sealed per recipient, so
-     * repeating a message for the two members who missed it costs two wraps
-     * rather than the room's worth. Null means everybody, which is what every
-     * first-time publish wants -- and a narrowing that matched nobody is read as
-     * null rather than as a message addressed to no one, since an untagged
-     * NIP-17 payload reaches nobody at all.
+     * **Every member, always.** This list is not a recipient list that a caller
+     * may narrow -- on this transport it is the room's *identity*. A receiver
+     * computes the room a payload belongs to as
+     * `ChatRoom.deriveChatRoomId({sender} + p-tags)`; see
+     * `GiftWrapPayload.aggregatedParticipantsPublicKey`, which is what
+     * `GiftWrapSeal.decryptGiftWrapPayload` files an inbound payload under. Leave
+     * a member out and the id changes, so the message is filed under a room that
+     * is not the one it was sent in -- and `getOrCreateChatRoom` will mint that
+     * room rather than reject it, which turns a lost message into a phantom
+     * conversation in the reader's list.
+     *
+     * A resend was briefly narrowed to the members it was for, on the reasoning
+     * that a wrap is sealed per recipient and repeating one for the whole room
+     * wastes wraps. Both halves of that were wrong: the saving does not exist
+     * either, because `sealGiftWrapPayload` seals for every participant of the
+     * room it looks up rather than for the p-tags it was handed.
      */
     private fun recipientTags(
         localChatRoom: LocalChatRoom,
-        senderPublicKey: HexKey,
-        only: Set<HexKey>? = null
+        senderPublicKey: HexKey
     ): Array<Array<String>> = localChatRoom.localParticipants
         .distinctBy { it.participant.participantPublicKey }
         .filter { it.participant.participantPublicKey != senderPublicKey }
-        .filter { only.isNullOrEmpty() || it.participant.participantPublicKey in only }
         .map { localParticipant ->
             PTag.assemble(
                 localParticipant.participant.participantPublicKey,

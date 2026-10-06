@@ -257,10 +257,21 @@ group event reaches everybody, and every receiver folds the duplicate away, whic
 is cheaper than one message per silent member and tells the room nothing it does not
 already know.
 
-NIP-17 is the opposite — `recipientTags` seals one wrap per recipient — so there the
-resend narrows to the silent set plus the chosen signers, which is a real saving in
-a room where one member out of nine is quiet. This is the first signature a group
-makes, on gift wraps, per `GroupKeyStateManager.propose`.
+NIP-17 names everybody too, and the reason is worth getting right because the
+first version of this got it wrong. **On that transport the p-tag set is the
+room's identity, not a recipient list.** A receiver works out which room a payload
+belongs to by hashing the sender together with the p-tags —
+`GiftWrapPayload.aggregatedParticipantsPublicKey`, via `ChatRoom.deriveChatRoomId`
+— so leaving a member out changes the id, and the resend is filed under a room
+that does not exist. `getOrCreateChatRoom` then mints that room rather than
+rejecting it, which turns a repaired session into a phantom conversation in the
+reader's list.
+
+There is no saving to trade against that, either: `sealGiftWrapPayload` wraps for
+every participant of the room it looks up, not for the p-tags it was handed, so a
+narrowed payload costs exactly as many wraps as a full one. Who a resend is *for*
+travels in `frost_silent`, which is not part of the hash. This is the first
+signature a group makes, on gift wraps, per `GroupKeyStateManager.propose`.
 
 ## Phase 3 — a named member republishes what it authored
 
@@ -545,11 +556,18 @@ queued nothing must record nothing, or the group waits forever on a message that
 never went out. The comment on `publishOwn` had the trade written down in one
 direction only.
 
-**Narrowing is a `recipientTags` change, not a `broadcast` branch.** On NIP-17 a
-resend names the quiet members and the signers; on Marmot the parameter is
-ignored, because a group event is encrypted to the group and names nobody. One
-optional argument covers both, which is the shape `broadcast` already had for
-the transports.
+**Narrowing the recipients is not something this transport allows, and the test
+meant to prove it instead encoded the bug.** A resend was narrowed to the quiet
+members, with a passing test asserting the p-tags were narrowed. Both the code and
+the test were wrong about what a p-tag is for: on NIP-17 the set is hashed into
+the room id a receiver files the payload under, so a narrowed resend would have
+landed in a room nobody is in — and `getOrCreateChatRoom` would have created it.
+Found by asking whether the change was backwards compatible. It was; this was
+never a compatibility bug, it broke old and new receivers identically.
+
+The lesson is narrower than "assert behaviour, not bytes". The p-tags *are* the
+right thing to assert — they just mean something other than what they look like,
+and the assertion needed to be that they do not change.
 
 ## What this does not do
 
@@ -601,10 +619,12 @@ events where one does, and per `docs/marmot-direct-messages.md` every member of 
 group sees that a private message was sent and to whom — so a nudge would read as a
 side channel in a room where the nudge is public information anyway.
 
-**Narrowing the Marmot resend to the silent set.** There is no narrowing to do: a
-group event is encrypted to the group and names nobody, which is the point
-`broadcast` makes about why its p-tags are not cosmetic. Narrowing is real on
-NIP-17, where a wrap is sealed per recipient, and Phase 2 does it there.
+**Narrowing the resend to the silent set.** Tried, landed, and reverted. On Marmot
+there is nothing to narrow — a group event is encrypted to the group and names
+nobody. On NIP-17 it is actively wrong: the p-tag set is what a receiver hashes
+into the room id, so a narrowed resend lands in a room that does not exist, and it
+buys nothing anyway because the sealer wraps per room participant rather than per
+p-tag. See the transport note in Phase 2.
 
 **Resetting the queue row instead of writing a new one.** `@Upsert` of a
 `MarmotInnerEvent` with `marmotGroupEventId = null` puts an already-sent row back on
