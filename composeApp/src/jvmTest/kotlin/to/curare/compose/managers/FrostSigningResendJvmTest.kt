@@ -350,7 +350,7 @@ class FrostSigningResendJvmTest {
     }
 
     @Test
-    fun `a resend is narrowed to the members it is for`() = runBlocking {
+    fun `a resend names the whole room, because the p-tags are the room's identity`() = runBlocking {
         openDevice()
         val session = propose()
 
@@ -365,11 +365,17 @@ class FrostSigningResendJvmTest {
 
         val resent = queuedBy(FrostSigningEvents.PROPOSAL) { assertTrue(resend(session.id)) }
 
-        // A NIP-17 payload is sealed once per p-tag, so repeating a message for
-        // the one member who missed it should cost one wrap and not the room's
-        // worth. The first proposal named everybody; this one names Carol.
-        assertEquals(setOf(carol), pTags(resent.tags))
-        assertEquals(setOf(bob, carol), pTags(first.tags))
+        // Tempting to send this to Carol alone, and wrong. A receiver works out
+        // which room a NIP-17 payload belongs to by hashing the sender together
+        // with the p-tags -- `GiftWrapPayload.aggregatedParticipantsPublicKey`.
+        // Name fewer members and the id changes, so the resend is filed under a
+        // room that does not exist, and `getOrCreateChatRoom` mints it rather
+        // than rejecting it: a phantom conversation instead of a repaired
+        // session. Who the resend is *for* travels in the silent tag, which is
+        // not part of that hash.
+        assertEquals(pTags(first.tags), pTags(resent.tags))
+        assertEquals(setOf(bob, carol), pTags(resent.tags))
+        assertEquals(setOf(carol), FrostSigningEvents.parseSilentMembers(resent.tags)?.toSet())
     }
 
     @Test
@@ -526,20 +532,23 @@ class FrostSigningResendJvmTest {
     }
 
     @Test
-    fun `a republished nonce goes only to the coordinator`() = runBlocking {
+    fun `a republished nonce names the whole room`() = runBlocking {
         openDevice(bob)
         val session = proposalArrivedAt(bob)
 
         FrostSigningManager.approve(database = db, localChatRoom = room, sessionId = session.id)
+        val first = queued(FrostSigningEvents.NONCE).single()
 
         val resent = queuedBy(FrostSigningEvents.NONCE) {
             receive(session.id, FrostSigningEvents.PROPOSAL, alice, proposalContent(), silent = listOf(bob))
         }
 
-        // A nonce is read by nobody but the coordinator -- `orderedNonces` is
-        // called under `isCoordinator` -- so repeating it for the room would be
-        // two wraps spent telling people who do not look.
-        assertEquals(setOf(alice), pTags(resent.tags))
+        // Only the coordinator reads a nonce, so addressing one would be the
+        // honest shape -- and it would file the message under a two-person room
+        // that is not the one the session is running in. The p-tag set is the
+        // room's identity on this transport, not a recipient list.
+        assertEquals(pTags(first.tags), pTags(resent.tags))
+        assertEquals(setOf(alice, carol), pTags(resent.tags))
     }
 
     @Test
