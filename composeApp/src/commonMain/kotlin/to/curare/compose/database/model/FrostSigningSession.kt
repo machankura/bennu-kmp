@@ -152,6 +152,21 @@ data class FrostSigningSession(
     /** Whether the chat line asking for that approval has been written. */
     val approvalRequestedAt: Instant? = null,
 
+    /**
+     * When the coordinator last re-published this session, or null if never.
+     *
+     * Two jobs, and the second one is not cosmetic. It is the cooldown -- a
+     * resend is a publish, and a control that publishes on every tap fills a
+     * room with duplicates. And it keeps a second resend out of the same second
+     * as the first, where an outbound row's primary key is a hash over
+     * `createdAt` and a collision would replace a sent row with an unsent one;
+     * see `FrostSigningManager.broadcast`.
+     *
+     * Only ever written on the coordinator's own row. Null is what every
+     * session predating the column reads back as, which is what they all were.
+     */
+    val resentAt: Instant? = null,
+
     override val createdAt: Instant = Clock.System.now(),
     override val updatedAt: Instant = createdAt,
     override val savedAt: Instant = createdAt,

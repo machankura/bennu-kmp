@@ -126,6 +126,30 @@ interface FrostSigningRepository {
         dependents: (lead: Event) -> List<EventTemplate<*>>
     ): FrostSigningSession?
 
+    /**
+     * Re-publishes the messages this device wrote for a session, for the members
+     * it has heard nothing from.
+     *
+     * For a session left waiting on a member who has nothing to answer with: a
+     * group event that decrypted to nothing because MLS had moved past the
+     * generation it arrived at, a disappearing-message group that expired it off
+     * the relay, a member added to the room after the proposal was made. A
+     * resent message is a new message, so it is readable where the first one was
+     * not.
+     *
+     * **The coordinator's own messages, and nobody else's.** A member's nonce is
+     * read by nobody but the coordinator, who already has it -- which is how it
+     * knows who is quiet -- so there is nothing of theirs to repeat. And a
+     * message relayed by somebody else would be filed under the relayer, which
+     * for a refusal is a way to manufacture one. What the resend does for a
+     * silent member is name them, so their own device republishes what it
+     * already said.
+     *
+     * Returns false when there was nothing to do: not this device's session,
+     * already abandoned, nobody quiet, or inside the cooldown.
+     */
+    suspend fun resend(localChatRoom: LocalChatRoom, sessionId: String): Boolean
+
     /** Agrees to sign, letting the session publish this device's part and run on. */
     suspend fun approve(localChatRoom: LocalChatRoom, sessionId: String)
 
@@ -188,6 +212,11 @@ interface FrostSigningRepository {
                 lead: EventTemplate<*>,
                 dependents: (lead: Event) -> List<EventTemplate<*>>
             ): FrostSigningSession? = null
+
+            override suspend fun resend(
+                localChatRoom: LocalChatRoom,
+                sessionId: String
+            ): Boolean = false
 
             override suspend fun approve(localChatRoom: LocalChatRoom, sessionId: String) = Unit
 

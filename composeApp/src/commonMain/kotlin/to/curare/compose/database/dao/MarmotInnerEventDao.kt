@@ -38,6 +38,21 @@ interface MarmotInnerEventDao {
     suspend fun upsert(marmotInnerEvent: MarmotInnerEvent)
 
     /**
+     * One row by its id, for a caller that has to know whether an id is taken
+     * before it writes one.
+     *
+     * An outbound row's id is a hash over the fields the rumor will be assembled
+     * from, `created_at` among them and stored to the second -- so re-publishing
+     * the same message inside the same second as the first copy computes the
+     * same id. Upserting it would put an already-sent row back on the queue with
+     * `marmotGroupEventId` cleared, which double-sends it and loses its mapping
+     * to the group event it became. `FrostSigningManager.broadcast` checks here
+     * first.
+     */
+    @Query("SELECT * FROM MarmotInnerEvent WHERE id = :id")
+    suspend fun getById(id: String): MarmotInnerEvent?
+
+    /**
      * A room's inner events of the given kinds, oldest first.
      *
      * Used to replay a protocol backlog: a session's messages are stored as they

@@ -187,7 +187,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 24,
+    version = 25,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -362,6 +362,12 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // an obligation forgotten at a crash is a replacement commit at the next
         // start, which forks the group against whoever took the first one.
         AutoMigration(from = 23, to = 24),
+        // v25 adds FrostSigningSession.resentAt: when the coordinator last
+        // re-published a signing session for the members it had heard nothing
+        // from (docs/frost-session-resend.md, Phase 2). Nullable and nothing is
+        // backfilled -- a session that has never been resent reads null, which
+        // is what every session before the column was.
+        AutoMigration(from = 24, to = 25),
     ]
 )
 @ConstructedBy(CurareDatabaseConstructor::class)

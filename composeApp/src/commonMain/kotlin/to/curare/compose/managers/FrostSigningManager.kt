@@ -20,7 +20,9 @@ import fr.acinq.bitcoin.crypto.frost.SecretNonce
 import fr.acinq.bitcoin.crypto.frost.Session
 import fr.acinq.bitcoin.utils.Either
 import kotlin.time.Clock
+import kotlin.time.Duration
 import kotlin.time.Instant
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CancellationException
 import to.curare.compose.database.CurareDatabase
 import to.curare.compose.database.model.ChatMessage
@@ -151,6 +153,39 @@ object FrostSigningManager {
      * events, which does.
      */
     const val MAX_BATCH_SIZE: Int = 64
+
+    /**
+     * How many seconds [broadcast] will step forward looking for an unused
+     * outbound row id before giving up and publishing nothing.
+     *
+     * Only a repeat can collide at all -- a first publish differs from every
+     * stored row in its content or its kind -- so this is the number of times
+     * the same message can be re-published within one second. Four is past
+     * anything a person pressing a button can do, and the cooldown on
+     * `FrostSigningSession.resentAt` keeps it far from the limit.
+     */
+    private const val MAX_ID_SEARCH: Int = 4
+
+    /**
+     * How long after a resend the coordinator may send another.
+     *
+     * A resend is a publish. Without a floor under it a control that repeats a
+     * 64-event proposal becomes a control that fills a room with them, and two
+     * taps inside one second collide on the outbound row id -- see [broadcast].
+     * Long enough that a second knock means a person decided to knock again,
+     * short enough to be useful while somebody is watching the screen.
+     */
+    val RESEND_COOLDOWN: Duration = 5.minutes
+
+    /**
+     * The kinds a member authors for a session, and so the ones [republishOwn]
+     * may repeat. Everything else on the session is the coordinator's.
+     */
+    private val OWN_KINDS: List<Kind> = listOf(
+        FrostSigningEvents.NONCE,
+        FrostSigningEvents.PARTIAL_SIGNATURE,
+        FrostSigningEvents.DECLINE
+    )
 
     /**
      * Opens a signing session, making this device the coordinator.
@@ -355,6 +390,22 @@ object FrostSigningManager {
         if (session.stage == FrostSigningStage.FAILED) {
             logger.i("Session $sessionId already failed; ignoring kind ${innerEvent.kind}")
             return
+        }
+
+        // A resent proposal can carry the coordinator saying it has heard nothing
+        // from this device. If it has, this device says it again -- the same
+        // bytes, under its own key, because nobody else can send them for it.
+        //
+        // Ahead of [record] and [advance] so that a nonce lost on its way to the
+        // coordinator goes out on the same pass that learns it was lost. Only
+        // from the coordinator, and only messages already on file: see
+        // [republishOwn].
+        if (innerEvent.kind == FrostSigningEvents.PROPOSAL &&
+            innerEvent.pubKey == session.coordinatorPublicKey &&
+            FrostSigningEvents.parseSilentMembers(innerEvent.tags)
+                ?.contains(session.userPublicKey) == true
+        ) {
+            republishOwn(database, localChatRoom, session)
         }
 
         if (!record(database, session, innerEvent)) return
@@ -1816,6 +1867,260 @@ object FrostSigningManager {
      * because the local copy is not just a copy: filing it is what may end the
      * session, and [recordDecline] is the one place that decides.
      */
+    /**
+     * Re-publishes what this device wrote for a session, for the members it has
+     * heard nothing from. Returns whether anything went out.
+     *
+     * A member can be left with nothing at all for a session they would have
+     * agreed to. Several ways, and only some of them heal on their own: a group
+     * event that decrypted to nothing because MLS had moved its ratchet past the
+     * generation it arrived at, which is terminal at the receiver and invisible
+     * to the sender (`docs/mls-skipped-keys.md`); a disappearing-message group
+     * whose kind:445 expired off the relay before they synced; a member added to
+     * the room after the proposal, holding a share from an earlier ceremony. In
+     * each of them the session sits in [FrostSigningStage.COLLECTING_NONCES]
+     * until somebody gives up, and the member it was waiting on never knew.
+     *
+     * A resend repairs all three because a resent message is a *new* message:
+     * new `created_at`, new id, encrypted at a generation the receiver has not
+     * passed, carrying a fresh expiry.
+     *
+     * ### Only this device's own messages, and only the coordinator's
+     *
+     * What goes out is the proposal, the signer set and the signature -- the
+     * three the coordinator authors. A member's nonce, partial signature or
+     * refusal is not resent and cannot be: [record] files a signer's message
+     * under the inner event's own `pubKey`, so a relayed copy would be filed
+     * under the relayer, and for a refusal that is a way to manufacture one.
+     * Nor is there a need. A nonce and a partial signature are read by nobody
+     * but the coordinator -- [orderedNonces] and [orderedPartialSignatures] are
+     * both called under `isCoordinator` -- and the coordinator already holds
+     * them, which is how it knows who is quiet. What the resend does for a
+     * silent member instead is name them, in `FrostSilentMembersTag`, so their
+     * own device republishes what it already said. See [republishOwn].
+     *
+     * Coordinator-only, and that is correctness rather than etiquette.
+     * [acceptProposal] takes `coordinatorPublicKey` from the proposal's author,
+     * so a non-coordinator resending it to a member with no session row would
+     * have that member believe the resender coordinates -- and then drop the
+     * real coordinator's signer set through [isFromCoordinator].
+     *
+     * ### The minimum the stage requires
+     *
+     * | stage | what goes out |
+     * |---|---|
+     * | [FrostSigningStage.COLLECTING_NONCES] | the proposal |
+     * | [FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES] | the proposal, then the signer set |
+     * | [FrostSigningStage.COMPLETE] | the proposal, then the signature |
+     * | [FrostSigningStage.FAILED] | nothing -- refused |
+     *
+     * The proposal goes in every case because a device with no session row can
+     * apply nothing else: a signer set naming ids it has no items for, and a
+     * signature over events it has never seen, are both dropped.
+     * [FrostSigningStage.COMPLETE] is worth repeating rather than skipping --
+     * a member who never received the signature never ran [complete], so the
+     * signed events were never applied to their store.
+     *
+     * Two and not three, deliberately. Publishing in bursts is what the
+     * skipped-keys bug feeds on, and a recovery for it that re-creates it is no
+     * recovery. `MlsGroupCache` covers a burst decrypted in one sync, which is
+     * what makes [proposeSigningBatch]'s own two-message burst work; this stays
+     * inside the same budget.
+     *
+     * A failed session is refused rather than repaired. Its items' nonce seeds
+     * have been published against an aggregate already, so the retry is a fresh
+     * proposal and never this one again -- which is what [fail] tells the group.
+     */
+    suspend fun resend(
+        database: CurareDatabase,
+        localChatRoom: LocalChatRoom,
+        sessionId: String
+    ): Boolean {
+        val session = database.frostSigningSessionDao().getSessionById(sessionId) ?: return false
+
+        if (!session.isCoordinator()) {
+            logger.i("Session $sessionId was not proposed by this device; it is not ours to resend")
+            return false
+        }
+
+        if (session.stage == FrostSigningStage.FAILED) {
+            logger.i("Session $sessionId was abandoned; nothing to resend. Propose afresh instead")
+            return false
+        }
+
+        val items = database.frostSigningSessionDao().getItems(sessionId)
+        if (items.isEmpty()) {
+            logger.w("Session $sessionId holds no items; nothing to resend")
+            return false
+        }
+
+        val now = Clock.System.now()
+        session.resentAt?.let { last ->
+            if (now - last < RESEND_COOLDOWN) {
+                logger.i("Session $sessionId was resent less than $RESEND_COOLDOWN ago; not again yet")
+                return false
+            }
+        }
+
+        val silent = silentMembers(database, session)
+        if (silent.isEmpty()) {
+            logger.i("Session $sessionId has heard from every share holder; nothing to resend")
+            return false
+        }
+
+        val unsigned = items.mapNotNull { Event.fromJsonOrNull(it.unsignedEventJson) }
+        if (unsigned.size != items.size) {
+            // Refused rather than shortened. A proposal that quietly lost an
+            // event would have every signer's contribution rejected for being
+            // the wrong length, which is a stall with nothing to blame.
+            logger.w(
+                "Session $sessionId: only ${unsigned.size} of ${items.size} stored events could " +
+                    "be read; not resending a proposal that is missing one"
+            )
+            return false
+        }
+
+        logger.i(
+            "Resending session $sessionId at ${session.stage} to ${silent.size} member(s) " +
+                "(${silent.joinToString { it.take(8) }})"
+        )
+
+        // The proposal first, so a device that has nothing has somewhere to file
+        // what follows it.
+        broadcast(
+            database = database,
+            localChatRoom = localChatRoom,
+            session = session,
+            kind = FrostSigningEvents.PROPOSAL,
+            content = FrostSigningEvents.encodeProposal(unsigned),
+            includeKey = true,
+            silentMembers = silent.toList(),
+            recipients = silent
+        )
+
+        when (session.stage) {
+            FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES -> {
+                val chosen = session.signerIdList()
+                val aggregated = items.map { it.aggregatedNonce }
+                if (chosen != null && aggregated.all { it != null }) {
+                    broadcast(
+                        database = database,
+                        localChatRoom = localChatRoom,
+                        session = session,
+                        kind = FrostSigningEvents.SIGNER_SET,
+                        content = joinPayload(aggregated.map { it!! }),
+                        signerIds = chosen,
+                        recipients = silent
+                    )
+                }
+            }
+
+            FrostSigningStage.COMPLETE -> {
+                val signatures = items.map { it.signature }
+                if (signatures.all { it != null }) {
+                    broadcast(
+                        database = database,
+                        localChatRoom = localChatRoom,
+                        session = session,
+                        kind = FrostSigningEvents.SIGNATURE,
+                        content = joinPayload(signatures.map { it!! }),
+                        recipients = silent
+                    )
+                }
+            }
+
+            FrostSigningStage.COLLECTING_NONCES, FrostSigningStage.FAILED -> Unit
+        }
+
+        update(database, session) { it.copy(resentAt = now) }
+        announceResent(database, session, silent.size)
+
+        return true
+    }
+
+    /**
+     * The share holders this session has heard nothing at all from.
+     *
+     * Off the ceremony rather than off the room, like [recordDecline]'s own
+     * count and `FrostSigningUIState.Loaded.members`: a room can hold members
+     * added after its key was made who hold no share, and a subgroup's ceremony
+     * room is the parent, which holds everybody the subgroup is not. A door that
+     * cannot answer is not one to knock on.
+     *
+     * A member who declined is not silent. They answered, and the session is
+     * counting their refusal; knocking again would be asking a question they
+     * have already closed.
+     */
+    private suspend fun silentMembers(
+        database: CurareDatabase,
+        session: FrostSigningSession
+    ): Set<HexKey> {
+        val key = database.dkgSessionDao().getSessionById(session.dkgSessionId) ?: return emptySet()
+        val holders = signerIds(database, key).keys
+
+        val heardFrom = database.frostSigningSessionDao()
+            .getMessagesForSession(session.id)
+            .map { it.signerPublicKey }
+            .toSet()
+
+        return holders - heardFrom - session.userPublicKey
+    }
+
+    /**
+     * Re-publishes the messages *this* device authored for a session, because
+     * the coordinator says it never received them.
+     *
+     * The other half of a resend, and the only half that can repair a signal
+     * lost on its way *to* the coordinator. [advance] republishes a message it
+     * has no local copy of; a device that published its nonce and recorded it
+     * has a copy, so it will never send that nonce again however long the
+     * coordinator waits. This is how it learns to.
+     *
+     * The stored bytes, never regenerated. They are byte-identical either way --
+     * `SecretNonce.generate` is deterministic in the seed and the message, and
+     * an item's message cannot change -- so this cannot produce a second nonce
+     * for one message, which is the thing the whole design is arranged to make
+     * impossible. Reading the row just avoids k native key generations to arrive
+     * at the same answer.
+     *
+     * **It publishes nothing new.** Only messages already on file go out, so a
+     * device whose owner has not decided sends nothing and falls through to
+     * [advance], which does what it always does: write the approval request and
+     * wait on a person. A message from the coordinator must never be able to
+     * talk a device into putting its share behind events its owner has not
+     * agreed to -- that is [acceptProposal]'s "publishes nothing" rule, and the
+     * gate enforcing it is untouched.
+     *
+     * Caller checks that the request came from the coordinator. A member who
+     * could name another member as silent could make them publish on demand --
+     * the same bytes they already sent, so nothing on the wire changes, but it
+     * is not a trigger to leave lying around.
+     */
+    private suspend fun republishOwn(
+        database: CurareDatabase,
+        localChatRoom: LocalChatRoom,
+        session: FrostSigningSession
+    ) {
+        val own = OWN_KINDS.mapNotNull { kind -> ownMessage(database, session, kind) }
+        if (own.isEmpty()) return
+
+        logger.i(
+            "Session ${session.id}: the coordinator has not heard from this device; " +
+                "republishing ${own.size} message(s) it already sent"
+        )
+
+        own.forEach { message ->
+            broadcast(
+                database = database,
+                localChatRoom = localChatRoom,
+                session = session,
+                kind = message.kind,
+                content = message.payload,
+                recipients = setOf(session.coordinatorPublicKey)
+            )
+        }
+    }
+
     private suspend fun publishDecline(
         database: CurareDatabase,
         localChatRoom: LocalChatRoom,
@@ -1836,6 +2141,34 @@ object FrostSigningManager {
             session = session,
             member = session.userPublicKey,
             reason = reason
+        )
+    }
+
+    /**
+     * The line saying the coordinator knocked again.
+     *
+     * Its own type rather than another step: nothing moved, somebody asked. The
+     * ladder should show that the knock happened so that a second one reads as a
+     * second one -- which `FrostSigningSession.resentAt` makes true, since it is
+     * what stops a tap from writing a line without publishing anything.
+     *
+     * Counted rather than named. Who is quiet is on the screen above this line,
+     * member by member, and a transcript line listing four pubkeys is a line
+     * nobody reads.
+     */
+    private suspend fun announceResent(
+        database: CurareDatabase,
+        session: FrostSigningSession,
+        silent: Int
+    ) {
+        announce(
+            database = database,
+            session = session,
+            messageType = ChatMessage.TYPE_FROST_RESENT,
+            content = "asked " +
+                (if (silent == 1) "the member" else "the $silent members") +
+                " who have not answered to take another look.",
+            actor = session.coordinatorPublicKey
         )
     }
 
@@ -2033,12 +2366,15 @@ object FrostSigningManager {
         kind: Kind,
         content: String,
         includeKey: Boolean = false,
-        signerIds: List<Int>? = null
+        signerIds: List<Int>? = null,
+        silentMembers: List<HexKey>? = null,
+        recipients: Set<HexKey>? = null
     ) {
         val sessionTags = FrostSigningEvents.assembleTags(
             sessionId = session.id,
             dkgSessionId = if (includeKey) session.dkgSessionId else null,
-            signerIds = signerIds
+            signerIds = signerIds,
+            silentMembers = silentMembers
         )
 
         // No MLS state is what marks a room NIP-17 -- the same reading
@@ -2049,20 +2385,55 @@ object FrostSigningManager {
         val tags = if (isMarmotRoom) {
             sessionTags
         } else {
-            recipientTags(localChatRoom, session.userPublicKey) + sessionTags
+            recipientTags(localChatRoom, session.userPublicKey, recipients) + sessionTags
         }
 
-        val createdAt = Clock.System.now().epochSeconds
-
         // The rumor id the outbound pipeline will recompute from these same
-        // fields when it assembles the event to encrypt, on either transport.
-        val id = EventHasher.hashId(
+        // fields when it assembles the event to encrypt, on either transport --
+        // and with it the second this message claims to have been written in,
+        // because that second is one of the fields.
+        //
+        // Which is why this is a search and not an assignment. `created_at` is
+        // stored to the second, so a message re-published inside the same second
+        // as the copy it repeats hashes to the same id; upserting that would put
+        // an already-sent row back on the outbound queue with its
+        // `marmotGroupEventId` cleared -- sending the message twice and losing
+        // the row's mapping to the group event it became. So an id already in
+        // the store is stepped past rather than written over. One second of drift
+        // per collision is nothing a protocol message reads, and no caller
+        // publishes faster than [MAX_ID_SEARCH] identical messages a second.
+        var createdAt = Clock.System.now().epochSeconds
+        var id = EventHasher.hashId(
             pubKey = session.userPublicKey,
             createdAt = createdAt,
             tags = tags,
             content = content,
             kind = kind
         )
+        var attempts = 0
+
+        while (attempts < MAX_ID_SEARCH && isQueued(database, isMarmotRoom, id)) {
+            createdAt += 1
+            id = EventHasher.hashId(
+                pubKey = session.userPublicKey,
+                createdAt = createdAt,
+                tags = tags,
+                content = content,
+                kind = kind
+            )
+            attempts += 1
+        }
+
+        // Refused rather than written over. The row this would replace is a
+        // message this device has already queued or sent, and clearing its
+        // mapping is strictly worse than not repeating it.
+        if (attempts >= MAX_ID_SEARCH) {
+            logger.w(
+                "Session ${session.id}: kind $kind already queued at every second tried; " +
+                    "not publishing it again"
+            )
+            return
+        }
 
         if (isMarmotRoom) {
             database.marmotInnerEventDao().upsert(
@@ -2091,6 +2462,17 @@ object FrostSigningManager {
         }
     }
 
+    /** Whether this id is already an outbound row on the room's transport. */
+    private suspend fun isQueued(
+        database: CurareDatabase,
+        isMarmotRoom: Boolean,
+        id: HexKey
+    ): Boolean = if (isMarmotRoom) {
+        database.marmotInnerEventDao().getById(id) != null
+    } else {
+        database.giftWrapPayloadDao().getById(id) != null
+    }
+
     /**
      * One p-tag per member of a NIP-17 room, the sender excepted.
      *
@@ -2098,13 +2480,22 @@ object FrostSigningManager {
      * per recipient and this device already has its own copy -- `publishOwn`
      * records it locally. Deduplicated by member, since `localParticipants` is a
      * row list and a room can carry the same person twice.
+     *
+     * [only] narrows it, for a resend: a wrap is sealed per recipient, so
+     * repeating a message for the two members who missed it costs two wraps
+     * rather than the room's worth. Null means everybody, which is what every
+     * first-time publish wants -- and a narrowing that matched nobody is read as
+     * null rather than as a message addressed to no one, since an untagged
+     * NIP-17 payload reaches nobody at all.
      */
     private fun recipientTags(
         localChatRoom: LocalChatRoom,
-        senderPublicKey: HexKey
+        senderPublicKey: HexKey,
+        only: Set<HexKey>? = null
     ): Array<Array<String>> = localChatRoom.localParticipants
         .distinctBy { it.participant.participantPublicKey }
         .filter { it.participant.participantPublicKey != senderPublicKey }
+        .filter { only.isNullOrEmpty() || it.participant.participantPublicKey in only }
         .map { localParticipant ->
             PTag.assemble(
                 localParticipant.participant.participantPublicKey,

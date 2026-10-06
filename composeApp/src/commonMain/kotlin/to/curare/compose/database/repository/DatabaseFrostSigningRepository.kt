@@ -114,6 +114,20 @@ class DatabaseFrostSigningRepository(
         null
     }
 
+    override suspend fun resend(localChatRoom: LocalChatRoom, sessionId: String): Boolean = try {
+        FrostSigningManager.resend(
+            database = database,
+            localChatRoom = localChatRoom,
+            sessionId = sessionId
+        )
+    } catch (e: Throwable) {
+        // False rather than rethrown, for the reason `approve` swallows: a
+        // resend is a repair, and a repair that takes the screen down with it is
+        // worse than one that did not happen.
+        logger.e("Error resending signing session $sessionId", e)
+        false
+    }
+
     override suspend fun approve(localChatRoom: LocalChatRoom, sessionId: String) {
         try {
             FrostSigningManager.approve(

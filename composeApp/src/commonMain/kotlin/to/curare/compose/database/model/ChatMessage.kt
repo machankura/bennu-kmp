@@ -291,6 +291,19 @@ data class ChatMessage(
          */
         const val TYPE_FROST_DECLINED = "frostDeclined"
 
+        /**
+         * The coordinator re-published a session for the members it had heard
+         * nothing from.
+         *
+         * Its own type rather than a step, because nothing moved: somebody
+         * knocked. A session can be left waiting on a member whose copy of the
+         * proposal never arrived -- MLS dropped the generation, or a
+         * disappearing-message group expired it off the relay -- and a resend is
+         * the only thing that reaches them. The line exists so a second knock
+         * reads as a second knock. See docs/frost-session-resend.md.
+         */
+        const val TYPE_FROST_RESENT = "frostResent"
+
         /** Addressed to the reader rather than said by anyone -- see [DKG_REQUEST_TYPES]. */
         const val TYPE_FROST_APPROVAL_NEEDED = "frostApprovalNeeded"
 
@@ -337,6 +350,7 @@ data class ChatMessage(
             TYPE_FROST_COMPLETE,
             TYPE_FROST_FAILED,
             TYPE_FROST_DECLINED,
+            TYPE_FROST_RESENT,
             TYPE_FROST_APPROVAL_NEEDED,
         )
 
@@ -354,6 +368,7 @@ data class ChatMessage(
             TYPE_FROST_SIGNATURE,
             TYPE_FROST_FAILED,
             TYPE_FROST_DECLINED,
+            TYPE_FROST_RESENT,
         )
 
         val DKG_AUTHORED_TYPES = setOf(
