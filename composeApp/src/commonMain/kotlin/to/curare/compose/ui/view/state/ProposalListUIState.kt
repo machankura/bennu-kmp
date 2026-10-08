@@ -2,6 +2,7 @@ package to.curare.compose.ui.view.state
 
 import to.curare.compose.database.model.FrostSigningSession
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
+import to.curare.compose.database.model.types.FrostSigningStage
 import to.curare.compose.text.ProposedEvent
 
 sealed interface ProposalListUIState {
@@ -10,6 +11,16 @@ sealed interface ProposalListUIState {
 
         /** Every proposal the room has made, newest first. */
         val proposals: List<Proposal> = emptyList(),
+
+        /**
+         * Which of them the reader has asked to see.
+         *
+         * Held on the state and not only on the view model, because the chips
+         * have to draw the current selection and the counts beside it in the
+         * same pass that draws the rows it selected -- a selection the row list
+         * disagreed with would be a chip marked for a filter that is not applied.
+         */
+        val filter: ProposalFilter = ProposalFilter.ALL,
     ): ProposalListUIState {
         /**
          * The ones that cannot move until this member answers them.
@@ -21,9 +32,35 @@ sealed interface ProposalListUIState {
          * the second one under the first one's history is the whole reason this
          * screen exists.
          */
-        val waitingForYou: List<Proposal> = proposals.filter { it.awaitsYou }
+        val waitingForYou: List<Proposal> = proposals.filter { it.state == ProposalState.NEEDS_YOU }
 
-        val rest: List<Proposal> = proposals.filterNot { it.awaitsYou }
+        val rest: List<Proposal> = proposals.filterNot { it.state == ProposalState.NEEDS_YOU }
+
+        /**
+         * The rows [filter] actually asks for.
+         *
+         * [proposals] is left whole beside it, because the counts on the chips
+         * are counts of the room and not of the selection -- a chip that read
+         * its own number off the filtered list would say 0 for every filter but
+         * the chosen one.
+         */
+        val visible: List<Proposal> = when (val only = filter.state) {
+            null -> proposals
+            else -> proposals.filter { it.state == only }
+        }
+
+        /**
+         * How many proposals are in each state, for the number on each chip.
+         *
+         * Every state is present, zero included: a room that has never
+         * abandoned a proposal still gets an "abandoned" chip reading 0, because
+         * a chip row that gains and loses chips as sessions advance moves under
+         * the thumb of the person reading it -- and sessions advance while this
+         * screen is open, which is the whole reason the screen exists.
+         */
+        val counts: Map<ProposalState, Int> = ProposalState.entries.associateWith { state ->
+            proposals.count { it.state == state }
+        }
     }
 
     /**
@@ -59,6 +96,37 @@ sealed interface ProposalListUIState {
     ) {
         /** The batch's size, readable or not. */
         val eventCount: Int get() = signs.size + unreadable
+
+        /**
+         * Where it has got to, in the terms the screen reads it in.
+         *
+         * Asked once here rather than at each of the four places that used to
+         * work it out for themselves -- the section split, the row's icon, that
+         * icon's description, and the status line. They were four `when` chains
+         * over the same two facts, and the chips would have been a fifth; the
+         * way a chip comes to count a proposal the row beneath it describes
+         * differently is by asking the question again.
+         *
+         * [awaitsYou] is tried first and wins, because it is the one state that
+         * is not a stage: an open session waiting on this member and an open
+         * session waiting on everybody else are both `COLLECTING_NONCES`.
+         *
+         * The inner `when` is exhaustive on purpose, with no `else`. A stage
+         * added to `FrostSigningStage` later should fail to compile here rather
+         * than quietly land in [ProposalState.IN_PROGRESS], because whether it
+         * is an ending is the one thing this file cannot guess.
+         */
+        val state: ProposalState get() = when {
+            awaitsYou -> ProposalState.NEEDS_YOU
+
+            else -> when (session.stage) {
+                FrostSigningStage.COLLECTING_NONCES,
+                FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES -> ProposalState.IN_PROGRESS
+
+                FrostSigningStage.COMPLETE -> ProposalState.SIGNED
+                FrostSigningStage.FAILED -> ProposalState.ABANDONED
+            }
+        }
     }
 
     data class Error(

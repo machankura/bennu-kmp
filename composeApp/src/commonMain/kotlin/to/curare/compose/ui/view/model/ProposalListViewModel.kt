@@ -19,6 +19,7 @@ import to.curare.compose.managers.FrostSigningManager
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
 import to.curare.compose.text.ProposedEvent
+import to.curare.compose.ui.view.state.ProposalFilter
 import to.curare.compose.ui.view.state.ProposalListUIState
 
 /**
@@ -35,12 +36,36 @@ class ProposalListViewModel(
     initialProposalListUIState: ProposalListUIState,
     val chatRepository: ChatRepository,
     val frostSigningRepository: FrostSigningRepository,
+    initialFilter: ProposalFilter = ProposalFilter.ALL,
 ): ViewModel() {
 
     var proposalListUIState: ProposalListUIState by mutableStateOf(initialProposalListUIState)
         private set
 
+    /**
+     * Which proposals the reader asked for, kept here rather than only on the
+     * state it is drawn from.
+     *
+     * This is the load-bearing part. [initiate] rebuilds a whole
+     * [ProposalListUIState.Loaded] on every emission, and the flow emits
+     * whenever any member's message advances any session in the room -- which is
+     * precisely when somebody is sitting on this screen watching. A `Loaded`
+     * built with the field's default would snap the chips back to
+     * [ProposalFilter.ALL] mid-scroll, and would do it most often in the busiest
+     * rooms. So the selection outlives the state it appears on, and every
+     * emission reads it.
+     */
+    private var filter: ProposalFilter = initialFilter
+
     private val logger = Logger.withTag(TAG)
+
+    init {
+        // A `Loaded` handed straight in -- a preview, a screen test -- carries a
+        // filter of its own, and [initialFilter] is the caller's. The caller's
+        // wins, so no screen can open with its chips saying one thing and its
+        // rows showing another.
+        select(initialFilter)
+    }
 
     /**
      * Loads the room, then watches its proposals for as long as the screen lives.
@@ -62,9 +87,28 @@ class ProposalListViewModel(
 
                 proposalListUIState = ProposalListUIState.Loaded(
                     localChatRoom = localChatRoom,
-                    proposals = sessions.map { asProposal(it) }
+                    proposals = sessions.map { asProposal(it) },
+                    filter = filter
                 )
             }
+        }
+    }
+
+    /**
+     * Shows only the proposals in one state, or all of them again.
+     *
+     * Applied to the state in hand as well as remembered for the next emission,
+     * so the chips answer the tap rather than waiting for a session somewhere in
+     * the room to move. A tap arriving while the screen is still loading is not
+     * lost either -- it is remembered, and [initiate]'s first emission is
+     * already filtered, which is what a deep link into a filter relies on.
+     */
+    fun select(filter: ProposalFilter) {
+        this.filter = filter
+
+        val current = proposalListUIState
+        if (current is ProposalListUIState.Loaded) {
+            proposalListUIState = current.copy(filter = filter)
         }
     }
 
@@ -100,13 +144,15 @@ class ProposalListViewModel(
             initialProposalListUIState: ProposalListUIState = ProposalListUIState.Loading,
             chatRepository: ChatRepository,
             frostSigningRepository: FrostSigningRepository,
+            initialFilter: ProposalFilter = ProposalFilter.ALL,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ProposalListViewModel(
                     chatRoomId = chatRoomId,
                     initialProposalListUIState = initialProposalListUIState,
                     chatRepository = chatRepository,
-                    frostSigningRepository = frostSigningRepository
+                    frostSigningRepository = frostSigningRepository,
+                    initialFilter = initialFilter
                 )
             }
         }
