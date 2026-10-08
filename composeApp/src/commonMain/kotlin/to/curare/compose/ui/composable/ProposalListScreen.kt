@@ -3,7 +3,10 @@ package to.curare.compose.ui.composable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Draw
@@ -22,6 +26,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -32,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,6 +65,14 @@ import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
 import curare.composeapp.generated.resources.abandoned
+import curare.composeapp.generated.resources.some_proposals_had_already_settled
+import curare.composeapp.generated.resources.asked_again_about_all
+import curare.composeapp.generated.resources.ask_all_again
+import curare.composeapp.generated.resources.everyone_has_signed_this_session
+import curare.composeapp.generated.resources.asked_again_to_sign
+import curare.composeapp.generated.resources.asked_again_recently
+import curare.composeapp.generated.resources.asked_again
+import curare.composeapp.generated.resources.ask_again
 import curare.composeapp.generated.resources.you_declined
 import curare.composeapp.generated.resources.you_are_signing
 import curare.composeapp.generated.resources.you_agreed
@@ -91,7 +105,9 @@ import to.curare.compose.ui.composable.widgets.ErrorState
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
 import to.curare.compose.ui.composable.widgets.ScreenStateTransition
+import to.curare.compose.ui.composable.widgets.Decorative
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
+import to.curare.compose.ui.composable.widgets.rememberNotifier
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.ConformancePreviews
 
@@ -168,6 +184,49 @@ fun ProposalListScreen(
                 )
 
                 is ProposalListUIState.Loaded -> {
+                    // Read above the handlers, because `rememberNotifier` and
+                    // `stringResource` are composable and an onClick is not. The
+                    // notifier takes this screen's scope on purpose: a resend is
+                    // often the last thing a coordinator does before leaving.
+                    val notify = rememberNotifier(rememberCoroutineScope())
+                    val asked = stringResource(Res.string.asked_again)
+                    val askedToSign = stringResource(Res.string.asked_again_to_sign)
+                    val nobodyLeft = stringResource(Res.string.everyone_has_signed_this_session)
+
+                    // Parameterised only on the count the composition already
+                    // knows -- how many were asked about -- so both are read here
+                    // with the rest. How many of them went out is not known until
+                    // the run finishes, and the one message that would want it is
+                    // for a case rare enough to say in words: a proposal settles
+                    // between the tap and its turn only if somebody else's
+                    // signature lands in that second.
+                    val askedAbout = state.askableVisible.size
+                    val askedAll = stringResource(Res.string.asked_again_about_all, askedAbout)
+                    val someSettled = stringResource(Res.string.some_proposals_had_already_settled)
+
+                    val onAskAll: () -> Unit = {
+                        proposalListViewModel.askAllAgain { sent, of ->
+                            notify(if (sent == of) askedAll else someSettled)
+                        }
+                    }
+
+                    val askAgain: (ProposalListUIState.Proposal) -> Unit = { proposal ->
+                        val signing = proposal.state == ProposalState.BEING_SIGNED
+
+                        proposalListViewModel.askAgain(proposal.session.id) { sent ->
+                            notify(
+                                when {
+                                    sent && signing -> askedToSign
+                                    sent -> asked
+                                    // Nothing went out. The row cannot tell a
+                                    // cooldown from an empty queue, so it says
+                                    // the one the button is only offered under.
+                                    else -> nobodyLeft
+                                }
+                            )
+                        }
+                    }
+
                     val open: (ProposalListUIState.Proposal) -> Unit = { proposal ->
                         onNavigateToRoute.invoke(
                             FrostSigningRoute(
@@ -197,9 +256,26 @@ fun ProposalListScreen(
                             )
                         }
 
+                        // Under the chips, because what it acts on is what the
+                        // chips chose. From two up: one is what the row's own
+                        // button is for, and a bulk control over a single
+                        // proposal is a second way to do one thing, further from
+                        // the row it affects.
+                        if (state.canAskAll) {
+                            AskAllAgainButton(
+                                count = askedAbout,
+                                asking = state.askableVisible.any {
+                                    proposalListViewModel.isAsking(it.session.id)
+                                },
+                                onAskAll = onAskAll
+                            )
+                        }
+
                         ProposalList(
                             state = state,
                             onOpen = open,
+                            onAskAgain = askAgain,
+                            isAsking = proposalListViewModel::isAsking,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -224,6 +300,8 @@ fun ProposalListScreen(
 private fun ProposalList(
     state: ProposalListUIState.Loaded,
     onOpen: (ProposalListUIState.Proposal) -> Unit,
+    onAskAgain: (ProposalListUIState.Proposal) -> Unit,
+    isAsking: (String) -> Boolean,
     modifier: Modifier = Modifier,
 ) {
     // Said rather than defaulted, because five different absences used to say one
@@ -259,7 +337,12 @@ private fun ProposalList(
     ) {
         if (state.filter != ProposalFilter.ALL) {
             items(items = state.visible, key = { it.session.id }) { proposal ->
-                ProposalCard(proposal = proposal, onClick = { onOpen(proposal) })
+                ProposalCard(
+                    proposal = proposal,
+                    onClick = { onOpen(proposal) },
+                    onAskAgain = { onAskAgain(proposal) },
+                    asking = isAsking(proposal.session.id)
+                )
             }
 
             return@LazyColumn
@@ -278,7 +361,12 @@ private fun ProposalList(
                 items = state.waitingForYou,
                 key = { it.session.id }
             ) { proposal ->
-                ProposalCard(proposal = proposal, onClick = { onOpen(proposal) })
+                ProposalCard(
+                    proposal = proposal,
+                    onClick = { onOpen(proposal) },
+                    onAskAgain = { onAskAgain(proposal) },
+                    asking = isAsking(proposal.session.id)
+                )
             }
         }
 
@@ -299,7 +387,12 @@ private fun ProposalList(
                 items = state.rest,
                 key = { it.session.id }
             ) { proposal ->
-                ProposalCard(proposal = proposal, onClick = { onOpen(proposal) })
+                ProposalCard(
+                    proposal = proposal,
+                    onClick = { onOpen(proposal) },
+                    onAskAgain = { onAskAgain(proposal) },
+                    asking = isAsking(proposal.session.id)
+                )
             }
         }
     }
@@ -381,6 +474,8 @@ private fun labelOf(filter: ProposalFilter): String = when (filter) {
 private fun ProposalCard(
     proposal: ProposalListUIState.Proposal,
     onClick: () -> Unit,
+    onAskAgain: (() -> Unit)? = null,
+    asking: Boolean = false,
 ) {
     val lead = proposal.signs.firstOrNull()
 
@@ -529,9 +624,93 @@ private fun ProposalCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    if (onAskAgain != null && proposal.canAskAgain) {
+                        AskAgainButton(
+                            proposal = proposal,
+                            asking = asking,
+                            onAskAgain = onAskAgain
+                        )
+                    }
                 }
             }
         )
+    }
+}
+
+/**
+ * Asks again about every proposal the filter has in front of the reader.
+ *
+ * The bulk form of the row's own button, and it earns its place on exactly the
+ * screen the filters made: "being signed" with three rows in it is three
+ * proposals stalled for the same reason, and asking about them one at a time is
+ * three taps to say one thing.
+ *
+ * It says how many, because that is how many publishes the tap causes. The run
+ * itself is paced a second apart -- see `FrostSigningManager.RESEND_SPACING` --
+ * so what the button starts is not a burst, and the rows it covers go quiet
+ * together for its duration rather than one at a time.
+ */
+@Composable
+private fun AskAllAgainButton(
+    count: Int,
+    asking: Boolean,
+    onAskAll: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = MaterialTheme.spacing.containerPadding),
+    ) {
+        TextButton(enabled = !asking, onClick = onAskAll) {
+            Icon(Icons.Default.Campaign, contentDescription = Decorative)
+            Spacer(modifier = Modifier.width(MaterialTheme.spacing.itemGap))
+            Text(stringResource(Res.string.ask_all_again, count))
+        }
+    }
+}
+
+/**
+ * Asks the members a proposal is still waiting on to take another look.
+ *
+ * The same offer the signing screen makes, and deliberately the same words: a
+ * coordinator who went looking for it there and found it here should not have
+ * to work out that "re-broadcast" and "ask again" are one button. What the list
+ * adds is reach -- the one proposal that has stalled is found by filtering to
+ * it, rather than by opening each in turn.
+ *
+ * Disabled rather than hidden while the cooldown runs. A control that vanishes
+ * after a tap reads as one that failed, and what happened is that it worked.
+ */
+@Composable
+private fun AskAgainButton(
+    proposal: ProposalListUIState.Proposal,
+    asking: Boolean,
+    onAskAgain: () -> Unit,
+) {
+    val waiting = proposal.askAgainAt != null
+
+    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space25)) {
+        if (waiting) {
+            Text(
+                text = stringResource(Res.string.asked_again_recently),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        TextButton(
+            enabled = !waiting && !asking,
+            onClick = onAskAgain,
+            contentPadding = PaddingValues(
+                horizontal = MaterialTheme.spacing.compactPadding,
+                vertical = MaterialTheme.spacing.space25,
+            )
+        ) {
+            Icon(Icons.Default.Campaign, contentDescription = Decorative)
+            Spacer(modifier = Modifier.width(MaterialTheme.spacing.itemGap))
+            Text(stringResource(Res.string.ask_again))
+        }
     }
 }
 

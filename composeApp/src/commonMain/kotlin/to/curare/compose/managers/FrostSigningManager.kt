@@ -23,7 +23,9 @@ import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Instant
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import to.curare.compose.database.CurareDatabase
 import to.curare.compose.database.model.ChatMessage
 import to.curare.compose.database.model.DkgSession
@@ -176,6 +178,24 @@ object FrostSigningManager {
      * short enough to be useful while somebody is watching the screen.
      */
     val RESEND_COOLDOWN: Duration = 5.minutes
+
+    /**
+     * How long [resendAll] waits between one session and the next.
+     *
+     * A resend publishes two messages, which is a burst the room is known to
+     * survive -- `MlsGroupCache` covers a burst decrypted in one sync, and
+     * [resend] keeps to two deliberately for that reason. Asking again about
+     * three proposals at once is six, outside the budget somebody set with a bug
+     * attached to it, so the sessions are spaced instead of the budget being
+     * quietly raised.
+     *
+     * One second because that is the resolution the protocol works in.
+     * `created_at` is stored to the second, relays offer no ordering, and "two
+     * events published in the same second race, and exactly one survives" is how
+     * a proposal was lost once already -- see `MlsGroupCache`. A second between
+     * sessions puts each one's pair in a second of its own.
+     */
+    val RESEND_SPACING: Duration = 1.seconds
 
     /**
      * The kinds a member authors for a session, and so the ones [republishOwn]
@@ -1940,6 +1960,42 @@ object FrostSigningManager {
      * have been published against an aggregate already, so the retry is a fresh
      * proposal and never this one again -- which is what [fail] tells the group.
      */
+    /**
+     * Asks again about several sessions, one after another, and says how many
+     * actually published.
+     *
+     * One at a time and spaced, which is the whole reason this is here rather
+     * than a loop at the call site: a caller that launched [resend] per session
+     * would put every one of their two-message bursts into the same second, and
+     * the room's tolerance for that is the thing `MlsGroupCache` documents the
+     * limits of. See [RESEND_SPACING].
+     *
+     * A session that publishes nothing is stepped over rather than stopping the
+     * run -- a cooldown that has not expired, or one that turns out to be
+     * waiting on nobody, is a reason to skip it and not to abandon the others.
+     * The count returned is of the ones that went out, so a caller can say "two
+     * of three" rather than claiming all of them.
+     */
+    suspend fun resendAll(
+        database: CurareDatabase,
+        localChatRoom: LocalChatRoom,
+        sessionIds: List<String>
+    ): Int {
+        var sent = 0
+
+        sessionIds.forEachIndexed { index, sessionId ->
+            // Before, not after, so the last session is not followed by a pause
+            // nobody is waiting through.
+            if (index > 0) delay(RESEND_SPACING)
+
+            if (resend(database, localChatRoom, sessionId)) sent++
+        }
+
+        logger.i("Asked again about $sent of ${sessionIds.size} session(s)")
+
+        return sent
+    }
+
     suspend fun resend(
         database: CurareDatabase,
         localChatRoom: LocalChatRoom,

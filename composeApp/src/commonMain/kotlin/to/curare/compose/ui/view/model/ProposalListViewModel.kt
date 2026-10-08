@@ -2,6 +2,7 @@ package to.curare.compose.ui.view.model
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import to.curare.compose.database.model.intermdiate.FrostSignerTally
 import to.curare.compose.database.model.intermdiate.LocalFrostSigningSession
+import to.curare.compose.database.model.types.FrostSigningStage
 import to.curare.compose.extensions.shortened
 import to.curare.compose.managers.FrostSigningManager
 import to.curare.compose.nostr.frost.FrostSigningEvents
@@ -60,6 +62,12 @@ class ProposalListViewModel(
      * emission reads it.
      */
     private var filter: ProposalFilter = initialFilter
+
+    /**
+     * The sessions whose "ask again" is in flight, so a second tap on one row
+     * does not publish twice while the first is still going out.
+     */
+    private val pending = mutableStateSetOf<String>()
 
     private val logger = Logger.withTag(TAG)
 
@@ -135,7 +143,7 @@ class ProposalListViewModel(
      * worked out here, so the list and the signing screen cannot disagree about
      * which proposals still have a decision in them.
      */
-    private fun asProposal(
+    private suspend fun asProposal(
         local: LocalFrostSigningSession,
         tallies: List<FrostSignerTally>,
     ): ProposalListUIState.Proposal {
@@ -157,9 +165,115 @@ class ProposalListViewModel(
             unreadable = items.size - events.size,
             awaitsYou = FrostSigningManager.isAwaitingApproval(local.session, items),
             noncesOffered = counted(FrostSigningEvents.NONCE),
-            partialSignatures = counted(FrostSigningEvents.PARTIAL_SIGNATURE)
+            partialSignatures = counted(FrostSigningEvents.PARTIAL_SIGNATURE),
+            owing = owingFor(local)
         )
     }
+
+    /**
+     * How many members a session is still waiting on, when asking them again is
+     * this device's to offer.
+     *
+     * A query per row, and the only one on this screen -- so it is asked for as
+     * few rows as possible. Not ours to send, nothing to send, or already ended:
+     * all three answer null without touching the database.
+     *
+     * An ended session is left out although `FrostSigningManager.resend` would
+     * take it: a completed one can be re-sent to deliver the signature to a
+     * member who never applied it, and that is worth a button on the one
+     * proposal's screen rather than on every row of a list that only grows. The
+     * signing screen still offers it.
+     */
+    private suspend fun owingFor(local: LocalFrostSigningSession): Int? {
+        val session = local.session
+
+        if (!session.isCoordinator() || local.items.isEmpty()) return null
+
+        return when (session.stage) {
+            FrostSigningStage.COLLECTING_NONCES,
+            FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES ->
+                frostSigningRepository.membersOwing(session).size
+
+            FrostSigningStage.COMPLETE, FrostSigningStage.FAILED -> null
+        }
+    }
+
+    /**
+     * Asks the members a proposal is still waiting on to take another look.
+     *
+     * Guarded per session rather than by one flag for the screen, because the
+     * rooms this screen is for have several proposals open at once and a
+     * coordinator working down the list should not be locked out of the second
+     * by the first still publishing.
+     *
+     * [onResult] is told whether anything went out. `resend` answers false for
+     * a cooldown that has not run out, a session waiting on nobody and a stage
+     * that cannot be resent, and the row that offered the button has no way to
+     * know which -- so what it says afterwards comes from here.
+     */
+    fun askAgain(sessionId: String, onResult: (sent: Boolean) -> Unit) {
+        val state = proposalListUIState as? ProposalListUIState.Loaded ?: return
+
+        if (!pending.add(sessionId)) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val sent = frostSigningRepository.resend(
+                localChatRoom = state.localChatRoom,
+                sessionId = sessionId
+            )
+
+            pending.remove(sessionId)
+
+            viewModelScope.launch(Dispatchers.Main) { onResult.invoke(sent) }
+        }
+    }
+
+    /**
+     * Asks again about every visible proposal that can be, one after another.
+     *
+     * The list of sessions comes from the state rather than from the caller, so
+     * what goes out is what the filter had in front of the reader when they
+     * tapped -- a bulk control that acted on rows somebody could not see would
+     * be the one thing it must never do.
+     *
+     * Each session is marked pending for the whole run, not just for its own
+     * turn. The run is paced -- see `FrostSigningManager.RESEND_SPACING` -- so a
+     * row whose turn has not come yet is still a row that is about to publish,
+     * and a button offering to send it separately in the meantime would send it
+     * twice.
+     *
+     * [onResult] is told how many went out and how many were tried. They differ
+     * when a session stopped being askable between the tap and its turn, which a
+     * paced run leaves room for: somebody else's signature can land in that
+     * second and settle it.
+     */
+    fun askAllAgain(onResult: (sent: Int, of: Int) -> Unit) {
+        val state = proposalListUIState as? ProposalListUIState.Loaded ?: return
+
+        val sessionIds = state.askableVisible
+            .map { it.session.id }
+            .filterNot { it in pending }
+
+        if (sessionIds.isEmpty()) return
+
+        pending.addAll(sessionIds)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val sent = frostSigningRepository.resendAll(
+                localChatRoom = state.localChatRoom,
+                sessionIds = sessionIds
+            )
+
+            pending.removeAll(sessionIds.toSet())
+
+            viewModelScope.launch(Dispatchers.Main) {
+                onResult.invoke(sent, sessionIds.size)
+            }
+        }
+    }
+
+    /** Whether an ask for this session is still in flight. */
+    fun isAsking(sessionId: String): Boolean = sessionId in pending
 
     companion object {
         private const val TAG = "ProposalListViewModel"

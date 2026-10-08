@@ -7,6 +7,8 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -17,6 +19,7 @@ import androidx.compose.ui.test.runDesktopComposeUiTest
 import to.curare.compose.database.model.FrostSigningSession
 import to.curare.compose.database.model.types.FrostSigningStage
 import to.curare.compose.repository.ChatRepository
+import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.repository.FrostSigningRepository
 import to.curare.compose.text.ProposedEvent
 import to.curare.compose.ui.composable.GroupSignedWorkFixtures.activeUserPublicKey
@@ -27,6 +30,8 @@ import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.view.state.ProposalFilter
 import to.curare.compose.ui.view.state.ProposalListUIState
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 
@@ -74,11 +79,14 @@ class ProposalListScreenJvmTest {
         signerIds: String? = null,
         nonces: Int = 0,
         signatures: Int = 0,
+        owing: Int? = null,
+        resentAt: kotlin.time.Instant? = null,
     ) = ProposalListUIState.Proposal(
         session = session.copy(
             id = id,
             stage = stage,
             signerIds = signerIds,
+            resentAt = resentAt,
             signApprovedAt = Clock.System.now().takeIf { approved },
         ),
         proposerName = "Ada",
@@ -86,6 +94,7 @@ class ProposalListScreenJvmTest {
         awaitsYou = awaitsYou,
         noncesOffered = nonces,
         partialSignatures = signatures,
+        owing = owing,
     )
 
     private val needsYou = proposal("needs", "New chapter", "Genesis 1", awaitsYou = true)
@@ -362,6 +371,230 @@ class ProposalListScreenJvmTest {
             onAllNodesWithText("Waiting on the rest", substring = true).assertCountEquals(0)
         }
 
+    // --- asking the quiet members again ---------------------------------------------
+
+    /**
+     * The button a coordinator came to the list for.
+     *
+     * It says what the signing screen's says, deliberately: somebody who found
+     * it there and then found this should not have to work out that two labels
+     * are one button. What the list adds is that filtering to "being signed"
+     * puts every stalled proposal in front of them at once, rather than one tap
+     * into each.
+     */
+    @Test
+    fun `a stalled proposal we coordinate offers the ask, on the being signed chip`() {
+        val stalled = proposal(
+            "signing", "New chapter", "Genesis 4",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true, signerIds = "1,2", signatures = 1, owing = 1,
+        )
+
+        render(loaded(listOf(stalled, signed))) {
+            chip("Being signed · 1").performClick()
+
+            onNodeWithText("Genesis 4").assertIsDisplayed()
+            onNodeWithText("Ask again").assertIsDisplayed().assertIsEnabled()
+        }
+    }
+
+    @Test
+    fun `tapping it asks for that proposal and no other`() {
+        val stalled = proposal(
+            "signing", "New chapter", "Genesis 4",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true, signerIds = "1,2", owing = 1,
+        )
+        val other = proposal(
+            "also", "New chapter", "Genesis 5",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true, signerIds = "1,2", owing = 1,
+        )
+
+        render(loaded(listOf(stalled, other))) {
+            onAllNodesWithText("Ask again")[0].performClick()
+            waitUntil { resent.isNotEmpty() }
+        }
+
+        assertEquals(listOf("signing"), resent)
+    }
+
+    /** Opening the proposal and asking again are different taps on one row. */
+    @Test
+    fun `asking again does not open the proposal`() {
+        var opened: Route? = null
+        val stalled = proposal(
+            "signing", "New chapter", "Genesis 4",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true, signerIds = "1,2", owing = 1,
+        )
+
+        render(loaded(listOf(stalled)), onNavigateToRoute = { opened = it }) {
+            onNodeWithText("Ask again").performClick()
+            waitUntil { resent.isNotEmpty() }
+        }
+
+        assertEquals(listOf("signing"), resent)
+        assertNull(opened, "the card behind the button took the tap too")
+    }
+
+    /**
+     * The offer is the coordinator's and nobody else's: a resend from anybody
+     * else would have a member who was missing the session believe the resender
+     * coordinates, and then drop the real coordinator's signer set.
+     */
+    @Test
+    fun `a proposal that is not ours to send offers no button`() {
+        val theirs = proposal(
+            "signing", "New chapter", "Genesis 4",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true, signerIds = "1,2", owing = null,
+        )
+
+        render(loaded(listOf(theirs))) {
+            onNodeWithText("Genesis 4").assertIsDisplayed()
+            onAllNodesWithText("Ask again").assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun `a proposal waiting on nobody offers no button`() {
+        val settled = proposal(
+            "signing", "New chapter", "Genesis 4",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true, signerIds = "1,2", owing = 0,
+        )
+
+        render(loaded(listOf(settled))) {
+            onAllNodesWithText("Ask again").assertCountEquals(0)
+        }
+    }
+
+    /**
+     * Disabled rather than hidden while the cooldown runs. A control that
+     * vanishes after a tap reads as one that failed, and what happened is that
+     * it worked -- so the button stays and says why it is quiet.
+     */
+    @Test
+    fun `an ask sent just now leaves the button in place, disabled, and says why`() {
+        val justAsked = proposal(
+            "signing", "New chapter", "Genesis 4",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true, signerIds = "1,2", owing = 1,
+            resentAt = Clock.System.now(),
+        )
+
+        render(loaded(listOf(justAsked))) {
+            onNodeWithText("Ask again").assertIsDisplayed().assertIsNotEnabled()
+            onNodeWithText("Asked again just now. You can ask again in a few minutes.")
+                .assertIsDisplayed()
+        }
+    }
+
+    /** It is offered on the earlier stage too, where the knock is for the quiet. */
+    @Test
+    fun `a proposal still short of members offers it as well`() {
+        val short = proposal(
+            "open", "New translation", "isiZulu",
+            approved = true, nonces = 1, owing = 2,
+        )
+
+        render(loaded(listOf(short))) {
+            onNodeWithText("Ask again").assertIsDisplayed().assertIsEnabled()
+        }
+    }
+
+    @Test
+    fun `a signed proposal offers nothing to ask about`() = render(loaded(listOf(signed))) {
+        onAllNodesWithText("Ask again").assertCountEquals(0)
+    }
+
+    // --- asking about all of them at once -------------------------------------------
+
+    private fun stalled(id: String, detail: String, owing: Int? = 1) = proposal(
+        id, "New chapter", detail,
+        stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+        approved = true, signerIds = "1,2", signatures = 1, owing = owing,
+    )
+
+    /**
+     * The screen the filters made: three rows stalled for one reason, and one
+     * tap to say one thing about all of them.
+     */
+    @Test
+    fun `the being signed screen offers to ask about all of them`() {
+        render(loaded(listOf(stalled("a", "Genesis 4"), stalled("b", "Genesis 5")))) {
+            chip("Being signed · 2").performClick()
+
+            onNodeWithText("Ask all 2 again").assertIsDisplayed().assertIsEnabled()
+        }
+    }
+
+    @Test
+    fun `tapping it asks about every row the filter shows`() {
+        render(
+            loaded(
+                listOf(stalled("a", "Genesis 4"), stalled("b", "Genesis 5"), open, signed)
+            )
+        ) {
+            chip("Being signed · 2").performClick()
+            onNodeWithText("Ask all 2 again").performClick()
+
+            waitUntil(timeoutMillis = 10_000) { resent.size == 2 }
+        }
+
+        assertEquals(listOf("a", "b"), resent, "the bulk tap reached past the filter")
+    }
+
+    /** One is what the row's own button is for. */
+    @Test
+    fun `a single stalled proposal gets no bulk button`() {
+        render(loaded(listOf(stalled("a", "Genesis 4")))) {
+            chip("Being signed · 1").performClick()
+
+            onNodeWithText("Ask again").assertIsDisplayed()
+            onAllNodesWithText("Ask all 1 again").assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun `rows that are not ours to send leave no bulk button`() {
+        render(loaded(listOf(stalled("a", "Genesis 4", owing = null), stalled("b", "Genesis 5", owing = null)))) {
+            chip("Being signed · 2").performClick()
+
+            onAllNodesWithText("Ask all 2 again").assertCountEquals(0)
+            onAllNodesWithText("Ask again").assertCountEquals(0)
+        }
+    }
+
+    /**
+     * The count on the button is what it can actually send, so a cooling-down
+     * row lowers it rather than being skipped silently inside it.
+     */
+    @Test
+    fun `a cooling-down row is not counted in the bulk offer`() {
+        val cooling = proposal(
+            "c", "New chapter", "Genesis 6",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true, signerIds = "1,2", owing = 1,
+            resentAt = Clock.System.now(),
+        )
+
+        render(loaded(listOf(stalled("a", "Genesis 4"), stalled("b", "Genesis 5"), cooling))) {
+            chip("Being signed · 3").performClick()
+
+            onNodeWithText("Ask all 2 again").assertIsDisplayed()
+        }
+    }
+
+    /** It is offered on any filter that shows two it can act on, not only that one. */
+    @Test
+    fun `the unfiltered screen offers it too when two rows can take it`() {
+        render(loaded(listOf(stalled("a", "Genesis 4"), stalled("b", "Genesis 5")))) {
+            onNodeWithText("Ask all 2 again").assertIsDisplayed()
+        }
+    }
+
     @Test
     fun `a pushed screen keeps its way back, chips or no chips`() {
         render(loaded(mixed)) { onNodeWithContentDescription("Back").assertIsDisplayed() }
@@ -384,6 +617,37 @@ class ProposalListScreenJvmTest {
             proposals = proposals,
         )
 
+    /**
+     * The sessions a render asked again for, in order.
+     *
+     * Recorded through the repository the screen is given rather than through a
+     * callback added for the test, so what these assert is the path the app
+     * takes: the button, the view model's guard, and the repository call.
+     */
+    private val resent = mutableListOf<String>()
+
+    private fun recordingRepository() =
+        object : FrostSigningRepository by FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY {
+            override suspend fun resend(
+                localChatRoom: LocalChatRoom,
+                sessionId: String
+            ): Boolean {
+                resent += sessionId
+                return true
+            }
+
+            /**
+             * Unpaced here on purpose. What this file asks of a bulk tap is
+             * which rows it covers; that the real run spaces them a second apart
+             * is `FrostSigningResendJvmTest`'s to say, against the manager that
+             * does the spacing.
+             */
+            override suspend fun resendAll(
+                localChatRoom: LocalChatRoom,
+                sessionIds: List<String>
+            ): Int = sessionIds.count { resend(localChatRoom, it) }
+        }
+
     private fun render(
         uiState: ProposalListUIState,
         onNavigateToRoute: (Route) -> Unit = {},
@@ -399,8 +663,7 @@ class ProposalListScreenJvmTest {
                             chatRoomId = chatRoomId,
                             initialProposalListUIState = uiState,
                             chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                            frostSigningRepository =
-                                FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
+                            frostSigningRepository = recordingRepository(),
                             onNavigateBack = {},
                             onNavigateToRoute = onNavigateToRoute,
                             initialFilter = initialFilter,

@@ -141,6 +141,24 @@ class DatabaseFrostSigningRepository(
         false
     }
 
+    override suspend fun resendAll(
+        localChatRoom: LocalChatRoom,
+        sessionIds: List<String>
+    ): Int = try {
+        FrostSigningManager.resendAll(
+            database = database,
+            localChatRoom = localChatRoom,
+            sessionIds = sessionIds
+        )
+    } catch (e: Throwable) {
+        // Zero rather than rethrown, as a single resend swallows and for the
+        // same reason. Whatever went out before the throw is already out; what
+        // this loses is the count, and a repair that takes the screen down with
+        // it is worse than one that undercounted.
+        logger.e("Error asking again about ${sessionIds.size} signing session(s)", e)
+        0
+    }
+
     override suspend fun membersOwing(session: FrostSigningSession): Set<HexKey> = try {
         FrostSigningManager.membersOwing(database = database, session = session)
     } catch (e: Throwable) {
