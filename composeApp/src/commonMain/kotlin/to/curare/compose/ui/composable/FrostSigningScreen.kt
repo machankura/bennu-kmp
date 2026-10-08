@@ -63,10 +63,14 @@ import org.jetbrains.compose.resources.stringResource
 import curare.composeapp.generated.resources.ask_again
 import curare.composeapp.generated.resources.asked_again
 import curare.composeapp.generated.resources.asked_again_recently
+import curare.composeapp.generated.resources.asked_again_to_sign
 import curare.composeapp.generated.resources.declined_to_sign
 import curare.composeapp.generated.resources.everyone_has_answered_this_session
+import curare.composeapp.generated.resources.everyone_has_signed_this_session
 import curare.composeapp.generated.resources.members_have_not_answered
 import curare.composeapp.generated.resources.one_member_has_not_answered
+import curare.composeapp.generated.resources.one_signer_has_not_signed
+import curare.composeapp.generated.resources.signers_have_not_signed
 import curare.composeapp.generated.resources.don_t_sign
 import curare.composeapp.generated.resources.has_not_taken_part_yet
 import curare.composeapp.generated.resources.members
@@ -128,8 +132,17 @@ fun FrostSigningScreen(
     // read here rather than in the handler. The notifier takes the caller's
     // scope on purpose -- see rememberNotifier.
     val notify = rememberNotifier(rememberCoroutineScope())
+
+    // Four messages for two outcomes, because the knock is not for the same
+    // thing at every stage: before the signers are chosen it asks members who
+    // have said nothing to answer, and after it asks the chosen signers for the
+    // one part nobody else can send. All four are read here, before it is known
+    // which stage the session is at, because `stringResource` is composable and
+    // an onClick lambda is not.
     val askedAgain = stringResource(Res.string.asked_again)
+    val askedAgainToSign = stringResource(Res.string.asked_again_to_sign)
     val everyoneAnswered = stringResource(Res.string.everyone_has_answered_this_session)
+    val everyoneSigned = stringResource(Res.string.everyone_has_signed_this_session)
 
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
@@ -289,11 +302,26 @@ fun FrostSigningScreen(
                     if (state.canResend) {
                         HorizontalDivider()
 
+                        // What they are short of, which is not the same thing at
+                        // both stages: past the nonces the members named here
+                        // have answered once already, and the rows above say so.
+                        val collectingPartials =
+                            session.stage == FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES
+
                         Text(
-                            text = if (state.silent.size == 1) {
-                                stringResource(Res.string.one_member_has_not_answered)
-                            } else {
-                                stringResource(
+                            text = when {
+                                collectingPartials && state.silent.size == 1 ->
+                                    stringResource(Res.string.one_signer_has_not_signed)
+
+                                collectingPartials -> stringResource(
+                                    Res.string.signers_have_not_signed,
+                                    state.silent.size
+                                )
+
+                                state.silent.size == 1 ->
+                                    stringResource(Res.string.one_member_has_not_answered)
+
+                                else -> stringResource(
                                     Res.string.members_have_not_answered,
                                     state.silent.size
                                 )
@@ -318,7 +346,14 @@ fun FrostSigningScreen(
                             enabled = !waiting && !frostSigningViewModel.isActionPending.value,
                             onClick = {
                                 frostSigningViewModel.resend { sent ->
-                                    notify(if (sent) askedAgain else everyoneAnswered)
+                                    notify(
+                                        when {
+                                            sent && collectingPartials -> askedAgainToSign
+                                            sent -> askedAgain
+                                            collectingPartials -> everyoneSigned
+                                            else -> everyoneAnswered
+                                        }
+                                    )
                                 }
                             }
                         ) {

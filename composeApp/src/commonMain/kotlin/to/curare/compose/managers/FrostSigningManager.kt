@@ -1905,6 +1905,15 @@ object FrostSigningManager {
      * have that member believe the resender coordinates -- and then drop the
      * real coordinator's signer set through [isFromCoordinator].
      *
+     * ### Who it goes to
+     *
+     * [membersOwing], which asks what the stage makes sense of: who has said
+     * nothing at all while nonces are being collected, and which of the chosen
+     * signers has yet to sign once they have been chosen. The first question
+     * asked at the second stage names only members who owe nothing, which is
+     * how a session could sit in [FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES]
+     * with a control that refused to knock.
+     *
      * ### The minimum the stage requires
      *
      * | stage | what goes out |
@@ -1962,9 +1971,9 @@ object FrostSigningManager {
             }
         }
 
-        val silent = silentMembers(database, session)
-        if (silent.isEmpty()) {
-            logger.i("Session $sessionId has heard from every share holder; nothing to resend")
+        val owed = membersOwing(database, session)
+        if (owed.isEmpty()) {
+            logger.i("Session $sessionId is waiting on nobody; nothing to resend")
             return false
         }
 
@@ -1981,8 +1990,8 @@ object FrostSigningManager {
         }
 
         logger.i(
-            "Resending session $sessionId at ${session.stage} to ${silent.size} member(s) " +
-                "(${silent.joinToString { it.take(8) }})"
+            "Resending session $sessionId at ${session.stage} to ${owed.size} member(s) " +
+                "(${owed.joinToString { it.take(8) }})"
         )
 
         // The proposal first, so a device that has nothing has somewhere to file
@@ -1994,7 +2003,7 @@ object FrostSigningManager {
             kind = FrostSigningEvents.PROPOSAL,
             content = FrostSigningEvents.encodeProposal(unsigned),
             includeKey = true,
-            silentMembers = silent.toList()
+            silentMembers = owed.toList()
         )
 
         when (session.stage) {
@@ -2030,13 +2039,14 @@ object FrostSigningManager {
         }
 
         update(database, session) { it.copy(resentAt = now) }
-        announceResent(database, session, silent.size)
+        announceResent(database, session, owed.size)
 
         return true
     }
 
     /**
-     * The share holders this session has heard nothing at all from.
+     * The share holders this session is still waiting on, which is a different
+     * set of people at each stage.
      *
      * Off the ceremony rather than off the room, like [recordDecline]'s own
      * count and `FrostSigningUIState.Loaded.members`: a room can hold members
@@ -2044,23 +2054,69 @@ object FrostSigningManager {
      * room is the parent, which holds everybody the subgroup is not. A door that
      * cannot answer is not one to knock on.
      *
-     * A member who declined is not silent. They answered, and the session is
-     * counting their refusal; knocking again would be asking a question they
-     * have already closed.
+     * ### The question changes when the stage does
+     *
+     * While nonces are being collected the question is who has said *nothing*,
+     * and a member with any message on file has answered it.
+     *
+     * Past that point that reading is not merely imprecise, it is inverted. A
+     * session reaches [FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES] only
+     * because enough members offered a nonce, so everybody who could be holding
+     * it up has been heard from -- and asking who is silent returns the members
+     * who were never chosen and owe nothing, while the chosen signer whose
+     * partial signature went missing is never named. That is a knock on the
+     * wrong door; and once the unchosen have answered or refused it is no knock
+     * at all, because the set is empty and [resend] gives up before it reaches
+     * the stage it was written for.
+     *
+     * So the later stage asks its own question: of the signers the coordinator
+     * chose, who has yet to send a partial signature. Naming them is the half of
+     * a resend that only they can carry out -- a partial signature is read by
+     * nobody but the coordinator, so one lost on the way here can be repeated by
+     * no other device. See [republishOwn].
+     *
+     * [FrostSigningStage.COMPLETE] keeps the first reading, and correctly: the
+     * signature is the coordinator's own and nobody answers it, so having heard
+     * nothing at all is still exactly what it means to have missed the session.
+     *
+     * A member who declined is never here, at either stage. They answered, and
+     * the session is counting their refusal; knocking again would be asking a
+     * question they have already closed.
      */
-    private suspend fun silentMembers(
+    suspend fun membersOwing(
         database: CurareDatabase,
         session: FrostSigningSession
     ): Set<HexKey> {
         val key = database.dkgSessionDao().getSessionById(session.dkgSessionId) ?: return emptySet()
-        val holders = signerIds(database, key).keys
+        val holders = signerIds(database, key)
 
-        val heardFrom = database.frostSigningSessionDao()
+        val collectingPartials = session.stage == FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES
+        val chosen = session.signerIdList()?.toSet()
+
+        // Whose answer the session is short of: the chosen signers once there
+        // are any, every share holder before that. A stage that says signers
+        // have been chosen and names none is nothing to knock about -- it cannot
+        // happen, since [advance] writes the ids before it moves the stage, and
+        // guessing at the set would be guessing at who is owed.
+        val asked = when {
+            !collectingPartials -> holders.keys
+            chosen != null -> holders.filterValues { it in chosen }.keys
+            else -> return emptySet()
+        }
+
+        val answered = database.frostSigningSessionDao()
             .getMessagesForSession(session.id)
+            .filter { message ->
+                // A nonce is the previous stage's answer. Counting it here is
+                // what made every signer look like somebody who had replied.
+                !collectingPartials ||
+                    message.kind == FrostSigningEvents.PARTIAL_SIGNATURE ||
+                    message.kind == FrostSigningEvents.DECLINE
+            }
             .map { it.signerPublicKey }
             .toSet()
 
-        return holders - heardFrom - session.userPublicKey
+        return asked - answered - session.userPublicKey
     }
 
     /**
@@ -2160,15 +2216,26 @@ object FrostSigningManager {
     private suspend fun announceResent(
         database: CurareDatabase,
         session: FrostSigningSession,
-        silent: Int
+        owed: Int
     ) {
+        val one = owed == 1
+        val who = if (one) "the member" else "the $owed members"
+
+        // What they are short of, not just that they are quiet. Past the nonces
+        // the members being asked have answered once already, and a line saying
+        // they have not answered would be the screen contradicting itself.
+        val what = when (session.stage) {
+            FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES ->
+                if (one) "who has not signed their part" else "who have not signed their part"
+
+            else -> if (one) "who has not answered" else "who have not answered"
+        }
+
         announce(
             database = database,
             session = session,
             messageType = ChatMessage.TYPE_FROST_RESENT,
-            content = "asked " +
-                (if (silent == 1) "the member" else "the $silent members") +
-                " who have not answered to take another look.",
+            content = "asked $who $what to take another look.",
             actor = session.coordinatorPublicKey
         )
     }

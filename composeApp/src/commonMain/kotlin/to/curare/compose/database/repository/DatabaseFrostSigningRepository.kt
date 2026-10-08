@@ -128,6 +128,16 @@ class DatabaseFrostSigningRepository(
         false
     }
 
+    override suspend fun membersOwing(session: FrostSigningSession): Set<HexKey> = try {
+        FrostSigningManager.membersOwing(database = database, session = session)
+    } catch (e: Throwable) {
+        // Empty rather than rethrown: this is read on every emission of the
+        // signing screen, and a session whose ceremony cannot be read should
+        // offer no knock rather than take the screen down.
+        logger.e("Error reading who signing session ${session.id} is waiting on", e)
+        emptySet()
+    }
+
     override suspend fun approve(localChatRoom: LocalChatRoom, sessionId: String) {
         try {
             FrostSigningManager.approve(
