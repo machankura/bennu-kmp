@@ -9,6 +9,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -17,9 +18,11 @@ import kotlinx.coroutines.withTimeout
 import to.curare.compose.database.model.ChatRoom
 import to.curare.compose.database.model.FrostSigningItem
 import to.curare.compose.database.model.FrostSigningSession
+import to.curare.compose.database.model.intermdiate.FrostSignerTally
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.database.model.intermdiate.LocalFrostSigningSession
 import to.curare.compose.database.model.types.FrostSigningStage
+import to.curare.compose.nostr.frost.FrostSigningEvents
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
 import to.curare.compose.ui.view.state.ProposalFilter
@@ -83,12 +86,24 @@ class ProposalListViewModelJvmTest {
                 room.takeIf { id == chatRoomId }
         }
 
-    private fun frostRepository(sessions: Flow<List<LocalFrostSigningSession>>) =
-        object : FrostSigningRepository by FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY {
-            override fun observeSessionsForChatRoom(
-                chatRoomId: String
-            ): Flow<List<LocalFrostSigningSession>> = sessions
-        }
+    private fun frostRepository(
+        sessions: Flow<List<LocalFrostSigningSession>>,
+        tallies: Flow<List<FrostSignerTally>> = flowOf(emptyList()),
+    ) = object : FrostSigningRepository by FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY {
+        override fun observeSessionsForChatRoom(
+            chatRoomId: String
+        ): Flow<List<LocalFrostSigningSession>> = sessions
+
+        override fun observeSignerTalliesForChatRoom(
+            chatRoomId: String
+        ): Flow<List<FrostSignerTally>> = tallies
+    }
+
+    private fun nonces(sessionId: String, members: Int) =
+        FrostSignerTally(sessionId, FrostSigningEvents.NONCE, members)
+
+    private fun signatures(sessionId: String, members: Int) =
+        FrostSignerTally(sessionId, FrostSigningEvents.PARTIAL_SIGNATURE, members)
 
     private fun session(
         id: String,
@@ -149,11 +164,12 @@ class ProposalListViewModelJvmTest {
         sessions: Flow<List<LocalFrostSigningSession>>,
         room: LocalChatRoom? = localChatRoom,
         initialFilter: ProposalFilter = ProposalFilter.ALL,
+        tallies: Flow<List<FrostSignerTally>> = flowOf(emptyList()),
     ) = ProposalListViewModel(
         chatRoomId = chatRoomId,
         initialProposalListUIState = ProposalListUIState.Loading,
         chatRepository = chatRepository(room),
-        frostSigningRepository = frostRepository(sessions),
+        frostSigningRepository = frostRepository(sessions, tallies),
         initialFilter = initialFilter,
     )
 
@@ -370,6 +386,123 @@ class ProposalListViewModelJvmTest {
 
         model.await("the error") { it is ProposalListUIState.Error }
         assertIs<ProposalListUIState.Error>(model.proposalListUIState)
+
+        model.viewModelScope.cancel()
+    }
+
+    // --- the progress counts ------------------------------------------------------
+
+    /**
+     * The counts arrive on a flow of their own and have to land on the right
+     * rows. A tally is keyed by session, and the rooms this screen is for have
+     * several open at once -- putting one session's nonces on another's row
+     * would be the quietest possible way to be wrong.
+     */
+    @Test
+    fun `each session gets its own counts, by session and by kind`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        val tallies = MutableSharedFlow<List<FrostSignerTally>>(replay = 1)
+        sessions.emit(mixed)
+        tallies.emit(
+            listOf(
+                nonces("open", 1),
+                signatures("signing", 2),
+                // A kind the other session has too, to catch a row that took the
+                // first tally it found rather than its own.
+                nonces("signing", 3),
+            )
+        )
+
+        val model = viewModel(sessions, tallies = tallies)
+        model.initiate()
+
+        val loaded = model.awaitLoaded()
+        val byId = loaded.proposals.associateBy { it.session.id }
+
+        assertEquals(1, byId.getValue("open").noncesOffered)
+        assertEquals(0, byId.getValue("open").partialSignatures)
+        assertEquals(3, byId.getValue("signing").noncesOffered)
+        assertEquals(2, byId.getValue("signing").partialSignatures)
+
+        // And the figure each row actually shows is its stage's.
+        assertEquals(
+            ProposalListUIState.Progress.Of.MEMBERS,
+            byId.getValue("open").progress?.of
+        )
+        assertEquals(2, byId.getValue("signing").progress?.have)
+        assertEquals(
+            ProposalListUIState.Progress.Of.SIGNATURES,
+            byId.getValue("signing").progress?.of
+        )
+
+        model.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `a session nobody has answered counts zero rather than nothing`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        sessions.emit(listOf(local("open", approved = true)))
+
+        val model = viewModel(sessions)
+        model.initiate()
+
+        val proposal = model.awaitLoaded().proposals.single()
+
+        assertEquals(0, proposal.noncesOffered)
+        assertEquals(0, proposal.progress?.have)
+
+        model.viewModelScope.cancel()
+    }
+
+    /**
+     * The counts move on their own flow, and far more often than the rows do --
+     * every member's nonce moves one. A count arriving must reach the screen
+     * without the session rows changing at all.
+     */
+    @Test
+    fun `a nonce landing updates the row without the session rows moving`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        val tallies = MutableSharedFlow<List<FrostSignerTally>>(replay = 1)
+        sessions.emit(listOf(local("open", approved = true)))
+        tallies.emit(listOf(nonces("open", 1)))
+
+        val model = viewModel(sessions, tallies = tallies)
+        model.initiate()
+
+        assertEquals(1, model.awaitLoaded().proposals.single().progress?.have)
+
+        tallies.emit(listOf(nonces("open", 2)))
+
+        model.await("the second nonce") {
+            it is ProposalListUIState.Loaded &&
+                it.proposals.single().noncesOffered == 2
+        }
+
+        model.viewModelScope.cancel()
+    }
+
+    /** A selection survives a count arriving, the same as it survives a row moving. */
+    @Test
+    fun `a count arriving does not reset the filter either`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        val tallies = MutableSharedFlow<List<FrostSignerTally>>(replay = 1)
+        sessions.emit(mixed)
+        tallies.emit(emptyList())
+
+        val model = viewModel(sessions, tallies = tallies)
+        model.initiate()
+        model.awaitLoaded()
+
+        model.select(ProposalFilter.WAITING_ON_MEMBERS)
+        tallies.emit(listOf(nonces("open", 1)))
+
+        model.await("the count") {
+            it is ProposalListUIState.Loaded &&
+                it.proposals.any { proposal -> proposal.noncesOffered == 1 }
+        }
+
+        assertEquals(ProposalFilter.WAITING_ON_MEMBERS, model.loaded().filter)
+        assertEquals(listOf("open"), model.loaded().visible.map { it.session.id })
 
         model.viewModelScope.cancel()
     }

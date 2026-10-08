@@ -93,6 +93,17 @@ sealed interface ProposalListUIState {
 
         /** Whether the session is still waiting on this device's owner. */
         val awaitsYou: Boolean = false,
+
+        /**
+         * How many share-holding members have offered a nonce, and how many
+         * have published their part of the signature.
+         *
+         * Counts of members, not of messages, and only of members who hold a
+         * share -- see `FrostSignerTally`, which is where both restrictions are
+         * imposed and explained.
+         */
+        val noncesOffered: Int = 0,
+        val partialSignatures: Int = 0,
     ) {
         /** The batch's size, readable or not. */
         val eventCount: Int get() = signs.size + unreadable
@@ -126,6 +137,61 @@ sealed interface ProposalListUIState {
                 FrostSigningStage.FAILED -> ProposalState.ABANDONED
             }
         }
+
+        /**
+         * How far the thing it is currently gathering has got, or null when it
+         * is gathering nothing.
+         *
+         * Keyed on the stage rather than on [state], because the stage is what
+         * decides *which* count is the live one and [ProposalState.NEEDS_YOU]
+         * overlays both of the gathering stages. A proposal can need the
+         * reader's answer while the group is on either, and in both cases the
+         * figure it wants is the one for the stage it is actually in.
+         *
+         * Null once it has ended, which is both of the endings and not only the
+         * happy one. A signed session has nothing left to gather; an abandoned
+         * one has counts frozen where they stopped, and "2 of 3" beside a
+         * failure invites the reader to wait for a third that is never coming.
+         * The failure reason is what that row has to say.
+         */
+        val progress: Progress? get() = when (session.stage) {
+            // Enough to aggregate is the threshold, not the whole room --
+            // `orderedNonces` gates on exactly this and takes the first t of
+            // them, so t is both what is needed and what will be used.
+            FrostSigningStage.COLLECTING_NONCES ->
+                Progress(noncesOffered, session.threshold, Progress.Of.MEMBERS)
+
+            // The signer set once it exists, and the threshold until it does --
+            // they are the same number, since the set is the first t offers, but
+            // the set is the one this stage is actually waiting on.
+            FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES -> Progress(
+                partialSignatures,
+                session.signerIdList()?.size ?: session.threshold,
+                Progress.Of.SIGNATURES
+            )
+
+            FrostSigningStage.COMPLETE, FrostSigningStage.FAILED -> null
+        }
+    }
+
+    /**
+     * How much of what a proposal is waiting for has arrived.
+     *
+     * [have] can exceed [need] for a moment: a member's nonce lands locally
+     * before this device has run `advance` and moved the session on, so a row
+     * can read "3 of 2" between a delivery and the pass that acts on it. Clamped
+     * rather than shown, because a fraction over one reads as a bug in the app
+     * rather than as a session about to advance.
+     */
+    data class Progress(
+        private val arrived: Int,
+        val need: Int,
+        val of: Of,
+    ) {
+        val have: Int = arrived.coerceIn(0, need)
+
+        /** What is being counted, which decides the word the row uses. */
+        enum class Of { MEMBERS, SIGNATURES }
     }
 
     data class Error(

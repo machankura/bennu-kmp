@@ -59,6 +59,15 @@ import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
 import curare.composeapp.generated.resources.abandoned
+import curare.composeapp.generated.resources.you_declined
+import curare.composeapp.generated.resources.you_are_signing
+import curare.composeapp.generated.resources.you_agreed
+import curare.composeapp.generated.resources.signed_by_the_group
+import curare.composeapp.generated.resources.of_signatures_are_in
+import curare.composeapp.generated.resources.of_members_have_offered_to_sign
+import curare.composeapp.generated.resources.needs_your_review
+import curare.composeapp.generated.resources.enough_members_took_part_without_you
+import curare.composeapp.generated.resources.abandoned_nothing_was_signed
 import curare.composeapp.generated.resources.everything_else
 import curare.composeapp.generated.resources.filter_all
 import curare.composeapp.generated.resources.filter_and_count
@@ -508,7 +517,11 @@ private fun ProposalCard(
                         )
                     }
 
-                    Text(text = statusOf(proposal))
+                    Text(text = statusOf(proposal), color = cardContentColor)
+
+                    proposal.progress?.let { progress ->
+                        ProgressLine(progress = progress, color = cardContentColor)
+                    }
 
                     Text(
                         text = "${proposal.proposerName} · " +
@@ -523,12 +536,18 @@ private fun ProposalCard(
 }
 
 /**
- * Where a proposal has got to, in a line.
+ * Who the reader is in this proposal, in a line.
  *
  * Shorter than the signing screen's version of the same question, and it has to
  * be: this is one row of a list somebody is scanning, not the page they are
  * deciding on. What it must never do is call a session finished when it is not,
  * or waiting when the decision has gone.
+ *
+ * It no longer carries any numbers. It used to say "waiting for 2 of 3 members
+ * to take part", which is the rule rather than the progress -- a row said the
+ * same thing on the day a proposal was made and on the day before it completed.
+ * The fraction that does move is [ProgressLine]'s, and two fractions on one row
+ * meaning different things would be worse than the one that said nothing.
  *
  * Still switches on the stage rather than on `Proposal.state`, and still has to,
  * though for less than it used to. What is left collapsed inside a state is who
@@ -538,37 +557,73 @@ private fun ProposalCard(
  * than about the proposal, which is why they are a sentence on the row and not a
  * chip above it.
  */
+@Composable
 private fun statusOf(proposal: ProposalListUIState.Proposal): String {
     val session = proposal.session
 
-    if (proposal.state == ProposalState.NEEDS_YOU) return "Needs your review"
+    if (proposal.state == ProposalState.NEEDS_YOU) {
+        return stringResource(Res.string.needs_your_review)
+    }
 
     return when (session.stage) {
         // Not awaiting the reader and still collecting means they answered, one
         // way or the other. A refusal leaves the session open -- a t-of-n key
         // can do without this member -- so it is still a session in progress,
         // and the row has to say which answer was given.
-        FrostSigningStage.COLLECTING_NONCES ->
-            (if (session.signDeclinedAt != null) "You declined. " else "You agreed. ") +
-                "Waiting for ${session.threshold} of " +
-                "${session.participantCount} members to take part."
+        FrostSigningStage.COLLECTING_NONCES -> when (session.signDeclinedAt) {
+            null -> stringResource(Res.string.you_agreed)
+            else -> stringResource(Res.string.you_declined)
+        }
 
-        FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES ->
-            if (session.isSigner()) {
-                "You are signing. Waiting on the rest of the signers."
-            } else {
-                "Enough members took part without you. Waiting on them to sign."
-            }
+        FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES -> when {
+            session.isSigner() -> stringResource(Res.string.you_are_signing)
+            else -> stringResource(Res.string.enough_members_took_part_without_you)
+        }
 
-        FrostSigningStage.COMPLETE -> "Signed by the group."
+        FrostSigningStage.COMPLETE -> stringResource(Res.string.signed_by_the_group)
 
         // The reason is the whole content of a failure -- "declined on this
         // device" and "the group could not agree" are different things to
         // have happened -- so it stands in for the word "abandoned" whenever
         // there is one.
-        FrostSigningStage.FAILED ->
-            session.failureReason ?: "Abandoned. Nothing was signed."
+        FrostSigningStage.FAILED -> session.failureReason
+            ?: stringResource(Res.string.abandoned_nothing_was_signed)
     }
+}
+
+/**
+ * How much of what the proposal is waiting for has arrived.
+ *
+ * A line of its own rather than a clause of the status line, because it is the
+ * only thing on the row that moves while the reader is looking at it -- a
+ * member's nonce landing changes this and nothing else -- and because a reader
+ * scanning a list for the one that is nearly there should not have to read a
+ * sentence to find out.
+ *
+ * Drawn only while something is being gathered: see
+ * `ProposalListUIState.Proposal.progress`, which is null for both endings.
+ */
+@Composable
+private fun ProgressLine(
+    progress: ProposalListUIState.Progress,
+    color: Color,
+) {
+    Text(
+        text = when (progress.of) {
+            ProposalListUIState.Progress.Of.MEMBERS -> stringResource(
+                Res.string.of_members_have_offered_to_sign,
+                progress.have,
+                progress.need
+            )
+
+            ProposalListUIState.Progress.Of.SIGNATURES -> stringResource(
+                Res.string.of_signatures_are_in,
+                progress.have,
+                progress.need
+            )
+        },
+        color = color
+    )
 }
 
 @ConformancePreviews

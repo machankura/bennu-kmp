@@ -10,6 +10,7 @@ import to.curare.compose.database.model.FrostSignerMessage
 import to.curare.compose.database.model.FrostSigningItem
 import to.curare.compose.database.model.FrostSigningSession
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
+import to.curare.compose.database.model.intermdiate.FrostSignerTally
 import to.curare.compose.database.model.intermdiate.LocalFrostSigningSession
 
 /**
@@ -29,6 +30,21 @@ interface FrostSigningRepository {
      * which is why the proposal list shows all of them rather than the latest.
      */
     fun observeSessionsForChatRoom(chatRoomId: String): Flow<List<LocalFrostSigningSession>>
+
+    /**
+     * How far each of a room's sessions has got at gathering what it needs, as
+     * a count of members per session per kind of message.
+     *
+     * A companion to [observeSessionsForChatRoom] rather than part of it: the
+     * session rows say which stage a proposal is in, and this says how far
+     * through that stage it is. Kept apart because the counts change far more
+     * often than the rows do -- every member's nonce moves one -- and because
+     * carrying the messages themselves would carry every nonce payload the room
+     * has ever exchanged to a screen that only wants to count them.
+     *
+     * Only members holding a share of the key are counted; see the query.
+     */
+    fun observeSignerTalliesForChatRoom(chatRoomId: String): Flow<List<FrostSignerTally>>
 
     fun observeMessages(sessionId: String): Flow<List<FrostSignerMessage>>
 
@@ -200,6 +216,10 @@ interface FrostSigningRepository {
 
             override fun observeSessionsForChatRoom(chatRoomId: String): Flow<List<LocalFrostSigningSession>> =
                 flowOf(emptyList())
+
+            override fun observeSignerTalliesForChatRoom(
+                chatRoomId: String
+            ): Flow<List<FrostSignerTally>> = flowOf(emptyList())
 
             override fun observeMessages(sessionId: String): Flow<List<FrostSignerMessage>> =
                 flowOf(emptyList())

@@ -21,6 +21,7 @@
       "XML file ... is not valid. Check the file content."
     -->
     <string name="abandoned">Abandoned</string>
+    <string name="abandoned_nothing_was_signed">Abandoned. Nothing was signed.</string>
     <string name="filter_all">All</string>
     <string name="app_name">Curare</string>
     <string name="add_a_dialect_the_group_can_translate_into">Add a dialect the group can translate into</string>
@@ -91,6 +92,7 @@
     <string name="emergency_kit">Emergency kit</string>
     <string name="ended">ENDED</string>
     <string name="encrypt_and_back_your_recovery_information">Encrypt and back your recovery information up to your Google Drive or iCloud.</string>
+    <string name="enough_members_took_part_without_you">Enough members took part without you.</string>
     <string name="enter_the_name_you_want_to_use_for_your">Enter the name you want to use for your group</string>
     <string name="enter_the_name_you_want_to_use_for_your_2">Enter the name you want to use for your profile</string>
     <string name="enter_the_translation_for_this_chunk">Enter the translation for this chunk</string>
@@ -155,6 +157,7 @@
     <string name="name_eg_group_discussions">Name (eg. Group Discussions)</string>
     <string name="name_of_artifact">Name of artifact</string>
     <string name="needs_you">Needs you</string>
+    <string name="needs_your_review">Needs your review.</string>
     <string name="network_relays">Network relays</string>
     <string name="no_proposal_is_being_signed">No proposal is being signed.</string>
     <string name="no_proposal_is_waiting_on_members">No proposal is waiting on members.</string>
@@ -244,6 +247,7 @@
     <string name="the_signed_event">The signed event</string>
     <string name="copy_the_signed_event">Copy the signed event</string>
     <string name="copied_the_signed_event">Copied the signed event</string>
+    <string name="signed_by_the_group">Signed by the group.</string>
     <string name="this_device_does_not_hold_the_event">This device holds the group's reading of this, but not the signed event itself. Nothing here can be checked against a signature.</string>
     <string name="sign">Sign</string>
     <string name="sign_in">Sign in</string>
@@ -328,9 +332,12 @@
     <string name="write_down_and_secure_the_12_word_phrase">Write down and secure the 12 word phrase that this profile and its wallet are derived from.</string>
     <string name="who_will_you_be_passing_the_aux_to">Who will you be passing the aux to?</string>
     <string name="you">You</string>
+    <string name="you_agreed">You agreed.</string>
     <string name="you_and_1_other">You and 1 other</string>
     <string name="you_are_about_to_create_a_nostr_profile">You are about to create a NOSTR profile.</string>
+    <string name="you_are_signing">You are signing.</string>
     <string name="you_can_still_carry_on_and_invite_people">You can still carry on and invite people later.</string>
+    <string name="you_declined">You declined.</string>
     <string name="you_have_not_backed_up_your_recovery_phrase">You have not backed up your recovery phrase</string>
     <string name="you_only_live_once_lose_this_phone_and_the">You only live once. Lose this phone and the profile goes with it, along with anything it holds.</string>
     <string name="you_said_you_wrote_it_down">You said you wrote it down</string>
@@ -404,6 +411,8 @@
     <string name="anyone_in_this_group_can_run_a_subgroup">Anyone in this group can run a subgroup, whether or not they administer this one.</string>
     <string name="has_no_key_package_yet">Has no key package yet</string>
     <string name="admin_of_this_group">Admin of this group</string>
+    <string name="of_members_have_offered_to_sign">%1$s of %2$s members have offered to sign</string>
+    <string name="of_signatures_are_in">%1$s of %2$s signatures are in</string>
     <string name="you_coordinate_this_subgroup">You coordinate this subgroup</string>
     <string name="start_the_key_ceremony">Start the key ceremony</string>
     <string name="checking_who_can_be_added">Checking who can be added…</string>
