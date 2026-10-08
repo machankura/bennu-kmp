@@ -77,6 +77,12 @@ class FrostSigningViewModel(
                 shareHolders
             ) { session, messages, items, holders -> Observed(session, messages, items, holders) }
                 .collect { (session, messages, items, holders) ->
+                    // Read per emission rather than derived from `messages`: who
+                    // the session is waiting on is the manager's rule, and it is
+                    // not the same rule at every stage. See
+                    // `FrostSigningRepository.membersOwing`.
+                    val owed = session?.let { frostSigningRepository.membersOwing(it) } ?: emptySet()
+
                     frostSigningUIState = FrostSigningUIState.Loaded(
                         localChatRoom = localChatRoom,
                         session = session,
@@ -93,7 +99,8 @@ class FrostSigningViewModel(
                         declined = messages
                             .filter { it.kind == FrostSigningEvents.DECLINE }
                             .map { it.signerPublicKey }
-                            .toSet()
+                            .toSet(),
+                        silent = owed
                     )
                 }
         }

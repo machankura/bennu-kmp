@@ -17,19 +17,22 @@ import to.curare.compose.database.model.types.FrostSigningStage
 import to.curare.compose.managers.FrostSigningManager
 
 /**
- * When the signing screen offers to ask the quiet members again, and who it
- * counts as quiet.
+ * When the signing screen offers to ask the members it is waiting on again.
  *
- * Both are derived on the state rather than collected, because everything they
- * are made of is already there -- the share holders, who offered a nonce, who
- * signed, who refused. A second flow for either would be a second thing that
- * can disagree with the rows drawn right above the button.
+ * *Who* those members are is not decided here. That rule is the manager's, it is
+ * not the same rule at every stage -- a nonce answers the question while nonces
+ * are being collected and not after -- and the same reading decides whether a
+ * resend publishes anything, so a second one here would be a second thing to
+ * keep in step: a screen offering a knock the manager would refuse, or hiding
+ * one it would make. See `FrostSigningManager.membersOwing` and the tests over
+ * it in `FrostSigningResendJvmTest`.
  *
- * The limits are what this pins. The offer is the coordinator's and nobody
- * else's: `acceptProposal` takes a session's coordinator from the author of the
- * proposal that opened it, so a resend from anybody else would have a member who
- * was missing the session believe the resender coordinates -- and then drop the
- * real coordinator's signer set.
+ * What is left here is when the offer stands at all, and the limits are what it
+ * pins. The offer is the coordinator's and nobody else's: `acceptProposal` takes
+ * a session's coordinator from the author of the proposal that opened it, so a
+ * resend from anybody else would have a member who was missing the session
+ * believe the resender coordinates -- and then drop the real coordinator's
+ * signer set.
  */
 class FrostSigningResendStateTest {
     private val roomId = "11".repeat(32)
@@ -95,6 +98,7 @@ class FrostSigningResendStateTest {
         signed: Set<String> = emptySet(),
         declined: Set<String> = emptySet(),
         items: List<FrostSigningItem> = listOf(item),
+        silent: Set<String> = setOf(bob, carol),
     ) = FrostSigningUIState.Loaded(
         localChatRoom = room(owner),
         session = session(owner, coordinator, stage, resentAt),
@@ -103,30 +107,24 @@ class FrostSigningResendStateTest {
         offeredNonce = offeredNonce,
         signed = signed,
         declined = declined,
+        silent = silent,
     )
 
     @Test
-    fun `the quiet members are the share holders nobody has heard from`() {
-        val state = loaded(offeredNonce = setOf(bob))
+    fun `the offer follows the manager's answer rather than the rows`() {
+        // Every share holder has answered as far as the rows above the button
+        // can tell -- and the manager says Bob still owes a partial signature,
+        // which is what a session past the nonces waits on. The screen takes
+        // that answer; working one out from the rows is how the knock came to be
+        // refused exactly when it was needed.
+        val state = loaded(
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            offeredNonce = setOf(bob, carol),
+            silent = setOf(bob),
+        )
 
-        // Alice is this device: her own answer is not something to knock about.
-        assertEquals(setOf(carol), state.silent)
-    }
-
-    @Test
-    fun `a member who refused is not quiet`() {
-        // They answered. Asking again would be asking a question they closed.
-        assertEquals(setOf(carol), loaded(declined = setOf(bob)).silent)
-    }
-
-    @Test
-    fun `a member who signed their part is not quiet`() {
-        assertEquals(setOf(carol), loaded(signed = setOf(bob)).silent)
-    }
-
-    @Test
-    fun `a session nobody has answered is quiet in everybody but its proposer`() {
-        assertEquals(setOf(bob, carol), loaded().silent)
+        assertEquals(setOf(bob), state.silent)
+        assertTrue(state.canResend)
     }
 
     @Test
@@ -141,10 +139,9 @@ class FrostSigningResendStateTest {
     }
 
     @Test
-    fun `a session everybody has answered has nothing to resend`() {
-        val state = loaded(offeredNonce = setOf(bob), declined = setOf(carol))
+    fun `a session waiting on nobody has nothing to resend`() {
+        val state = loaded(offeredNonce = setOf(bob), declined = setOf(carol), silent = emptySet())
 
-        assertTrue(state.silent.isEmpty())
         assertFalse(state.canResend)
     }
 

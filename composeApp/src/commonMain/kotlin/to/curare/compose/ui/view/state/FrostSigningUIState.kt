@@ -44,6 +44,18 @@ sealed interface FrostSigningUIState {
          * the session has been collected, and so until [members] has anyone in it.
          */
         val shareHolders: Set<HexKey> = emptySet(),
+
+        /**
+         * The share holders the session is still waiting on, and so whose door
+         * there is any point knocking on.
+         *
+         * Asked of the manager rather than worked out here, the way
+         * [FrostSigningManager.isAwaitingApproval] is. It decides what a resend
+         * does, and what counts as an answer changes with the stage -- a nonce
+         * settles the question while nonces are being collected and not after --
+         * so a second reading of it here is a second thing to keep in step.
+         */
+        val silent: Set<HexKey> = emptySet(),
     ): FrostSigningUIState {
         /**
          * The members the session can be answered by, as rows to draw.
@@ -80,21 +92,6 @@ sealed interface FrostSigningUIState {
 
             return inRoom + elsewhere
         }
-
-        /**
-         * The share holders this session has heard nothing at all from.
-         *
-         * Whose door to knock on, as a set rather than as a list of rows: it is
-         * what decides whether there is anything to knock about. A member who
-         * refused is not here -- they answered, and asking again would be asking
-         * a question they have closed.
-         *
-         * Derived rather than collected. Everything it is made of is already on
-         * this state, and a second flow for it would be a second thing that can
-         * disagree with the rows the screen draws.
-         */
-        val silent: Set<HexKey> get() =
-            shareHolders - offeredNonce - signed - declined - localChatRoom.chatRoom.userPublicKey
 
         /**
          * Whether this device may ask the quiet members to take another look.

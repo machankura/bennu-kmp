@@ -137,10 +137,11 @@ interface FrostSigningSessionDao {
     /**
      * Every message a session has received, of every kind.
      *
-     * What a resend reads to work out who has said nothing at all: a member with
-     * any row here has answered -- offered a nonce, signed their part, or
-     * refused -- and is not somebody to knock on the door of. See
-     * `FrostSigningManager.silentMembers`.
+     * What a resend reads to work out who it is still waiting on. Which rows
+     * count as an answer depends on what the session is collecting: while it
+     * wants nonces, any row at all -- a nonce, a partial signature, a refusal;
+     * once the signers are chosen, only their partial signature or their
+     * refusal. See `FrostSigningManager.membersOwing`.
      */
     @Query("SELECT * FROM FrostSignerMessage WHERE sessionId = :sessionId ORDER BY createdAt ASC")
     suspend fun getMessagesForSession(sessionId: String): List<FrostSignerMessage>

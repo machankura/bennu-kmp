@@ -141,6 +141,27 @@ class DatabaseFrostSigningRepository(
         false
     }
 
+    override suspend fun membersOwing(session: FrostSigningSession): Set<HexKey> = try {
+        FrostSigningManager.membersOwing(database = database, session = session)
+    } catch (e: Throwable) {
+        // Empty rather than rethrown: this is read on every emission of the
+        // signing screen, and a session whose ceremony cannot be read should
+        // offer no knock rather than take the screen down.
+        logger.e("Error reading who signing session ${session.id} is waiting on", e)
+        emptySet()
+    }
+
+    override suspend fun resumeAnswered(localChatRoom: LocalChatRoom) {
+        try {
+            FrostSigningManager.resumeAnswered(database = database, localChatRoom = localChatRoom)
+        } catch (e: Throwable) {
+            // Each session already settles its own failure inside `advance`, so
+            // anything reaching here is the sweep itself, and a repair that
+            // takes the room down with it is worse than one that did not happen.
+            logger.e("Error resuming signing sessions in ${localChatRoom.chatRoom.id}", e)
+        }
+    }
+
     override suspend fun approve(localChatRoom: LocalChatRoom, sessionId: String) {
         try {
             FrostSigningManager.approve(

@@ -162,9 +162,33 @@ interface FrostSigningRepository {
      * already said.
      *
      * Returns false when there was nothing to do: not this device's session,
-     * already abandoned, nobody quiet, or inside the cooldown.
+     * already abandoned, nobody owed, or inside the cooldown.
      */
     suspend fun resend(localChatRoom: LocalChatRoom, sessionId: String): Boolean
+
+    /**
+     * The share holders a session is still waiting on, as the manager counts
+     * them -- who has said nothing while it collects nonces, and which chosen
+     * signer has yet to sign once it collects partial signatures.
+     *
+     * Asked rather than derived from the messages a screen already holds. The
+     * same set decides whether [resend] publishes anything, and a second
+     * reading of it is a second thing to keep in step: a screen offering a knock
+     * the manager would refuse, or hiding one it would make.
+     */
+    suspend fun membersOwing(session: FrostSigningSession): Set<HexKey>
+
+    /**
+     * Takes every session in a room whose owner has answered as far as its
+     * stored messages allow, for the steps no arriving message will drive.
+     *
+     * A device killed part way through a session's turn -- the signer set
+     * recorded, its own partial signature not yet published -- is waiting on a
+     * message that has already been delivered and will not arrive twice. This is
+     * what gets it moving again, and it publishes nothing its owner has not
+     * already agreed to.
+     */
+    suspend fun resumeAnswered(localChatRoom: LocalChatRoom)
 
     /** Agrees to sign, letting the session publish this device's part and run on. */
     suspend fun approve(localChatRoom: LocalChatRoom, sessionId: String)
@@ -237,6 +261,10 @@ interface FrostSigningRepository {
                 localChatRoom: LocalChatRoom,
                 sessionId: String
             ): Boolean = false
+
+            override suspend fun membersOwing(session: FrostSigningSession): Set<HexKey> = emptySet()
+
+            override suspend fun resumeAnswered(localChatRoom: LocalChatRoom) = Unit
 
             override suspend fun approve(localChatRoom: LocalChatRoom, sessionId: String) = Unit
 

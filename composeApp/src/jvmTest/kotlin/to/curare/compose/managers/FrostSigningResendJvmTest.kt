@@ -4,10 +4,14 @@ import androidx.room3.Room
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
+import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
+import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.bitcoin.crypto.frost.Frost
+import fr.acinq.bitcoin.crypto.frost.IndividualNonce
 import fr.acinq.bitcoin.crypto.frost.KeyMaterial
+import fr.acinq.bitcoin.crypto.frost.SecretNonce
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -54,6 +58,10 @@ import to.curare.compose.nostr.frost.FrostSigningEvents
  * tests below are mostly about the limits of that: the same bytes and not new
  * ones, nothing at all from a device whose owner has not decided, and nothing
  * from a nudge that did not come from the coordinator.
+ *
+ * And a third repair at the end, for the stall neither half reaches: a device
+ * killed part way through its own turn, waiting on a message that has already
+ * been delivered. See `FrostSigningManager.resumeAnswered`.
  */
 class FrostSigningResendJvmTest {
     private val participants = 3
@@ -264,6 +272,68 @@ class FrostSigningResendJvmTest {
 
     private suspend fun resend(sessionId: String) =
         FrostSigningManager.resend(database = db, localChatRoom = room, sessionId = sessionId)
+
+    /**
+     * A public nonce as [member]'s own device would have published it.
+     *
+     * Real rather than filler, because the coordinator aggregates what arrives:
+     * a nonce that does not parse leaves the session where it was, so a test
+     * wanting the stage after this one has to offer something genuine.
+     *
+     * [sessionRandom] is the one thing a remote member's device does not share
+     * with this one. Theirs is theirs; any value gives a usable nonce, and the
+     * seed only has to differ per member so two of them never collide.
+     */
+    private fun publicNonceOf(member: HexKey): String {
+        val index = members.indexOf(member)
+        val cache = SharedKeyDerivation
+            .derive(thresholdPublicKey, SharedKeyDerivation.MARMOT_ADMIN_GROUP_PATH)
+            .cache
+
+        val (_, publicNonce) = SecretNonce.generate(
+            sessionRandom = ByteVector32("b".repeat(63) + "${index + 1}"),
+            secretShare = keyMaterial.secretShares[index],
+            publicShare = keyMaterial.publicShares[index],
+            tweakedThresholdPublicKey = cache.tweakedPublicKey,
+            message = ByteVector(unsignedEvent().id.hexToByteArray()),
+            extraInput = null
+        )
+
+        return publicNonce.data.toHex()
+    }
+
+    /**
+     * Alice's session once Bob has offered a nonce: the signer set chosen, her
+     * own part signed, and the session waiting on his.
+     *
+     * The stage is reached rather than written. A session put into
+     * [FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES] by hand, with no nonce
+     * on file from anybody, is a state the protocol cannot produce -- and it is
+     * precisely the difference: the members this stage waits on are the ones who
+     * have already been heard from once.
+     */
+    private suspend fun waitingOnBobsPart(): FrostSigningSession {
+        val session = propose()
+        receive(session.id, FrostSigningEvents.NONCE, bob, publicNonceOf(bob))
+
+        val reached = session(session.id)
+        assertEquals(FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES, reached.stage)
+        assertEquals(listOf(0, 1), reached.signerIdList())
+
+        return reached
+    }
+
+    /** Files a signer's message without running the session, the way a stored one would read. */
+    private suspend fun fileMessage(sessionId: String, kind: Kind, member: HexKey, payload: String) {
+        db.frostSigningSessionDao().upsert(
+            FrostSignerMessage(
+                sessionId = sessionId,
+                signerPublicKey = member,
+                kind = kind,
+                payload = payload
+            )
+        )
+    }
 
     private suspend fun session(id: String) = db.frostSigningSessionDao().getSessionById(id)!!
 
@@ -722,34 +792,84 @@ class FrostSigningResendJvmTest {
     @Test
     fun `a resend while collecting partial signatures repeats the signer set`() = runBlocking {
         openDevice()
-        val session = propose()
+        val session = waitingOnBobsPart()
 
         // The middle branch of the stage table, and the one a member stalls on:
         // they have the proposal and their nonce is in, but the signer set that
         // tells them what to sign against never arrived.
-        db.frostSigningSessionDao().upsertItems(
-            db.frostSigningSessionDao().getItems(session.id).map {
-                it.copy(aggregatedNonce = "ab".repeat(33))
-            }
-        )
-        db.frostSigningSessionDao().upsert(
-            session(session.id).copy(
-                signerIds = "0,1",
-                stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES
-            )
-        )
+        val aggregated = db.frostSigningSessionDao().getItems(session.id).single().aggregatedNonce
 
         assertTrue(resend(session.id))
 
+        // Two: the one `advance` sent when it chose the signers, and the repeat.
         val signerSet = queued(FrostSigningEvents.SIGNER_SET)
-        assertEquals(1, signerSet.size)
-        assertEquals("ab".repeat(33), signerSet.single().content)
-        assertEquals(listOf(0, 1), FrostSigningEvents.parseSignerIds(signerSet.single().tags))
+        assertEquals(2, signerSet.size)
+        assertTrue(signerSet.all { it.content == aggregated })
+        assertTrue(signerSet.all { FrostSigningEvents.parseSignerIds(it.tags) == listOf(0, 1) })
 
         // And the proposal with it, because a device holding neither can file
         // neither: a signer set naming ids it has no items for is dropped.
         assertEquals(2, queued(FrostSigningEvents.PROPOSAL).size)
         assertTrue(queued(FrostSigningEvents.SIGNATURE).isEmpty())
+    }
+
+    @Test
+    fun `the knock at the signing stage is for the signer who has not signed`() = runBlocking {
+        openDevice()
+        val session = waitingOnBobsPart()
+
+        // Bob offered a nonce, which is why the session got this far, and that
+        // used to be enough to count him as answered -- leaving the knock for
+        // Carol, who was never chosen and owes nothing.
+        assertEquals(setOf(bob), FrostSigningManager.membersOwing(db, session))
+
+        // By id rather than by time: the proposal and its repeat routinely share
+        // a `createdAt`, since it is stored to the second.
+        val resent = queuedBy(FrostSigningEvents.PROPOSAL) { assertTrue(resend(session.id)) }
+
+        assertEquals(listOf(bob), FrostSigningEvents.parseSilentMembers(resent.tags))
+    }
+
+    @Test
+    fun `a signer who has sent their part is not knocked on again`() = runBlocking {
+        openDevice()
+        val session = waitingOnBobsPart()
+
+        // Filed rather than received: a partial signature that is not Bob's real
+        // one would fail the aggregation and abandon the session, and what this
+        // is about is the bookkeeping either side of that.
+        fileMessage(session.id, FrostSigningEvents.PARTIAL_SIGNATURE, bob, "9".repeat(64))
+
+        // Carol never answered at all, and is still not who this stage waits on.
+        assertTrue(FrostSigningManager.membersOwing(db, session).isEmpty())
+        assertFalse(resend(session.id))
+
+        assertEquals(1, queued(FrostSigningEvents.PROPOSAL).size)
+    }
+
+    @Test
+    fun `a chosen signer who refused is not knocked on either`() = runBlocking {
+        openDevice()
+        val session = waitingOnBobsPart()
+
+        fileMessage(session.id, FrostSigningEvents.DECLINE, bob, "Declined to sign")
+
+        // They answered the question this stage asks, even though the answer
+        // leaves the session needing a different signer.
+        assertTrue(FrostSigningManager.membersOwing(db, session).isEmpty())
+        assertFalse(resend(session.id))
+    }
+
+    @Test
+    fun `the transcript says what the signers have not sent`() = runBlocking {
+        openDevice()
+        val session = waitingOnBobsPart()
+
+        assertTrue(resend(session.id))
+
+        val line = transcript(ChatMessage.TYPE_FROST_RESENT).single()
+        assertTrue(line.content.contains("has not signed their part"), "got: ${line.content}")
+        assertFalse(line.content.contains("not answered"), "got: ${line.content}")
     }
 
     @Test
@@ -980,5 +1100,135 @@ class FrostSigningResendJvmTest {
         assertTrue(resend(session.id))
         assertEquals(1, queued(FrostSigningEvents.SIGNATURE).size)
         assertEquals(2, queued(FrostSigningEvents.PROPOSAL).size)
+    }
+
+    // ---- the step no message drives ---------------------------------------
+
+    /**
+     * Bob's device at the moment process death is worst: he agreed, his nonce
+     * went out, the coordinator's signer set arrived and was filed -- and the
+     * pass that would have signed his part never finished.
+     *
+     * Written into the row rather than received, because that is what the state
+     * is: the signer set has been *recorded*, so redelivering it changes
+     * nothing, and nothing else in the protocol will ever ask Bob again.
+     */
+    private suspend fun killedBeforeSigning(): FrostSigningSession {
+        val session = proposalArrivedAt(bob)
+
+        FrostSigningManager.approve(database = db, localChatRoom = room, sessionId = session.id)
+
+        // The aggregate the coordinator would have sent: Alice's nonce and the
+        // one Bob's device published from the seed on its item row.
+        val stored = db.frostSigningSessionDao().getItems(session.id).single()
+        val bobsNonce = db.frostSigningSessionDao()
+            .getMessage(session.id, FrostSigningEvents.NONCE, bob)!!
+            .payload
+
+        val aggregated = IndividualNonce.aggregate(
+            listOf(
+                IndividualNonce(publicNonceOf(alice).hexToByteArray()),
+                IndividualNonce(bobsNonce.hexToByteArray())
+            )
+        ).right!!
+
+        db.frostSigningSessionDao().upsertItems(
+            listOf(stored.copy(aggregatedNonce = aggregated.toByteArray().toHex()))
+        )
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(
+                signerIds = "0,1",
+                stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES
+            )
+        )
+
+        return session(session.id)
+    }
+
+    @Test
+    fun `an answered session signs its part when the room is next opened`() = runBlocking {
+        openDevice(bob)
+        val session = killedBeforeSigning()
+
+        assertTrue(queued(FrostSigningEvents.PARTIAL_SIGNATURE).isEmpty())
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        // The step the session had everything for and no way to reach.
+        val part = queued(FrostSigningEvents.PARTIAL_SIGNATURE).single()
+        val filed = db.frostSigningSessionDao()
+            .getMessage(session.id, FrostSigningEvents.PARTIAL_SIGNATURE, bob)
+
+        assertEquals(64, part.content.length)
+        assertEquals(part.content, filed?.payload)
+    }
+
+    @Test
+    fun `resuming twice publishes one partial signature`() = runBlocking {
+        openDevice(bob)
+        killedBeforeSigning()
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        // Every step asks whether its output exists rather than whether a stage
+        // says it ran, which is what makes a sweep safe to call on every open.
+        assertEquals(1, queued(FrostSigningEvents.PARTIAL_SIGNATURE).size)
+    }
+
+    @Test
+    fun `a session its owner has not answered is left alone`() = runBlocking {
+        openDevice(bob)
+        val session = proposalArrivedAt(bob)
+
+        // The gate a resume must not reach past. Bob has the proposal and
+        // nothing else; a sweep that signed here would have a relay delivering
+        // an event to a phone in a pocket be enough to make the group sign.
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(
+                signerIds = "0,1",
+                stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES
+            )
+        )
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        assertTrue(queued(FrostSigningEvents.NONCE).isEmpty())
+        assertTrue(queued(FrostSigningEvents.PARTIAL_SIGNATURE).isEmpty())
+    }
+
+    @Test
+    fun `a refusal decided but never sent goes out on the next open`() = runBlocking {
+        openDevice(bob)
+        val session = proposalArrivedAt(bob)
+
+        // Killed between deciding and publishing: the row says no, the group has
+        // not been told, and the coordinator is waiting on a member who has
+        // already made up their mind.
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(signDeclinedAt = Clock.System.now())
+        )
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        assertEquals(1, queued(FrostSigningEvents.DECLINE).size)
+        assertTrue(queued(FrostSigningEvents.NONCE).isEmpty())
+    }
+
+    @Test
+    fun `a settled session is not swept`() = runBlocking {
+        openDevice(bob)
+        val session = proposalArrivedAt(bob)
+
+        FrostSigningManager.approve(database = db, localChatRoom = room, sessionId = session.id)
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(stage = FrostSigningStage.FAILED)
+        )
+
+        val before = queued(FrostSigningEvents.NONCE).size
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        assertEquals(before, queued(FrostSigningEvents.NONCE).size)
     }
 }
