@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material3.Card
@@ -61,13 +62,15 @@ import curare.composeapp.generated.resources.abandoned
 import curare.composeapp.generated.resources.everything_else
 import curare.composeapp.generated.resources.filter_all
 import curare.composeapp.generated.resources.filter_and_count
-import curare.composeapp.generated.resources.in_progress
+import curare.composeapp.generated.resources.being_signed
 import curare.composeapp.generated.resources.needs_you
 import curare.composeapp.generated.resources.no_proposal_has_been_abandoned
-import curare.composeapp.generated.resources.no_proposal_is_in_progress
+import curare.composeapp.generated.resources.no_proposal_is_being_signed
+import curare.composeapp.generated.resources.no_proposal_is_waiting_on_members
 import curare.composeapp.generated.resources.nothing_is_waiting_for_your_signature
 import curare.composeapp.generated.resources.signed
 import curare.composeapp.generated.resources.this_group_has_not_signed_anything_yet
+import curare.composeapp.generated.resources.waiting_on_members
 import curare.composeapp.generated.resources.proposals
 import curare.composeapp.generated.resources.review
 import curare.composeapp.generated.resources.this_group_has_not_been_asked_to_sign
@@ -223,7 +226,9 @@ private fun ProposalList(
             message = when (state.filter) {
                 ProposalFilter.ALL -> stringResource(Res.string.this_group_has_not_been_asked_to_sign)
                 ProposalFilter.NEEDS_YOU -> stringResource(Res.string.nothing_is_waiting_for_your_signature)
-                ProposalFilter.IN_PROGRESS -> stringResource(Res.string.no_proposal_is_in_progress)
+                ProposalFilter.WAITING_ON_MEMBERS ->
+                    stringResource(Res.string.no_proposal_is_waiting_on_members)
+                ProposalFilter.BEING_SIGNED -> stringResource(Res.string.no_proposal_is_being_signed)
                 ProposalFilter.SIGNED -> stringResource(Res.string.this_group_has_not_signed_anything_yet)
                 ProposalFilter.ABANDONED -> stringResource(Res.string.no_proposal_has_been_abandoned)
             },
@@ -350,7 +355,8 @@ private fun ProposalFilterRow(
 private fun labelOf(filter: ProposalFilter): String = when (filter) {
     ProposalFilter.ALL -> stringResource(Res.string.filter_all)
     ProposalFilter.NEEDS_YOU -> stringResource(Res.string.needs_you)
-    ProposalFilter.IN_PROGRESS -> stringResource(Res.string.in_progress)
+    ProposalFilter.WAITING_ON_MEMBERS -> stringResource(Res.string.waiting_on_members)
+    ProposalFilter.BEING_SIGNED -> stringResource(Res.string.being_signed)
     ProposalFilter.SIGNED -> stringResource(Res.string.signed)
     ProposalFilter.ABANDONED -> stringResource(Res.string.abandoned)
 }
@@ -421,7 +427,12 @@ private fun ProposalCard(
                         ProposalState.NEEDS_YOU -> Icons.Default.Draw
                         ProposalState.SIGNED -> Icons.Default.CheckCircle
                         ProposalState.ABANDONED -> Icons.Default.ErrorOutline
-                        ProposalState.IN_PROGRESS -> Icons.Default.HourglassEmpty
+                        // People against machinery: one is short of members
+                        // willing to sign, the other is the chosen ones
+                        // finishing. The shapes say which without the colour,
+                        // which is the only signal a monochrome display has.
+                        ProposalState.WAITING_ON_MEMBERS -> Icons.Default.Groups
+                        ProposalState.BEING_SIGNED -> Icons.Default.HourglassEmpty
                     },
                     // Carries the stage on its own, and carries it alone on the
                     // highlighted card where the failure state has no colour to spare.
@@ -429,7 +440,8 @@ private fun ProposalCard(
                         ProposalState.NEEDS_YOU -> "Awaiting your signature"
                         ProposalState.SIGNED -> "Signed"
                         ProposalState.ABANDONED -> "Failed"
-                        ProposalState.IN_PROGRESS -> "Waiting on others"
+                        ProposalState.WAITING_ON_MEMBERS -> "Waiting on members"
+                        ProposalState.BEING_SIGNED -> "Being signed"
                     },
                     tint = when (proposal.state) {
                         // `error` is 2.67:1 on the highlighted card, so on that one the
@@ -518,10 +530,13 @@ private fun ProposalCard(
  * deciding on. What it must never do is call a session finished when it is not,
  * or waiting when the decision has gone.
  *
- * Still switches on the stage rather than on `Proposal.state`, and has to: the
- * three things it says about an open session -- you agreed, you declined, you
- * were picked to sign -- are exactly the distinctions [ProposalState.IN_PROGRESS]
- * collapses. The classification picks the arm; the stage writes the sentence.
+ * Still switches on the stage rather than on `Proposal.state`, and still has to,
+ * though for less than it used to. What is left collapsed inside a state is who
+ * the reader was in it: whether they agreed or declined, under
+ * [ProposalState.WAITING_ON_MEMBERS], and whether they were picked to sign,
+ * under [ProposalState.BEING_SIGNED]. Those are facts about the reader rather
+ * than about the proposal, which is why they are a sentence on the row and not a
+ * chip above it.
  */
 private fun statusOf(proposal: ProposalListUIState.Proposal): String {
     val session = proposal.session

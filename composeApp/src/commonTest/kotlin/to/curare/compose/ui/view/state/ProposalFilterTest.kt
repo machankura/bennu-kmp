@@ -68,14 +68,51 @@ class ProposalFilterTest {
     private val open = proposal("open").copy(
         session = session("open").copy(signApprovedAt = Clock.System.now())
     )
+    private val beingSigned = proposal(
+        "signing",
+        stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+    ).copy(
+        session = session("signing", FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES)
+            .copy(signApprovedAt = Clock.System.now(), signerIds = "1,2")
+    )
     private val signed = proposal("signed", stage = FrostSigningStage.COMPLETE)
     private val abandoned = proposal("abandoned", stage = FrostSigningStage.FAILED)
 
     private fun loaded(filter: ProposalFilter = ProposalFilter.ALL) = ProposalListUIState.Loaded(
         localChatRoom = room,
-        proposals = listOf(needsYou, alsoNeedsYou, open, signed, abandoned),
+        proposals = listOf(needsYou, alsoNeedsYou, open, beingSigned, signed, abandoned),
         filter = filter,
     )
+
+    /**
+     * The chips run in lifecycle order behind "all", which is the order a reader
+     * scans them in and the order the states actually happen in.
+     *
+     * Pinned here rather than on the screen: the row scrolls, so a chip past the
+     * right edge has no measurable position, and the order is a property of the
+     * enum anyway.
+     */
+    @Test
+    fun `the chips run in lifecycle order, with all of them first`() {
+        assertEquals(
+            listOf(
+                ProposalFilter.ALL,
+                ProposalFilter.NEEDS_YOU,
+                ProposalFilter.WAITING_ON_MEMBERS,
+                ProposalFilter.BEING_SIGNED,
+                ProposalFilter.SIGNED,
+                ProposalFilter.ABANDONED,
+            ),
+            ProposalFilter.entries
+        )
+
+        // And the states they select are in their own declaration order, so the
+        // two enums cannot drift into disagreeing about what follows what.
+        assertEquals(
+            ProposalState.entries,
+            ProposalFilter.entries.mapNotNull { it.state }
+        )
+    }
 
     @Test
     fun `every filter but ALL names exactly one state, and ALL names none`() {
@@ -97,6 +134,25 @@ class ProposalFilterTest {
         }
     }
 
+    /**
+     * The two open stages are two chips.
+     *
+     * Short of members, a proposal can still die of indifference and the
+     * coordinator's resend is the lever for it; once the signer set is fixed
+     * there is nothing to do but wait. One chip over both would file "somebody
+     * may have to chase this" with "nothing to do".
+     */
+    @Test
+    fun `an open proposal is filed by whether it is still short of members`() {
+        assertEquals(ProposalState.WAITING_ON_MEMBERS, open.state)
+        assertEquals(ProposalState.BEING_SIGNED, beingSigned.state)
+
+        assertEquals(
+            listOf(ProposalFilter.WAITING_ON_MEMBERS, ProposalFilter.BEING_SIGNED),
+            ProposalFilter.entries.filter { it.state in setOf(open.state, beingSigned.state) }
+        )
+    }
+
     @Test
     fun `the default shows everything, in the order it arrived`() {
         val state = loaded()
@@ -108,7 +164,8 @@ class ProposalFilterTest {
     @Test
     fun `a filter narrows the rows to its own state`() {
         assertEquals(listOf(needsYou, alsoNeedsYou), loaded(ProposalFilter.NEEDS_YOU).visible)
-        assertEquals(listOf(open), loaded(ProposalFilter.IN_PROGRESS).visible)
+        assertEquals(listOf(open), loaded(ProposalFilter.WAITING_ON_MEMBERS).visible)
+        assertEquals(listOf(beingSigned), loaded(ProposalFilter.BEING_SIGNED).visible)
         assertEquals(listOf(signed), loaded(ProposalFilter.SIGNED).visible)
         assertEquals(listOf(abandoned), loaded(ProposalFilter.ABANDONED).visible)
     }
@@ -118,19 +175,20 @@ class ProposalFilterTest {
         val state = loaded(ProposalFilter.SIGNED)
 
         assertEquals(1, state.visible.size)
-        assertEquals(5, state.proposals.size)
+        assertEquals(6, state.proposals.size)
 
         // The split is the room's, not the selection's: it is what ALL renders,
         // and a filtered screen does not draw it at all.
         assertEquals(2, state.waitingForYou.size)
-        assertEquals(3, state.rest.size)
+        assertEquals(4, state.rest.size)
     }
 
     @Test
     fun `the counts are of the room, so they do not move when the filter does`() {
         val expected = mapOf(
             ProposalState.NEEDS_YOU to 2,
-            ProposalState.IN_PROGRESS to 1,
+            ProposalState.WAITING_ON_MEMBERS to 1,
+            ProposalState.BEING_SIGNED to 1,
             ProposalState.SIGNED to 1,
             ProposalState.ABANDONED to 1,
         )

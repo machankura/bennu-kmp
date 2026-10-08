@@ -15,7 +15,8 @@ package to.curare.compose.ui.view.state
 enum class ProposalFilter(val state: ProposalState?) {
     ALL(null),
     NEEDS_YOU(ProposalState.NEEDS_YOU),
-    IN_PROGRESS(ProposalState.IN_PROGRESS),
+    WAITING_ON_MEMBERS(ProposalState.WAITING_ON_MEMBERS),
+    BEING_SIGNED(ProposalState.BEING_SIGNED),
     SIGNED(ProposalState.SIGNED),
     ABANDONED(ProposalState.ABANDONED),
     ;

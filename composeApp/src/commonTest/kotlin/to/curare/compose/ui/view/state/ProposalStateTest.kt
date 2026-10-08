@@ -2,6 +2,7 @@ package to.curare.compose.ui.view.state
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import to.curare.compose.database.model.ChatRoom
@@ -95,26 +96,66 @@ class ProposalStateTest {
     }
 
     @Test
-    fun `agreeing moves it out of your queue without closing it`() {
+    fun `agreeing moves it out of your queue, still short of members`() {
         val agreed = session().copy(signApprovedAt = Clock.System.now())
 
-        assertEquals(ProposalState.IN_PROGRESS, proposal(agreed).state)
+        assertEquals(ProposalState.WAITING_ON_MEMBERS, proposal(agreed).state)
     }
 
     @Test
     fun `refusing moves it out of your queue too, because either answer is an answer`() {
         val declined = session().copy(signDeclinedAt = Clock.System.now())
 
-        assertEquals(ProposalState.IN_PROGRESS, proposal(declined).state)
+        assertEquals(ProposalState.WAITING_ON_MEMBERS, proposal(declined).state)
     }
 
+    /**
+     * The two open stages are two states, and this is the pair that carries the
+     * distinction.
+     *
+     * Short of members, the proposal can still die of indifference: refusals are
+     * counted against `declinesThatAbandon`, and an offline member is
+     * indistinguishable from one who has not looked. It is also the only stage
+     * the coordinator's resend is for. Once the signer set is written neither is
+     * true -- `signerIds` is written once and never revised -- so what is left is
+     * arithmetic the chosen devices have already committed to.
+     *
+     * Collapsing the two would file "somebody may have to chase this" and
+     * "nothing to do but wait" under one chip.
+     */
     @Test
-    fun `a session gathering signatures is in progress whether or not you were picked`() {
+    fun `fixing the signer set is what moves it from waiting on members to being signed`() {
+        val answered = session().copy(signApprovedAt = Clock.System.now())
+
+        assertEquals(ProposalState.WAITING_ON_MEMBERS, proposal(answered).state)
+
+        val fixed = answered.copy(
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            signerIds = "1,2",
+        )
+
+        assertEquals(ProposalState.BEING_SIGNED, proposal(fixed).state)
+    }
+
+    /**
+     * Whether this device was picked is a fact about the reader, not a state of
+     * the proposal, so it does not move it between chips. The row's status line
+     * says which it is -- "you are signing" against "enough members took part
+     * without you" -- and that is where a fact about the reader belongs.
+     */
+    @Test
+    fun `being signed does not depend on whether you were picked to sign it`() {
         val collecting = session(stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES)
             .copy(signApprovedAt = Clock.System.now())
 
-        assertEquals(ProposalState.IN_PROGRESS, proposal(collecting.copy(signerIds = "1,2")).state)
-        assertEquals(ProposalState.IN_PROGRESS, proposal(collecting.copy(signerIds = "1,3")).state)
+        val picked = collecting.copy(signerIds = "1,2")
+        val passedOver = collecting.copy(signerIds = "1,3")
+
+        assertTrue(picked.isSigner(), "the fixture should have this device signing")
+        assertFalse(passedOver.isSigner(), "the fixture should have this device passed over")
+
+        assertEquals(ProposalState.BEING_SIGNED, proposal(picked).state)
+        assertEquals(ProposalState.BEING_SIGNED, proposal(passedOver).state)
     }
 
     @Test
@@ -159,15 +200,15 @@ class ProposalStateTest {
      * `isAwaitingApproval` stops asking once every item carries a signature,
      * because `advance` closes the session on its next pass and the only answers
      * left to give are a nonce nobody is waiting for or a refusal nobody counts.
-     * The stage has not caught up yet, so this is in progress -- which is also
-     * what the row says: "enough members took part without you".
+     * The stage has not caught up yet, so it is still being signed -- which is
+     * also what the row says: "enough members took part without you".
      */
     @Test
-    fun `a fully signed batch is in progress until advance closes it`() {
+    fun `a fully signed batch is still being signed until advance closes it`() {
         val signed = session(stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES)
         val items = listOf(item(signature = "ab".repeat(32)))
 
-        assertEquals(ProposalState.IN_PROGRESS, proposal(signed, items).state)
+        assertEquals(ProposalState.BEING_SIGNED, proposal(signed, items).state)
     }
 
     /**
@@ -194,6 +235,10 @@ class ProposalStateTest {
         val proposals = listOf(
             proposal(session(id = "needs")),
             proposal(session(id = "open").copy(signApprovedAt = Clock.System.now())),
+            proposal(
+                session(id = "signing", stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES)
+                    .copy(signApprovedAt = Clock.System.now(), signerIds = "1,2")
+            ),
             proposal(session(id = "done", stage = FrostSigningStage.COMPLETE)),
             proposal(session(id = "gone", stage = FrostSigningStage.FAILED)),
         )
@@ -204,17 +249,12 @@ class ProposalStateTest {
         )
 
         assertEquals(1, loaded.waitingForYou.size)
-        assertEquals(3, loaded.rest.size)
+        assertEquals(4, loaded.rest.size)
         assertEquals(proposals.size, loaded.waitingForYou.size + loaded.rest.size)
-        assertEquals(
-            setOf(
-                ProposalState.NEEDS_YOU,
-                ProposalState.IN_PROGRESS,
-                ProposalState.SIGNED,
-                ProposalState.ABANDONED,
-            ),
-            proposals.map { it.state }.toSet()
-        )
+
+        // One of each, and every state reached: five proposals, five states.
+        assertEquals(ProposalState.entries.toSet(), proposals.map { it.state }.toSet())
+        assertEquals(proposals.size, proposals.map { it.state }.distinct().size)
     }
 
     /** The split is the classification, not a second reading of `awaitsYou`. */
