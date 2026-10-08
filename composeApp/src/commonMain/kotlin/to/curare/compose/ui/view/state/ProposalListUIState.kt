@@ -11,6 +11,16 @@ sealed interface ProposalListUIState {
 
         /** Every proposal the room has made, newest first. */
         val proposals: List<Proposal> = emptyList(),
+
+        /**
+         * Which of them the reader has asked to see.
+         *
+         * Held on the state and not only on the view model, because the chips
+         * have to draw the current selection and the counts beside it in the
+         * same pass that draws the rows it selected -- a selection the row list
+         * disagreed with would be a chip marked for a filter that is not applied.
+         */
+        val filter: ProposalFilter = ProposalFilter.ALL,
     ): ProposalListUIState {
         /**
          * The ones that cannot move until this member answers them.
@@ -25,6 +35,32 @@ sealed interface ProposalListUIState {
         val waitingForYou: List<Proposal> = proposals.filter { it.state == ProposalState.NEEDS_YOU }
 
         val rest: List<Proposal> = proposals.filterNot { it.state == ProposalState.NEEDS_YOU }
+
+        /**
+         * The rows [filter] actually asks for.
+         *
+         * [proposals] is left whole beside it, because the counts on the chips
+         * are counts of the room and not of the selection -- a chip that read
+         * its own number off the filtered list would say 0 for every filter but
+         * the chosen one.
+         */
+        val visible: List<Proposal> = when (val only = filter.state) {
+            null -> proposals
+            else -> proposals.filter { it.state == only }
+        }
+
+        /**
+         * How many proposals are in each state, for the number on each chip.
+         *
+         * Every state is present, zero included: a room that has never
+         * abandoned a proposal still gets an "abandoned" chip reading 0, because
+         * a chip row that gains and loses chips as sessions advance moves under
+         * the thumb of the person reading it -- and sessions advance while this
+         * screen is open, which is the whole reason the screen exists.
+         */
+        val counts: Map<ProposalState, Int> = ProposalState.entries.associateWith { state ->
+            proposals.count { it.state == state }
+        }
     }
 
     /**
