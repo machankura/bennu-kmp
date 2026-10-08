@@ -5,6 +5,7 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -32,7 +33,9 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Clock
@@ -86,6 +89,13 @@ class ProposalListViewModelJvmTest {
                 room.takeIf { id == chatRoomId }
         }
 
+    /** Who each session is still waiting on, and which sessions were resent. */
+    private val owed = mutableMapOf<String, Set<HexKey>>()
+    private val resent = mutableListOf<String>()
+
+    /** Held open so a test can watch a resend that has not finished yet. */
+    private var resendGate: CompletableDeferred<Boolean>? = null
+
     private fun frostRepository(
         sessions: Flow<List<LocalFrostSigningSession>>,
         tallies: Flow<List<FrostSignerTally>> = flowOf(emptyList()),
@@ -97,6 +107,14 @@ class ProposalListViewModelJvmTest {
         override fun observeSignerTalliesForChatRoom(
             chatRoomId: String
         ): Flow<List<FrostSignerTally>> = tallies
+
+        override suspend fun membersOwing(session: FrostSigningSession): Set<HexKey> =
+            owed[session.id].orEmpty()
+
+        override suspend fun resend(localChatRoom: LocalChatRoom, sessionId: String): Boolean {
+            resent += sessionId
+            return resendGate?.await() ?: true
+        }
     }
 
     private fun nonces(sessionId: String, members: Int) =
@@ -110,10 +128,11 @@ class ProposalListViewModelJvmTest {
         stage: FrostSigningStage = FrostSigningStage.COLLECTING_NONCES,
         approved: Boolean = false,
         signerIds: String? = null,
+        coordinator: String = ada,
     ) = FrostSigningSession(
         id = id,
         chatRoomId = chatRoomId,
-        coordinatorPublicKey = ada,
+        coordinatorPublicKey = coordinator,
         userPublicKey = bob,
         dkgSessionId = "ceremony",
         threshold = 2,
@@ -124,26 +143,27 @@ class ProposalListViewModelJvmTest {
         signApprovedAt = Clock.System.now().takeIf { approved },
     )
 
-    /** One session with one readable event in it, as the repository hands it over. */
+    /** One event of a session's batch, readable so the row can name it. */
+    private fun item(sessionId: String, itemIndex: Int) = FrostSigningItem(
+        sessionId = sessionId,
+        itemIndex = itemIndex,
+        unsignedEventJson = """{"id":"${"e".repeat(64)}","pubkey":"$chatRoomId",""" +
+            """"created_at":1700000000,"kind":1,"tags":[],"content":"a chapter","sig":""}""",
+        eventId = "e".repeat(64),
+        nonceRandom = "00".repeat(32),
+    )
+
+    /** One session as the repository hands it over, with [items] events in it. */
     private fun local(
         id: String,
         stage: FrostSigningStage = FrostSigningStage.COLLECTING_NONCES,
         approved: Boolean = false,
         signerIds: String? = null,
+        coordinator: String = ada,
+        items: Int = 1,
     ) = LocalFrostSigningSession(
-        session = session(id, stage, approved, signerIds),
-        unorderedItems = listOf(
-            FrostSigningItem(
-                sessionId = id,
-                itemIndex = 0,
-                unsignedEventJson = """
-                    {"id":"${"e".repeat(64)}","pubkey":"$chatRoomId","created_at":1700000000,
-                     "kind":1,"tags":[],"content":"a chapter","sig":""}
-                """.trimIndent().replace("\n", ""),
-                eventId = "e".repeat(64),
-                nonceRandom = "00".repeat(32),
-            )
-        ),
+        session = session(id, stage, approved, signerIds, coordinator),
+        unorderedItems = (0 until items).map { index -> item(id, index) },
     )
 
     /** A room with one of each state in it. */
@@ -503,6 +523,193 @@ class ProposalListViewModelJvmTest {
 
         assertEquals(ProposalFilter.WAITING_ON_MEMBERS, model.loaded().filter)
         assertEquals(listOf("open"), model.loaded().visible.map { it.session.id })
+
+        model.viewModelScope.cancel()
+    }
+
+    // --- asking the quiet members again ---------------------------------------------
+
+    /**
+     * The one the signing screen gates its button on, reached from the row.
+     *
+     * Not ours to send and nobody left to send to are different facts, and only
+     * the second could ever become a button later. The row keeps them apart as
+     * null against zero so no arithmetic can turn one into the other.
+     */
+    @Test
+    fun `only a session this device proposed is ours to ask again for`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        owed["mine"] = setOf(bob)
+        owed["theirs"] = setOf(bob)
+        sessions.emit(
+            listOf(
+                local("mine", approved = true, coordinator = bob),
+                local("theirs", approved = true, coordinator = ada),
+            )
+        )
+
+        val model = viewModel(sessions)
+        model.initiate()
+
+        val byId = model.awaitLoaded().proposals.associateBy { it.session.id }
+
+        // `local` builds the row as bob's device sees it -- userPublicKey is bob
+        // -- so the one bob coordinates is the one with an offer on it.
+        assertEquals(1, byId.getValue("mine").owing)
+        assertTrue(byId.getValue("mine").canAskAgain)
+
+        assertNull(byId.getValue("theirs").owing, "a session we do not coordinate was costed")
+        assertFalse(byId.getValue("theirs").canAskAgain)
+
+        model.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `a session waiting on nobody is ours but has nobody to ask`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        owed["mine"] = emptySet()
+        sessions.emit(listOf(local("mine", approved = true, coordinator = bob)))
+
+        val model = viewModel(sessions)
+        model.initiate()
+
+        val proposal = model.awaitLoaded().proposals.single()
+
+        assertEquals(0, proposal.owing, "ours to send is not the same as nothing to send")
+        assertFalse(proposal.canAskAgain)
+
+        model.viewModelScope.cancel()
+    }
+
+    /**
+     * An ended session is left out although the manager would resend it: a
+     * completed one can be re-sent to deliver the signature to a member who
+     * never applied it, which is worth a button on the one proposal's screen
+     * rather than a query per row on a list that only grows.
+     */
+    @Test
+    fun `an ended session is not costed, so a growing history stays one query`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        owed["done"] = setOf(bob)
+        owed["gone"] = setOf(bob)
+        sessions.emit(
+            listOf(
+                local("done", stage = FrostSigningStage.COMPLETE, coordinator = bob),
+                local("gone", stage = FrostSigningStage.FAILED, coordinator = bob),
+            )
+        )
+
+        val model = viewModel(sessions)
+        model.initiate()
+
+        assertTrue(model.awaitLoaded().proposals.all { it.owing == null })
+
+        model.viewModelScope.cancel()
+    }
+
+    /** Nothing to resend: a session whose proposal has not landed has no events to send. */
+    @Test
+    fun `a session holding no events is not offered an ask`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        owed["empty"] = setOf(bob)
+        sessions.emit(listOf(local("empty", coordinator = bob, items = 0)))
+
+        val model = viewModel(sessions)
+        model.initiate()
+
+        assertNull(model.awaitLoaded().proposals.single().owing)
+
+        model.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `asking again resends that session and says whether anything went out`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        owed["mine"] = setOf(bob)
+        sessions.emit(listOf(local("mine", approved = true, coordinator = bob)))
+
+        val model = viewModel(sessions)
+        model.initiate()
+        model.awaitLoaded()
+
+        var sent: Boolean? = null
+        model.askAgain("mine") { sent = it }
+
+        withTimeout(5_000) { while (sent == null) delay(10) }
+
+        assertEquals(listOf("mine"), resent)
+        assertEquals(true, sent)
+
+        model.viewModelScope.cancel()
+    }
+
+    /**
+     * Guarded per session rather than by one flag for the screen. These rooms
+     * have several proposals open at once, and a coordinator working down the
+     * list should not be locked out of the second by the first still publishing.
+     */
+    @Test
+    fun `a second tap on the same row publishes nothing, while another row still may`() =
+        runBlocking {
+            val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+            owed["one"] = setOf(bob)
+            owed["two"] = setOf(bob)
+            sessions.emit(
+                listOf(
+                    local("one", approved = true, coordinator = bob),
+                    local("two", approved = true, coordinator = bob),
+                )
+            )
+
+            val model = viewModel(sessions)
+            model.initiate()
+            model.awaitLoaded()
+
+            val gate = CompletableDeferred<Boolean>()
+            resendGate = gate
+
+            model.askAgain("one") {}
+            withTimeout(5_000) { while (!model.isAsking("one")) delay(10) }
+
+            // The same row again, while the first is still going out.
+            model.askAgain("one") {}
+            delay(50)
+            assertEquals(listOf("one"), resent, "a second tap published again")
+
+            // A different row is not locked out by it.
+            model.askAgain("two") {}
+            withTimeout(5_000) { while (resent.size < 2) delay(10) }
+            assertEquals(listOf("one", "two"), resent)
+
+            gate.complete(true)
+            withTimeout(5_000) { while (model.isAsking("one")) delay(10) }
+
+            // And once it has finished, the row may be asked again.
+            resendGate = null
+            model.askAgain("one") {}
+            withTimeout(5_000) { while (resent.size < 3) delay(10) }
+            assertEquals(listOf("one", "two", "one"), resent)
+
+            model.viewModelScope.cancel()
+        }
+
+    @Test
+    fun `a resend that published nothing is reported as such`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        owed["mine"] = setOf(bob)
+        sessions.emit(listOf(local("mine", approved = true, coordinator = bob)))
+
+        val model = viewModel(sessions)
+        model.initiate()
+        model.awaitLoaded()
+
+        resendGate = CompletableDeferred<Boolean>().also { it.complete(false) }
+
+        var sent: Boolean? = null
+        model.askAgain("mine") { sent = it }
+        withTimeout(5_000) { while (sent == null) delay(10) }
+
+        assertEquals(false, sent)
 
         model.viewModelScope.cancel()
     }

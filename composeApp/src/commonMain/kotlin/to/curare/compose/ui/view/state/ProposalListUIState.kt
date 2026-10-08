@@ -1,8 +1,11 @@
 package to.curare.compose.ui.view.state
 
+import kotlin.time.Clock
+import kotlin.time.Instant
 import to.curare.compose.database.model.FrostSigningSession
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.database.model.types.FrostSigningStage
+import to.curare.compose.managers.FrostSigningManager
 import to.curare.compose.text.ProposedEvent
 
 sealed interface ProposalListUIState {
@@ -104,6 +107,24 @@ sealed interface ProposalListUIState {
          */
         val noncesOffered: Int = 0,
         val partialSignatures: Int = 0,
+
+        /**
+         * How many share holders the session is still waiting on, or null when
+         * asking them again is not this device's to offer.
+         *
+         * Asked of `FrostSigningManager.membersOwing` rather than worked out
+         * from the counts above, because the two are not the same question and
+         * the difference is a button that does nothing. Past the nonces a signer
+         * who refused has answered and is owed nothing, while the signature
+         * count is still short by one -- so a row reading `have < need` would
+         * offer to knock on a door that has already been shut.
+         *
+         * Null rather than zero for a session this device did not propose: a
+         * resend from anybody else would have a member who was missing the
+         * session believe the resender coordinates. Zero means it is ours to
+         * send and there is nobody left to send it to.
+         */
+        val owing: Int? = null,
     ) {
         /** The batch's size, readable or not. */
         val eventCount: Int get() = signs.size + unreadable
@@ -172,6 +193,30 @@ sealed interface ProposalListUIState {
 
             FrostSigningStage.COMPLETE, FrostSigningStage.FAILED -> null
         }
+
+        /**
+         * Whether to offer asking the quiet members to take another look.
+         *
+         * The same offer the signing screen makes, reached from the row rather
+         * than from a tap into it -- a coordinator scanning a list for the one
+         * that has stalled should not have to open each to find the button. It
+         * is offered only when there is somebody to ask, because a control that
+         * publishes nothing is worse than no control.
+         */
+        val canAskAgain: Boolean get() = (owing ?: 0) > 0
+
+        /**
+         * When the next ask may go out, or null when one may go out now.
+         *
+         * Read at composition rather than ticked, exactly as the signing screen
+         * reads it. The cooldown is five minutes and every message the room
+         * exchanges recomposes this screen, so a button left disabled a little
+         * past its time is the worst this costs -- and that is the safe
+         * direction for a control that publishes.
+         */
+        val askAgainAt: Instant? get() = session.resentAt
+            ?.plus(FrostSigningManager.RESEND_COOLDOWN)
+            ?.takeIf { it > Clock.System.now() }
     }
 
     /**
