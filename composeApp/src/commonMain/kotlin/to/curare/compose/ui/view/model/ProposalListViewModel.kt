@@ -59,6 +59,14 @@ class ProposalListViewModel(
 
     private val logger = Logger.withTag(TAG)
 
+    init {
+        // A `Loaded` handed straight in -- a preview, a screen test -- carries a
+        // filter of its own, and [initialFilter] is the caller's. The caller's
+        // wins, so no screen can open with its chips saying one thing and its
+        // rows showing another.
+        select(initialFilter)
+    }
+
     /**
      * Loads the room, then watches its proposals for as long as the screen lives.
      *

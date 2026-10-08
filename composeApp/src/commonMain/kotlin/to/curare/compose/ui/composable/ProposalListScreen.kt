@@ -1,25 +1,26 @@
 package to.curare.compose.ui.composable
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -33,7 +34,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -51,19 +51,34 @@ import to.curare.compose.ui.composable.navigation.routes.FrostSigningRoute
 import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.view.model.ProposalListViewModel
+import to.curare.compose.ui.view.state.ProposalFilter
 import to.curare.compose.ui.view.state.ProposalListUIState
 import to.curare.compose.ui.view.state.ProposalState
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
+import curare.composeapp.generated.resources.abandoned
 import curare.composeapp.generated.resources.everything_else
+import curare.composeapp.generated.resources.filter_all
+import curare.composeapp.generated.resources.filter_and_count
+import curare.composeapp.generated.resources.in_progress
+import curare.composeapp.generated.resources.needs_you
+import curare.composeapp.generated.resources.no_proposal_has_been_abandoned
+import curare.composeapp.generated.resources.no_proposal_is_in_progress
+import curare.composeapp.generated.resources.nothing_is_waiting_for_your_signature
+import curare.composeapp.generated.resources.signed
+import curare.composeapp.generated.resources.this_group_has_not_signed_anything_yet
 import curare.composeapp.generated.resources.proposals
 import curare.composeapp.generated.resources.review
 import curare.composeapp.generated.resources.this_group_has_not_been_asked_to_sign
 import curare.composeapp.generated.resources.waiting_for_you
 import curare.composeapp.generated.resources.of_them_could_not_be_read
 import androidx.compose.material3.SnackbarHost
+import to.curare.compose.ui.composable.widgets.EmptyState
+import to.curare.compose.ui.composable.widgets.ErrorState
+import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.composable.widgets.LocalSnackbarHostState
+import to.curare.compose.ui.composable.widgets.ScreenStateTransition
 import to.curare.compose.ui.composable.widgets.NavigateBackButton
 import to.curare.compose.ui.theme.readableContent
 import to.curare.compose.ui.theme.ConformancePreviews
@@ -93,13 +108,15 @@ fun ProposalListScreen(
     frostSigningRepository: FrostSigningRepository,
     onNavigateBack: () -> Unit,
     onNavigateToRoute: (Route) -> Unit,
+    initialFilter: ProposalFilter = ProposalFilter.ALL,
 ) {
     val proposalListViewModel: ProposalListViewModel = viewModel(
         factory = ProposalListViewModel.factory(
             chatRoomId = chatRoomId,
             initialProposalListUIState = initialProposalListUIState,
             chatRepository = chatRepository,
-            frostSigningRepository = frostSigningRepository
+            frostSigningRepository = frostSigningRepository,
+            initialFilter = initialFilter
         )
     )
 
@@ -124,89 +141,218 @@ fun ProposalListScreen(
             )
         }
     ) { padding ->
-        when (val state = proposalListViewModel.proposalListUIState) {
-            is ProposalListUIState.Loading -> Column(
-                modifier = Modifier.fillMaxWidth().padding(padding).readableContent().padding(MaterialTheme.spacing.space250),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Spacer(modifier = Modifier.height(MaterialTheme.spacing.space600))
-                CircularProgressIndicator()
-            }
+        ScreenStateTransition(proposalListViewModel.proposalListUIState) { uiState ->
+            when (val state = uiState) {
+                is ProposalListUIState.Loading -> LoadingDataIndicator(
+                    modifier = Modifier.fillMaxSize().padding(padding).readableContent()
+                )
 
-            is ProposalListUIState.Error -> Column(
-                modifier = Modifier.fillMaxWidth().padding(padding).readableContent().padding(MaterialTheme.spacing.space250),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Spacer(modifier = Modifier.height(MaterialTheme.spacing.space600))
-                Text(text = state.message, textAlign = TextAlign.Center)
-            }
+                is ProposalListUIState.Error -> ErrorState(
+                    message = state.message,
+                    // Nothing to retry: the room either exists on this device or
+                    // it does not, and looking again will not change that.
+                    onRetry = null,
+                    modifier = Modifier.fillMaxSize().padding(padding).readableContent()
+                )
 
-            is ProposalListUIState.Loaded -> {
-                val open: (ProposalListUIState.Proposal) -> Unit = { proposal ->
-                    onNavigateToRoute.invoke(
-                        FrostSigningRoute(
-                            activeUserPublicKey = activeUserPublicKey,
-                            chatRoomId = chatRoomId,
-                            sessionId = proposal.session.id
+                is ProposalListUIState.Loaded -> {
+                    val open: (ProposalListUIState.Proposal) -> Unit = { proposal ->
+                        onNavigateToRoute.invoke(
+                            FrostSigningRoute(
+                                activeUserPublicKey = activeUserPublicKey,
+                                chatRoomId = chatRoomId,
+                                sessionId = proposal.session.id
+                            )
                         )
-                    )
-                }
-
-                LazyColumn(
-                    modifier = Modifier.padding(padding).readableContent().fillMaxSize().padding(MaterialTheme.spacing.space250),
-                    verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space125)
-                ) {
-                    if (state.proposals.isEmpty()) {
-                        item {
-                            Text(
-                                modifier = Modifier.fillMaxWidth().padding(top = MaterialTheme.spacing.space600),
-                                text = stringResource(Res.string.this_group_has_not_been_asked_to_sign),
-                                textAlign = TextAlign.Center
-                            )
-                        }
                     }
 
-                    if (state.waitingForYou.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = stringResource(Res.string.waiting_for_you),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(padding).readableContent()
+                    ) {
+                        // Outside the list rather than its first item, because a
+                        // control that scrolls away is a control the reader has to
+                        // scroll back for -- and the list it filters is as long as
+                        // the group's whole signing history.
+                        //
+                        // A room with nothing in it has nothing to filter, and five
+                        // chips reading 0 over an empty screen would be five ways of
+                        // saying what the empty state says once.
+                        if (state.proposals.isNotEmpty()) {
+                            ProposalFilterRow(
+                                selected = state.filter,
+                                counts = state.counts,
+                                onSelect = proposalListViewModel::select
                             )
                         }
 
-                        items(
-                            items = state.waitingForYou,
-                            key = { it.session.id }
-                        ) { proposal ->
-                            ProposalCard(proposal = proposal, onClick = { open(proposal) })
-                        }
-                    }
-
-                    if (state.rest.isNotEmpty()) {
-                        // Headed only when there is a section above to tell it
-                        // apart from; on its own it is the whole screen, which
-                        // the title already says.
-                        if (state.waitingForYou.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = stringResource(Res.string.everything_else),
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
-                        }
-
-                        items(
-                            items = state.rest,
-                            key = { it.session.id }
-                        ) { proposal ->
-                            ProposalCard(proposal = proposal, onClick = { open(proposal) })
-                        }
+                        ProposalList(
+                            state = state,
+                            onOpen = open,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * The rows the current filter asks for.
+ *
+ * Two layouts behind one list, and which one is drawn is the filter's doing.
+ * Unfiltered, the sections stay: what is waiting on the reader is a different
+ * kind of thing to read from what the group has done, and burying the first in
+ * the second is what this screen was written to stop. Filtered, the sections go
+ * -- "waiting for you" against "everything else" is a distinction the reader has
+ * already made by tapping a chip, and heading a single-state list with it would
+ * be answering a question nobody asked.
+ */
+@Composable
+private fun ProposalList(
+    state: ProposalListUIState.Loaded,
+    onOpen: (ProposalListUIState.Proposal) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Said rather than defaulted, because five different absences used to say one
+    // thing here. A filter with nothing in it is not the same fact as a group that
+    // has never been asked to sign, and the queue running dry is not an absence at
+    // all -- it is the reader having finished.
+    if (state.visible.isEmpty()) {
+        EmptyState(
+            message = when (state.filter) {
+                ProposalFilter.ALL -> stringResource(Res.string.this_group_has_not_been_asked_to_sign)
+                ProposalFilter.NEEDS_YOU -> stringResource(Res.string.nothing_is_waiting_for_your_signature)
+                ProposalFilter.IN_PROGRESS -> stringResource(Res.string.no_proposal_is_in_progress)
+                ProposalFilter.SIGNED -> stringResource(Res.string.this_group_has_not_signed_anything_yet)
+                ProposalFilter.ABANDONED -> stringResource(Res.string.no_proposal_has_been_abandoned)
+            },
+            icon = when (state.filter) {
+                // The queue emptying is the end of the work, not a blank screen,
+                // so it keeps the icon the rows it replaced were carrying.
+                ProposalFilter.NEEDS_YOU -> Icons.Default.Draw
+                else -> Icons.Default.Inbox
+            },
+            modifier = modifier.fillMaxSize()
+        )
+
+        return
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize().padding(MaterialTheme.spacing.containerPadding),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)
+    ) {
+        if (state.filter != ProposalFilter.ALL) {
+            items(items = state.visible, key = { it.session.id }) { proposal ->
+                ProposalCard(proposal = proposal, onClick = { onOpen(proposal) })
+            }
+
+            return@LazyColumn
+        }
+
+        if (state.waitingForYou.isNotEmpty()) {
+            item {
+                Text(
+                    text = stringResource(Res.string.waiting_for_you),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            items(
+                items = state.waitingForYou,
+                key = { it.session.id }
+            ) { proposal ->
+                ProposalCard(proposal = proposal, onClick = { onOpen(proposal) })
+            }
+        }
+
+        if (state.rest.isNotEmpty()) {
+            // Headed only when there is a section above to tell it
+            // apart from; on its own it is the whole screen, which
+            // the title already says.
+            if (state.waitingForYou.isNotEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(Res.string.everything_else),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+
+            items(
+                items = state.rest,
+                key = { it.session.id }
+            ) { proposal ->
+                ProposalCard(proposal = proposal, onClick = { onOpen(proposal) })
+            }
+        }
+    }
+}
+
+/**
+ * One chip per state, and one for all of them.
+ *
+ * Scrolls sideways rather than wrapping. Five chips carrying counts will not fit
+ * 360dp at the largest text size the reader can ask for, and a row that reflows
+ * to a second line moves the list under the thumb that was about to tap it. The
+ * first chip is [ProposalFilter.NEEDS_YOU]'s neighbour on purpose: the reason to
+ * arrive here with a filter in mind is almost always that one.
+ *
+ * Every chip is present even at zero, which is the same reasoning from the other
+ * side -- chips that come and go as sessions advance move the row, and sessions
+ * advance while this screen is open.
+ */
+@Composable
+private fun ProposalFilterRow(
+    selected: ProposalFilter,
+    counts: Map<ProposalState, Int>,
+    onSelect: (ProposalFilter) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(
+                horizontal = MaterialTheme.spacing.containerPadding,
+                vertical = MaterialTheme.spacing.compactPadding
+            ),
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
+    ) {
+        for (filter in ProposalFilter.entries) {
+            val label = labelOf(filter)
+
+            FilterChip(
+                selected = filter == selected,
+                onClick = { onSelect(filter) },
+                label = {
+                    Text(
+                        text = when (val state = filter.state) {
+                            // "All" carries no number: it is every chip's counts
+                            // added up, which the chips beside it already say.
+                            null -> label
+                            else -> stringResource(
+                                Res.string.filter_and_count,
+                                label,
+                                counts[state] ?: 0
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+}
+
+/** What a chip calls its state, in sentence case because M3 says so. */
+@Composable
+private fun labelOf(filter: ProposalFilter): String = when (filter) {
+    ProposalFilter.ALL -> stringResource(Res.string.filter_all)
+    ProposalFilter.NEEDS_YOU -> stringResource(Res.string.needs_you)
+    ProposalFilter.IN_PROGRESS -> stringResource(Res.string.in_progress)
+    ProposalFilter.SIGNED -> stringResource(Res.string.signed)
+    ProposalFilter.ABANDONED -> stringResource(Res.string.abandoned)
 }
 
 /**
