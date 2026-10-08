@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlin.time.Clock
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import to.curare.compose.database.model.ChatRoom
 import to.curare.compose.database.model.FrostSigningSession
@@ -51,6 +52,7 @@ import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.view.model.ProposalListViewModel
 import to.curare.compose.ui.view.state.ProposalListUIState
+import to.curare.compose.ui.view.state.ProposalState
 import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
@@ -269,29 +271,28 @@ private fun ProposalCard(
             ),
             leadingContent = {
                 Icon(
-                    imageVector = when {
-                        proposal.awaitsYou -> Icons.Default.Draw
-                        proposal.session.stage == FrostSigningStage.COMPLETE ->
-                            Icons.Default.CheckCircle
-                        proposal.session.stage == FrostSigningStage.FAILED ->
-                            Icons.Default.ErrorOutline
-                        else -> Icons.Default.HourglassEmpty
+                    imageVector = when (proposal.state) {
+                        ProposalState.NEEDS_YOU -> Icons.Default.Draw
+                        ProposalState.SIGNED -> Icons.Default.CheckCircle
+                        ProposalState.ABANDONED -> Icons.Default.ErrorOutline
+                        ProposalState.IN_PROGRESS -> Icons.Default.HourglassEmpty
                     },
                     // Carries the stage on its own, and carries it alone on the
                     // highlighted card where the failure state has no colour to spare.
-                    contentDescription = when {
-                        proposal.awaitsYou -> "Awaiting your signature"
-                        proposal.session.stage == FrostSigningStage.COMPLETE -> "Signed"
-                        proposal.session.stage == FrostSigningStage.FAILED -> "Failed"
-                        else -> "Waiting on others"
+                    contentDescription = when (proposal.state) {
+                        ProposalState.NEEDS_YOU -> "Awaiting your signature"
+                        ProposalState.SIGNED -> "Signed"
+                        ProposalState.ABANDONED -> "Failed"
+                        ProposalState.IN_PROGRESS -> "Waiting on others"
                     },
-                    tint = when {
+                    tint = when (proposal.state) {
                         // `error` is 2.67:1 on the highlighted card, so on that one the
                         // failure is carried by the icon shape and the supporting line
                         // rather than by colour -- which is the more robust signal
                         // anyway, and the only one available to a monochrome display.
-                        proposal.session.stage == FrostSigningStage.FAILED &&
-                            !proposal.awaitsYou -> MaterialTheme.colorScheme.error
+                        // A failed session is never NEEDS_YOU, so that card is never
+                        // the highlighted one and the exception no longer needs stating.
+                        ProposalState.ABANDONED -> MaterialTheme.colorScheme.error
                         else -> cardContentColor
                     }
                 )
@@ -370,11 +371,16 @@ private fun ProposalCard(
  * be: this is one row of a list somebody is scanning, not the page they are
  * deciding on. What it must never do is call a session finished when it is not,
  * or waiting when the decision has gone.
+ *
+ * Still switches on the stage rather than on `Proposal.state`, and has to: the
+ * three things it says about an open session -- you agreed, you declined, you
+ * were picked to sign -- are exactly the distinctions [ProposalState.IN_PROGRESS]
+ * collapses. The classification picks the arm; the stage writes the sentence.
  */
 private fun statusOf(proposal: ProposalListUIState.Proposal): String {
     val session = proposal.session
 
-    if (proposal.awaitsYou) return "Needs your review"
+    if (proposal.state == ProposalState.NEEDS_YOU) return "Needs your review"
 
     return when (session.stage) {
         // Not awaiting the reader and still collecting means they answered, one
@@ -445,12 +451,36 @@ private fun ProposalListScreenPreview() {
                         ),
                         ProposalListUIState.Proposal(
                             session = session.copy(
+                                id = "openSessionId",
+                                signApprovedAt = Clock.System.now()
+                            ),
+                            proposerName = "Grace",
+                            signs = listOf(
+                                ProposedEvent.Summary("New chapter", "Genesis 2 · 641 words · 24 chunks")
+                            )
+                        ),
+                        ProposalListUIState.Proposal(
+                            session = session.copy(
                                 id = "olderSessionId",
                                 stage = FrostSigningStage.COMPLETE
                             ),
                             proposerName = "You",
                             signs = listOf(
                                 ProposedEvent.Summary("New translation", "isiZulu · public · CC BY-SA")
+                            )
+                        ),
+                        // One of each state, so the conformance sweep renders every
+                        // icon, every status line and -- from phase 3 -- every chip
+                        // with something behind it, in all six schemes.
+                        ProposalListUIState.Proposal(
+                            session = session.copy(
+                                id = "abandonedSessionId",
+                                stage = FrostSigningStage.FAILED,
+                                failureReason = "The group could not agree in time."
+                            ),
+                            proposerName = "Ada",
+                            signs = listOf(
+                                ProposedEvent.Summary("New chapter", "Genesis 3 · 512 words · 19 chunks")
                             )
                         )
                     )
