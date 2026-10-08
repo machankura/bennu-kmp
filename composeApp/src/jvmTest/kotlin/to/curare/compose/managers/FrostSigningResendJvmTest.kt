@@ -1231,4 +1231,104 @@ class FrostSigningResendJvmTest {
 
         assertEquals(before, queued(FrostSigningEvents.NONCE).size)
     }
+
+    // --- asking about several at once ------------------------------------------------
+
+    private suspend fun resendAll(vararg sessionIds: String) =
+        FrostSigningManager.resendAll(
+            database = db,
+            localChatRoom = room,
+            sessionIds = sessionIds.toList()
+        )
+
+    @Test
+    fun `asking about several sessions resends each of them`() = runBlocking<Unit> {
+        openDevice()
+        val one = propose()
+        val two = propose()
+
+        assertEquals(2, resendAll(one.id, two.id))
+
+        // Two proposals of their own, plus the resend of each.
+        assertEquals(4, queued(FrostSigningEvents.PROPOSAL).size)
+        assertEquals(2, transcript(ChatMessage.TYPE_FROST_RESENT).size)
+        assertNotNull(session(one.id).resentAt)
+        assertNotNull(session(two.id).resentAt)
+    }
+
+    /**
+     * The spacing, and why it is a second.
+     *
+     * A resend publishes two messages, which is a burst the room survives --
+     * `MlsGroupCache` covers a burst decrypted in one sync, and `resend` keeps to
+     * two deliberately for that reason. Several at once would be outside that
+     * budget, in the same second that "exactly one survives" was written about.
+     * So the sessions are spaced, and the `created_at` seconds are where that
+     * shows.
+     */
+    @Test
+    fun `the sessions are spaced a second apart, not published together`() = runBlocking<Unit> {
+        openDevice()
+        val one = propose()
+        val two = propose()
+        val three = propose()
+
+        val before = Clock.System.now()
+        assertEquals(3, resendAll(one.id, two.id, three.id))
+        val elapsed = Clock.System.now() - before
+
+        assertTrue(
+            elapsed >= FrostSigningManager.RESEND_SPACING * 2,
+            "three sessions went out in $elapsed, faster than the spacing allows"
+        )
+
+        // And the seconds they claim differ, which is what a relay with no
+        // ordering reads: two events in one second race and one survives.
+        val seconds = listOf(one, two, three)
+            .mapNotNull { session(it.id).resentAt?.epochSeconds }
+
+        assertEquals(3, seconds.size)
+        assertEquals(3, seconds.toSet().size, "two sessions were resent in the same second")
+    }
+
+    /**
+     * One session declining is not a reason to abandon the others -- a cooldown
+     * that has not run out is the ordinary way for that to happen, and the count
+     * returned is of the ones that actually went out.
+     */
+    @Test
+    fun `a session inside its cooldown is stepped over, not a reason to stop`() = runBlocking<Unit> {
+        openDevice()
+        val one = propose()
+        val two = propose()
+        val three = propose()
+
+        // The middle one has just been asked about on its own.
+        assertTrue(resend(two.id))
+        val alreadyAsked = session(two.id).resentAt
+
+        assertEquals(2, resendAll(one.id, two.id, three.id), "the skipped one was counted")
+
+        assertNotNull(session(one.id).resentAt)
+        assertNotNull(session(three.id).resentAt)
+        assertEquals(alreadyAsked, session(two.id).resentAt, "the cooling session was resent")
+    }
+
+    @Test
+    fun `a session that is not ours is stepped over too`() = runBlocking<Unit> {
+        openDevice(owner = bob)
+        val theirs = proposalArrivedAt(bob)
+
+        assertEquals(0, resendAll(theirs.id))
+        assertNull(session(theirs.id).resentAt)
+    }
+
+    @Test
+    fun `asking about nothing publishes nothing`() = runBlocking<Unit> {
+        openDevice()
+        propose()
+
+        assertEquals(0, resendAll())
+        assertEquals(1, queued(FrostSigningEvents.PROPOSAL).size)
+    }
 }

@@ -238,6 +238,7 @@
     <string name="shared_key">Shared key</string>
     <string name="signed">Signed</string>
     <string name="signing_key">Signing key</string>
+    <string name="some_proposals_had_already_settled">Some had already settled, so not every one was asked again.</string>
     <string name="the_key_this_room_signs_as">The key this room signs as, and the ceremony it came from.</string>
     <string name="what_the_group_signed">What the group signed</string>
     <string name="this_room_signs_as">This room signs as</string>
@@ -348,6 +349,8 @@
 
     <string name="add_chapter_to">Add chapter to %1$s</string>
     <string name="add_people_to">Add people to %1$s</string>
+    <string name="ask_all_again">Ask all %1$s again</string>
+    <string name="asked_again_about_all">Asked again about all %1$s proposals</string>
     <string name="chapter">Chapter %1$s</string>
     <string name="chapter_words_characters">Chapter %1$s · %2$s words · %3$s characters</string>
     <string name="chunk">Chunk %1$s</string>

@@ -112,9 +112,23 @@ class ProposalListViewModelJvmTest {
             owed[session.id].orEmpty()
 
         override suspend fun resend(localChatRoom: LocalChatRoom, sessionId: String): Boolean {
+            val gate = resendGate
             resent += sessionId
-            return resendGate?.await() ?: true
+            return gate?.await() ?: true
         }
+
+        /**
+         * Unpaced on purpose. The real run spaces the sessions a second apart,
+         * and that is `FrostSigningResendJvmTest`'s to say against the manager
+         * that does it -- pacing a fake here would assert the fake and spend
+         * seconds of the suite's wall time doing it. What this file asks is
+         * which sessions the view model hands over, and what it does to the rows
+         * while they are in flight.
+         */
+        override suspend fun resendAll(
+            localChatRoom: LocalChatRoom,
+            sessionIds: List<String>
+        ): Int = sessionIds.count { resend(localChatRoom, it) }
     }
 
     private fun nonces(sessionId: String, members: Int) =
@@ -710,6 +724,151 @@ class ProposalListViewModelJvmTest {
         withTimeout(5_000) { while (sent == null) delay(10) }
 
         assertEquals(false, sent)
+
+        model.viewModelScope.cancel()
+    }
+
+    // --- asking about all of them at once -------------------------------------------
+
+    /** What the bulk offer covers, as the filter chose it. */
+    private suspend fun askableModel(): ProposalListViewModel {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        owed["one"] = setOf(ada)
+        owed["two"] = setOf(ada)
+        owed["three"] = setOf(ada)
+        sessions.emit(
+            listOf(
+                local("one", approved = true, coordinator = bob),
+                local("two", approved = true, coordinator = bob),
+                local(
+                    "three",
+                    stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+                    approved = true,
+                    signerIds = "1,2",
+                    coordinator = bob,
+                ),
+            )
+        )
+
+        val model = viewModel(sessions)
+        model.initiate()
+        model.awaitLoaded()
+        return model
+    }
+
+    @Test
+    fun `asking about all of them sends one per session, in order`() = runBlocking {
+        val model = askableModel()
+
+        var result: Pair<Int, Int>? = null
+        model.askAllAgain { sent, of -> result = sent to of }
+
+        withTimeout(10_000) { while (result == null) delay(10) }
+
+        assertEquals(listOf("one", "two", "three"), resent)
+        assertEquals(3 to 3, result)
+
+        model.viewModelScope.cancel()
+    }
+
+    /**
+     * Every covered session is pending for the whole run, not just for its turn.
+     * A row whose turn has not come is still about to publish, and a row button
+     * offering to send it separately in the meantime would send it twice.
+     */
+    @Test
+    fun `every covered row goes quiet for the whole run, not just for its turn`() = runBlocking {
+        val model = askableModel()
+
+        // Held open on the first session, which is what a paced run looks like
+        // from the rows' point of view: one publishing, the rest about to.
+        val gate = CompletableDeferred<Boolean>()
+        resendGate = gate
+
+        model.askAllAgain { _, _ -> }
+
+        // Waited for the call, not for the pending mark: the mark is set before
+        // the coroutine starts, so the two are not the same moment.
+        withTimeout(5_000) { while (resent.isEmpty()) delay(10) }
+
+        assertEquals(listOf("one"), resent, "the run did not wait for the first to finish")
+        assertTrue(model.isAsking("two"), "a row waiting its turn was still offering to send")
+        assertTrue(model.isAsking("three"))
+
+        // And the row's own button cannot slip a second copy in alongside.
+        model.askAgain("three") {}
+        delay(50)
+        assertEquals(0, resent.count { it == "three" }, "a row published out of turn")
+
+        gate.complete(true)
+        resendGate = null
+
+        withTimeout(5_000) { while (model.isAsking("three")) delay(10) }
+        assertEquals(listOf("one", "two", "three"), resent)
+
+        model.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `a session already being asked separately is not asked again by the bulk run`() =
+        runBlocking {
+            val model = askableModel()
+
+            val gate = CompletableDeferred<Boolean>()
+            resendGate = gate
+
+            model.askAgain("one") {}
+            withTimeout(5_000) { while (resent.isEmpty()) delay(10) }
+
+            var result: Pair<Int, Int>? = null
+            model.askAllAgain { sent, of -> result = sent to of }
+
+            gate.complete(true)
+            withTimeout(5_000) { while (result == null) delay(10) }
+
+            assertEquals(2 to 2, result, "the bulk run counted a session already in flight")
+            assertEquals(
+                listOf("one", "two", "three"),
+                resent,
+                "the session already in flight was published twice"
+            )
+
+            model.viewModelScope.cancel()
+        }
+
+    /** A run where something settled in between says so rather than claiming all. */
+    @Test
+    fun `a run that could not send them all reports the shortfall`() = runBlocking {
+        val model = askableModel()
+
+        resendGate = CompletableDeferred<Boolean>().also { it.complete(false) }
+
+        var result: Pair<Int, Int>? = null
+        model.askAllAgain { sent, of -> result = sent to of }
+
+        withTimeout(10_000) { while (result == null) delay(10) }
+
+        assertEquals(0 to 3, result)
+
+        model.viewModelScope.cancel()
+    }
+
+    @Test
+    fun `asking about all of them when nothing is askable publishes nothing`() = runBlocking {
+        val sessions = MutableSharedFlow<List<LocalFrostSigningSession>>(replay = 1)
+        owed["theirs"] = setOf(ada)
+        sessions.emit(listOf(local("theirs", approved = true, coordinator = ada)))
+
+        val model = viewModel(sessions)
+        model.initiate()
+        model.awaitLoaded()
+
+        var called = false
+        model.askAllAgain { _, _ -> called = true }
+        delay(100)
+
+        assertTrue(resent.isEmpty())
+        assertFalse(called, "a run with nothing in it reported a result")
 
         model.viewModelScope.cancel()
     }

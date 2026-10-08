@@ -228,6 +228,50 @@ class ProposalListViewModel(
         }
     }
 
+    /**
+     * Asks again about every visible proposal that can be, one after another.
+     *
+     * The list of sessions comes from the state rather than from the caller, so
+     * what goes out is what the filter had in front of the reader when they
+     * tapped -- a bulk control that acted on rows somebody could not see would
+     * be the one thing it must never do.
+     *
+     * Each session is marked pending for the whole run, not just for its own
+     * turn. The run is paced -- see `FrostSigningManager.RESEND_SPACING` -- so a
+     * row whose turn has not come yet is still a row that is about to publish,
+     * and a button offering to send it separately in the meantime would send it
+     * twice.
+     *
+     * [onResult] is told how many went out and how many were tried. They differ
+     * when a session stopped being askable between the tap and its turn, which a
+     * paced run leaves room for: somebody else's signature can land in that
+     * second and settle it.
+     */
+    fun askAllAgain(onResult: (sent: Int, of: Int) -> Unit) {
+        val state = proposalListUIState as? ProposalListUIState.Loaded ?: return
+
+        val sessionIds = state.askableVisible
+            .map { it.session.id }
+            .filterNot { it in pending }
+
+        if (sessionIds.isEmpty()) return
+
+        pending.addAll(sessionIds)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val sent = frostSigningRepository.resendAll(
+                localChatRoom = state.localChatRoom,
+                sessionIds = sessionIds
+            )
+
+            pending.removeAll(sessionIds.toSet())
+
+            viewModelScope.launch(Dispatchers.Main) {
+                onResult.invoke(sent, sessionIds.size)
+            }
+        }
+    }
+
     /** Whether an ask for this session is still in flight. */
     fun isAsking(sessionId: String): Boolean = sessionId in pending
 

@@ -167,6 +167,19 @@ interface FrostSigningRepository {
     suspend fun resend(localChatRoom: LocalChatRoom, sessionId: String): Boolean
 
     /**
+     * Asks again about several sessions, spaced out, and says how many published.
+     *
+     * One call rather than a loop over [resend], because the spacing is the
+     * point: every resend is a two-message burst, and launching several at once
+     * would put all of them in one second -- which is how a proposal was lost
+     * once already. See `FrostSigningManager.RESEND_SPACING`.
+     *
+     * A session that publishes nothing is stepped over, not a reason to abandon
+     * the rest, so the count returned may be less than the list given.
+     */
+    suspend fun resendAll(localChatRoom: LocalChatRoom, sessionIds: List<String>): Int
+
+    /**
      * The share holders a session is still waiting on, as the manager counts
      * them -- who has said nothing while it collects nonces, and which chosen
      * signer has yet to sign once it collects partial signatures.
@@ -261,6 +274,11 @@ interface FrostSigningRepository {
                 localChatRoom: LocalChatRoom,
                 sessionId: String
             ): Boolean = false
+
+            override suspend fun resendAll(
+                localChatRoom: LocalChatRoom,
+                sessionIds: List<String>
+            ): Int = 0
 
             override suspend fun membersOwing(session: FrostSigningSession): Set<HexKey> = emptySet()
 

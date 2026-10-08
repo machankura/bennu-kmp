@@ -65,6 +65,9 @@ import to.curare.compose.ui.theme.spacing
 import curare.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
 import curare.composeapp.generated.resources.abandoned
+import curare.composeapp.generated.resources.some_proposals_had_already_settled
+import curare.composeapp.generated.resources.asked_again_about_all
+import curare.composeapp.generated.resources.ask_all_again
 import curare.composeapp.generated.resources.everyone_has_signed_this_session
 import curare.composeapp.generated.resources.asked_again_to_sign
 import curare.composeapp.generated.resources.asked_again_recently
@@ -190,6 +193,23 @@ fun ProposalListScreen(
                     val askedToSign = stringResource(Res.string.asked_again_to_sign)
                     val nobodyLeft = stringResource(Res.string.everyone_has_signed_this_session)
 
+                    // Parameterised only on the count the composition already
+                    // knows -- how many were asked about -- so both are read here
+                    // with the rest. How many of them went out is not known until
+                    // the run finishes, and the one message that would want it is
+                    // for a case rare enough to say in words: a proposal settles
+                    // between the tap and its turn only if somebody else's
+                    // signature lands in that second.
+                    val askedAbout = state.askableVisible.size
+                    val askedAll = stringResource(Res.string.asked_again_about_all, askedAbout)
+                    val someSettled = stringResource(Res.string.some_proposals_had_already_settled)
+
+                    val onAskAll: () -> Unit = {
+                        proposalListViewModel.askAllAgain { sent, of ->
+                            notify(if (sent == of) askedAll else someSettled)
+                        }
+                    }
+
                     val askAgain: (ProposalListUIState.Proposal) -> Unit = { proposal ->
                         val signing = proposal.state == ProposalState.BEING_SIGNED
 
@@ -233,6 +253,21 @@ fun ProposalListScreen(
                                 selected = state.filter,
                                 counts = state.counts,
                                 onSelect = proposalListViewModel::select
+                            )
+                        }
+
+                        // Under the chips, because what it acts on is what the
+                        // chips chose. From two up: one is what the row's own
+                        // button is for, and a bulk control over a single
+                        // proposal is a second way to do one thing, further from
+                        // the row it affects.
+                        if (state.canAskAll) {
+                            AskAllAgainButton(
+                                count = askedAbout,
+                                asking = state.askableVisible.any {
+                                    proposalListViewModel.isAsking(it.session.id)
+                                },
+                                onAskAll = onAskAll
                             )
                         }
 
@@ -600,6 +635,38 @@ private fun ProposalCard(
                 }
             }
         )
+    }
+}
+
+/**
+ * Asks again about every proposal the filter has in front of the reader.
+ *
+ * The bulk form of the row's own button, and it earns its place on exactly the
+ * screen the filters made: "being signed" with three rows in it is three
+ * proposals stalled for the same reason, and asking about them one at a time is
+ * three taps to say one thing.
+ *
+ * It says how many, because that is how many publishes the tap causes. The run
+ * itself is paced a second apart -- see `FrostSigningManager.RESEND_SPACING` --
+ * so what the button starts is not a burst, and the rows it covers go quiet
+ * together for its duration rather than one at a time.
+ */
+@Composable
+private fun AskAllAgainButton(
+    count: Int,
+    asking: Boolean,
+    onAskAll: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = MaterialTheme.spacing.containerPadding),
+    ) {
+        TextButton(enabled = !asking, onClick = onAskAll) {
+            Icon(Icons.Default.Campaign, contentDescription = Decorative)
+            Spacer(modifier = Modifier.width(MaterialTheme.spacing.itemGap))
+            Text(stringResource(Res.string.ask_all_again, count))
+        }
     }
 }
 

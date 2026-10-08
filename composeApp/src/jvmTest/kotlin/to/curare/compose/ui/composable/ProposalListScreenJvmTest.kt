@@ -509,6 +509,92 @@ class ProposalListScreenJvmTest {
         onAllNodesWithText("Ask again").assertCountEquals(0)
     }
 
+    // --- asking about all of them at once -------------------------------------------
+
+    private fun stalled(id: String, detail: String, owing: Int? = 1) = proposal(
+        id, "New chapter", detail,
+        stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+        approved = true, signerIds = "1,2", signatures = 1, owing = owing,
+    )
+
+    /**
+     * The screen the filters made: three rows stalled for one reason, and one
+     * tap to say one thing about all of them.
+     */
+    @Test
+    fun `the being signed screen offers to ask about all of them`() {
+        render(loaded(listOf(stalled("a", "Genesis 4"), stalled("b", "Genesis 5")))) {
+            chip("Being signed · 2").performClick()
+
+            onNodeWithText("Ask all 2 again").assertIsDisplayed().assertIsEnabled()
+        }
+    }
+
+    @Test
+    fun `tapping it asks about every row the filter shows`() {
+        render(
+            loaded(
+                listOf(stalled("a", "Genesis 4"), stalled("b", "Genesis 5"), open, signed)
+            )
+        ) {
+            chip("Being signed · 2").performClick()
+            onNodeWithText("Ask all 2 again").performClick()
+
+            waitUntil(timeoutMillis = 10_000) { resent.size == 2 }
+        }
+
+        assertEquals(listOf("a", "b"), resent, "the bulk tap reached past the filter")
+    }
+
+    /** One is what the row's own button is for. */
+    @Test
+    fun `a single stalled proposal gets no bulk button`() {
+        render(loaded(listOf(stalled("a", "Genesis 4")))) {
+            chip("Being signed · 1").performClick()
+
+            onNodeWithText("Ask again").assertIsDisplayed()
+            onAllNodesWithText("Ask all 1 again").assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun `rows that are not ours to send leave no bulk button`() {
+        render(loaded(listOf(stalled("a", "Genesis 4", owing = null), stalled("b", "Genesis 5", owing = null)))) {
+            chip("Being signed · 2").performClick()
+
+            onAllNodesWithText("Ask all 2 again").assertCountEquals(0)
+            onAllNodesWithText("Ask again").assertCountEquals(0)
+        }
+    }
+
+    /**
+     * The count on the button is what it can actually send, so a cooling-down
+     * row lowers it rather than being skipped silently inside it.
+     */
+    @Test
+    fun `a cooling-down row is not counted in the bulk offer`() {
+        val cooling = proposal(
+            "c", "New chapter", "Genesis 6",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true, signerIds = "1,2", owing = 1,
+            resentAt = Clock.System.now(),
+        )
+
+        render(loaded(listOf(stalled("a", "Genesis 4"), stalled("b", "Genesis 5"), cooling))) {
+            chip("Being signed · 3").performClick()
+
+            onNodeWithText("Ask all 2 again").assertIsDisplayed()
+        }
+    }
+
+    /** It is offered on any filter that shows two it can act on, not only that one. */
+    @Test
+    fun `the unfiltered screen offers it too when two rows can take it`() {
+        render(loaded(listOf(stalled("a", "Genesis 4"), stalled("b", "Genesis 5")))) {
+            onNodeWithText("Ask all 2 again").assertIsDisplayed()
+        }
+    }
+
     @Test
     fun `a pushed screen keeps its way back, chips or no chips`() {
         render(loaded(mixed)) { onNodeWithContentDescription("Back").assertIsDisplayed() }
@@ -549,6 +635,17 @@ class ProposalListScreenJvmTest {
                 resent += sessionId
                 return true
             }
+
+            /**
+             * Unpaced here on purpose. What this file asks of a bulk tap is
+             * which rows it covers; that the real run spaces them a second apart
+             * is `FrostSigningResendJvmTest`'s to say, against the manager that
+             * does the spacing.
+             */
+            override suspend fun resendAll(
+                localChatRoom: LocalChatRoom,
+                sessionIds: List<String>
+            ): Int = sessionIds.count { resend(localChatRoom, it) }
         }
 
     private fun render(

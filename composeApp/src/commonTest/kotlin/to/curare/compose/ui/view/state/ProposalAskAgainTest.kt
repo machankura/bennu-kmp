@@ -129,4 +129,121 @@ class ProposalAskAgainTest {
             )
         }
     }
+
+    // --- asking about all of them at once -------------------------------------------
+
+    private fun loaded(
+        proposals: List<ProposalListUIState.Proposal>,
+        filter: ProposalFilter = ProposalFilter.ALL,
+    ) = ProposalListUIState.Loaded(
+        localChatRoom = to.curare.compose.database.model.intermdiate.LocalChatRoom(
+            chatRoom = to.curare.compose.database.model.ChatRoom(
+                id = roomId,
+                userPublicKey = me,
+                subject = "#Ekklesia",
+                description = null,
+                mlsGroupState = null,
+            )
+        ),
+        proposals = proposals,
+        filter = filter,
+    )
+
+    private fun askable(id: String, owing: Int? = 1, resentAt: kotlin.time.Instant? = null) =
+        ProposalListUIState.Proposal(
+            session = session(resentAt = resentAt).copy(id = id),
+            proposerName = "You",
+            owing = owing,
+        )
+
+    @Test
+    fun `two askable rows on screen earn the bulk offer`() {
+        val state = loaded(listOf(askable("one"), askable("two")))
+
+        assertTrue(state.canAskAll)
+        assertEquals(listOf("one", "two"), state.askableVisible.map { it.session.id })
+    }
+
+    /** One is what the row's own button is for. */
+    @Test
+    fun `a single askable row does not get a second way to ask`() {
+        assertFalse(loaded(listOf(askable("one"))).canAskAll)
+    }
+
+    /**
+     * The offer is over what the filter put on screen. A bulk control that acted
+     * on proposals the reader could not see would be the one thing it must never
+     * do, so it is drawn from `visible` and not from the room.
+     */
+    @Test
+    fun `the bulk offer covers what the filter shows and nothing behind it`() {
+        val signing = askable("signing").let {
+            it.copy(session = it.session.copy(stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES))
+        }
+        val alsoSigning = askable("also").let {
+            it.copy(session = it.session.copy(stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES))
+        }
+        val gathering = askable("gathering").let {
+            it.copy(session = it.session.copy(stage = FrostSigningStage.COLLECTING_NONCES))
+        }
+
+        val filtered = loaded(
+            listOf(signing, alsoSigning, gathering),
+            filter = ProposalFilter.BEING_SIGNED,
+        )
+
+        assertEquals(
+            listOf("signing", "also"),
+            filtered.askableVisible.map { it.session.id },
+            "the bulk offer reached past the filter"
+        )
+        assertTrue(filtered.canAskAll)
+
+        // The one left out is askable in its own right; it is simply not on screen.
+        assertTrue(gathering.canAskAgain)
+    }
+
+    /**
+     * A proposal inside its cooldown is left out rather than included and
+     * skipped. `resend` would decline it either way, but the count is what the
+     * button says out loud, and a button offering three when it can send two is
+     * a button that lies before it is pressed.
+     */
+    @Test
+    fun `a cooling-down row is left out of the count, not skipped inside it`() {
+        val state = loaded(
+            listOf(
+                askable("one"),
+                askable("two"),
+                askable("cooling", resentAt = Clock.System.now()),
+            )
+        )
+
+        assertEquals(listOf("one", "two"), state.askableVisible.map { it.session.id })
+        assertTrue(state.canAskAll)
+    }
+
+    @Test
+    fun `cooling down to one leaves no bulk offer`() {
+        val state = loaded(
+            listOf(askable("one"), askable("cooling", resentAt = Clock.System.now()))
+        )
+
+        assertEquals(1, state.askableVisible.size)
+        assertFalse(state.canAskAll)
+    }
+
+    @Test
+    fun `rows that are not ours to send are not counted`() {
+        val state = loaded(listOf(askable("one"), askable("theirs", owing = null)))
+
+        assertEquals(listOf("one"), state.askableVisible.map { it.session.id })
+        assertFalse(state.canAskAll)
+    }
+
+    @Test
+    fun `a room with nothing askable offers nothing`() {
+        assertFalse(loaded(listOf(askable("none", owing = 0))).canAskAll)
+        assertTrue(loaded(emptyList()).askableVisible.isEmpty())
+    }
 }

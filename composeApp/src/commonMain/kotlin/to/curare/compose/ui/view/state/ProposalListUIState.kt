@@ -64,6 +64,31 @@ sealed interface ProposalListUIState {
         val counts: Map<ProposalState, Int> = ProposalState.entries.associateWith { state ->
             proposals.count { it.state == state }
         }
+
+        /**
+         * The rows on screen that one tap could ask again about.
+         *
+         * Drawn from [visible] and not from [proposals], because the offer is to
+         * ask again about *these* -- the ones the filter put in front of the
+         * reader. Asking about proposals they cannot see would be the bulk
+         * control's one unforgivable move.
+         *
+         * A proposal inside its cooldown is left out rather than included and
+         * skipped. `resend` would decline it harmlessly either way, but the
+         * count is what the button says out loud, and a button offering three
+         * when it can only send two is a button that lies before it is pressed.
+         */
+        val askableVisible: List<Proposal> =
+            visible.filter { it.canAskAgain && it.askAgainAt == null }
+
+        /**
+         * Whether to offer asking about all of them at once.
+         *
+         * Two, because one is what the row's own button is for: a bulk control
+         * over a single proposal is a second way to do the same thing, in a
+         * place further from the row it affects.
+         */
+        val canAskAll: Boolean = askableVisible.size >= 2
     }
 
     /**
