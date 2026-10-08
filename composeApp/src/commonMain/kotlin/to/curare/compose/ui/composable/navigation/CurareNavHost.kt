@@ -1497,7 +1497,8 @@ fun CurareNavHost(
                     },
                     onNavigateToRoute = { signingRoute ->
                         navController.navigate(route = signingRoute)
-                    }
+                    },
+                    initialFilter = route.filter
                 )
             }
             composable<ArtifactDetailRoute> { backStackEntry ->
