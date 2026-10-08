@@ -9,6 +9,7 @@ import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.bitcoin.crypto.frost.Frost
+import fr.acinq.bitcoin.crypto.frost.IndividualNonce
 import fr.acinq.bitcoin.crypto.frost.KeyMaterial
 import fr.acinq.bitcoin.crypto.frost.SecretNonce
 import kotlin.test.AfterTest
@@ -57,7 +58,10 @@ import to.curare.compose.nostr.frost.FrostSigningEvents
  * tests below are mostly about the limits of that: the same bytes and not new
  * ones, nothing at all from a device whose owner has not decided, and nothing
  * from a nudge that did not come from the coordinator.
-
+ *
+ * And a third repair at the end, for the stall neither half reaches: a device
+ * killed part way through its own turn, waiting on a message that has already
+ * been delivered. See `FrostSigningManager.resumeAnswered`.
  */
 class FrostSigningResendJvmTest {
     private val participants = 3
@@ -1096,5 +1100,135 @@ class FrostSigningResendJvmTest {
         assertTrue(resend(session.id))
         assertEquals(1, queued(FrostSigningEvents.SIGNATURE).size)
         assertEquals(2, queued(FrostSigningEvents.PROPOSAL).size)
+    }
+
+    // ---- the step no message drives ---------------------------------------
+
+    /**
+     * Bob's device at the moment process death is worst: he agreed, his nonce
+     * went out, the coordinator's signer set arrived and was filed -- and the
+     * pass that would have signed his part never finished.
+     *
+     * Written into the row rather than received, because that is what the state
+     * is: the signer set has been *recorded*, so redelivering it changes
+     * nothing, and nothing else in the protocol will ever ask Bob again.
+     */
+    private suspend fun killedBeforeSigning(): FrostSigningSession {
+        val session = proposalArrivedAt(bob)
+
+        FrostSigningManager.approve(database = db, localChatRoom = room, sessionId = session.id)
+
+        // The aggregate the coordinator would have sent: Alice's nonce and the
+        // one Bob's device published from the seed on its item row.
+        val stored = db.frostSigningSessionDao().getItems(session.id).single()
+        val bobsNonce = db.frostSigningSessionDao()
+            .getMessage(session.id, FrostSigningEvents.NONCE, bob)!!
+            .payload
+
+        val aggregated = IndividualNonce.aggregate(
+            listOf(
+                IndividualNonce(publicNonceOf(alice).hexToByteArray()),
+                IndividualNonce(bobsNonce.hexToByteArray())
+            )
+        ).right!!
+
+        db.frostSigningSessionDao().upsertItems(
+            listOf(stored.copy(aggregatedNonce = aggregated.toByteArray().toHex()))
+        )
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(
+                signerIds = "0,1",
+                stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES
+            )
+        )
+
+        return session(session.id)
+    }
+
+    @Test
+    fun `an answered session signs its part when the room is next opened`() = runBlocking {
+        openDevice(bob)
+        val session = killedBeforeSigning()
+
+        assertTrue(queued(FrostSigningEvents.PARTIAL_SIGNATURE).isEmpty())
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        // The step the session had everything for and no way to reach.
+        val part = queued(FrostSigningEvents.PARTIAL_SIGNATURE).single()
+        val filed = db.frostSigningSessionDao()
+            .getMessage(session.id, FrostSigningEvents.PARTIAL_SIGNATURE, bob)
+
+        assertEquals(64, part.content.length)
+        assertEquals(part.content, filed?.payload)
+    }
+
+    @Test
+    fun `resuming twice publishes one partial signature`() = runBlocking {
+        openDevice(bob)
+        killedBeforeSigning()
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        // Every step asks whether its output exists rather than whether a stage
+        // says it ran, which is what makes a sweep safe to call on every open.
+        assertEquals(1, queued(FrostSigningEvents.PARTIAL_SIGNATURE).size)
+    }
+
+    @Test
+    fun `a session its owner has not answered is left alone`() = runBlocking {
+        openDevice(bob)
+        val session = proposalArrivedAt(bob)
+
+        // The gate a resume must not reach past. Bob has the proposal and
+        // nothing else; a sweep that signed here would have a relay delivering
+        // an event to a phone in a pocket be enough to make the group sign.
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(
+                signerIds = "0,1",
+                stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES
+            )
+        )
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        assertTrue(queued(FrostSigningEvents.NONCE).isEmpty())
+        assertTrue(queued(FrostSigningEvents.PARTIAL_SIGNATURE).isEmpty())
+    }
+
+    @Test
+    fun `a refusal decided but never sent goes out on the next open`() = runBlocking {
+        openDevice(bob)
+        val session = proposalArrivedAt(bob)
+
+        // Killed between deciding and publishing: the row says no, the group has
+        // not been told, and the coordinator is waiting on a member who has
+        // already made up their mind.
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(signDeclinedAt = Clock.System.now())
+        )
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        assertEquals(1, queued(FrostSigningEvents.DECLINE).size)
+        assertTrue(queued(FrostSigningEvents.NONCE).isEmpty())
+    }
+
+    @Test
+    fun `a settled session is not swept`() = runBlocking {
+        openDevice(bob)
+        val session = proposalArrivedAt(bob)
+
+        FrostSigningManager.approve(database = db, localChatRoom = room, sessionId = session.id)
+        db.frostSigningSessionDao().upsert(
+            session(session.id).copy(stage = FrostSigningStage.FAILED)
+        )
+
+        val before = queued(FrostSigningEvents.NONCE).size
+
+        FrostSigningManager.resumeAnswered(database = db, localChatRoom = room)
+
+        assertEquals(before, queued(FrostSigningEvents.NONCE).size)
     }
 }

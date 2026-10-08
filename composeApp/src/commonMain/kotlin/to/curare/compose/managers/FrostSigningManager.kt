@@ -2120,6 +2120,52 @@ object FrostSigningManager {
     }
 
     /**
+     * Takes every answered session in a room as far as its stored messages now
+     * allow. The one thing here that no message drives.
+     *
+     * Being message-driven is this manager's whole shape, and it is not quite
+     * enough on its own. A pass of [advance] is where a device publishes its
+     * nonce and its partial signature, and a device killed part way through one
+     * -- the coordinator's signer set recorded, the signature not yet made --
+     * has nothing left to wake it. The message that would have is already filed,
+     * so it is never processed again; and the coordinator's [resend] cannot
+     * reach past that either, because what it asks a quiet member for is a
+     * message this device believes it has already sent.
+     *
+     * **It publishes nothing new.** [advance]'s own gates decide what goes out,
+     * and each asks whether a message exists rather than whether a stage says it
+     * ran, so a session with nothing outstanding takes no steps at all. Only
+     * sessions whose owner has answered are passed in, so this cannot put this
+     * device's material behind events nobody agreed to: the approval gate is the
+     * one thing a resume must not reach past, and this does not come near it.
+     *
+     * A refusal is an answer too, and resumes for the same reason: a device
+     * killed between deciding and publishing says it on the next pass rather
+     * than leaving the group waiting on a member who has already made up their
+     * mind.
+     */
+    suspend fun resumeAnswered(database: CurareDatabase, localChatRoom: LocalChatRoom) {
+        val answered = database.frostSigningSessionDao()
+            .getSessionsForChatRoom(localChatRoom.chatRoom.id)
+            .filter { session ->
+                session.stage != FrostSigningStage.COMPLETE &&
+                    session.stage != FrostSigningStage.FAILED &&
+                    (session.signApprovedAt != null || session.signDeclinedAt != null)
+            }
+
+        if (answered.isEmpty()) return
+
+        logger.i(
+            "Resuming ${answered.size} answered signing session(s) in " +
+                localChatRoom.chatRoom.id
+        )
+
+        // One at a time, and one failing does not stop the rest: [advance]
+        // settles its own session's failure and returns.
+        answered.forEach { session -> advance(database, localChatRoom, session.id) }
+    }
+
+    /**
      * Re-publishes the messages *this* device authored for a session, because
      * the coordinator says it never received them.
      *

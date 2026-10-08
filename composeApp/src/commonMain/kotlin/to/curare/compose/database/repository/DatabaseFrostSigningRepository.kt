@@ -138,6 +138,17 @@ class DatabaseFrostSigningRepository(
         emptySet()
     }
 
+    override suspend fun resumeAnswered(localChatRoom: LocalChatRoom) {
+        try {
+            FrostSigningManager.resumeAnswered(database = database, localChatRoom = localChatRoom)
+        } catch (e: Throwable) {
+            // Each session already settles its own failure inside `advance`, so
+            // anything reaching here is the sweep itself, and a repair that
+            // takes the room down with it is worse than one that did not happen.
+            logger.e("Error resuming signing sessions in ${localChatRoom.chatRoom.id}", e)
+        }
+    }
+
     override suspend fun approve(localChatRoom: LocalChatRoom, sessionId: String) {
         try {
             FrostSigningManager.approve(

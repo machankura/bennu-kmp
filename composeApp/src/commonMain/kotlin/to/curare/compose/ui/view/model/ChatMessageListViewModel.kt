@@ -202,6 +202,7 @@ class ChatMessageListViewModel(
         observeProposalsAwaitingYou()
         observeCeremoniesAwaitingYou()
         askForGroupHistory()
+        resumeSigningSessions()
     }
 
     /**
@@ -298,6 +299,28 @@ class ChatMessageListViewModel(
                     userPublicKey = localChatRoom.chatRoom.userPublicKey,
                 )
             }.onFailure { logger.w(throwable = it) { "Could not ask for this group's history" } }
+        }
+    }
+
+    /**
+     * Lets this room's answered signing sessions take any step they are able to.
+     *
+     * Everything else in a session moves on a message arriving, and a device
+     * killed part way through its own turn is waiting on one that has already
+     * been delivered: the signer set is filed, so it will not be processed
+     * twice, and the coordinator asking again cannot help, because what it asks
+     * a quiet member for is the partial signature this device believes it sent.
+     * Opening the room is the next moment the app has.
+     *
+     * Cheap to call every time, and safe to: the manager publishes nothing that
+     * is already on file and touches no session whose owner has yet to answer.
+     * See `FrostSigningRepository.resumeAnswered`.
+     */
+    private fun resumeSigningSessions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                frostSigningRepository.resumeAnswered(localChatRoom)
+            }.onFailure { logger.w(throwable = it) { "Could not resume this room's signing sessions" } }
         }
     }
 
