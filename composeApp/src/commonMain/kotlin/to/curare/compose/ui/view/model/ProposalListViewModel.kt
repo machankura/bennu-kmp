@@ -10,12 +10,16 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.vitorpamplona.quartz.nip01Core.core.Kind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import to.curare.compose.database.model.intermdiate.FrostSignerTally
 import to.curare.compose.database.model.intermdiate.LocalFrostSigningSession
 import to.curare.compose.extensions.shortened
 import to.curare.compose.managers.FrostSigningManager
+import to.curare.compose.nostr.frost.FrostSigningEvents
 import to.curare.compose.repository.ChatRepository
 import to.curare.compose.repository.FrostSigningRepository
 import to.curare.compose.text.ProposedEvent
@@ -82,12 +86,24 @@ class ProposalListViewModel(
                 return@launch
             }
 
-            frostSigningRepository.observeSessionsForChatRoom(chatRoomId).collect { sessions ->
+            // Two flows rather than one, combined here. The rows and the counts
+            // move on different things -- a row changes when a session advances,
+            // a count every time any member's message lands -- and the counts
+            // are a `GROUP BY` that would carry every nonce payload the room has
+            // ever exchanged if it travelled as the messages themselves.
+            combine(
+                frostSigningRepository.observeSessionsForChatRoom(chatRoomId),
+                frostSigningRepository.observeSignerTalliesForChatRoom(chatRoomId),
+            ) { sessions, tallies ->
+                sessions to tallies.groupBy { it.sessionId }
+            }.collect { (sessions, talliesBySession) ->
                 logger.d("${sessions.size} proposals in $chatRoomId")
 
                 proposalListUIState = ProposalListUIState.Loaded(
                     localChatRoom = localChatRoom,
-                    proposals = sessions.map { asProposal(it) },
+                    proposals = sessions.map {
+                        asProposal(it, talliesBySession[it.session.id].orEmpty())
+                    },
                     filter = filter
                 )
             }
@@ -119,9 +135,16 @@ class ProposalListViewModel(
      * worked out here, so the list and the signing screen cannot disagree about
      * which proposals still have a decision in them.
      */
-    private fun asProposal(local: LocalFrostSigningSession): ProposalListUIState.Proposal {
+    private fun asProposal(
+        local: LocalFrostSigningSession,
+        tallies: List<FrostSignerTally>,
+    ): ProposalListUIState.Proposal {
         val items = local.items
         val events = items.mapNotNull { Event.fromJsonOrNull(it.unsignedEventJson) }
+
+        // A session nobody has answered has no row in the tally at all, which is
+        // a count of zero rather than a missing one.
+        fun counted(kind: Kind) = tallies.firstOrNull { it.kind == kind }?.members ?: 0
 
         return ProposalListUIState.Proposal(
             session = local.session,
@@ -132,7 +155,9 @@ class ProposalListViewModel(
             },
             signs = events.map { ProposedEvent.summarize(it) },
             unreadable = items.size - events.size,
-            awaitsYou = FrostSigningManager.isAwaitingApproval(local.session, items)
+            awaitsYou = FrostSigningManager.isAwaitingApproval(local.session, items),
+            noncesOffered = counted(FrostSigningEvents.NONCE),
+            partialSignatures = counted(FrostSigningEvents.PARTIAL_SIGNATURE)
         )
     }
 

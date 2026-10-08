@@ -8,6 +8,8 @@ import kotlinx.coroutines.runBlocking
 import to.curare.compose.database.CurareDatabase
 import to.curare.compose.database.builder.getRoomDatabase
 import to.curare.compose.database.model.ChatRoom
+import to.curare.compose.database.model.DkgParticipantMessage
+import to.curare.compose.database.model.DkgSession
 import to.curare.compose.database.model.FrostSignerMessage
 import to.curare.compose.database.model.FrostSigningItem
 import to.curare.compose.database.model.FrostSigningSession
@@ -375,5 +377,145 @@ class FrostSigningSessionDaoJvmTest {
 
         assertEquals("f2".repeat(32), db.frostSigningSessionDao().getItem("s1", 2)?.eventId)
         assertNull(db.frostSigningSessionDao().getItem("s1", 3))
+    }
+
+    // --- the progress tallies -----------------------------------------------------
+
+    private val carol = KeyPair().pubKey.toHexKey()
+    private val hostKeyKind = 9
+
+    /** A ceremony, and who holds a share of the key it made. */
+    private suspend fun ceremony(holders: List<String>, id: String = "dkg-1") {
+        db.dkgSessionDao().upsert(
+            DkgSession(
+                id = id,
+                chatRoomId = roomOne,
+                coordinatorPublicKey = user,
+                userPublicKey = user,
+                threshold = 2,
+                participantCount = 3,
+                hostPublicKey = user,
+                round1Random = "aa".repeat(32),
+                round2AuxRandom = "bb".repeat(32),
+            )
+        )
+
+        holders.forEach { holder ->
+            db.dkgSessionDao().upsert(
+                DkgParticipantMessage(
+                    sessionId = id,
+                    participantPublicKey = holder,
+                    kind = hostKeyKind,
+                    payload = "cc".repeat(32),
+                )
+            )
+        }
+    }
+
+    private suspend fun tallies(chatRoomId: String = roomOne) =
+        db.frostSigningSessionDao().observeSignerTalliesForChatRoom(
+            chatRoomId = chatRoomId,
+            kinds = listOf(nonceKind, partialSignatureKind),
+            hostKeyKind = hostKeyKind,
+        ).first()
+
+    @Test
+    fun `a tally counts the members who answered, per session and per kind`() = runBlocking {
+        seedRooms()
+        ceremony(holders = listOf(user, alice, bob))
+        session("one")
+        session("two")
+
+        message("one", alice, nonceKind)
+        message("one", bob, nonceKind)
+        message("one", alice, partialSignatureKind)
+        message("two", alice, nonceKind)
+
+        val byKey = tallies().associate { (it.sessionId to it.kind) to it.members }
+
+        assertEquals(2, byKey[("one" to nonceKind)])
+        assertEquals(1, byKey[("one" to partialSignatureKind)])
+        assertEquals(1, byKey[("two" to nonceKind)])
+        assertNull(byKey[("two" to partialSignatureKind)], "a kind nobody sent has no row")
+    }
+
+    /**
+     * The restriction the figure rests on.
+     *
+     * `FrostSigningManager` records a nonce or a partial signature without
+     * checking who sent it -- unlike a refusal, which it filters -- and
+     * `orderedNonces` then drops the ones from members holding no share when it
+     * aggregates. A tally that counted those would have the list read ahead of
+     * the coordinator: a row saying the group has the two offers it needs while
+     * the session sits still, which is the one direction this figure must never
+     * be wrong in.
+     */
+    @Test
+    fun `a nonce from somebody holding no share is not counted`() = runBlocking {
+        seedRooms()
+        ceremony(holders = listOf(alice, bob))
+        session("one")
+
+        message("one", alice, nonceKind)
+        message("one", carol, nonceKind)
+
+        assertEquals(
+            1,
+            tallies().single { it.kind == nonceKind }.members,
+            "a stranger's nonce was counted towards the threshold"
+        )
+    }
+
+    /** A session nobody has answered has no row at all, which a reader takes as zero. */
+    @Test
+    fun `a session with no messages has no tally`() = runBlocking {
+        seedRooms()
+        ceremony(holders = listOf(alice, bob))
+        session("quiet")
+
+        assertEquals(emptyList(), tallies())
+    }
+
+    /**
+     * The composite key already makes a redelivered message replace its
+     * predecessor, so a member cannot be counted twice by sending twice. The
+     * count is of members either way, which is what the threshold is counted in.
+     */
+    @Test
+    fun `a member who answers twice is still one member`() = runBlocking {
+        seedRooms()
+        ceremony(holders = listOf(alice, bob))
+        session("one")
+
+        message("one", alice, nonceKind, payload = "aa".repeat(32))
+        message("one", alice, nonceKind, payload = "bb".repeat(32))
+
+        assertEquals(1, tallies().single().members)
+    }
+
+    @Test
+    fun `a tally is scoped to its room`() = runBlocking {
+        seedRooms()
+        ceremony(holders = listOf(alice, bob))
+        session("here", chatRoomId = roomOne)
+        session("elsewhere", chatRoomId = roomTwo)
+
+        message("here", alice, nonceKind)
+        message("elsewhere", alice, nonceKind)
+
+        assertEquals(listOf("here"), tallies(roomOne).map { it.sessionId })
+        assertEquals(listOf("elsewhere"), tallies(roomTwo).map { it.sessionId })
+    }
+
+    /** Kinds the caller did not ask for stay out, so a refusal is not read as an offer. */
+    @Test
+    fun `a kind outside the asked-for set is not tallied`() = runBlocking {
+        seedRooms()
+        ceremony(holders = listOf(alice, bob))
+        session("one")
+
+        message("one", alice, kind = 99)
+
+        assertEquals(emptyList(), tallies())
     }
 }

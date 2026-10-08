@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import to.curare.compose.database.model.FrostSignerMessage
 import to.curare.compose.database.model.FrostSigningItem
 import to.curare.compose.database.model.FrostSigningSession
+import to.curare.compose.database.model.intermdiate.FrostSignerTally
 import to.curare.compose.database.model.intermdiate.LocalFrostSigningSession
 
 @Dao
@@ -32,6 +33,48 @@ interface FrostSigningSessionDao {
     @Transaction
     @Query("SELECT * FROM FrostSigningSession WHERE chatRoomId = :chatRoomId ORDER BY createdAt DESC")
     fun observeSessionsForChatRoom(chatRoomId: String): Flow<List<LocalFrostSigningSession>>
+
+    /**
+     * How many members have sent each kind of message, for every session in a
+     * room, in one query.
+     *
+     * The list shows each proposal's progress -- three of the four nonces it
+     * needs, two of the three signatures -- and a query per row would be one per
+     * proposal on a screen whose whole point is that a room has several.
+     *
+     * The join to `DkgParticipantMessage` is what makes the figure honest rather
+     * than merely available. A nonce or a partial signature is recorded without
+     * any check on who sent it, unlike a refusal; `FrostSigningManager`'s
+     * `orderedNonces` then drops the ones from members who hold no share when it
+     * aggregates. Counting those here would have a row read ahead of the session
+     * it describes -- saying the group has what it needs while the coordinator
+     * is still waiting -- which is the one direction a progress figure must
+     * never be wrong in. `HOST_KEY` is the message that makes somebody a share
+     * holder, and the entity's primary key makes it at most one row per member,
+     * so the join cannot multiply a count either.
+     *
+     * @param hostKeyKind `DkgRitualEvents.HOST_KEY`; passed rather than written
+     *   in, because a kind inlined into SQL is a kind nothing would renumber.
+     */
+    @Query(
+        """
+        SELECT m.sessionId AS sessionId,
+               m.kind AS kind,
+               COUNT(DISTINCT m.signerPublicKey) AS members
+          FROM FrostSignerMessage m
+          JOIN FrostSigningSession s ON s.id = m.sessionId
+          JOIN DkgParticipantMessage d ON d.sessionId = s.dkgSessionId
+                                      AND d.participantPublicKey = m.signerPublicKey
+                                      AND d.kind = :hostKeyKind
+         WHERE s.chatRoomId = :chatRoomId AND m.kind IN (:kinds)
+         GROUP BY m.sessionId, m.kind
+        """
+    )
+    fun observeSignerTalliesForChatRoom(
+        chatRoomId: String,
+        kinds: List<Kind>,
+        hostKeyKind: Kind,
+    ): Flow<List<FrostSignerTally>>
 
     @Query("SELECT * FROM FrostSigningSession WHERE chatRoomId = :chatRoomId ORDER BY createdAt DESC LIMIT 1")
     suspend fun getLatestSessionForChatRoom(chatRoomId: String): FrostSigningSession?

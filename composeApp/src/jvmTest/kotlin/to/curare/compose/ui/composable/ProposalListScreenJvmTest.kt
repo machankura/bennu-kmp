@@ -72,6 +72,8 @@ class ProposalListScreenJvmTest {
         awaitsYou: Boolean = false,
         approved: Boolean = false,
         signerIds: String? = null,
+        nonces: Int = 0,
+        signatures: Int = 0,
     ) = ProposalListUIState.Proposal(
         session = session.copy(
             id = id,
@@ -82,16 +84,19 @@ class ProposalListScreenJvmTest {
         proposerName = "Ada",
         signs = listOf(ProposedEvent.Summary(label, detail)),
         awaitsYou = awaitsYou,
+        noncesOffered = nonces,
+        partialSignatures = signatures,
     )
 
     private val needsYou = proposal("needs", "New chapter", "Genesis 1", awaitsYou = true)
     private val alsoNeedsYou = proposal("also", "New chapter", "Genesis 2", awaitsYou = true)
-    private val open = proposal("open", "New translation", "isiZulu", approved = true)
+    private val open = proposal("open", "New translation", "isiZulu", approved = true, nonces = 1)
     private val beingSigned = proposal(
         "signing", "New chapter", "Genesis 4",
         stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
         approved = true,
         signerIds = "1,2",
+        signatures = 1,
     )
     private val signed = proposal("signed", "New post", "A note", stage = FrostSigningStage.COMPLETE)
 
@@ -283,6 +288,78 @@ class ProposalListScreenJvmTest {
             onAllNodesWithText("A note").assertCountEquals(0)
             onAllNodesWithText("Genesis 4").assertCountEquals(0)
             onAllNodesWithText("Waiting for you").assertCountEquals(0)
+        }
+
+    // --- the progress line --------------------------------------------------------
+
+    /**
+     * The fraction each row shows is its own stage's, in that stage's words.
+     *
+     * The session gathering nonces counts members against the threshold -- two
+     * of the three in the room, because the threshold is what the coordinator
+     * gates on. The one being signed counts signatures against the signer set.
+     */
+    @Test
+    fun `a gathering proposal says how far it has got, in its stage's terms`() =
+        render(loaded(mixed)) {
+            onNodeWithText("1 of 2 members have offered to sign").assertIsDisplayed()
+            onNodeWithText("1 of 2 signatures are in").assertIsDisplayed()
+        }
+
+    /**
+     * The one the reader has to answer shows it too: whether they are the
+     * deciding vote is the most useful thing the row can tell them, and it is
+     * the row they are most likely to act on.
+     */
+    @Test
+    fun `a proposal waiting on you shows its count as well`() =
+        render(loaded(listOf(proposal("a", "New chapter", "Genesis 9", awaitsYou = true, nonces = 1)))) {
+            onNodeWithText("Needs your review.").assertIsDisplayed()
+            onNodeWithText("1 of 2 members have offered to sign").assertIsDisplayed()
+        }
+
+    /** Nothing left to gather, so nothing counted. */
+    @Test
+    fun `a signed proposal shows no count`() = render(loaded(listOf(signed))) {
+        onNodeWithText("Signed by the group.").assertIsDisplayed()
+        onAllNodesWithText("signatures are in", substring = true).assertCountEquals(0)
+        onAllNodesWithText("have offered to sign", substring = true).assertCountEquals(0)
+    }
+
+    /**
+     * An abandoned one shows none either: its counts are frozen where they
+     * stopped, and a fraction beside a failure invites the reader to wait for a
+     * part that is never coming. The reason is what that row has to say.
+     */
+    @Test
+    fun `an abandoned proposal shows its reason and no count`() {
+        val gone = proposal(
+            "gone", "New chapter", "Genesis 8",
+            stage = FrostSigningStage.FAILED,
+            nonces = 1,
+        ).let { it.copy(session = it.session.copy(failureReason = "The group could not agree.")) }
+
+        render(loaded(listOf(gone))) {
+            onNodeWithText("The group could not agree.").assertIsDisplayed()
+            onAllNodesWithText("have offered to sign", substring = true).assertCountEquals(0)
+        }
+    }
+
+    /**
+     * The status line carries no numbers of its own any more. It used to say
+     * "waiting for 2 of 3 members to take part", which is the rule rather than
+     * the progress -- a row said it on the day a proposal was made and on the
+     * day before it completed. Two fractions meaning different things on one row
+     * would be worse than the one that never moved.
+     */
+    @Test
+    fun `the status line says who you are in it, and leaves the counting alone`() =
+        render(loaded(mixed)) {
+            onNodeWithText("You agreed.").assertIsDisplayed()
+            onNodeWithText("You are signing.").assertIsDisplayed()
+
+            onAllNodesWithText("to take part", substring = true).assertCountEquals(0)
+            onAllNodesWithText("Waiting on the rest", substring = true).assertCountEquals(0)
         }
 
     @Test

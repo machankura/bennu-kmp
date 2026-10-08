@@ -12,10 +12,12 @@ import to.curare.compose.database.CurareDatabase
 import to.curare.compose.database.model.FrostSignerMessage
 import to.curare.compose.database.model.FrostSigningItem
 import to.curare.compose.database.model.FrostSigningSession
+import to.curare.compose.database.model.intermdiate.FrostSignerTally
 import to.curare.compose.database.model.intermdiate.LocalChatRoom
 import to.curare.compose.database.model.intermdiate.LocalFrostSigningSession
 import to.curare.compose.managers.FrostSigningManager
 import to.curare.compose.nostr.dkg.DkgRitualEvents
+import to.curare.compose.nostr.frost.FrostSigningEvents
 import to.curare.compose.repository.FrostSigningRepository
 
 class DatabaseFrostSigningRepository(
@@ -29,6 +31,17 @@ class DatabaseFrostSigningRepository(
 
     override fun observeSessionsForChatRoom(chatRoomId: String): Flow<List<LocalFrostSigningSession>> =
         database.frostSigningSessionDao().observeSessionsForChatRoom(chatRoomId)
+
+    override fun observeSignerTalliesForChatRoom(
+        chatRoomId: String
+    ): Flow<List<FrostSignerTally>> =
+        database.frostSigningSessionDao().observeSignerTalliesForChatRoom(
+            chatRoomId = chatRoomId,
+            // The two kinds a proposal's progress is counted in. Asked for by
+            // name so the query carries no opinion about which kinds exist.
+            kinds = listOf(FrostSigningEvents.NONCE, FrostSigningEvents.PARTIAL_SIGNATURE),
+            hostKeyKind = DkgRitualEvents.HOST_KEY,
+        )
 
     override fun observeMessages(sessionId: String): Flow<List<FrostSignerMessage>> =
         database.frostSigningSessionDao().observeMessages(sessionId)
