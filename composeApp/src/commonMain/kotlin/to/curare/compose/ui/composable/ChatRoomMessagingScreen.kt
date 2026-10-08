@@ -50,11 +50,13 @@ import to.curare.compose.ui.composable.navigation.routes.ChatRoomDetailRoute
 import to.curare.compose.ui.composable.navigation.routes.DkgRitualRoute
 import to.curare.compose.ui.composable.navigation.routes.FrostSigningRoute
 import to.curare.compose.ui.composable.navigation.routes.ProposalListRoute
+import to.curare.compose.ui.composable.navigation.routes.proposalDestination
 import to.curare.compose.ui.composable.navigation.routes.Route
 import to.curare.compose.ui.composable.widgets.LoadingDataIndicator
 import to.curare.compose.ui.theme.CurareTheme
 import to.curare.compose.ui.view.model.ChatRoomMessagingViewModel
 import to.curare.compose.ui.view.state.ChatRoomMessagingUIState
+import to.curare.compose.ui.view.state.ProposalFilter
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import to.curare.compose.ui.composable.widgets.chat.ChatTranscript
 import to.curare.compose.ui.theme.spacing
@@ -185,39 +187,27 @@ fun ChatRoomMessagingScreen(
                                         )
                                     },
                                     onOpenSigning = { sessionId ->
-                                        // Two reasons to open the queue instead of the one
-                                        // proposal. A line written before chat rows named
-                                        // their session cannot say which proposal it is
-                                        // about, and the room may have several -- the list
-                                        // is the honest answer there, showing all of them
-                                        // with their own state rather than guessing at one.
-                                        //
-                                        // The other is that the proposal they tapped is
-                                        // not the only one waiting on them, in which case
-                                        // it is not the whole of what is being asked and a
-                                        // screen showing only it would say it was.
                                         onNavigateToRoute.invoke(
-                                            if (sessionId == null ||
-                                                chatMessageListViewModel.hidesOtherDecisions(sessionId)
-                                            ) {
-                                                ProposalListRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId
-                                                )
-                                            } else {
-                                                FrostSigningRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    sessionId = sessionId
-                                                )
-                                            }
+                                            proposalDestination(
+                                                activeUserPublicKey = activeUserPublicKey,
+                                                chatRoomId = chatRoomId,
+                                                sessionId = sessionId,
+                                                hasOtherDecisionsWaiting =
+                                                    chatMessageListViewModel::hidesOtherDecisions
+                                            )
                                         )
                                     },
+                                    // The notice has just counted the proposals
+                                    // waiting on this member and said so. Opening
+                                    // the room's whole signing history from it
+                                    // would have the reader look for the three it
+                                    // named, so the chip is set on the way in.
                                     onOpenProposals = {
                                         onNavigateToRoute.invoke(
                                             ProposalListRoute(
                                                 activeUserPublicKey = activeUserPublicKey,
-                                                chatRoomId = chatRoomId
+                                                chatRoomId = chatRoomId,
+                                                filter = ProposalFilter.NEEDS_YOU
                                             )
                                         )
                                     }
