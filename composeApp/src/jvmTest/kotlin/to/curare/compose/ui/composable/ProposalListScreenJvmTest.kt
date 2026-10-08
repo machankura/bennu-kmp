@@ -71,10 +71,12 @@ class ProposalListScreenJvmTest {
         stage: FrostSigningStage = FrostSigningStage.COLLECTING_NONCES,
         awaitsYou: Boolean = false,
         approved: Boolean = false,
+        signerIds: String? = null,
     ) = ProposalListUIState.Proposal(
         session = session.copy(
             id = id,
             stage = stage,
+            signerIds = signerIds,
             signApprovedAt = Clock.System.now().takeIf { approved },
         ),
         proposerName = "Ada",
@@ -85,9 +87,15 @@ class ProposalListScreenJvmTest {
     private val needsYou = proposal("needs", "New chapter", "Genesis 1", awaitsYou = true)
     private val alsoNeedsYou = proposal("also", "New chapter", "Genesis 2", awaitsYou = true)
     private val open = proposal("open", "New translation", "isiZulu", approved = true)
+    private val beingSigned = proposal(
+        "signing", "New chapter", "Genesis 4",
+        stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+        approved = true,
+        signerIds = "1,2",
+    )
     private val signed = proposal("signed", "New post", "A note", stage = FrostSigningStage.COMPLETE)
 
-    private val mixed = listOf(needsYou, alsoNeedsYou, open, signed)
+    private val mixed = listOf(needsYou, alsoNeedsYou, open, beingSigned, signed)
 
     /**
      * Scrolls a chip into view and returns it.
@@ -101,24 +109,34 @@ class ProposalListScreenJvmTest {
 
     @Test
     fun `every state is offered with its own count, zero included`() = render(loaded(mixed)) {
-        // Two in the queue, one in progress, one signed -- and nothing abandoned,
-        // which still gets a chip rather than vanishing.
+        // Two in the queue, one short of members, one being signed, one signed --
+        // and nothing abandoned, which still gets a chip rather than vanishing.
         chip("All")
         chip("Needs you · 2")
-        chip("In progress · 1")
+        chip("Waiting on members · 1")
+        chip("Being signed · 1")
         chip("Signed · 1")
         chip("Abandoned · 0")
     }
 
+    /**
+     * Order is asserted on the chips the viewport actually lays out.
+     *
+     * The row scrolls, and a chip entirely past the right edge reports zero
+     * bounds rather than an off-screen position -- so the ones beyond the fold
+     * cannot be measured here and are not what this test is for. That the six
+     * run in lifecycle order is `ProposalFilterTest`'s to say, where it is a
+     * property of the enum and no viewport is involved.
+     */
     @Test
     fun `the chips are offered above the rows, in the order the states run`() =
         render(loaded(mixed)) {
-            val chips = listOf("All", "Needs you · 2", "In progress · 1", "Signed · 1", "Abandoned · 0")
-                .map { onNodeWithText(it).getBoundsInRoot().left }
+            val laidOut = listOf("All", "Needs you · 2", "Waiting on members · 1")
+                .map { onNodeWithText(it).assertIsDisplayed().getBoundsInRoot().left }
 
             assertTrue(
-                chips.zipWithNext().all { (left, right) -> left < right },
-                "the chips were drawn out of order: $chips"
+                laidOut.zipWithNext().all { (left, right) -> left < right },
+                "the chips were drawn out of order: $laidOut"
             )
 
             val chipBottom = onNodeWithText("All").getBoundsInRoot().bottom
@@ -134,7 +152,27 @@ class ProposalListScreenJvmTest {
         onNodeWithText("Genesis 1").assertIsDisplayed()
         onNodeWithText("Genesis 2").assertIsDisplayed()
         onNodeWithText("isiZulu").assertIsDisplayed()
+        onNodeWithText("Genesis 4").assertIsDisplayed()
         onNodeWithText("A note").assertIsDisplayed()
+    }
+
+    /**
+     * The two open stages are two chips, and they hold different proposals.
+     *
+     * Short of members, somebody may have to chase it -- refusals can still end
+     * it, and the coordinator's resend is for exactly this. Once the signer set
+     * is fixed there is nothing to do but wait. One chip over both would file
+     * those together.
+     */
+    @Test
+    fun `the two open stages are told apart`() = render(loaded(mixed)) {
+        chip("Waiting on members · 1").performClick()
+        onNodeWithText("isiZulu").assertIsDisplayed()
+        onAllNodesWithText("Genesis 4").assertCountEquals(0)
+
+        chip("Being signed · 1").performClick()
+        onNodeWithText("Genesis 4").assertIsDisplayed()
+        onAllNodesWithText("isiZulu").assertCountEquals(0)
     }
 
     @Test
@@ -145,6 +183,7 @@ class ProposalListScreenJvmTest {
         onAllNodesWithText("Genesis 1").assertCountEquals(0)
         onAllNodesWithText("Genesis 2").assertCountEquals(0)
         onAllNodesWithText("isiZulu").assertCountEquals(0)
+        onAllNodesWithText("Genesis 4").assertCountEquals(0)
     }
 
     @Test
@@ -176,7 +215,8 @@ class ProposalListScreenJvmTest {
         chip("Signed · 1").performClick()
 
         chip("Needs you · 2")
-        chip("In progress · 1")
+        chip("Waiting on members · 1")
+        chip("Being signed · 1")
         chip("Abandoned · 0")
     }
 
@@ -200,15 +240,20 @@ class ProposalListScreenJvmTest {
             chip("Needs you · 0").performClick()
 
             onNodeWithText("Nothing is waiting for your signature.").assertIsDisplayed()
-            chip("In progress · 1")
+            chip("Waiting on members · 1")
             chip("Signed · 1")
         }
 
     @Test
     fun `each filter has its own words for being empty`() {
         render(loaded(listOf(needsYou))) {
-            chip("In progress · 0").performClick()
-            onNodeWithText("No proposal is in progress.").assertIsDisplayed()
+            chip("Waiting on members · 0").performClick()
+            onNodeWithText("No proposal is waiting on members.").assertIsDisplayed()
+        }
+
+        render(loaded(listOf(needsYou))) {
+            chip("Being signed · 0").performClick()
+            onNodeWithText("No proposal is being signed.").assertIsDisplayed()
         }
 
         render(loaded(listOf(needsYou))) {
@@ -236,6 +281,7 @@ class ProposalListScreenJvmTest {
             onNodeWithText("Genesis 1").assertIsDisplayed()
             onNodeWithText("Genesis 2").assertIsDisplayed()
             onAllNodesWithText("A note").assertCountEquals(0)
+            onAllNodesWithText("Genesis 4").assertCountEquals(0)
             onAllNodesWithText("Waiting for you").assertCountEquals(0)
         }
 

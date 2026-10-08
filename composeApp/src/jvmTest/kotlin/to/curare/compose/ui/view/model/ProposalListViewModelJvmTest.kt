@@ -94,6 +94,7 @@ class ProposalListViewModelJvmTest {
         id: String,
         stage: FrostSigningStage = FrostSigningStage.COLLECTING_NONCES,
         approved: Boolean = false,
+        signerIds: String? = null,
     ) = FrostSigningSession(
         id = id,
         chatRoomId = chatRoomId,
@@ -104,6 +105,7 @@ class ProposalListViewModelJvmTest {
         participantCount = 3,
         signerId = 2,
         stage = stage,
+        signerIds = signerIds,
         signApprovedAt = Clock.System.now().takeIf { approved },
     )
 
@@ -112,8 +114,9 @@ class ProposalListViewModelJvmTest {
         id: String,
         stage: FrostSigningStage = FrostSigningStage.COLLECTING_NONCES,
         approved: Boolean = false,
+        signerIds: String? = null,
     ) = LocalFrostSigningSession(
-        session = session(id, stage, approved),
+        session = session(id, stage, approved, signerIds),
         unorderedItems = listOf(
             FrostSigningItem(
                 sessionId = id,
@@ -132,6 +135,12 @@ class ProposalListViewModelJvmTest {
     private val mixed = listOf(
         local("needs"),
         local("open", approved = true),
+        local(
+            "signing",
+            stage = FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+            approved = true,
+            signerIds = "1,2",
+        ),
         local("signed", stage = FrostSigningStage.COMPLETE),
         local("gone", stage = FrostSigningStage.FAILED),
     )
@@ -183,11 +192,12 @@ class ProposalListViewModelJvmTest {
         val loaded = model.awaitLoaded()
 
         assertEquals(ProposalFilter.ALL, loaded.filter)
-        assertEquals(4, loaded.visible.size)
+        assertEquals(5, loaded.visible.size)
         assertEquals(
             listOf(
                 ProposalState.NEEDS_YOU,
-                ProposalState.IN_PROGRESS,
+                ProposalState.WAITING_ON_MEMBERS,
+                ProposalState.BEING_SIGNED,
                 ProposalState.SIGNED,
                 ProposalState.ABANDONED,
             ),
@@ -213,7 +223,7 @@ class ProposalListViewModelJvmTest {
             val loaded = assertIs<ProposalListUIState.Loaded>(model.proposalListUIState)
             assertEquals(ProposalFilter.SIGNED, loaded.filter)
             assertEquals(listOf("signed"), loaded.visible.map { it.session.id })
-            assertEquals(4, loaded.proposals.size, "the room is still whole behind the filter")
+            assertEquals(5, loaded.proposals.size, "the room is still whole behind the filter")
 
             model.viewModelScope.cancel()
         }
@@ -236,14 +246,26 @@ class ProposalListViewModelJvmTest {
         model.select(ProposalFilter.NEEDS_YOU)
         assertEquals(listOf("needs"), model.loaded().visible.map { it.session.id })
 
-        // Somebody else signs the open one, and a fresh proposal arrives.
+        // The coordinator fixes the signer set on the open one, and a fresh
+        // proposal arrives. The first is a move between two chips, which is the
+        // emission most likely to arrive while somebody is reading.
         flow.emit(
-            mixed.map { if (it.session.id == "open") local("open", FrostSigningStage.COMPLETE) else it } +
-                local("fresh")
+            mixed.map {
+                if (it.session.id == "open") {
+                    local(
+                        "open",
+                        FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES,
+                        approved = true,
+                        signerIds = "1,2",
+                    )
+                } else {
+                    it
+                }
+            } + local("fresh")
         )
 
         model.await("the new proposal") {
-            it is ProposalListUIState.Loaded && it.proposals.size == 5
+            it is ProposalListUIState.Loaded && it.proposals.size == 6
         }
 
         val after = model.loaded()
@@ -253,7 +275,12 @@ class ProposalListViewModelJvmTest {
             after.visible.map { it.session.id },
             "the filter was kept but not applied to the new rows"
         )
-        assertEquals(2, after.counts[ProposalState.SIGNED], "the counts did not follow the room")
+        assertEquals(
+            0,
+            after.counts[ProposalState.WAITING_ON_MEMBERS],
+            "the counts did not follow the room"
+        )
+        assertEquals(2, after.counts[ProposalState.BEING_SIGNED])
 
         model.viewModelScope.cancel()
     }
@@ -288,7 +315,7 @@ class ProposalListViewModelJvmTest {
             assertEquals(ProposalFilter.NEEDS_YOU, after.filter)
             assertTrue(after.visible.isEmpty())
             assertEquals(1, after.proposals.size)
-            assertEquals(1, after.counts[ProposalState.IN_PROGRESS])
+            assertEquals(1, after.counts[ProposalState.WAITING_ON_MEMBERS])
 
             model.viewModelScope.cancel()
         }

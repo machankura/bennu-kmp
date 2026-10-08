@@ -40,6 +40,7 @@
     <string name="backup_confirmation">Backup confirmation</string>
     <string name="be_sure_to_keep_this_nsec_safe">Be sure to keep this nsec safe.</string>
     <string name="be_the_first_to_comment">Be the first to comment.</string>
+    <string name="being_signed">Being signed</string>
     <string name="bio">Bio</string>
     <string name="bip39_seed_with_the_standard_bip84">BIP39 seed with the standard BIP84 derivation path. The profile\'s nostr key comes off the same seed, so these 12 words restore both.</string>
     <string name="block_user">Block user</string>
@@ -110,7 +111,6 @@
     <string name="i_have_saved_my_recovery_phrase_somewhere">I have saved my recovery phrase somewhere safe.</string>
     <string name="i_understand_that_if_i_lose_this_phone_and">I understand that if I lose this phone and my recovery phrase, I lose this profile and the funds in its wallet.</string>
     <string name="if_you_are_new_to_torch_or_just_want_to">If you are new to Curare or just want to create a fresh profile</string>
-    <string name="in_progress">In progress</string>
     <string name="initial_version_label">Initial version label</string>
     <string name="input_npub_or_nip05">Input npub... or nip05</string>
     <string name="introduce_yourself">Introduce yourself</string>
@@ -156,6 +156,8 @@
     <string name="name_of_artifact">Name of artifact</string>
     <string name="needs_you">Needs you</string>
     <string name="network_relays">Network relays</string>
+    <string name="no_proposal_is_being_signed">No proposal is being signed.</string>
+    <string name="no_proposal_is_waiting_on_members">No proposal is waiting on members.</string>
     <string name="no_wallet_is_open_on_this_device_so_there">No wallet is open on this device, so there is no phrase to show.</string>
     <string name="not_backed_up_yet">Not backed up yet</string>
     <string name="new_chat">New chat</string>
@@ -172,7 +174,6 @@
     <string name="no_one_to_add_yet">No one to add yet.</string>
     <string name="no_projects_exists_in_this_group">No projects exists in this group.</string>
     <string name="no_proposal_has_been_abandoned">No proposal has been abandoned.</string>
-    <string name="no_proposal_is_in_progress">No proposal is in progress.</string>
     <string name="no_translations_yet">No translations yet.</string>
     <string name="no_versions">No versions.</string>
     <string name="not_now">Not now</string>
@@ -310,6 +311,7 @@
     <string name="view_invites">View invites</string>
     <string name="waiting_for_you">Waiting for you</string>
     <string name="waiting_for_your_signature">Waiting for your signature</string>
+    <string name="waiting_on_members">Waiting on members</string>
     <string name="we_are_looking_for_your_profile_on_as_many">We are looking for your profile on as many relays as possible. Nostr aims to be decentralized by distributing data to multiple nodse.</string>
     <string name="we_are_searching_the_internet_to_find_your">We are searching the internet to find your profile and complete sign in.</string>
     <string name="we_couldn_t_find_the_local_profile_please">We couldn't find the local profile. Please try again later.</string>

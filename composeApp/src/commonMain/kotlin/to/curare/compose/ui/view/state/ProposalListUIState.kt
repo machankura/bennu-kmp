@@ -113,16 +113,15 @@ sealed interface ProposalListUIState {
          *
          * The inner `when` is exhaustive on purpose, with no `else`. A stage
          * added to `FrostSigningStage` later should fail to compile here rather
-         * than quietly land in [ProposalState.IN_PROGRESS], because whether it
-         * is an ending is the one thing this file cannot guess.
+         * than quietly land in whichever arm happened to be last, because what
+         * the reader is waiting on is the one thing this file cannot guess.
          */
         val state: ProposalState get() = when {
             awaitsYou -> ProposalState.NEEDS_YOU
 
             else -> when (session.stage) {
-                FrostSigningStage.COLLECTING_NONCES,
-                FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES -> ProposalState.IN_PROGRESS
-
+                FrostSigningStage.COLLECTING_NONCES -> ProposalState.WAITING_ON_MEMBERS
+                FrostSigningStage.COLLECTING_PARTIAL_SIGNATURES -> ProposalState.BEING_SIGNED
                 FrostSigningStage.COMPLETE -> ProposalState.SIGNED
                 FrostSigningStage.FAILED -> ProposalState.ABANDONED
             }

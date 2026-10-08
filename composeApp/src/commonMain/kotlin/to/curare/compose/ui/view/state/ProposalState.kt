@@ -3,17 +3,16 @@ package to.curare.compose.ui.view.state
 /**
  * Where a proposal has got to, as a reader scanning a list of them cares.
  *
- * Deliberately not [to.curare.compose.database.model.types.FrostSigningStage].
- * The stage is how far the protocol has run; this is what there is to do about
- * it, and the two part company on the only state anybody comes to this screen
- * looking for: a proposal waiting on *this* member is `COLLECTING_NONCES` like
- * every other open one, and what sets it apart is
- * `FrostSigningSession.signApprovedAt` and `signDeclinedAt` being null. So
- * [NEEDS_YOU] cannot be read off the stage at all, and a filter keyed on the
- * enum would be a filter missing its reason to exist.
+ * Deliberately not [to.curare.compose.database.model.types.FrostSigningStage],
+ * although it has come to be the stage plus one. The one is the point: a
+ * proposal waiting on *this* member is `COLLECTING_NONCES` like every other open
+ * one, and what sets it apart is `FrostSigningSession.signApprovedAt` and
+ * `signDeclinedAt` being null. So [NEEDS_YOU] cannot be read off the stage at
+ * all, and a filter keyed on the enum would be a filter missing its reason to
+ * exist.
  *
- * Exhaustive and ordered by how much it asks of the reader, which is the order
- * the chips are offered in.
+ * Exhaustive and in lifecycle order, which is the order the chips are offered
+ * in.
  */
 enum class ProposalState {
     /**
@@ -26,14 +25,32 @@ enum class ProposalState {
     NEEDS_YOU,
 
     /**
-     * Open, and this member has already said their piece -- or was never needed.
+     * Open, answered by this member, and short of members willing to sign it.
      *
-     * Covers more than it looks like: agreed and waiting on others, refused and
-     * left the others to it, picked to sign, not picked and watching. All of them
-     * are the same thing to a reader deciding where to look, which is "not here",
-     * and the row's own status line says which one it is.
+     * The stage where a proposal can still die of indifference. Refusals are
+     * counted against `FrostSigningSession.declinesThatAbandon`, so one more may
+     * end it; and a member who is simply offline is indistinguishable from one
+     * who has not looked. It is also the only stage the coordinator's resend is
+     * for, which is the practical reason this is not merged with
+     * [BEING_SIGNED]: these are the proposals somebody may have to do something
+     * about.
      */
-    IN_PROGRESS,
+    WAITING_ON_MEMBERS,
+
+    /**
+     * The signer set is fixed, and the chosen signers are producing signatures.
+     *
+     * Nothing anybody can be asked here. `signerIds` is written once and never
+     * revised, so no further refusal is counted against it -- what is left is
+     * the signers' devices finishing arithmetic they have already committed to.
+     * Where [WAITING_ON_MEMBERS] asks whether this will happen, this one says it
+     * is happening.
+     *
+     * Whether *this* device was among the chosen is not a state of the proposal
+     * but a fact about the reader, and the row's status line says it. Splitting
+     * on it would be splitting every state by who is looking.
+     */
+    BEING_SIGNED,
 
     /** Aggregated and verified. The group signed it. */
     SIGNED,
