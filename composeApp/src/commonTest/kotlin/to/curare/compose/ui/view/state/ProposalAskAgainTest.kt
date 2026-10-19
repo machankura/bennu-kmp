@@ -61,7 +61,7 @@ class ProposalAskAgainTest {
     }
 
     @Test
-    fun `a session waiting on nobody offers nothing, because there is nobody to ask`() {
+    fun `a session waiting on nobody offers nothing because there is nobody to ask`() {
         assertFalse(proposal(owing = 0).canAskAgain)
     }
 
@@ -210,7 +210,7 @@ class ProposalAskAgainTest {
      * a button that lies before it is pressed.
      */
     @Test
-    fun `a cooling-down row is left out of the count, not skipped inside it`() {
+    fun `a cooling-down row is left out of the count not skipped inside it`() {
         val state = loaded(
             listOf(
                 askable("one"),

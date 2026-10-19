@@ -38,7 +38,7 @@ class ProposalDestinationTest {
     )
 
     @Test
-    fun `a line too old to name its proposal opens the room, unfiltered`() {
+    fun `a line too old to name its proposal opens the room unfiltered`() {
         assertEquals(
             ProposalListRoute(activeUserPublicKey = me, chatRoomId = roomId),
             destination(sessionId = null)
@@ -71,7 +71,7 @@ class ProposalDestinationTest {
     }
 
     @Test
-    fun `a proposal held back for the others opens on the queue, not the history`() {
+    fun `a proposal held back for the others opens on the queue not the history`() {
         val route = destination(sessionId = "one", waiting = setOf("one"))
 
         assertEquals(
@@ -140,7 +140,7 @@ class ProposalDestinationTest {
      * carrying more than a state would want.
      */
     @Test
-    fun `the filter survives the route's serializer, which is what navigation reads`() {
+    fun `the filter survives the route's serializer which is what navigation reads`() {
         val descriptor = serializer<ProposalListRoute>().descriptor
         val filterIndex = descriptor.getElementIndex("filter")
 

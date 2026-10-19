@@ -59,7 +59,7 @@ class ProposalProgressTest {
     )
 
     @Test
-    fun `gathering nonces counts members against the threshold, not the room`() {
+    fun `gathering nonces counts members against the threshold not the room`() {
         val progress = proposal(session(threshold = 2, participantCount = 5), nonces = 1).progress
 
         assertEquals(ProposalListUIState.Progress.Of.MEMBERS, progress?.of)
@@ -137,7 +137,7 @@ class ProposalProgressTest {
     }
 
     @Test
-    fun `a signed proposal counts nothing, because there is nothing left to gather`() {
+    fun `a signed proposal counts nothing because there is nothing left to gather`() {
         assertNull(
             proposal(
                 session(stage = FrostSigningStage.COMPLETE, signerIds = "1,2"),
@@ -152,7 +152,7 @@ class ProposalProgressTest {
      * the reader to wait for a second that is never coming.
      */
     @Test
-    fun `an abandoned proposal counts nothing, so no row waits for a signature that is not coming`() {
+    fun `an abandoned proposal counts nothing so no row waits for a signature that is not coming`() {
         assertNull(proposal(session(stage = FrostSigningStage.FAILED), nonces = 1).progress)
     }
 

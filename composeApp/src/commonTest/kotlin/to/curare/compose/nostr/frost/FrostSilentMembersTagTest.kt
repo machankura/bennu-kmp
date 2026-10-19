@@ -37,7 +37,7 @@ class FrostSilentMembersTagTest {
     }
 
     @Test
-    fun `an uppercase key is lowercased, because it is compared by string equality`() {
+    fun `an uppercase key is lowercased because it is compared by string equality`() {
         // userPublicKey on a session is lowercase hex, and `contains` on the
         // parsed list is how a device decides whether it is being asked to
         // speak. A tag that shouted would name nobody.

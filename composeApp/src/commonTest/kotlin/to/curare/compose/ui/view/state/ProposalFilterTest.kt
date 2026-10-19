@@ -93,7 +93,7 @@ class ProposalFilterTest {
      * enum anyway.
      */
     @Test
-    fun `the chips run in lifecycle order, with all of them first`() {
+    fun `the chips run in lifecycle order with all of them first`() {
         assertEquals(
             listOf(
                 ProposalFilter.ALL,
@@ -115,7 +115,7 @@ class ProposalFilterTest {
     }
 
     @Test
-    fun `every filter but ALL names exactly one state, and ALL names none`() {
+    fun `every filter but ALL names exactly one state and ALL names none`() {
         assertEquals(null, ProposalFilter.ALL.state)
 
         assertEquals(
@@ -154,7 +154,7 @@ class ProposalFilterTest {
     }
 
     @Test
-    fun `the default shows everything, in the order it arrived`() {
+    fun `the default shows everything in the order it arrived`() {
         val state = loaded()
 
         assertEquals(ProposalFilter.ALL, state.filter)
@@ -184,7 +184,7 @@ class ProposalFilterTest {
     }
 
     @Test
-    fun `the counts are of the room, so they do not move when the filter does`() {
+    fun `the counts are of the room so they do not move when the filter does`() {
         val expected = mapOf(
             ProposalState.NEEDS_YOU to 2,
             ProposalState.WAITING_ON_MEMBERS to 1,
@@ -199,7 +199,7 @@ class ProposalFilterTest {
     }
 
     @Test
-    fun `the counts sum to the room, so no proposal is counted twice or lost`() {
+    fun `the counts sum to the room so no proposal is counted twice or lost`() {
         val state = loaded()
 
         assertEquals(state.proposals.size, state.counts.values.sum())
@@ -222,7 +222,7 @@ class ProposalFilterTest {
      * that reflows under the thumb is worse than an honest zero.
      */
     @Test
-    fun `every state gets a count, including the ones the room has never been in`() {
+    fun `every state gets a count including the ones the room has never been in`() {
         val quiet = ProposalListUIState.Loaded(
             localChatRoom = room,
             proposals = listOf(needsYou),
@@ -246,7 +246,7 @@ class ProposalFilterTest {
     }
 
     @Test
-    fun `an empty room has an empty everything, under any filter`() {
+    fun `an empty room has an empty everything under any filter`() {
         for (filter in ProposalFilter.entries) {
             val empty = ProposalListUIState.Loaded(localChatRoom = room, filter = filter)
 

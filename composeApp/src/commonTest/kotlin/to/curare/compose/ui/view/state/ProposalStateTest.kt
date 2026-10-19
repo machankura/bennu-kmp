@@ -96,14 +96,14 @@ class ProposalStateTest {
     }
 
     @Test
-    fun `agreeing moves it out of your queue, still short of members`() {
+    fun `agreeing moves it out of your queue still short of members`() {
         val agreed = session().copy(signApprovedAt = Clock.System.now())
 
         assertEquals(ProposalState.WAITING_ON_MEMBERS, proposal(agreed).state)
     }
 
     @Test
-    fun `refusing moves it out of your queue too, because either answer is an answer`() {
+    fun `refusing moves it out of your queue too because either answer is an answer`() {
         val declined = session().copy(signDeclinedAt = Clock.System.now())
 
         assertEquals(ProposalState.WAITING_ON_MEMBERS, proposal(declined).state)
@@ -182,7 +182,7 @@ class ProposalStateTest {
      * meet.
      */
     @Test
-    fun `an ended session never needs you, even unanswered`() {
+    fun `an ended session never needs you even unanswered`() {
         for (stage in listOf(FrostSigningStage.COMPLETE, FrostSigningStage.FAILED)) {
             val ended = proposal(session(stage = stage))
 
@@ -222,7 +222,7 @@ class ProposalStateTest {
      * would hide a row that screen would act on.
      */
     @Test
-    fun `a session with nothing in it yet still needs you, matching the signing screen`() {
+    fun `a session with nothing in it yet still needs you matching the signing screen`() {
         val empty = proposal(session(), items = emptyList())
 
         assertEquals(0, empty.eventCount)
