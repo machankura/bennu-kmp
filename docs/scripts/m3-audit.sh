@@ -18,7 +18,7 @@ set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 
-UI=composeApp/src/commonMain/kotlin/to/curare/compose/ui
+UI=composeApp/src/commonMain/kotlin/com/machankura/bennu/compose/ui
 THEME="$UI/theme"
 
 # ---------------------------------------------------------------------------

@@ -196,7 +196,7 @@ the parent.
 
 ```kotlin
 suspend fun resend(
-    database: CurareDatabase,
+    database: BennuDatabase,
     localChatRoom: LocalChatRoom,
     sessionId: String
 ): Boolean

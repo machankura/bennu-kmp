@@ -270,7 +270,7 @@ roster check the paragraph above forbids.
 ## Phase 2 — schema 16 → 17
 
 Four nullable columns and nothing else, so Room migrates itself and the entry
-joins the list in `CurareDatabase`.
+joins the list in `BennuDatabase`.
 
 | table | column | filled from | trusted? |
 |---|---|---|---|
@@ -530,7 +530,7 @@ object SubgroupManager {
 
     /** Step 2: ask the parent's quorum to certify the child. Runs in the parent room. */
     suspend fun proposeBirthCertificate(
-        database: CurareDatabase,
+        database: BennuDatabase,
         parentRoom: LocalChatRoom,
         userPublicKey: HexKey,
         key: DkgSession,
@@ -541,7 +541,7 @@ object SubgroupManager {
 
     /** The newest certificate for this child that actually certifies it, or null. */
     suspend fun certificateFor(
-        database: CurareDatabase,
+        database: BennuDatabase,
         subgroupChatRoomId: String,
         parentChatRoomId: String
     ): GroupSignedEvent?
@@ -550,10 +550,10 @@ object SubgroupManager {
     suspend fun proposeSubgroupKeyState(...): FrostSigningSession
 
     /** Everything the parent has certified, whether or not the room exists here. */
-    suspend fun subgroupsOf(database: CurareDatabase, parentChatRoomId: String): List<Subgroup>
+    suspend fun subgroupsOf(database: BennuDatabase, parentChatRoomId: String): List<Subgroup>
 
     /** Files a certificate that arrived, or drops it and says why. */
-    suspend fun record(database: CurareDatabase, chatRoomId: String, innerEvent: Event): GroupSignedEvent?
+    suspend fun record(database: BennuDatabase, chatRoomId: String, innerEvent: Event): GroupSignedEvent?
 }
 ```
 
@@ -628,7 +628,7 @@ So it moves, unchanged in behaviour, to `managers/MarmotGroupCreation.kt`:
 
 ```kotlin
 suspend fun create(
-    database: CurareDatabase,
+    database: BennuDatabase,
     chatRepository: ChatRepository,
     groupId: String,
     name: String,
