@@ -43,18 +43,12 @@ import com.machankura.bennu.compose.ui.composable.DkgRound1ApprovalScreen
 import com.machankura.bennu.compose.ui.composable.DkgRound2ApprovalScreen
 import com.machankura.bennu.compose.ui.composable.EditGroupNostrProfileScreen
 import com.machankura.bennu.compose.ui.composable.AddGroupPostScreen
-import com.machankura.bennu.compose.ui.composable.AcceptCuratedSuggestionScreen
-import com.machankura.bennu.compose.ui.composable.EditGroupCuratedSchemaScreen
-import com.machankura.bennu.compose.ui.composable.SelectCuratedSchemaTemplateScreen
 import com.machankura.bennu.compose.ui.composable.BroadcastGroupSignedEventScreen
-import com.machankura.bennu.compose.ui.composable.CuratedSuggestionListScreen
 import com.machankura.bennu.compose.ui.composable.ProposeGroupEventScreen
 import com.machankura.bennu.compose.ui.composable.EditGroupRelaysScreen
 import com.machankura.bennu.compose.ui.composable.GroupNostrProfileScreen
 import com.machankura.bennu.compose.ui.composable.GroupRelaysScreen
 import com.machankura.bennu.compose.ui.composable.GroupPostsScreen
-import com.machankura.bennu.compose.ui.composable.GroupCuratedSchemasScreen
-import com.machankura.bennu.compose.ui.composable.GroupCuratedEntriesScreen
 import com.machankura.bennu.compose.ui.composable.HomeScreen
 import com.machankura.bennu.compose.ui.composable.ImplementationPendingScreen
 import com.machankura.bennu.compose.ui.composable.KeyPackageManagementScreen
@@ -151,18 +145,12 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.AddArtifactR
 import com.machankura.bennu.compose.ui.composable.navigation.routes.AddDialectRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.AddGroupPostRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.AcceptCuratedSuggestionRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.EditGroupCuratedSchemaRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.SelectCuratedSchemaTemplateRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.BroadcastGroupSignedEventRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.CuratedSuggestionListRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupPostsRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupCuratedSchemasRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupCuratedEntriesRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.FrostSigningRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposalListRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.AddChapterRoute
@@ -1227,42 +1215,6 @@ fun BennuNavHost(
                     }
                 )
             }
-            composable<GroupCuratedSchemasRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<GroupCuratedSchemasRoute>()
-
-                GroupCuratedSchemasScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    chatRepository = databaseChatRepository,
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(route = actionRoute)
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<GroupCuratedEntriesRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<GroupCuratedEntriesRoute>()
-
-                GroupCuratedEntriesScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    chatRepository = databaseChatRepository,
-                    // The pool itself, for "Broadcast all": the same send as the
-                    // broadcast screen's, for the same reason it does not go
-                    // through the queue. See `BroadcastGroupSignedEventViewModel`.
-                    publishTransport = synchronizationViewModel.relaysSocketManager,
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(route = actionRoute)
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
             composable<EditGroupNostrProfileRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<EditGroupNostrProfileRoute>()
 
@@ -1329,101 +1281,6 @@ fun BennuNavHost(
                     },
                     onNavigateBack = {
                         navController.popBackStack()
-                    }
-                )
-            }
-            composable<SelectCuratedSchemaTemplateRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<SelectCuratedSchemaTemplateRoute>()
-
-                SelectCuratedSchemaTemplateScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    // Pushed rather than replaced, so back from the editor is
-                    // this screen and another shape.
-                    onNavigateToRoute = { editorRoute ->
-                        navController.navigate(route = editorRoute)
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<EditGroupCuratedSchemaRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<EditGroupCuratedSchemaRoute>()
-
-                EditGroupCuratedSchemaScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    identifier = route.identifier,
-                    template = route.template,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace the editor so back returns to the group rather
-                        // than to a schema whose proposal has already gone out --
-                        // and, for a new list, the template picker under it, for
-                        // the same reason: the shape has been chosen and signed
-                        // for, and offering it again would offer a second list.
-                        navController.navigate(route = signingRoute) {
-                            if (route.identifier == null) {
-                                popUpTo<SelectCuratedSchemaTemplateRoute> {
-                                    inclusive = true
-                                }
-                            } else {
-                                popUpTo<EditGroupCuratedSchemaRoute> {
-                                    inclusive = true
-                                }
-                            }
-                        }
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<CuratedSuggestionListRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<CuratedSuggestionListRoute>()
-
-                CuratedSuggestionListScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    identifier = route.identifier,
-                    nostrRepository = databaseNostrRepository,
-                    chatRepository = databaseChatRepository,
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    },
-                    onNavigateToRoute = { acceptRoute ->
-                        navController.navigate(route = acceptRoute)
-                    }
-                )
-            }
-            composable<AcceptCuratedSuggestionRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<AcceptCuratedSuggestionRoute>()
-
-                AcceptCuratedSuggestionScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    identifier = route.identifier,
-                    suggestionId = route.suggestionId,
-                    nostrRepository = databaseNostrRepository,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    },
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace the form so back returns to the queue rather
-                        // than to an entry whose proposal has already gone out.
-                        navController.navigate(route = signingRoute) {
-                            popUpTo<AcceptCuratedSuggestionRoute> {
-                                inclusive = true
-                            }
-                        }
                     }
                 )
             }

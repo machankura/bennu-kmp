@@ -16,13 +16,11 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Ballot
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Dns
@@ -80,8 +78,6 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposeGroup
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupPostsRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupCuratedSchemasRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupCuratedEntriesRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposalListRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.SearchMemberToAddToChatRoomRoute
 import com.machankura.bennu.compose.extensions.inComparableGroups
@@ -102,19 +98,11 @@ import bennu.composeapp.generated.resources.run_by_members
 import bennu.composeapp.generated.resources.nostr_profile
 import bennu.composeapp.generated.resources.relays
 import bennu.composeapp.generated.resources.posts
-import bennu.composeapp.generated.resources.curated_entries
-import bennu.composeapp.generated.resources.curated_schemas
 import bennu.composeapp.generated.resources.not_described_yet
 import bennu.composeapp.generated.resources.n_of_m_relay_lists_agreed
 import bennu.composeapp.generated.resources.no_posts_yet
 import bennu.composeapp.generated.resources.one_post
 import bennu.composeapp.generated.resources.n_posts
-import bennu.composeapp.generated.resources.no_schemas_yet
-import bennu.composeapp.generated.resources.one_schema
-import bennu.composeapp.generated.resources.n_schemas
-import bennu.composeapp.generated.resources.no_entries_yet
-import bennu.composeapp.generated.resources.one_entry
-import bennu.composeapp.generated.resources.n_entries
 import bennu.composeapp.generated.resources.propose_event
 import bennu.composeapp.generated.resources.no_name_on_this_profile
 import bennu.composeapp.generated.resources.parent_group
@@ -450,62 +438,6 @@ fun ChatRoomDetailScreen(
                                         onOpen = {
                                             onNavigateToRoute.invoke(
                                                 GroupPostsRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // Under the posts, because a schema is the other
-                                // thing a group publishes for strangers to answer:
-                                // a post is the group speaking, a schema is the
-                                // group asking -- for entries to a list it will
-                                // then curate, by quorum, under the same key. What
-                                // it curated follows, in the row below.
-                                item {
-                                    SignedWorkRow(
-                                        icon = Icons.Default.Ballot,
-                                        headline = stringResource(Res.string.curated_schemas),
-                                        supporting = when (val count = chatRoomDetailUIState.groupCuratedSchemas.size) {
-                                            0 -> stringResource(Res.string.no_schemas_yet)
-                                            1 -> stringResource(Res.string.one_schema)
-                                            else -> stringResource(Res.string.n_schemas, count)
-                                        },
-                                        onOpen = {
-                                            onNavigateToRoute.invoke(
-                                                GroupCuratedSchemasRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // Under the schemas, because these are what a
-                                // schema is *for*: the schema asks, strangers
-                                // answer on the queue, and these are the answers
-                                // the group put its key to. They close the
-                                // identity block because everything in it is
-                                // signed by that key and read by people who were
-                                // never in the room, and an accepted entry is the
-                                // last thing in that chain.
-                                item {
-                                    SignedWorkRow(
-                                        icon = Icons.Default.Checklist,
-                                        headline = stringResource(Res.string.curated_entries),
-                                        supporting = when (val count = chatRoomDetailUIState.groupCuratedEntries.size) {
-                                            0 -> stringResource(Res.string.no_entries_yet)
-                                            1 -> stringResource(Res.string.one_entry)
-                                            else -> stringResource(Res.string.n_entries, count)
-                                        },
-                                        onOpen = {
-                                            onNavigateToRoute.invoke(
-                                                GroupCuratedEntriesRoute(
                                                     activeUserPublicKey = activeUserPublicKey,
                                                     chatRoomId = chatRoomId,
                                                     relayHint = relayHint

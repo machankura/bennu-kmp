@@ -13,8 +13,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import com.vitorpamplona.quartz.nip01Core.metadata.UserMetadata
-import com.machankura.bennu.compose.nostr.GroupCuratedEntry
-import com.machankura.bennu.compose.nostr.GroupCuratedSchema
 import com.machankura.bennu.compose.nostr.GroupNostrProfile
 import com.machankura.bennu.compose.nostr.GroupPost
 import com.machankura.bennu.compose.nostr.GroupRelayList
@@ -23,13 +21,9 @@ import com.machankura.bennu.compose.repository.MantraRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.activeUserPublicKey
 import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.chatRoomId
-import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.entry
 import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.post
 import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.profile
-import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.schema
 import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.signedRelayLists
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupCuratedEntriesRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupCuratedSchemasRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupPostsRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
@@ -42,7 +36,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * The five rows on the group's screen that stand for its signed work, and what
+ * The three rows on the group's screen that stand for its signed work, and what
  * each one opens.
  *
  * The rows' contents need little testing -- a name and a count in a `ListItem`
@@ -53,12 +47,12 @@ import kotlin.test.assertTrue
  * signs as and whose child it is -- and above what the room has *made*, because
  * the group's account of itself is part of its identity rather than part of its
  * work; and among themselves they read as a chain, from who the group says it is
- * to what it has decided. That ordering is an intention a later `item {}` in
+ * to what it has said. That ordering is an intention a later `item {}` in
  * the wrong place would silently undo, and the screen is long enough that
  * nobody would notice.
  *
- * **What they open.** A row is a promise about the screen behind it, and five
- * rows that look alike are five chances to wire one to the wrong route.
+ * **What they open.** A row is a promise about the screen behind it, and three
+ * rows that look alike are three chances to wire one to the wrong route.
  *
  * **Their absence in a NIP-17 room.** A NIP-17 room's id is a conversation, not
  * a key it can sign as, so it has no nostr identity and never will. A row there
@@ -75,16 +69,12 @@ class GroupSignedWorkRowsJvmTest {
             val nostrProfile = onNodeWithText("Nostr profile").getBoundsInRoot().top
             val relays = onNodeWithText("Relays").getBoundsInRoot().top
             val posts = onNodeWithText("Posts").getBoundsInRoot().top
-            val schemas = onNodeWithText("Curated schemas").getBoundsInRoot().top
-            val entries = onNodeWithText("Curated entries").getBoundsInRoot().top
             val subgroups = onNodeWithText("Subgroups").getBoundsInRoot().top
 
             assertTrue(signingKey < nostrProfile, "the nostr profile row climbed above the signing key row")
             assertTrue(nostrProfile < relays, "the relays row climbed above the profile")
             assertTrue(relays < posts, "the posts row climbed above the relays")
-            assertTrue(posts < schemas, "the curated schemas row climbed above the posts")
-            assertTrue(schemas < entries, "the curated entries row climbed above the schemas")
-            assertTrue(entries < subgroups, "the identity block fell below the group's work")
+            assertTrue(posts < subgroups, "the identity block fell below the group's work")
         }
 
     @Test
@@ -93,7 +83,6 @@ class GroupSignedWorkRowsJvmTest {
             groupNostrProfile = profile,
             relayLists = signedRelayLists(),
             posts = listOf(post("The second thing", 1_700_000_900), post("The first thing", 1_700_000_000)),
-            schemas = listOf(schema("films", "Films worth translating", 1_700_000_000))
         )
     ) {
         // The group's own name and address, not the room's subject: the row is
@@ -103,8 +92,6 @@ class GroupSignedWorkRowsJvmTest {
         // empty list is a decision, and the row counts decisions.
         onNodeWithText("2 of 4 lists agreed").assertIsDisplayed()
         onNodeWithText("2 posts").assertIsDisplayed()
-        onNodeWithText("1 schema").assertIsDisplayed()
-        onNodeWithText("No entries yet").assertIsDisplayed()
     }
 
     @Test
@@ -114,8 +101,6 @@ class GroupSignedWorkRowsJvmTest {
         onNodeWithText("Not described yet").assertIsDisplayed()
         onNodeWithText("0 of 4 lists agreed").assertIsDisplayed()
         onNodeWithText("No posts yet").assertIsDisplayed()
-        onNodeWithText("No schemas yet").assertIsDisplayed()
-        onNodeWithText("No entries yet").assertIsDisplayed()
     }
 
     @Test
@@ -138,8 +123,6 @@ class GroupSignedWorkRowsJvmTest {
             "Nostr profile" to GroupNostrProfileRoute(activeUserPublicKey, chatRoomId, relayHint = null),
             "Relays" to GroupRelaysRoute(activeUserPublicKey, chatRoomId, relayHint = null),
             "Posts" to GroupPostsRoute(activeUserPublicKey, chatRoomId, relayHint = null),
-            "Curated schemas" to GroupCuratedSchemasRoute(activeUserPublicKey, chatRoomId, relayHint = null),
-            "Curated entries" to GroupCuratedEntriesRoute(activeUserPublicKey, chatRoomId, relayHint = null),
         )
 
         expected.forEach { (row, route) ->
@@ -159,8 +142,6 @@ class GroupSignedWorkRowsJvmTest {
             groupNostrProfile = profile,
             relayLists = signedRelayLists(),
             posts = listOf(post("Something the group said", 1_700_000_000)),
-            schemas = listOf(schema("films", "Films worth translating", 1_700_000_000)),
-            entries = listOf(entry("The Rise and Rise of Bitcoin", 1_700_000_900))
         )
     ) {
         // The rows summarise; the cards, their broadcasts and the gated ways in
@@ -169,13 +150,10 @@ class GroupSignedWorkRowsJvmTest {
         onNodeWithText("A group translating hard books into Sesotho.").assertDoesNotExist()
         onNodeWithText("relay.one.example").assertDoesNotExist()
         onNodeWithText("Something the group said").assertDoesNotExist()
-        onNodeWithText("The Rise and Rise of Bitcoin").assertDoesNotExist()
         onAllNodesWithText("Broadcast").assertCountEquals(0)
         onNodeWithText("Edit Nostr profile").assertDoesNotExist()
         onNodeWithText("Edit relays").assertDoesNotExist()
         onNodeWithText("Add post").assertDoesNotExist()
-        onNodeWithText("Add schema").assertDoesNotExist()
-        onNodeWithText("View suggestions").assertDoesNotExist()
     }
 
     @Test
@@ -184,11 +162,11 @@ class GroupSignedWorkRowsJvmTest {
     ) {
         // Last in the identity block: after the rows and before the divider,
         // because it is about the whole block rather than any one row of it.
-        val entries = onNodeWithText("Curated entries").getBoundsInRoot().top
+        val posts = onNodeWithText("Posts").getBoundsInRoot().top
         val propose = onNodeWithText("Propose event").getBoundsInRoot().top
         val subgroups = onNodeWithText("Subgroups").getBoundsInRoot().top
 
-        assertTrue(entries < propose, "the paste entry climbed above the rows")
+        assertTrue(posts < propose, "the paste entry climbed above the rows")
         assertTrue(propose < subgroups, "the paste entry fell out of the identity block")
     }
 
@@ -201,7 +179,7 @@ class GroupSignedWorkRowsJvmTest {
         // The rows themselves stay, because reading takes no share.
         onNodeWithText("Propose event").assertDoesNotExist()
         onNodeWithText("Nostr profile").assertIsDisplayed()
-        onNodeWithText("Curated entries").assertIsDisplayed()
+        onNodeWithText("Posts").assertIsDisplayed()
     }
 
     @Test
@@ -211,12 +189,10 @@ class GroupSignedWorkRowsJvmTest {
         onNodeWithText("Nostr profile").assertDoesNotExist()
         onNodeWithText("Not described yet").assertDoesNotExist()
 
-        // The other four go with it: all five describe a nostr identity this
+        // The other two go with it: all three describe a nostr identity this
         // room does not have, and so does the paste.
         onNodeWithText("Relays").assertDoesNotExist()
         onNodeWithText("Posts").assertDoesNotExist()
-        onNodeWithText("Curated schemas").assertDoesNotExist()
-        onNodeWithText("Curated entries").assertDoesNotExist()
         onNodeWithText("Propose event").assertDoesNotExist()
 
         // The rest of the screen is untouched, so the rows' absence is an
@@ -228,8 +204,6 @@ class GroupSignedWorkRowsJvmTest {
         groupNostrProfile: GroupNostrProfile?,
         relayLists: List<GroupRelayList> = GroupRelayList.allAmong(emptyList(), chatRoomId),
         posts: List<GroupPost> = emptyList(),
-        schemas: List<GroupCuratedSchema> = emptyList(),
-        entries: List<GroupCuratedEntry> = emptyList(),
         canEditNostrProfile: Boolean = true,
         mlsGroupState: String? = "state"
     ) = ChatRoomDetailUIState.Loaded(
@@ -238,8 +212,6 @@ class GroupSignedWorkRowsJvmTest {
         groupNostrProfile = groupNostrProfile,
         groupRelayLists = relayLists,
         groupPosts = posts,
-        groupCuratedSchemas = schemas,
-        groupCuratedEntries = entries,
         canEditNostrProfile = canEditNostrProfile
     )
 

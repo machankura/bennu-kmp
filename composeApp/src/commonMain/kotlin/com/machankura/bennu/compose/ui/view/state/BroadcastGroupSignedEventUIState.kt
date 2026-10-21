@@ -2,7 +2,6 @@ package com.machankura.bennu.compose.ui.view.state
 
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
-import com.machankura.bennu.compose.nostr.GroupCuratedSchema
 import com.machankura.bennu.compose.nostr.GroupRelayList
 
 sealed interface BroadcastGroupSignedEventUIState {
@@ -17,12 +16,6 @@ sealed interface BroadcastGroupSignedEventUIState {
          * `BroadcastGroupSignedEventViewModel.defaultRelaysFor`.
          */
         val relayLists: List<GroupRelayList> = emptyList(),
-        /**
-         * The lists the group curates, for an entry into one of them: the NIP
-         * says a canonical entry goes to its schema's relays, and the entry
-         * names its schema by coordinate rather than carrying the relays itself.
-         */
-        val schemas: List<GroupCuratedSchema> = emptyList(),
     ): BroadcastGroupSignedEventUIState
 
     data class Error(

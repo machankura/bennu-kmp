@@ -1,8 +1,6 @@
 package com.machankura.bennu.compose.nostr
 
 import com.machankura.bennu.compose.network.serialization.CommonJson
-import com.machankura.bennu.compose.nostr.curated.CuratedSchemaEvent
-import com.machankura.bennu.compose.nostr.curated.CuratedSchemaProblem
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
@@ -18,15 +16,14 @@ import kotlinx.serialization.json.intOrNull
  * An unsigned event a member pasted for the group to sign, read and checked
  * before a quorum is asked for it.
  *
- * The typed editors -- the profile form, the post composer, the relay and
- * schema editors -- each build one kind of event and know what it needs. This
- * is the untyped way in: the event as JSON, the way another tool prints it
- * (`npm run schema:dry` in the bitcoin.mov repo prints exactly the schema event
- * it would publish), pasted whole. What comes out is the same thing the editors
+ * The typed editors -- the profile form, the post composer, the relay
+ * editor -- each build one kind of event and know what it needs. This is the
+ * untyped way in: the event as JSON, the way another tool prints it, pasted
+ * whole. What comes out is the same thing the editors
  * produce, a kind, tags and content for `FrostSigningRepository.proposeSigning`,
  * and it is filed the same way when the quorum signs: `FrostSigningManager.complete`
  * records it as a `GroupSignedEvent` and the group's screen reads its profile,
- * posts, relay lists and schemas straight off those by kind.
+ * posts and relay lists straight off those by kind.
  *
  * ### What is ignored
  *
@@ -41,10 +38,9 @@ import kotlinx.serialization.json.intOrNull
  *
  * Only kinds the group's screen has a place for, and only events that place
  * would accept. A signature is the most expensive thing this app does, and the
- * readers refuse rather than repair: a kind 0 whose content is not a profile,
- * a blank post, a schema with no visibility would each be signed, filed and
- * shown nowhere, with nothing to tell the member their quorum was spent on
- * nothing. So every check a reader makes is made here first, on the paste.
+ * readers refuse rather than repair: a kind 0 whose content is not a profile
+ * or a blank post would each be signed, filed and shown nowhere, with nothing
+ * to tell the member their quorum was spent on nothing. So every check a reader makes is made here first, on the paste.
  */
 object GroupEventProposal {
     /**
@@ -57,7 +53,7 @@ object GroupEventProposal {
      * group's screen", because that is where a member goes to see it landed.
      */
     val ACCEPTED_KINDS: Set<Kind> =
-        setOf(MetadataEvent.KIND, TextNoteEvent.KIND, CuratedSchemaEvent.KIND) + GroupRelaySet.KINDS
+        setOf(MetadataEvent.KIND, TextNoteEvent.KIND) + GroupRelaySet.KINDS
 
     sealed interface Reading
 
@@ -105,9 +101,6 @@ object GroupEventProposal {
 
         /** A kind 1 with nothing to say, which the posts reader would drop. */
         data object PostBlank : Refused
-
-        /** A kind 31889 the schema reader would refuse, with its reasons. */
-        data class SchemaUnusable(val problems: List<CuratedSchemaProblem>) : Refused
     }
 
     private const val KEY_KIND = "kind"
@@ -154,10 +147,6 @@ object GroupEventProposal {
                 Refused.PostBlank
             } else {
                 Ready(kind, tags, content)
-            }
-
-            CuratedSchemaEvent.KIND -> CuratedSchemaEvent.read(tags, content).problems().let { problems ->
-                if (problems.isEmpty()) Ready(kind, tags, content) else Refused.SchemaUnusable(problems)
             }
 
             // A relay list with no relay in it is a list the group has withdrawn,

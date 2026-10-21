@@ -176,9 +176,6 @@ fun BroadcastGroupSignedEventScreen(
                     broadcastGroupSignedEventViewModel.seedRelays(
                         relayLists = broadcastGroupSignedEventUIState.relayLists,
                         kind = signedEvent.kind,
-                        tags = signedEvent.tags,
-                        content = signedEvent.content,
-                        schemas = broadcastGroupSignedEventUIState.schemas,
                     )
                 }
 

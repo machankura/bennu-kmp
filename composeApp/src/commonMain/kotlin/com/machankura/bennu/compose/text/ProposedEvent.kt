@@ -3,11 +3,8 @@ package com.machankura.bennu.compose.text
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
-import com.machankura.bennu.compose.extensions.shortened
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
 import com.machankura.bennu.compose.nostr.GroupRelaySet
-import com.machankura.bennu.compose.nostr.curated.CuratedEntryEvent
-import com.machankura.bennu.compose.nostr.curated.CuratedSchemaEvent
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
@@ -193,37 +190,6 @@ object ProposedEvent {
                 detail = set.parse(event.tags).joinToString { it.displayUrl() }.ifEmpty { "No relays" }
             )
         }
-
-        // A list the group would curate. A member signing this is agreeing to
-        // take suggestions from whoever the visibility admits and to be the one
-        // key that accepts them, so the summary is the list's name, who may
-        // suggest, and how much an entry asks for -- the content is only the
-        // description, which the detail screen shows whole.
-        CuratedSchemaEvent.KIND -> Summary(
-            label = "Curated schema",
-            detail = CuratedSchemaEvent.read(event.tags, event.content).let { schema ->
-                listOfNotNull(
-                    schema.displayName().ifBlank { null },
-                    schema.visibility?.value,
-                    schema.fields.size.let { "$it ${if (it == 1) "field" else "fields"}" }
-                ).joinToString(" · ")
-            }
-        )
-
-        // An entry the group would take into one of its lists. A member signing
-        // this is agreeing that the list stands behind this title, so the
-        // summary is the title and who suggested it -- the credit the entry
-        // carries -- and not its fields, which the form showed whole before the
-        // proposal was made and the queue shows again once it lands.
-        CuratedEntryEvent.CANONICAL_KIND -> Summary(
-            label = "Curated entry",
-            detail = CuratedEntryEvent.headline(event).let { entry ->
-                listOfNotNull(
-                    entry.title.ifBlank { entry.identifier }.ifBlank { null },
-                    entry.source?.let { "suggested by ${it.pubKey.shortened()}" }
-                ).joinToString(" · ").ifEmpty { "An untitled entry" }
-            }
-        )
 
         else -> Summary(label = "Event of kind ${event.kind}", detail = event.content)
     }

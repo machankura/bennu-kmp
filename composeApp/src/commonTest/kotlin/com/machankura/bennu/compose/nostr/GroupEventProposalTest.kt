@@ -3,9 +3,6 @@ package com.machankura.bennu.compose.nostr
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
-import com.machankura.bennu.compose.nostr.curated.CuratedSchemaEvent
-import com.machankura.bennu.compose.nostr.curated.CuratedSchemaProblem
-import com.machankura.bennu.compose.nostr.curated.CuratedVisibility
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
@@ -32,7 +29,7 @@ import kotlin.test.assertTrue
  * that will be filed and shown nowhere.
  *
  * The second is the promise the feature makes: a pasted kind 0 becomes the
- * profile, a kind 1 a post, a kind 31889 a schema, a relay list a relay list. That
+ * profile, a kind 1 a post, a relay list a relay list. That
  * is not this module's doing -- `FrostSigningManager.complete` files every signed
  * event and the group's screen reads each section off those by kind -- so the
  * test is the whole chain: the paste read here, signed by a real quorum through
@@ -57,44 +54,34 @@ class GroupEventProposalTest {
         SharedKeyDerivation.marmotGroupId(groupMaterial.thresholdPublicKey.value.toHex(), path)
 
     /**
-     * The bitcoin.mov schema as `npm run schema:dry` would print it: a whole
-     * event, id, author, signature and time included, abbreviated to the tags
-     * a reading depends on.
+     * A post as another client would print it: a whole event, id, author,
+     * signature and time included.
      */
-    private val pastedSchema = """
+    private val pastedPost = """
         {
           "id": "b2f8c7a7b4d5e6f70123456789abcdef0123456789abcdef0123456789abcdef",
           "pubkey": "7c965d8c2acdfd635562da3bcb82596b595be28b008d8b54ec702ed4c67d9d25",
           "created_at": 1735689600,
-          "kind": 31889,
+          "kind": 1,
           "tags": [
-            ["d", "bitcoin.mov"],
-            ["title", "bitcoin.mov suggestion"],
-            ["name", "bitcoin.mov"],
-            ["description", "Fields for a bitcoin.mov entry."],
-            ["k", "31888"],
-            ["visibility", "public"],
-            ["domain", "bitcoin.mov"],
-            ["relay", "wss://ephemeral.mantra.press"],
-            ["field", "identifier", "token", "required", "", "Identifier", "{\"tag\":\"d\",\"max\":80,\"derived\":true}"],
-            ["field", "title", "text", "required", "The Rise and Rise of Bitcoin", "Title", "{\"max\":200}"],
-            ["field", "watchUrl", "url", "optional", "", "Watch / reference URL", "{\"tag\":\"r\",\"marker\":\"watch\",\"repeat\":true}"]
+            ["t", "translation"],
+            ["alt", "{\"chapter\":1,\"of\":12}"]
           ],
-          "content": "Fields for a bitcoin.mov entry.",
+          "content": "We have finished the first chapter.",
           "sig": "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
         }
     """.trimIndent()
 
     @Test
     fun `a pasted event is read as its kind tags and content and nothing else`() {
-        val ready = assertIs<GroupEventProposal.Ready>(GroupEventProposal.read(pastedSchema))
+        val ready = assertIs<GroupEventProposal.Ready>(GroupEventProposal.read(pastedPost))
 
-        assertEquals(31889, ready.kind)
-        assertEquals("Fields for a bitcoin.mov entry.", ready.content)
-        assertEquals(11, ready.tags.size)
-        assertEquals(listOf("d", "bitcoin.mov"), ready.tags.first().toList())
-        // The config blob comes through verbatim, escapes and all.
-        assertEquals("{\"tag\":\"d\",\"max\":80,\"derived\":true}", ready.tags[8][6])
+        assertEquals(1, ready.kind)
+        assertEquals("We have finished the first chapter.", ready.content)
+        assertEquals(2, ready.tags.size)
+        assertEquals(listOf("t", "translation"), ready.tags.first().toList())
+        // A JSON value inside a tag comes through verbatim, escapes and all.
+        assertEquals("{\"chapter\":1,\"of\":12}", ready.tags[1][1])
 
         // The id, author, signature and time are not the paste's to decide, and
         // there is nowhere on a reading for them to go: the session hashes the id
@@ -150,10 +137,10 @@ class GroupEventProposalTest {
             GroupEventProposal.read("""{"kind": 30023, "tags": [["d", "x"]], "content": "An article"}""")
         )
 
-        // The kinds with a section: the profile, the posts, the four relay lists
-        // and the schemas. A subgroup certificate is deliberately not among them.
+        // The kinds with a section: the profile, the posts and the four relay
+        // lists. A subgroup certificate is deliberately not among them.
         assertEquals(
-            setOf(0, 1, 10002, 10050, 10007, 10006, 31889),
+            setOf(0, 1, 10002, 10050, 10007, 10006),
             GroupEventProposal.ACCEPTED_KINDS
         )
     }
@@ -182,16 +169,6 @@ class GroupEventProposalTest {
                 "a post saying \"$blank\" was accepted"
             )
         }
-    }
-
-    @Test
-    fun `a schema a reader would refuse is refused here with the reader's reasons`() {
-        val withoutVisibility = pastedSchema.replace("""["visibility", "public"],""", "")
-
-        assertEquals(
-            GroupEventProposal.Refused.SchemaUnusable(listOf(CuratedSchemaProblem.VisibilityMissing)),
-            GroupEventProposal.read(withoutVisibility)
-        )
     }
 
     @Test
@@ -229,21 +206,6 @@ class GroupEventProposalTest {
 
         assertEquals(listOf("We have finished the first chapter."), posts.map { it.content })
         assertTrue(posts.single().isNewThread())
-    }
-
-    @Test
-    fun `a pasted schema once signed is a list the group curates`() {
-        val ready = assertIs<GroupEventProposal.Ready>(GroupEventProposal.read(pastedSchema))
-
-        val curated = assertNotNull(GroupCuratedSchema.of(signed(ready), chatRoomId))
-
-        assertEquals("bitcoin.mov", curated.identifier)
-        assertEquals("bitcoin.mov", curated.schema.displayName())
-        assertEquals(CuratedVisibility.Public, curated.schema.visibility)
-        assertEquals(listOf("identifier", "title", "watchUrl"), curated.schema.fields.map { it.name })
-        // The coordinate is the group's, not the pasted pubkey's: the group is
-        // the curator of what it signed.
-        assertEquals("${CuratedSchemaEvent.KIND}:$chatRoomId:bitcoin.mov", curated.coordinate())
     }
 
     @Test
