@@ -32,6 +32,8 @@ object GroupSpendBuilder {
         data object NothingToSpend : Result
         data object NotEnough : Result
         data object BelowDust : Result
+        /** A bump has to pay more than the spend it replaces. */
+        data object NotHigher : Result
     }
 
     /** Every confirmed, unreserved coin, to [address], less the fee. */
@@ -86,6 +88,36 @@ object GroupSpendBuilder {
             }
         }
         return Result.NotEnough
+    }
+
+    /**
+     * [spend] again at [feeratePerVbyte]: the same coins and the same outputs,
+     * with the extra fee taken from the change -- or, for a send-all, from the
+     * one payment. RBF, which every spend allows; a new proposal, with new
+     * signatures, because a retry is a new session.
+     */
+    fun bump(spend: GroupSpend.Checked, feeratePerVbyte: Long): Result {
+        val fee = Satoshi(feeratePerVbyte * ((spend.weight + 3) / 4))
+        val extra = fee - spend.fee
+        if (extra.sat <= 0) return Result.NotHigher
+
+        val target = spend.outputs.firstOrNull { it.isChange } ?: spend.payments.singleOrNull() ?: return Result.NotEnough
+        val reduced = target.txOut.amount - extra
+        if (reduced < DUST) return Result.NotEnough
+
+        val tx = spend.tx.copy(txOut = spend.tx.txOut.mapIndexed { index, out -> if (index == target.index) out.copy(amount = reduced) else out })
+        val psbt = GroupSpend.psbtOf(
+            tx,
+            spend.inputs.map { it.txOut to it.derivation },
+            spend.outputs.mapNotNull { output -> output.change?.let { output.index to it } }.toMap(),
+            spend.account,
+        )
+        return Result.Built(
+            psbt = psbt,
+            amount = if (target.isChange) spend.amountSent else reduced,
+            fee = fee,
+            change = if (target.isChange) reduced else null,
+        )
     }
 
     private fun spendable(state: GroupWalletState, reserved: Set<OutPoint>): List<GroupUtxo> =

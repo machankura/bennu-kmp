@@ -1,0 +1,118 @@
+package com.machankura.bennu.compose.wallet
+
+import co.touchlab.kermit.Logger
+import com.machankura.bennu.compose.database.BennuDatabase
+import com.machankura.bennu.compose.database.model.GroupTransaction
+import com.machankura.bennu.compose.managers.FrostSigningManager
+import fr.acinq.bitcoin.Transaction
+import fr.acinq.lightning.blockchain.electrum.IElectrumClient
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlin.time.Clock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
+
+/**
+ * Sends the group's signed transactions to the network, and watches for them.
+ *
+ * Every member with an Electrum client broadcasts. The transaction is identical
+ * on every device, so a second broadcast is nothing to the network, and nobody's
+ * phone being asleep holds up the group -- unlike a group event, whose sending is
+ * a separate decision, the quorum has already decided the one thing broadcasting
+ * does.
+ *
+ * Electrum's broadcast reports success whatever the server said, so a broadcast
+ * is recorded when it was sent and nothing more; [GroupTransaction.seenAt] is
+ * written only when Electrum reports the transaction back, and an unseen one is
+ * sent again every [REBROADCAST_AFTER], which is what `IElectrumClient` asks of
+ * its callers. A confirmation goes through [FrostSigningManager.recordConfirmed],
+ * which settles every other spend of the same coins.
+ */
+class GroupTransactionWatcher(
+    private val database: BennuDatabase,
+    private val electrum: IElectrumClient,
+    private val scope: CoroutineScope,
+    private val now: () -> Instant = { Clock.System.now() },
+) {
+    private val logger = Logger.withTag("GroupTransactionWatcher")
+    private var job: Job? = null
+
+    /** Runs a pass whenever a transaction is signed, and every [POLL] while any is on its way. */
+    fun start() {
+        job?.cancel()
+        job = scope.launch {
+            database.groupTransactionDao().observeUnsettled().collectLatest { unsettled ->
+                while (isActive && unsettled.isNotEmpty()) {
+                    pass()
+                    delay(POLL)
+                }
+            }
+        }
+    }
+
+    fun stop() {
+        job?.cancel()
+        job = null
+    }
+
+    /** One look at every transaction still on its way. */
+    suspend fun pass() {
+        database.groupTransactionDao().getUnsettled().forEach { transaction ->
+            try {
+                follow(transaction)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                logger.e("Could not follow transaction ${transaction.txid}", e)
+            }
+        }
+    }
+
+    /** Sends [sessionId]'s transaction again now, whatever was last sent. False when there is nothing signed to send. */
+    suspend fun broadcastAgain(sessionId: String): Boolean {
+        val transaction = database.groupTransactionDao().getBySessionId(sessionId) ?: return false
+        val signed = transaction.signedTransaction?.let { Transaction.read(it) } ?: return false
+        electrum.broadcastTransaction(signed)
+        database.groupTransactionDao().upsert(transaction.copy(broadcastAt = now()))
+        return true
+    }
+
+    private suspend fun follow(listed: GroupTransaction) {
+        // Read again rather than taken from the list the pass started with: a
+        // confirmation earlier in the same pass settles every other spend of its
+        // coins, and writing this row back from the stale copy would undo that.
+        val transaction = database.groupTransactionDao().getBySessionId(listed.frostSigningSessionId) ?: return
+        if (transaction.confirmedAt != null || transaction.replacedByTxid != null) return
+        val signed = Transaction.read(transaction.signedTransaction ?: return)
+        var row = transaction
+
+        val due = row.broadcastAt?.let { now() - it >= REBROADCAST_AFTER } ?: true
+        if (row.seenAt == null && due) {
+            electrum.broadcastTransaction(signed)
+            row = row.copy(broadcastAt = now())
+            database.groupTransactionDao().upsert(row)
+        }
+
+        // Null while disconnected, or while Electrum has not heard of it.
+        val confirmations = electrum.getConfirmations(signed) ?: return
+        if (row.seenAt == null) {
+            row = row.copy(seenAt = now())
+            database.groupTransactionDao().upsert(row)
+        }
+        if (confirmations >= 1) {
+            FrostSigningManager.recordConfirmed(database, row.frostSigningSessionId, now())
+        }
+    }
+
+    companion object {
+        val POLL: Duration = 30.seconds
+        val REBROADCAST_AFTER: Duration = 10.minutes
+    }
+}

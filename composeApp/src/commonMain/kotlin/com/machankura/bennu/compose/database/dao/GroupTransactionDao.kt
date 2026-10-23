@@ -23,6 +23,17 @@ abstract class GroupTransactionDao {
     abstract fun observeByChatRoomId(chatRoomId: String): Flow<List<GroupTransaction>>
 
     /**
+     * Every signed transaction still on its way: not yet seen confirmed, and not
+     * replaced by another spend of the same coins that was. What the watcher
+     * broadcasts and looks for.
+     */
+    @Query("SELECT * FROM GroupTransaction WHERE signedTransaction IS NOT NULL AND confirmedAt IS NULL AND replacedByTxid IS NULL")
+    abstract suspend fun getUnsettled(): List<GroupTransaction>
+
+    @Query("SELECT * FROM GroupTransaction WHERE signedTransaction IS NOT NULL AND confirmedAt IS NULL AND replacedByTxid IS NULL")
+    abstract fun observeUnsettled(): Flow<List<GroupTransaction>>
+
+    /**
      * The first write, at proposal or acceptance. Ignores a second: the PSBT is
      * write-once, and a row for this session already holds the one every item's
      * sighash was computed from.

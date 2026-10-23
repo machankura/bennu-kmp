@@ -165,6 +165,7 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrPr
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.wallet.GroupChainWallets
+import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
 import fr.acinq.phoenix.managers.NodeParamsManager
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupPostsRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupCuratedSchemasRoute
@@ -280,6 +281,18 @@ fun BennuNavHost(
     }
     DisposableEffect(groupChainWallets) {
         onDispose { groupChainWallets?.let { wallets -> applicationIOScope.launch { wallets.stop() } } }
+    }
+
+    // Sends the group's signed spends to the network from this device too, and
+    // follows them to a confirmation -- whether or not anybody opens the wallet.
+    // Same lifetime as the wallets: the identity's node, and nothing longer.
+    val groupTransactionWatcher = remember(activeIdentityForWallets?.business) {
+        activeIdentityForWallets?.business?.let {
+            GroupTransactionWatcher(auxDatabaseManager.auxDatabase, it.electrumClient, applicationIOScope).also { watcher -> watcher.start() }
+        }
+    }
+    DisposableEffect(groupTransactionWatcher) {
+        onDispose { groupTransactionWatcher?.stop() }
     }
 
     val navigationViewModel: NavigationViewModel =  viewModel (

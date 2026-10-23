@@ -872,6 +872,64 @@ object FrostSigningManager {
             .toSet()
 
     /**
+     * A spend seen confirmed: recorded, and every other spend of the same coins
+     * settled by it.
+     *
+     * Only one spend of a coin can ever confirm, so the rest are over whatever
+     * stage they are in. One still collecting is abandoned -- its signatures, if
+     * it ever got them, would be over a transaction nobody can mine. One already
+     * signed is a transaction this one replaced, a fee bump or a race, and is
+     * marked so rather than failed: it was signed, and saying otherwise would
+     * misreport what the group did.
+     *
+     * Once per transaction, by the read of `confirmedAt` before the write; the
+     * transcript line rides on the same guard.
+     */
+    suspend fun recordConfirmed(database: BennuDatabase, sessionId: String, at: Instant = Clock.System.now()) {
+        val confirmed = database.groupTransactionDao().getBySessionId(sessionId) ?: return
+        if (confirmed.confirmedAt != null) return
+        val session = database.frostSigningSessionDao().getSessionById(sessionId) ?: return
+
+        database.groupTransactionDao().upsert(confirmed.copy(confirmedAt = at, seenAt = confirmed.seenAt ?: at))
+
+        val coins = coinsOf(confirmed)
+        database.groupTransactionDao().getByChatRoomId(confirmed.chatRoomId)
+            .filter { it.frostSigningSessionId != sessionId && (coinsOf(it) intersect coins).isNotEmpty() }
+            .forEach { other ->
+                val otherSession = database.frostSigningSessionDao().getSessionById(other.frostSigningSessionId)
+                    ?: return@forEach
+                when (otherSession.stage) {
+                    FrostSigningStage.COMPLETE -> if (other.confirmedAt == null && other.replacedByTxid == null) {
+                        database.groupTransactionDao().upsert(other.copy(replacedByTxid = confirmed.txid))
+                    }
+
+                    FrostSigningStage.FAILED -> Unit
+
+                    else -> fail(
+                        database = database,
+                        session = otherSession,
+                        reason = "Spent by another transaction",
+                        content = "abandoned a spend: another of the group's transactions spent its coins first. " +
+                            "Nothing was signed."
+                    )
+                }
+            }
+
+        val sent = checkedSpend(database, sessionId)?.amountSent
+        announce(
+            database = database,
+            session = session,
+            messageType = ChatMessage.TYPE_GROUP_TRANSACTION_CONFIRMED,
+            content = if (sent != null) "The group's transaction confirmed: ${sent.sat} sats sent."
+                else "The group's transaction confirmed.",
+            actor = session.coordinatorPublicKey
+        )
+    }
+
+    private fun coinsOf(transaction: GroupTransaction): Set<OutPoint> =
+        GroupSpend.decode(transaction.psbt)?.global?.tx?.txIn?.map { it.outPoint }?.toSet().orEmpty()
+
+    /**
      * Verifies the group's signatures, puts them on the transaction, and closes
      * the session -- for a spend, the counterpart of [complete].
      *

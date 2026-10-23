@@ -113,4 +113,27 @@ class GroupSpendBuilderTest {
         // A mainnet address on a regtest wallet is not an address it can pay.
         assertNull((GroupSpendBuilder.sendAll(wallet, "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", feerate, emptySet()) as? GroupSpendBuilder.Result.Built))
     }
+
+    @Test
+    fun `a bump pays more from the change, and the other members accept it`() {
+        val first = checked(GroupSpendBuilder.send(state(coin(0, 60_000)), destination, Satoshi(30_000), feerate, emptySet()))
+
+        val bumped = checked(GroupSpendBuilder.bump(first, feerate * 2))
+
+        assertEquals(first.tx.txIn.map { it.outPoint }, bumped.tx.txIn.map { it.outPoint }, "the same coins")
+        assertEquals(first.amountSent, bumped.amountSent, "the payment is untouched")
+        assertEquals(feerate * 2, bumped.feeratePerVbyte)
+        assertEquals(first.fee + first.outputs.single { it.isChange }.txOut.amount,
+            bumped.fee + bumped.outputs.single { it.isChange }.txOut.amount, "the extra came out of the change")
+    }
+
+    @Test
+    fun `a send-all bump comes out of the one payment, and a bump has to be higher`() {
+        val first = checked(GroupSpendBuilder.sendAll(state(coin(0, 60_000)), destination, feerate, emptySet()))
+
+        val bumped = checked(GroupSpendBuilder.bump(first, feerate * 3))
+        assertEquals(Satoshi(60_000), bumped.amountSent + bumped.fee)
+
+        assertIs<GroupSpendBuilder.Result.NotHigher>(GroupSpendBuilder.bump(first, feerate))
+    }
 }

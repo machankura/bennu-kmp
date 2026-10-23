@@ -504,6 +504,13 @@ data class ChatMessage(
          */
         const val TYPE_GROUP_WALLET_OPENED = "groupWalletOpened"
 
+        /**
+         * A transaction from the group's wallet confirmed. Written by each device
+         * from what its own Electrum client reported, once -- the confirmation is
+         * a fact about the chain, and every device can read the chain.
+         */
+        const val TYPE_GROUP_TRANSACTION_CONFIRMED = "groupTransactionConfirmed"
+
         val GROUP_IDENTITY_TYPES = setOf(
             TYPE_GROUP_PROFILE_SIGNED,
             TYPE_GROUP_RELAYS_SIGNED,
@@ -511,6 +518,7 @@ data class ChatMessage(
             TYPE_GROUP_SCHEMA_SIGNED,
             TYPE_GROUP_ENTRY_CURATED,
             TYPE_GROUP_WALLET_OPENED,
+            TYPE_GROUP_TRANSACTION_CONFIRMED,
         )
 
         /**
