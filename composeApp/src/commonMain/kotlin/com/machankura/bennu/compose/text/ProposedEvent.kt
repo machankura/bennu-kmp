@@ -198,7 +198,7 @@ object ProposedEvent {
         // not the xpub, which is a derivation of the room's key nobody can check
         // by eye.
         GroupWalletStatementEvent.KIND -> Summary(
-            label = "Open a group wallet",
+            label = "Open a group onchain wallet",
             detail = GroupWalletStatementEvent.read(event.tags, event.content)?.let { statement ->
                 "On ${GroupWalletStatementEvent.chainName(statement.chain)}, account ${statement.account}"
             } ?: "A wallet statement this device cannot read"

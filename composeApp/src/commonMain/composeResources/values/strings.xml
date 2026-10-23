@@ -608,8 +608,8 @@
     <string name="checking_whether_s_can_receive_messages_here">Checking whether %1$s can receive messages here.</string>
     <string name="s_hasn_t_set_up_messaging_on_bennu_yet">%1$s hasn't set up messaging on Bennu yet. Try again later, or ask them to open Bennu.</string>
     <!-- The group's on-chain wallet. -->
-    <string name="group_wallet">Group wallet</string>
-    <string name="open_a_group_wallet">Open a group wallet</string>
+    <string name="group_wallet">Group onchain wallet</string>
+    <string name="open_a_group_wallet">Open a group onchain wallet</string>
     <string name="not_opened_yet">Not opened yet</string>
     <string name="open_on_s">Open on %1$s</string>
     <string name="this_group_has_not_opened_a_wallet">This group has not opened a wallet.</string>
