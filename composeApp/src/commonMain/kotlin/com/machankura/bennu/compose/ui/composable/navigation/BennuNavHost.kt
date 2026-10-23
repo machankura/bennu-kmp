@@ -40,6 +40,7 @@ import com.machankura.bennu.compose.ui.composable.ChatRoomDetailScreen
 import com.machankura.bennu.compose.ui.composable.ChatRoomMessagingScreen
 import com.machankura.bennu.compose.ui.composable.CreateProfileScreen
 import com.machankura.bennu.compose.ui.composable.DkgJoinApprovalScreen
+import com.machankura.bennu.compose.ui.composable.CreateSharedKeyScreen
 import com.machankura.bennu.compose.ui.composable.DkgRitualScreen
 import com.machankura.bennu.compose.ui.composable.DkgRound1ApprovalScreen
 import com.machankura.bennu.compose.ui.composable.DkgRound2ApprovalScreen
@@ -86,6 +87,7 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.ChatRoomDeta
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ChatRoomMessagingRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgJoinApprovalRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateSharedKeyRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRitualRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRound1ApprovalRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRound2ApprovalRoute
@@ -646,6 +648,32 @@ fun BennuNavHost(
                     onNavigateBack = {
                         navController.popBackStack()
                     }
+                )
+            }
+            composable<CreateSharedKeyRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<CreateSharedKeyRoute>()
+
+                CreateSharedKeyScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
+                    chatRepository = databaseChatRepository,
+                    dkgRepository = databaseDkgRepository,
+                    // Replaces this screen with the ceremony, whether it was just
+                    // opened or was already there, so back from the ceremony goes
+                    // wherever the member came from rather than to a second offer.
+                    onCeremonyOpened = { dkgSessionId ->
+                        navController.navigate(
+                            DkgRitualRoute(
+                                activeUserPublicKey = route.activeUserPublicKey,
+                                chatRoomId = route.chatRoomId,
+                                dkgSessionId = dkgSessionId
+                            )
+                        ) {
+                            popUpTo<CreateSharedKeyRoute> { inclusive = true }
+                        }
+                    },
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
             composable<DkgRitualRoute> { backStackEntry ->

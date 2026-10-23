@@ -283,7 +283,7 @@ fun DkgRitualScreen(
                             )
 
                             if (canStartRitual) {
-                                QuorumStepper(
+                                SharedKeyQuorumStepper(
                                     threshold = dkgRitualViewModel.threshold.value,
                                     participantCount = participantCount,
                                     quorumRange = dkgRitualViewModel.quorumRange(),
@@ -812,55 +812,6 @@ private fun RitualStep(
 
             Text(text = detail, style = MaterialTheme.typography.labelMedium)
         }
-    }
-}
-
-/** Same shape as the group-creation quorum picker, so the choice reads the same. */
-@Composable
-private fun QuorumStepper(
-    threshold: Int,
-    participantCount: Int,
-    quorumRange: IntRange,
-    onThresholdChange: (Int) -> Unit,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(top = MaterialTheme.spacing.space50),
-        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space50)
-    ) {
-        Text(
-            text = stringResource(Res.string.how_many_members_will_it_take_to_sign),
-            style = MaterialTheme.typography.titleSmall
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space200),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            FilledIconButton(
-                onClick = { onThresholdChange(threshold - 1) },
-                enabled = threshold > quorumRange.first
-            ) {
-                Icon(Icons.Default.Remove, contentDescription = "Fewer signers")
-            }
-
-            Text(
-                text = stringResource(Res.string.of, threshold, participantCount),
-                style = MaterialTheme.typography.titleMedium
-            )
-
-            FilledIconButton(
-                onClick = { onThresholdChange(threshold + 1) },
-                enabled = threshold < quorumRange.last
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "More signers")
-            }
-        }
-
-        Text(
-            text = stringResource(Res.string.this_is_fixed_once_the_ceremony_runs),
-            style = MaterialTheme.typography.labelMedium
-        )
     }
 }
 

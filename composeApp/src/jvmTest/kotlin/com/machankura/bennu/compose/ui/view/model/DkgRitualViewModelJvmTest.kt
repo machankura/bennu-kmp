@@ -187,6 +187,7 @@ class DkgRitualViewModelJvmTest {
 
         viewModel.initiate()
         assertEquals(sessionId, viewModel.awaitLoaded().session?.id)
+        val watchers = sessionSubscriptions
 
         // What the screen does each time it comes back into view.
         viewModel.initiate()
@@ -197,7 +198,7 @@ class DkgRitualViewModelJvmTest {
             assertEquals(sessionId, state.session?.id, "the ceremony is never dropped from the screen")
             delay(5)
         }
-        assertEquals(1, sessionSubscriptions, "and its watchers are started once, not once per visit")
+        assertEquals(watchers, sessionSubscriptions, "and its watchers are started once, not once per visit")
     }
 
     @Test

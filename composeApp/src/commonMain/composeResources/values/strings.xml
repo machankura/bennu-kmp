@@ -265,6 +265,11 @@
     <string name="start_a_group_chat">Start a group chat</string>
     <string name="start_chat_via_npub_or_nip05">Start chat via npub or nip05</string>
     <string name="start_key_ceremony">Start key ceremony</string>
+    <string name="this_room_was_made_from_a_key_the_group_already_holds">This room was made from a key the group already holds, so it can't run a key ceremony of its own. A subgroup's ceremony is started from the group's details.</string>
+    <string name="a_shared_key_needs_at_least_members">A shared key needs at least %1$s members to split it between.</string>
+    <string name="couldn_t_load_this_group">Couldn't load this group.</string>
+    <string name="couldn_t_read_your_keys">Couldn't read your keys.</string>
+    <string name="couldn_t_start_the_key_ceremony">Couldn't start the key ceremony.</string>
     <string name="startup_error">Startup error</string>
     <string name="taking_part_with_these_members">Taking part with these members</string>
     <string name="tap_to_load">Tap to load</string>
