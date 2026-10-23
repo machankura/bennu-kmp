@@ -15,10 +15,10 @@ import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupParentTag
  * replaceable semantics normally implied by the 3xxxx range never apply. The
  * transport, sealing and broadcast pipeline is the one chat messages ride.
  *
- * 30310-30312 are shared with nip30303 document kinds, which also travel as
- * Marmot inner events. `ChatMessage` recognises these before any content kind
- * for that reason; a round 1 read as a document submission once reached a
- * parent's chat as raw hex. See docs/ceremony-creation.md.
+ * 30310-30312 used to be nip30303 document kinds too, and a round 1 read as a
+ * document submission once reached a parent's chat as raw hex. `ChatMessage`
+ * recognises these before any content kind for that reason, and the document
+ * kinds are gone. See docs/ceremony-creation.md.
  *
  * Who talks to whom, in order:
  *

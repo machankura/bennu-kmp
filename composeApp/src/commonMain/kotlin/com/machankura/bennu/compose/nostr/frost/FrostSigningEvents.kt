@@ -51,21 +51,17 @@ import com.machankura.bennu.compose.nostr.frost.tags.FrostSilentMembersTag
  *
  * ### Why 3032x
  *
- * These share the inner-event space with the nip30303 document kinds, which run
- * 30300 up to [com.machankura.bennu.compose.nostr.nip30303.SubmissionEvent] at 30312 --
- * the same space, because both are Marmot inner events and both are dispatched
- * on kind by the same inbound path. Starting at 30320 leaves that family room to
- * grow into.
+ * These started past the nip30303 document kinds, which ran 30300 up to 30312
+ * in the same Marmot inner-event space and were dispatched on kind by the same
+ * inbound path. Those kinds are gone (docs/ceremony-creation.md), and 30300-30309
+ * are free.
  *
- * The DKG's 30310-30316 *did* clash with that family, once a subgroup's ceremony
- * moved into its parent's Marmot room: its proposal, host key and round 1 sat on
- * 30310-30312 beside three nip30303 kinds, in the same inner-event space, and
- * round 1 reached the parent's chat as an unreadable submission. They were told
- * apart only by NIP-17 gift wraps carrying one and Marmot the other, which was
- * an accident of routing rather than a decision. `ChatMessage` now recognises
- * this family's kinds and the DKG's before any content kind, which is the
- * decision. A new family should still take numbers nobody else uses -- see
- * docs/ceremony-creation.md.
+ * The DKG's 30310-30316 *did* clash with that family once a subgroup's ceremony
+ * moved into its parent's Marmot room: its round 1 reached the parent's chat as
+ * an unreadable document submission. `ChatMessage` recognises this family's
+ * kinds and the DKG's before any content kind, so a protocol kind is never read
+ * as content whatever shares its number. A new family should still take numbers
+ * nobody else uses.
  */
 object FrostSigningEvents {
     /**
