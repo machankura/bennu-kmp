@@ -559,12 +559,13 @@ object FrostSigningManager {
         // A birth certificate's guardian keys are a promise by the group signing
         // it, so they have to be the keys it grants: recomputed here from the key
         // this session signs with and the group's own certificate, never taken
-        // from the proposer. Refused before anything is shown, for the reason a
+        // from the proposer. Its wallet policy has to be one the group may make:
+        // a guarded group only makes guarded subgroups. Refused before anything is shown, for the reason a
         // mismatched id is.
         val thresholdPublicKey = key.thresholdPublicKey
         unsignedEvents.forEach { rebuilt ->
             if (rebuilt.kind != SubgroupBirthCertificateEvent.KIND || thresholdPublicKey == null) return@forEach
-            SubgroupManager.refuseGrant(database, rebuilt.pubKey, thresholdPublicKey, rebuilt)?.let { reason ->
+            SubgroupManager.refuseCertificate(database, rebuilt.pubKey, thresholdPublicKey, rebuilt)?.let { reason ->
                 logger.w("Signing proposal $sessionId carries a birth certificate that $reason; dropping")
                 return null
             }

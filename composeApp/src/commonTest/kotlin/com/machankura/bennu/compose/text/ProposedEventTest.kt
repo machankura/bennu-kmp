@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.text
 
+import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.bitcoin.ByteVector32
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
@@ -64,6 +69,41 @@ class ProposedEventTest {
 
         assertEquals("Event of kind 30023", summary.label)
         assertEquals("An article", summary.detail)
+    }
+
+    @Test
+    fun `a birth certificate says what it decides about the child's wallet, either way`() {
+        val parent = "1".repeat(64)
+        val child = "2".repeat(64)
+        val key = PrivateKey(ByteVector32("01".repeat(32))).publicKey().toHex()
+        fun certificate(policy: SubgroupWalletPolicy?, guarded: Boolean) = event(
+            SubgroupBirthCertificateEvent.KIND,
+            tags = SubgroupBirthCertificateEvent.assembleTags(
+                subgroupChatRoomId = child,
+                parentChatRoomId = parent,
+                thresholdPublicKey = key,
+                adminPublicKeys = listOf("a".repeat(64)),
+                name = "#Translation",
+                guardians = if (guarded) GuardianDerivation.grant(key, parent, emptyList(), child) else emptyList(),
+                walletPolicy = policy,
+            ),
+        )
+
+        assertEquals(
+            "#Translation · run by 1 members · this group can spend from its wallet · its wallet must be guarded",
+            ProposedEvent.summarize(certificate(SubgroupWalletPolicy.GUARDED, guarded = true)).detail,
+        )
+        // Not left to an absent line: a signer approving this is taking the
+        // subgroup's wallet out of every group's reach above it.
+        assertEquals(
+            "#Translation · run by 1 members · its wallet will not be guarded",
+            ProposedEvent.summarize(certificate(SubgroupWalletPolicy.UNGUARDED, guarded = false)).detail,
+        )
+        assertEquals(
+            "#Translation · run by 1 members · this group can spend from its wallet",
+            ProposedEvent.summarize(certificate(null, guarded = true)).detail,
+            "an older certificate decides nothing, and says nothing about it",
+        )
     }
 
     private fun event(

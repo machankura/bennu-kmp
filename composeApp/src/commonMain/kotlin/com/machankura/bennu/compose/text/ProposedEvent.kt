@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.text
 
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
@@ -68,7 +70,16 @@ object ProposedEvent {
                             2 -> "this group and the one above it can spend from its wallet"
                             else -> "this group and the ${count - 1} above it can spend from its wallet"
                         }
-                    }
+                    },
+                // The decision this certificate makes for the child, said in both
+                // directions: an absent line is not a decision anybody can be said
+                // to have read. An older certificate decides nothing and says so
+                // by saying nothing, as it always has.
+                when (SubgroupBirthCertificateEvent.parseWalletPolicy(event.tags)) {
+                    WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED) -> "its wallet must be guarded"
+                    WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED) -> "its wallet will not be guarded"
+                    else -> null
+                }
             ).joinToString(" · ")
         )
 

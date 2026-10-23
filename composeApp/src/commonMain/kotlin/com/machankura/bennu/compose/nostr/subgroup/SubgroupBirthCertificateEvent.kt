@@ -62,7 +62,7 @@ import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
  * guarded one; it delegates nothing on its own. They are not among the checks in
  * [certifies], which is about lineage. Whether they are the keys the parent
  * grants is checked by every parent signer before the certificate is signed --
- * `SubgroupManager.refuseGrant` -- and nowhere after, because nobody else holds
+ * `SubgroupManager.refuseCertificate` -- and nowhere after, because nobody else holds
  * the key that check needs and nobody else needs it: the parent's quorum can
  * already spend through its own leaf whatever the others would let it.
  *
