@@ -30,11 +30,13 @@ build chose differently, this table says so.
 | phase | state |
 |---|---|
 | 0 | done, except the two spikes (see below) |
+| 1 | done: `IcebergDkg`, 11 tests, among them a byte-for-byte match against the library's dealer and a signature from every 2-of-4 and 3-of-7 quorum |
 
 | what the plan said | what it turned out to be |
 |---|---|
 | Phase 0's two spikes run against the testnet3 LSP | **not run.** Both need a channel that somebody pays into, and the regtest alternative means creating docker containers on a development machine that already runs other stacks. That should be somebody's deliberate act, not a side effect of a build. The signer's deadline is therefore a parameter, `RemoteIcebergFundingSigner.deadline`, and not a measured constant. Measuring it is the first thing to do with a funded testnet3 node |
 | the DKG goes in the bitcoin-kmp fork, beside `Iceberg.kt` | in the app, as `IcebergDkg` beside `GroupWalletDerivation`. It uses only `Iceberg`'s public API and SHA-256, so it needs nothing from inside the library, and putting it there would add a third nested fork branch to every bump. It moves down once it has been reviewed |
+| a complaint round is left out, so equivocation is caught but not blamed | a reveal that does not match its commitment *is* blamed, as `Fault.BadReveal`. Only committing to two values in front of two members goes unblamed, and the transcript signature still catches it |
 | the kinds are reserved | in code: `GroupLightningEvents`, 30333-30349, with a test asserting the run is unbroken and touches no kind the app already dispatches on |
 | library phases land in the forks' `threshold` branches | on a new branch, `claude/group-lightning-wallet`, in `lightning-kmp-app` and in `experimental/lightning-kmp`. It is local and not pushed. The app's submodule pointer follows it, so a checkout of this branch needs those commits from the same machine until they are pushed |
 
