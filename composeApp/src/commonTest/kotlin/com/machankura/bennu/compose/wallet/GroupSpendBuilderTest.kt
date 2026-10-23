@@ -136,4 +136,15 @@ class GroupSpendBuilderTest {
 
         assertIs<GroupSpendBuilder.Result.NotHigher>(GroupSpendBuilder.bump(first, feerate))
     }
+
+    @Test
+    fun `the mainnet cap refuses a spend over it, and test networks have none`() {
+        val built = GroupSpendBuilder.sendAll(state(coin(0, 300_000)), destination, feerate, emptySet())
+
+        assertIs<GroupSpendBuilder.Result.OverCap>(GroupSpendBuilder.capped(built, GroupWalletRollout.capFor(Chain.Mainnet)))
+        assertIs<GroupSpendBuilder.Result.Built>(GroupSpendBuilder.capped(built, GroupWalletRollout.capFor(Chain.Regtest)))
+        assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.capped(GroupSpendBuilder.sendAll(state(coin(0, 50_000)), destination, feerate, emptySet()), GroupWalletRollout.capFor(Chain.Mainnet))
+        )
+    }
 }

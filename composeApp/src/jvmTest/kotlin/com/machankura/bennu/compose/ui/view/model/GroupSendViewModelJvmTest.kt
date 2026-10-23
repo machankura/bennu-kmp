@@ -14,6 +14,7 @@ import com.machankura.bennu.compose.ui.view.state.GroupSendUIState
 import com.machankura.bennu.compose.wallet.GroupSpend
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
 import com.machankura.bennu.compose.wallet.GroupWalletState
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.ByteVector32
@@ -121,8 +122,14 @@ class GroupSendViewModelJvmTest {
         model.feerateField.setTextAndPlaceCursorAtEnd("4")
         model.amountField.setTextAndPlaceCursorAtEnd("40,000")
         val built = assertIs<GroupSpendBuilder.Result.Built>(model.preview())
-        assertEquals(Satoshi(40_000), built.amount)
-        assertNotNull(built.change)
+        if (GroupWalletRollout.SEND_AN_AMOUNT) {
+            assertEquals(Satoshi(40_000), built.amount)
+            assertNotNull(built.change)
+        } else {
+            // Gated to send-all: the amount typed is not what is sent.
+            assertEquals(Satoshi(100_000), built.amount + built.fee)
+            assertNull(built.change)
+        }
 
         model.propose(onSuccess = {}, onFailure = {})
         runBlocking { withTimeout(5_000) { while (signing.proposed == null) delay(10) } }

@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import bennu.composeapp.generated.resources.open_on_s
@@ -528,7 +529,7 @@ fun ChatRoomDetailScreen(
                                 // leaves the group. Shown to every member, open or
                                 // not -- the screen behind it is where a member who
                                 // can sign asks the group to open one.
-                                item {
+                                if (GroupWalletRollout.ENABLED) item {
                                     SignedWorkRow(
                                         icon = Icons.Default.AccountBalanceWallet,
                                         headline = stringResource(Res.string.group_wallet),

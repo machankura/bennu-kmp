@@ -63,10 +63,11 @@ smallest of the plans: it changes the entrance to the direct-message flow and
 nothing past it, so read it with `StartDirectMessageToNpubOrNip05Dialog` and
 `ChatRoomMessagingViewModel.initiateNewChat` open, its four decisions before its
 four phases, and its table of where the build chose differently first.
-The group chain wallet note is a phased plan that has not been built. It assumes
+The group chain wallet note is a phased plan that has been built. It assumes
 both shared-key notes and the batch-signing note, and reads as the derivation
 note's one rule with money behind it; read its derivation section before any
-phase, since every phase after the first is built on that path.
+phase, since every phase after the first is built on that path, and its table of
+where the build chose differently before any of the code.
 The Marmot v2 note is a phased plan that has been built, and is the largest of
 them: it assumes the membership and derivation notes, takes the quartz 1.15.2 bump
 as its Phase 0, and is ordered so that the phases that reach other clients come

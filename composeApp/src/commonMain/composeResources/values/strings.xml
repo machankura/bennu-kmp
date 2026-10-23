@@ -848,4 +848,6 @@
     <string name="bump_the_fee">Bump the fee</string>
     <string name="sent_again">Sent again</string>
     <string name="couldn_t_bump_the_fee">Couldn't bump the fee: there isn't enough left over to pay it.</string>
+    <string name="for_now_a_spend_sends_everything">For now, a spend sends everything the group has confirmed to one address, less the fee.</string>
+    <string name="while_the_wallet_is_new_at_most_s_sats">While the wallet is new, a spend on mainnet can send at most %1$s sats.</string>
 </resources>

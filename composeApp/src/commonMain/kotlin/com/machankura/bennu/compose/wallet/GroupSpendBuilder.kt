@@ -34,7 +34,17 @@ object GroupSpendBuilder {
         data object BelowDust : Result
         /** A bump has to pay more than the spend it replaces. */
         data object NotHigher : Result
+        /** More than [GroupWalletRollout.capFor] lets one spend send. */
+        data class OverCap(val cap: Satoshi) : Result
     }
+
+    /**
+     * [result] held to [cap]: the composer's gate while the wallet is new. A
+     * built spend sending more than the cap is refused here, before a quorum is
+     * asked; nothing at acceptance refuses one another build proposes.
+     */
+    fun capped(result: Result, cap: Satoshi?): Result =
+        if (cap != null && result is Result.Built && result.amount > cap) Result.OverCap(cap) else result
 
     /** Every confirmed, unreserved coin, to [address], less the fee. */
     fun sendAll(state: GroupWalletState, address: String, feeratePerVbyte: Long, reserved: Set<OutPoint>): Result {

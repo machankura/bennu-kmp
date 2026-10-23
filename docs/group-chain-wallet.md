@@ -14,8 +14,11 @@ wallet makes more expensive to break, and
 with `k` inputs is a batch of `k` and that note's nonce rule is the one this
 plan is built around too.
 
-**Being built**, one commit per phase. Written against the code as it stood at
-`b75d4b42`, with the `lightning-kmp-app` submodule at `e0d2b82`. Every path into
+**Built**, phases 1-10, one commit per phase (two each for 8 and 9). Written
+against the code as it stood at `b75d4b42`, with the `lightning-kmp-app` submodule
+at `e0d2b82`. `GroupWalletDerivation`, `FrostSigningManager.proposeSpend` and
+`GroupTransactionWatcher` are the entry points, and `GroupWalletRollout` holds the
+gates Phase 10 ships behind. Every path into
 the library below is into that submodule, which a fresh worktree does not have
 checked out — run `git submodule update --init --recursive` first. The phases are
 kept as written; where the build chose differently the table below says so.
@@ -47,6 +50,8 @@ kept as written; where the build chose differently the table below says so.
 | a conflicting spend is noticed when a reserved coin is spent by a different transaction | when one of the group's spends *confirms*: only the group can spend its coins, so the only other transaction that can take one is another of its own spends, and the confirmation is the moment the question is settled. Settled by the confirmed spend's own row, so every device decides the same way |
 | a fee bump is proposed at a feerate the member chooses | at twice the spend's feerate, from a *Bump the fee* button on the spend's row — comfortably over BIP125's increment, and one decision rather than a form |
 | `GroupTransaction` rows are kept by the screen that shows them | `GroupTransactionWatcher`, one per identity beside the wallets, started with the identity's node whether or not anybody opens the wallet. It found a real bug before it shipped: following each spend from the list a pass began with wrote a settled row back from its stale copy |
+| a feature flag, off, until Phases 1-9 are in | `GroupWalletRollout.ENABLED`, on: its own lift condition — Phases 1-9 in, the JVM suite passing — was met when it landed. The other two gates hold: `SEND_AN_AMOUNT` is false, so the form sends everything, and `MAINNET_CAP` is 100,000 sats per spend proposed from this device |
+| the gates are on the composer | and on nothing else, on purpose: a device with a gate closed still accepts, shows and signs what another member proposes, through every check `GroupSpend` makes. A gate decides what this device offers, never what a quorum may decide |
 
 The headline: **the best path is BIP86's own unhardened tail, `/<change>/<index>`,
 hung under an account key the group's threshold key is tweaked to, with the

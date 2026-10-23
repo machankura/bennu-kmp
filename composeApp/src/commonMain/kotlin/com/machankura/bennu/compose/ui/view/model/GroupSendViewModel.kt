@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.MutableState
@@ -103,12 +104,13 @@ class GroupSendViewModel(
         val feerate = feerateField.text.toString().trim().toLongOrNull()?.takeIf { it > 0 } ?: return null
         val address = addressField.text.toString().trim().takeIf { it.isNotEmpty() } ?: return null
 
-        return if (sendEverything.value) {
+        val built = if (sendEverything.value || !GroupWalletRollout.SEND_AN_AMOUNT) {
             GroupSpendBuilder.sendAll(walletState, address, feerate, state.reserved)
         } else {
             val amount = amountField.text.toString().filter { it.isDigit() }.toLongOrNull() ?: return null
             GroupSpendBuilder.send(walletState, address, Satoshi(amount), feerate, state.reserved)
         }
+        return GroupSpendBuilder.capped(built, GroupWalletRollout.capFor(chain))
     }
 
     fun propose(onSuccess: (sessionId: String) -> Unit, onFailure: () -> Unit) {
