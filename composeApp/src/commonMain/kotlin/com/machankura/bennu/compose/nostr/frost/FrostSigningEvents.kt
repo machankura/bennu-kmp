@@ -175,6 +175,21 @@ object FrostSigningEvents {
         return chain to account
     }
 
+    private const val GUARDED_TAG = "guarded"
+
+    /**
+     * On a [TRANSACTION_PROPOSAL] from an ancestor's room: the descendant whose
+     * guarded wallet it spends from, through the room's guardian leaf. Absent
+     * for a spend from the room's own wallet. Which wallet it is is all this
+     * says; every signer then reads that wallet from the statement its own room
+     * was told, never from the proposal.
+     */
+    fun guardedTags(descendantChatRoomId: String): Array<Array<String>> = arrayOf(arrayOf(GUARDED_TAG, descendantChatRoomId))
+
+    /** The descendant a guardian's [TRANSACTION_PROPOSAL] names, or null for the room's own wallet. */
+    fun parseGuarded(tags: Array<Array<String>>): String? =
+        tags.firstOrNull { it.size >= 2 && it[0] == GUARDED_TAG }?.get(1)?.takeIf { it.isNotBlank() }
+
     fun parseSessionId(tags: Array<Array<String>>): String? =
         tags.firstNotNullOfOrNull(FrostSessionIdTag::parse)?.sessionId
 

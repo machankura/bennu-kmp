@@ -190,7 +190,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 26,
+    version = 27,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -378,6 +378,11 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // nothing is rebuilt; a rebuild of either signing table would fire the
         // cascades from FrostSigningSession, see docs/frost-batch-signing.md.
         AutoMigration(from = 25, to = 26),
+        // v27 adds the nullable GroupTransaction.guardedChatRoomId: the descendant
+        // whose guarded wallet a guardian's spend draws from
+        // (docs/group-wallet-guardians.md, Phase 7). Every spend before it was the
+        // room's own, which is what null means.
+        AutoMigration(from = 26, to = 27),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)

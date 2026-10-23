@@ -80,6 +80,7 @@ import bennu.composeapp.generated.resources.guarded_wallets
 import bennu.composeapp.generated.resources.not_yet_shared_with_the_groups_above
 import bennu.composeapp.generated.resources.s_sats_within_this_group_s_reach
 import bennu.composeapp.generated.resources.share
+import bennu.composeapp.generated.resources.spend
 import bennu.composeapp.generated.resources.shared_with_the_groups_above
 import bennu.composeapp.generated.resources.tell_the_groups_above
 import bennu.composeapp.generated.resources.wallets_of_groups_below_this_one
@@ -179,6 +180,18 @@ fun GroupWalletScreen(
     val couldNotBump = stringResource(Res.string.couldn_t_bump_the_fee)
     val shared = stringResource(Res.string.shared_with_the_groups_above)
     val couldNotShare = stringResource(Res.string.couldn_t_share_the_wallet)
+    // Behind the same two gates as the room's own send: a share to propose
+    // with, and a node to see the descendant's coins with.
+    val toGuardianSpend = { row: GuardedWalletRow ->
+        onNavigateToRoute(
+            GroupSendRoute(
+                activeUserPublicKey = activeUserPublicKey,
+                chatRoomId = chatRoomId,
+                relayHint = null,
+                guardedChatRoomId = row.wallet.descendantChatRoomId,
+            )
+        )
+    }
     val onShare = { shareable: GuardianManager.Shareable ->
         groupWalletViewModel.share(shareable, onShared = { notify(shared) }, onFailure = { notify(couldNotShare) })
     }
@@ -267,6 +280,7 @@ fun GroupWalletScreen(
                                 shareable = state.shareable,
                                 isPending = groupWalletViewModel.isActionPending.value,
                                 onShare = onShare,
+                                onSpend = if (state.canSign && wallets != null) toGuardianSpend else null,
                             )
                         }
                     }
@@ -309,6 +323,7 @@ fun GroupWalletScreen(
                         } else null,
                         isPending = groupWalletViewModel.isActionPending.value,
                         onShare = onShare,
+                        onSpend = if (state.canSign && state.canWatch) toGuardianSpend else null,
                     )
                 }
             }
@@ -378,6 +393,7 @@ private fun OpenWallet(
     onBump: ((sessionId: String) -> Unit)?,
     isPending: Boolean,
     onShare: (GuardianManager.Shareable) -> Unit,
+    onSpend: ((GuardedWalletRow) -> Unit)?,
 ) {
     val clipboardManager = LocalClipboardManager.current
     val addressCopied = stringResource(Res.string.address_copied)
@@ -542,6 +558,7 @@ private fun OpenWallet(
             shareable = state.shareable,
             isPending = isPending,
             onShare = onShare,
+            onSpend = onSpend,
         )
     }
 }
@@ -598,6 +615,7 @@ private fun LazyListScope.guardianItems(
     shareable: List<GuardianManager.Shareable>,
     isPending: Boolean,
     onShare: (GuardianManager.Shareable) -> Unit,
+    onSpend: ((GuardedWalletRow) -> Unit)?,
 ) {
     if (guardedWallets.isNotEmpty()) {
         item {
@@ -619,6 +637,13 @@ private fun LazyListScope.guardianItems(
                         row.withinReach?.let { stringResource(Res.string.s_sats_within_this_group_s_reach, it.grouped()) }
                             ?: stringResource(Res.string.balance_not_known_yet)
                     )
+                },
+                trailingContent = onSpend?.let { spend ->
+                    {
+                        TextButton(onClick = { spend(row) }) {
+                            Text(stringResource(Res.string.spend))
+                        }
+                    }
                 },
             )
         }

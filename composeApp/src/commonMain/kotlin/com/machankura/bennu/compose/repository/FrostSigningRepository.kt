@@ -241,6 +241,19 @@ interface FrostSigningRepository {
         chain: Chain,
     ): FrostSigningSession?
 
+    /**
+     * Opens a session over one transaction from [descendantChatRoomId]'s guarded
+     * wallet, signed through this room's guardian leaf, or null when it could not
+     * be proposed. See `FrostSigningManager.proposeGuardianSpend`.
+     */
+    suspend fun proposeGuardianSpend(
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        psbt: Psbt,
+        descendantChatRoomId: String,
+        chain: Chain,
+    ): FrostSigningSession?
+
     /** The spend a transaction session signs, checked again; null for anything else. */
     suspend fun checkedSpend(sessionId: String): GroupSpend.Checked?
 
@@ -324,6 +337,14 @@ interface FrostSigningRepository {
                 localChatRoom: LocalChatRoom,
                 userPublicKey: HexKey,
                 psbt: Psbt,
+                chain: Chain,
+            ): FrostSigningSession? = null
+
+            override suspend fun proposeGuardianSpend(
+                localChatRoom: LocalChatRoom,
+                userPublicKey: HexKey,
+                psbt: Psbt,
+                descendantChatRoomId: String,
                 chain: Chain,
             ): FrostSigningSession? = null
 

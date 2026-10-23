@@ -148,6 +148,23 @@ class DatabaseFrostSigningRepository(
         )
     }
 
+    override suspend fun proposeGuardianSpend(
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        psbt: Psbt,
+        descendantChatRoomId: String,
+        chain: Chain,
+    ): FrostSigningSession? = proposing(localChatRoom) {
+        FrostSigningManager.proposeGuardianSpend(
+            database = database,
+            localChatRoom = localChatRoom,
+            userPublicKey = userPublicKey,
+            psbt = psbt,
+            descendantChatRoomId = descendantChatRoomId,
+            chain = chain,
+        )
+    }
+
     override suspend fun checkedSpend(sessionId: String): GroupSpend.Checked? = try {
         FrostSigningManager.checkedSpend(database, sessionId)
     } catch (e: Throwable) {

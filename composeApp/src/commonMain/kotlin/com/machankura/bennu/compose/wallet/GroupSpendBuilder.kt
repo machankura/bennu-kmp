@@ -22,6 +22,11 @@ import fr.acinq.lightning.utils.sum
  * proposal is already spending. Two proposals over one coin are not dangerous --
  * only one can confirm, and each has its own nonces -- but the second is a quorum
  * asked for nothing.
+ *
+ * A guardian building a spend from a descendant's guarded wallet -- a
+ * [GroupSpend.Spender.Guardian] -- takes only coins its leaf's lock has already
+ * let go of, puts that lock on every input, and weighs each input by its leaf
+ * and control block. Its change, if any, goes back to the descendant.
  */
 object GroupSpendBuilder {
     /** Phoenix's floor, kept: an output below it is one no node will relay. */
@@ -61,16 +66,22 @@ object GroupSpendBuilder {
         if (cap != null && result is Result.Built && result.amount > cap) Result.OverCap(cap) else result
 
     /** Every confirmed, unreserved coin, to [address], less the fee. */
-    fun sendAll(state: GroupWalletState, address: String, feeratePerVbyte: Long, reserved: Set<OutPoint>): Result {
+    fun sendAll(
+        state: GroupWalletState,
+        address: String,
+        feeratePerVbyte: Long,
+        reserved: Set<OutPoint>,
+        spender: GroupSpend.Spender = GroupSpend.Spender.Owner,
+    ): Result {
         val script = scriptOf(state, address) ?: return Result.NotAnAddress
-        val coins = spendable(state, reserved).ifEmpty { return Result.NothingToSpend }
+        val coins = spendable(state, reserved, spender).ifEmpty { return Result.NothingToSpend }
 
         val total = coins.map { it.amount }.sum()
-        val fee = feeOf(coins, listOf(script), feeratePerVbyte)
+        val fee = feeOf(state, coins, listOf(script), feeratePerVbyte, spender)
         val amount = total - fee
         if (amount < DUST) return Result.BelowDust
 
-        val tx = transaction(coins, listOf(TxOut(amount, script)))
+        val tx = transaction(state, coins, listOf(TxOut(amount, script)), spender)
         return Result.Built(psbtOf(state, tx, coins, change = emptyMap()), amount, fee, change = null)
     }
 
@@ -86,10 +97,11 @@ object GroupSpendBuilder {
         feeratePerVbyte: Long,
         reserved: Set<OutPoint>,
         reservedChange: Set<Long> = emptySet(),
+        spender: GroupSpend.Spender = GroupSpend.Spender.Owner,
     ): Result {
         val script = scriptOf(state, address) ?: return Result.NotAnAddress
         if (amount < DUST) return Result.BelowDust
-        val coins = spendable(state, reserved).sortedByDescending { it.amount.sat }.ifEmpty { return Result.NothingToSpend }
+        val coins = spendable(state, reserved, spender).sortedByDescending { it.amount.sat }.ifEmpty { return Result.NothingToSpend }
 
         if (!state.changeKnown) return Result.FindingChange
         val changeIndex = state.nextChangeIndex(reservedChange) ?: return Result.TooManyOpen
@@ -99,18 +111,18 @@ object GroupSpendBuilder {
         for (coin in coins) {
             chosen += coin
             val total = chosen.map { it.amount }.sum()
-            val withChange = feeOf(chosen, listOf(script, change.pubkeyScript), feeratePerVbyte)
+            val withChange = feeOf(state, chosen, listOf(script, change.pubkeyScript), feeratePerVbyte, spender)
             val leftover = total - amount - withChange
 
             if (leftover >= DUST) {
-                val tx = transaction(chosen, listOf(TxOut(amount, script), TxOut(leftover, change.pubkeyScript)))
+                val tx = transaction(state, chosen, listOf(TxOut(amount, script), TxOut(leftover, change.pubkeyScript)), spender)
                 return Result.Built(psbtOf(state, tx, chosen, mapOf(1 to change)), amount, withChange, leftover)
             }
 
             // Enough to pay without change: the remainder, under dust, goes to fees.
-            val withoutChange = feeOf(chosen, listOf(script), feeratePerVbyte)
+            val withoutChange = feeOf(state, chosen, listOf(script), feeratePerVbyte, spender)
             if (total - amount >= withoutChange) {
-                val tx = transaction(chosen, listOf(TxOut(amount, script)))
+                val tx = transaction(state, chosen, listOf(TxOut(amount, script)), spender)
                 return Result.Built(
                     psbtOf(state, tx, chosen, emptyMap()), amount, total - amount, change = null,
                     absorbed = total - amount - withoutChange,
@@ -150,33 +162,67 @@ object GroupSpendBuilder {
         )
     }
 
-    /** The coins a new spend may use: confirmed, and held by no open spend. */
-    fun spendable(state: GroupWalletState, reserved: Set<OutPoint>): List<GroupUtxo> =
-        state.utxos.filter { it.isConfirmed && it.utxo.outPoint !in reserved }
+    /**
+     * The coins a new spend may use: confirmed -- for a guardian, as deep as its
+     * leaf's lock -- and held by no open spend.
+     */
+    fun spendable(
+        state: GroupWalletState,
+        reserved: Set<OutPoint>,
+        spender: GroupSpend.Spender = GroupSpend.Spender.Owner,
+    ): List<GroupUtxo> {
+        val lock = lockOf(state, spender)
+        return state.utxos.filter {
+            it.isConfirmed && (lock == null || state.confirmations(it) >= lock) && it.utxo.outPoint !in reserved
+        }
+    }
 
     /**
      * What [spendable] adds up to: the most a form can offer, before the fee.
      * Less than the wallet's confirmed balance by whatever open spends hold.
      */
-    fun spendableBalance(state: GroupWalletState, reserved: Set<OutPoint>): Satoshi =
-        spendable(state, reserved).map { it.amount }.sum()
+    fun spendableBalance(
+        state: GroupWalletState,
+        reserved: Set<OutPoint>,
+        spender: GroupSpend.Spender = GroupSpend.Spender.Owner,
+    ): Satoshi = spendable(state, reserved, spender).map { it.amount }.sum()
+
+    /** The relative lock a guardian's inputs carry, or null for the wallet's own group. */
+    private fun lockOf(state: GroupWalletState, spender: GroupSpend.Spender): Long? =
+        (spender as? GroupSpend.Spender.Guardian)?.let { state.account.guardians[it.position].delay }
 
     private fun scriptOf(state: GroupWalletState, address: String): ByteVector? =
         Bitcoin.addressToPublicKeyScript(state.account.chain.chainHash, address.trim()).right
             ?.let { ByteVector(Script.write(it)) }
 
-    private fun transaction(coins: List<GroupUtxo>, outputs: List<TxOut>) = Transaction(
+    private fun transaction(state: GroupWalletState, coins: List<GroupUtxo>, outputs: List<TxOut>, spender: GroupSpend.Spender) = Transaction(
         version = 2,
-        // Replaceable, so a stuck spend can be bumped by a new proposal.
-        txIn = coins.map { TxIn(it.utxo.outPoint, ByteVector.empty, GroupSpend.MAX_SEQUENCE) },
+        // Replaceable, so a stuck spend can be bumped by a new proposal -- and a
+        // guardian's lock is far below the replaceable ceiling, so its is too.
+        txIn = coins.map { TxIn(it.utxo.outPoint, ByteVector.empty, lockOf(state, spender) ?: GroupSpend.MAX_SEQUENCE) },
         txOut = outputs,
         lockTime = 0,
     )
 
-    /** The fee at [feeratePerVbyte] for spending [coins] to [scripts]: exact, because every witness is 64 bytes. */
-    private fun feeOf(coins: List<GroupUtxo>, scripts: List<ByteVector>, feeratePerVbyte: Long): Satoshi {
-        val tx = transaction(coins, scripts.map { TxOut(Satoshi(0), it) })
-        val weight = GroupSpend.witnessed(tx, List(coins.size) { ByteVector64.Zeroes }).weight()
+    /**
+     * The fee at [feeratePerVbyte] for spending [coins] to [scripts]: exact,
+     * because every signature is 64 bytes and a guardian's leaf and control
+     * block are known before anybody signs.
+     */
+    private fun feeOf(
+        state: GroupWalletState,
+        coins: List<GroupUtxo>,
+        scripts: List<ByteVector>,
+        feeratePerVbyte: Long,
+        spender: GroupSpend.Spender,
+    ): Satoshi {
+        val tx = transaction(state, coins, scripts.map { TxOut(Satoshi(0), it) }, spender)
+        val weight = when (spender) {
+            GroupSpend.Spender.Owner -> GroupSpend.witnessed(tx, List(coins.size) { ByteVector64.Zeroes })
+            is GroupSpend.Spender.Guardian -> coins.foldIndexed(tx) { index, partial, coin ->
+                partial.updateWitness(index, GroupSpend.guardianWitness(state.account, coin.derivation, spender.position))
+            }
+        }.weight()
         return Satoshi(feeratePerVbyte * ((weight + 3) / 4))
     }
 

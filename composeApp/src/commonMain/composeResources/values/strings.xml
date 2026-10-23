@@ -620,6 +620,8 @@
     <string name="open_a_guarded_wallet">Open a guarded wallet</string>
     <string name="open_without_guardians">Open without guardians</string>
     <string name="guarded_wallets">Guarded wallets</string>
+    <string name="spend">Spend</string>
+    <string name="spend_from_s_s_guarded_wallet">Spend from %1$s's guarded wallet</string>
     <string name="wallets_of_groups_below_this_one">Wallets of groups below this one. This group can spend a coin in them once it has %1$d confirmations.</string>
     <string name="s_sats_within_this_group_s_reach">%1$s sats within this group's reach</string>
     <string name="tell_the_groups_above">Tell the groups above</string>

@@ -681,6 +681,82 @@ object FrostSigningManager {
     }
 
     /**
+     * Opens a session over one transaction from a *descendant's* guarded wallet,
+     * signed through this room's guardian leaf -- `docs/group-wallet-guardians.md`.
+     *
+     * The same session as [proposeSpend] in every way but three: the wallet is
+     * the one this room was told about rather than its own, every input is
+     * signed over BIP342's script-path sighash as the key this group's walk
+     * reaches, and the proposal names the descendant so every signer reads the
+     * same wallet from its own copy of the statement.
+     *
+     * @throws IllegalArgumentException when the spend fails a check, with the reason
+     * @throws IllegalStateException when the room has no key, this device holds no
+     * share of it, or the room holds no guarded wallet of [descendantChatRoomId] on
+     * [chain] at [account]
+     */
+    suspend fun proposeGuardianSpend(
+        database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        psbt: Psbt,
+        descendantChatRoomId: String,
+        chain: Chain,
+        account: Long = 0L,
+    ): FrostSigningSession {
+        val chatRoomId = localChatRoom.chatRoom.id
+        val ceremony = completedKey(database, chatRoomId)
+            ?: throw IllegalStateException("This group has no shared key to sign with")
+        val thresholdPublicKey = ceremony.thresholdPublicKey
+            ?: throw IllegalStateException("Ceremony ${ceremony.id} holds no threshold key")
+        val signerId = signerIdOf(database, ceremony, userPublicKey)
+            ?: throw IllegalStateException("This device is not a participant in ceremony ${ceremony.id}")
+        val guarded = GuardianManager.guardedWalletFor(database, chatRoomId, descendantChatRoomId, chain, account)
+            ?: throw IllegalStateException("This group guards no wallet of $descendantChatRoomId on ${GroupWalletStatementEvent.chainName(chain)}")
+
+        val checked = when (val result = GroupSpend.check(psbt, guarded.account, guarded.spender(thresholdPublicKey))) {
+            is GroupSpend.Result.Ok -> result.checked
+            is GroupSpend.Result.Refused -> throw IllegalArgumentException("This spend ${result.reason}")
+        }
+
+        val session = FrostSigningSession(
+            id = RandomInstance.bytes(32).toHex(),
+            chatRoomId = chatRoomId,
+            coordinatorPublicKey = userPublicKey,
+            userPublicKey = userPublicKey,
+            dkgSessionId = ceremony.id,
+            threshold = ceremony.threshold,
+            participantCount = ceremony.participantCount,
+            signerId = signerId,
+            derivationPath = null,
+            subject = FrostSigningSubject.TRANSACTION,
+            signApprovedAt = Clock.System.now()
+        )
+        writeSpend(database, session, checked, chain, account, guardedChatRoomId = descendantChatRoomId)
+        announceStarted(database, session)
+
+        logger.i(
+            "Proposing guardian spend ${session.id} from $descendantChatRoomId: ${checked.inputs.size} input(s), " +
+                "${checked.amountSent.sat} sats out, ${checked.fee.sat} sats fee, txid ${checked.tx.txid}"
+        )
+
+        broadcast(
+            database = database,
+            localChatRoom = localChatRoom,
+            session = session,
+            kind = FrostSigningEvents.TRANSACTION_PROPOSAL,
+            content = GroupSpend.encode(psbt),
+            includeKey = true,
+            extraTags = FrostSigningEvents.walletTags(GroupWalletStatementEvent.chainName(chain), account) +
+                FrostSigningEvents.guardedTags(descendantChatRoomId)
+        )
+
+        advance(database, localChatRoom, session.id)
+
+        return session
+    }
+
+    /**
      * Records a proposed spend, after every check [GroupSpend.check] makes.
      * Returns the session, whether it was just created or already known.
      *
@@ -742,14 +818,33 @@ object FrostSigningManager {
             return null
         }
 
-        // 1. There is a wallet, and it is the room's.
-        val wallet = GroupWalletManager.walletFor(database, localChatRoom.chatRoom.id, thresholdPublicKey, chain, account)
-        if (wallet == null) {
-            logger.w("Spend proposal $sessionId spends from a wallet the group has not opened on $chainName; dropping")
-            return null
+        // 1. There is a wallet, and it is the room's -- or, for a guardian's
+        // spend, a descendant's this room was told about and holds a leaf in.
+        // Either way read from this device's own copy of the statement.
+        val guardedChatRoomId = FrostSigningEvents.parseGuarded(innerEvent.tags)
+        val (walletAccount, spender) = if (guardedChatRoomId == null) {
+            val wallet = GroupWalletManager.walletFor(database, localChatRoom.chatRoom.id, thresholdPublicKey, chain, account)
+            if (wallet == null) {
+                logger.w("Spend proposal $sessionId spends from a wallet the group has not opened on $chainName; dropping")
+                return null
+            }
+            wallet.account to GroupSpend.Spender.Owner
+        } else {
+            // The leaf is the room's, so the key signing it has to be the room's
+            // own -- not a subgroup ceremony held in this room.
+            if (GroupWalletManager.thresholdKeyFor(database, localChatRoom.chatRoom.id) != thresholdPublicKey) {
+                logger.w("Guardian spend proposal $sessionId names a key that is not this room's; dropping")
+                return null
+            }
+            val guarded = GuardianManager.guardedWalletFor(database, localChatRoom.chatRoom.id, guardedChatRoomId, chain, account)
+            if (guarded == null) {
+                logger.w("Guardian spend proposal $sessionId spends from a wallet this room guards none of; dropping")
+                return null
+            }
+            guarded.account to guarded.spender(thresholdPublicKey)
         }
 
-        val checked = when (val result = GroupSpend.check(psbt, wallet.account)) {
+        val checked = when (val result = GroupSpend.check(psbt, walletAccount, spender)) {
             is GroupSpend.Result.Ok -> result.checked
             is GroupSpend.Result.Refused -> {
                 logger.w("Spend proposal $sessionId ${result.reason}; dropping")
@@ -769,7 +864,7 @@ object FrostSigningManager {
             derivationPath = null,
             subject = FrostSigningSubject.TRANSACTION,
         )
-        writeSpend(database, session, checked, chain, account)
+        writeSpend(database, session, checked, chain, account, guardedChatRoomId)
         announceStarted(database, session)
 
         logger.i(
@@ -793,6 +888,7 @@ object FrostSigningManager {
         checked: GroupSpend.Checked,
         chain: Chain,
         account: Long,
+        guardedChatRoomId: String? = null,
     ) {
         database.frostSigningSessionDao().upsert(session)
         database.frostSigningSessionDao().upsertItems(
@@ -814,6 +910,7 @@ object FrostSigningManager {
                 chatRoomId = session.chatRoomId,
                 chain = GroupWalletStatementEvent.chainName(chain),
                 account = account,
+                guardedChatRoomId = guardedChatRoomId,
                 psbt = GroupSpend.encode(checked.psbt),
                 txid = checked.tx.txid.toString(),
             )
@@ -831,6 +928,26 @@ object FrostSigningManager {
      * rebuilt on every pass from the ceremony's key and the transaction row --
      * the same rule as a room's path: stored inputs, rederived, never cached.
      */
+    /**
+     * One cache per input: the address's key path for the room's own spend, read
+     * off the items as always; the guardian's leaf for a spend through it, read
+     * off the spend checked again -- the leaf, the walk and the sighash are one
+     * computation, and a cache taken apart from it could sign for another leaf.
+     */
+    private suspend fun spendCaches(
+        database: BennuDatabase,
+        session: FrostSigningSession,
+        thresholdPublicKey: HexKey,
+        items: List<FrostSigningItem>,
+    ): List<TweakCache>? {
+        val transaction = database.groupTransactionDao().getBySessionId(session.id) ?: return null
+        if (transaction.guardedChatRoomId == null) {
+            return spendDerivations(database, session, thresholdPublicKey, items)?.map { it.cache }
+        }
+        val checked = checkedSpend(database, session.id) ?: return null
+        return checked.inputs.map { it.cache }.takeIf { it.size == items.size }
+    }
+
     private suspend fun spendDerivations(
         database: BennuDatabase,
         session: FrostSigningSession,
@@ -843,6 +960,30 @@ object FrostSigningManager {
             val (change, index) = DERIVATION_PAYLOAD.matchEntire(item.payload)?.destructured ?: return null
             GroupWalletDerivation.derive(account, change.toLong(), index.toLong())
         }
+    }
+
+    /** What a spend session signs under: its transaction row, the account its coins are in, and who signs them. */
+    private data class SpendContext(
+        val transaction: GroupTransaction,
+        val account: GroupWalletDerivation.Account,
+        val spender: GroupSpend.Spender,
+    )
+
+    /**
+     * [spendAccount], and for a guardian's spend the descendant's guarded wallet
+     * as this room holds it, with this group as the spender.
+     */
+    private suspend fun spendContext(
+        database: BennuDatabase,
+        session: FrostSigningSession,
+        thresholdPublicKey: HexKey,
+    ): SpendContext? {
+        val transaction = database.groupTransactionDao().getBySessionId(session.id) ?: return null
+        val guardedChatRoomId = transaction.guardedChatRoomId
+            ?: return spendAccount(database, session, thresholdPublicKey)?.let { (row, account) -> SpendContext(row, account, GroupSpend.Spender.Owner) }
+        val chain = GroupWalletStatementEvent.chainNamed(transaction.chain) ?: return null
+        val guarded = GuardianManager.guardedWalletFor(database, transaction.chatRoomId, guardedChatRoomId, chain, transaction.account) ?: return null
+        return SpendContext(transaction, guarded.account, guarded.spender(thresholdPublicKey))
     }
 
     private suspend fun spendAccount(
@@ -873,9 +1014,9 @@ object FrostSigningManager {
         if (session.subject != FrostSigningSubject.TRANSACTION) return null
         val thresholdPublicKey = database.dkgSessionDao().getSessionById(session.dkgSessionId)?.thresholdPublicKey
             ?: return null
-        val (transaction, account) = spendAccount(database, session, thresholdPublicKey) ?: return null
-        val psbt = GroupSpend.decode(transaction.psbt) ?: return null
-        return (GroupSpend.check(psbt, account) as? GroupSpend.Result.Ok)?.checked
+        val context = spendContext(database, session, thresholdPublicKey) ?: return null
+        val psbt = GroupSpend.decode(context.transaction.psbt) ?: return null
+        return (GroupSpend.check(psbt, context.account, context.spender) as? GroupSpend.Result.Ok)?.checked
     }
 
     /**
@@ -988,11 +1129,11 @@ object FrostSigningManager {
         val key = database.dkgSessionDao().getSessionById(session.dkgSessionId)
         val thresholdPublicKey = key?.thresholdPublicKey
             ?: throw IllegalStateException("The ceremony this spend signs under is gone")
-        val (transaction, account) = spendAccount(database, session, thresholdPublicKey)
+        val (transaction, account, spender) = spendContext(database, session, thresholdPublicKey)
             ?: throw IllegalStateException("This spend has no transaction on file")
         val psbt = GroupSpend.decode(transaction.psbt)
             ?: throw IllegalStateException("This spend's PSBT can no longer be read")
-        val checked = when (val result = GroupSpend.check(psbt, account)) {
+        val checked = when (val result = GroupSpend.check(psbt, account, spender)) {
             is GroupSpend.Result.Ok -> result.checked
             is GroupSpend.Result.Refused -> throw IllegalStateException("This spend ${result.reason}")
         }
@@ -1000,13 +1141,13 @@ object FrostSigningManager {
         val signatures = items.mapIndexed { index, item ->
             val input = checked.inputs[index]
             val signature = ByteVector64(item.signature!!)
-            if (!Crypto.verifySignatureSchnorr(input.sighash, signature, input.derivation.outputKey)) {
+            if (!Crypto.verifySignatureSchnorr(input.sighash, signature, input.signingKey)) {
                 throw IllegalStateException("The aggregated signature for input $index does not verify against its coin")
             }
             signature
         }
 
-        val signed = GroupSpend.witnessed(checked.tx, signatures)
+        val signed = checked.witnessed(signatures)
         signed.correctlySpends(
             checked.inputs.associate { it.outPoint to it.txOut },
             ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS
@@ -1029,8 +1170,11 @@ object FrostSigningManager {
             database = database,
             session = session,
             messageType = ChatMessage.TYPE_FROST_COMPLETE,
-            content = "The group signed a transaction sending ${checked.amountSent.sat} sats, " +
-                "with ${checked.fee.sat} sats in fees. It took ${session.threshold} of " +
+            content = when (val guardian = checked.spender as? GroupSpend.Spender.Guardian) {
+                null -> "The group signed a transaction sending ${checked.amountSent.sat} sats, "
+                else -> "The group signed a transaction sending ${checked.amountSent.sat} sats from " +
+                    "${guardian.name ?: "a subgroup"}'s guarded wallet, "
+            } + "with ${checked.fee.sat} sats in fees. It took ${session.threshold} of " +
                 "${session.participantCount} members.",
             actor = session.coordinatorPublicKey
         )
@@ -1384,8 +1528,7 @@ object FrostSigningManager {
                     .cache
                     .let { cache -> List(items.size) { cache } }
 
-                FrostSigningSubject.TRANSACTION -> spendDerivations(database, session, thresholdPublicKey, items)
-                    ?.map { it.cache }
+                FrostSigningSubject.TRANSACTION -> spendCaches(database, session, thresholdPublicKey, items)
                     ?: throw IllegalStateException("The coins this transaction spends no longer derive under the group's wallet")
             }
 

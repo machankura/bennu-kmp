@@ -8,6 +8,7 @@ import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.nostr.wallet.GuardedWalletNoticeEvent
+import com.machankura.bennu.compose.wallet.GroupSpend
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
@@ -54,6 +55,13 @@ object GuardianManager {
         val chain: Chain get() = account.chain
 
         val openedAt: Instant get() = Instant.fromEpochSeconds(statement.createdAt)
+
+        /** Where the ancestor sits among the guardians: whose leaf, in every address, is its. */
+        val position: Int get() = account.guardians.indexOfFirst { it.chatRoomId.equals(ancestorChatRoomId, ignoreCase = true) }
+
+        /** The ancestor as the spender of a spend from this wallet, signing as [thresholdPublicKey] -- null to only build one. */
+        fun spender(thresholdPublicKey: HexKey? = null): GroupSpend.Spender.Guardian =
+            GroupSpend.Spender.Guardian(position = position, lineage = lineage, thresholdPublicKey = thresholdPublicKey, name = name)
     }
 
     /**

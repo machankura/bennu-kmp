@@ -88,6 +88,9 @@ import com.machankura.bennu.compose.wallet.GroupSpendBuilder
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
 import org.jetbrains.compose.resources.stringResource
+import bennu.composeapp.generated.resources.spend_from_s_s_guarded_wallet
+import bennu.composeapp.generated.resources.a_subgroup
+import com.machankura.bennu.compose.wallet.GroupSpend
 
 /**
  * A spend from the group's wallet, proposed.
@@ -108,6 +111,7 @@ fun GroupSendScreen(
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
     wallets: GroupOnchainWallets?,
+    guardedChatRoomId: String? = null,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
     onNavigateBack: () -> Unit,
 ) {
@@ -120,6 +124,7 @@ fun GroupSendScreen(
             chatRepository = chatRepository,
             frostSigningRepository = frostSigningRepository,
             wallets = wallets,
+            guardedChatRoomId = guardedChatRoomId,
         )
     )
 
@@ -135,8 +140,12 @@ fun GroupSendScreen(
         topBar = {
             TopAppBar(
                 title = {
+                    // Whose wallet is in the title: a guardian's spend takes a
+                    // descendant's coins, and nothing else on the form says so.
+                    val guardian = ((groupSendViewModel.groupSendUIState as? GroupSendUIState.Ready)?.spender as? GroupSpend.Spender.Guardian)
                     Text(
-                        text = stringResource(Res.string.send_from_the_group_s_wallet),
+                        text = if (guardian == null) stringResource(Res.string.send_from_the_group_s_wallet)
+                            else stringResource(Res.string.spend_from_s_s_guarded_wallet, guardian.name ?: stringResource(Res.string.a_subgroup)),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

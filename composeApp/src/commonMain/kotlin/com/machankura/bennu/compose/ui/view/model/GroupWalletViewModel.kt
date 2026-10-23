@@ -203,9 +203,15 @@ class GroupWalletViewModel(
         }
         isActionPending.value = true
 
+        // A guardian's spend is bumped as one: the same leaf, the same descendant.
+        val guardedChatRoomId = state.spends.first { it.transaction.frostSigningSessionId == sessionId }.transaction.guardedChatRoomId
+
         viewModelScope.launch(Dispatchers.IO) {
             val session = runCatching {
-                frostSigningRepository.proposeSpend(state.localChatRoom, activeUserPublicKey, built.psbt, chain)
+                when (guardedChatRoomId) {
+                    null -> frostSigningRepository.proposeSpend(state.localChatRoom, activeUserPublicKey, built.psbt, chain)
+                    else -> frostSigningRepository.proposeGuardianSpend(state.localChatRoom, activeUserPublicKey, built.psbt, guardedChatRoomId, chain)
+                }
             }.onFailure { logger.e("Failed to bump $sessionId", it) }.getOrNull()
 
             withContext(Dispatchers.Main) {

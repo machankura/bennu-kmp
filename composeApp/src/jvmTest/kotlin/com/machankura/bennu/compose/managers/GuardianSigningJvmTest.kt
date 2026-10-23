@@ -40,6 +40,20 @@ import fr.acinq.bitcoin.crypto.frost.IndividualNonce
 import fr.acinq.bitcoin.crypto.frost.SecretNonce
 import fr.acinq.bitcoin.crypto.frost.Session
 import kotlin.test.assertTrue
+import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.GroupSpendBuilder
+import com.machankura.bennu.compose.wallet.GroupWalletState
+import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
+import fr.acinq.bitcoin.OutPoint
+import fr.acinq.bitcoin.Satoshi
+import fr.acinq.bitcoin.Script
+import fr.acinq.bitcoin.ScriptFlags
+import fr.acinq.bitcoin.Transaction
+import fr.acinq.bitcoin.TxId
+import fr.acinq.bitcoin.TxIn
+import fr.acinq.bitcoin.TxOut
+import fr.acinq.lightning.blockchain.electrum.WalletState
+import kotlin.test.assertIs
 
 /**
  * A group's guardian keys through the real signing manager, between two of its
@@ -168,7 +182,7 @@ class GuardianSigningJvmTest {
     // ---- The certificate's guardian keys --------------------------------
 
     @Test
-    fun `a certificate granting the group's own key is signed, and carries it`() = runBlocking {
+    fun `a certificate granting the group's own key is signed, and carries it`(): Unit = runBlocking {
         val proposer = device(members[0], signerIndex = 0)
         val other = device(members[1], signerIndex = 1)
         val granted = GuardianDerivation.grant(thresholdPublicKey, roomId, emptyList(), childRoomId)
@@ -187,7 +201,7 @@ class GuardianSigningJvmTest {
     }
 
     @Test
-    fun `a certificate granting any other key is never put to the member`() = runBlocking {
+    fun `a certificate granting any other key is never put to the member`(): Unit = runBlocking {
         val proposer = device(members[0], signerIndex = 0)
         val other = device(members[1], signerIndex = 1)
         val coordinators = PrivateKey(ByteVector32(ByteArray(32) { 0x66 })).publicKey().toString()
@@ -301,7 +315,7 @@ class GuardianSigningJvmTest {
     }
 
     @Test
-    fun `a notice in the ancestor's room is a guarded wallet it holds, under its first guardians`() = runBlocking {
+    fun `a notice in the ancestor's room is a guarded wallet it holds, under its first guardians`(): Unit = runBlocking {
         val ancestor = device(members[0], signerIndex = 0)
         val first = guardedStatement(createdAt = 1_700_000_000)
         tell(ancestor, first)
@@ -327,7 +341,7 @@ class GuardianSigningJvmTest {
     }
 
     @Test
-    fun `a member in both rooms carries the child's statement up, once`() = runBlocking {
+    fun `a member in both rooms carries the child's statement up, once`(): Unit = runBlocking {
         val member = device(members[0], signerIndex = 0)
         // This device is also in the child's room, and holds its signed statement there.
         member.db.chatRoomDao().upsert(ChatRoom(id = guardedChildRoomId, userPublicKey = member.publicKey, subject = "Translation team", description = null, mlsGroupState = "00"))
@@ -353,5 +367,106 @@ class GuardianSigningJvmTest {
         // Told is told: nothing left to share, and the ancestor's own device reads it back.
         assertEquals(emptyList(), GuardianManager.shareableFrom(member.db, guardedChildRoomId, Chain.Regtest))
         assertEquals(listOf(statement.id), GuardianManager.guardedWalletsOf(member.db, roomId).map { it.statement.id })
+    }
+
+    // ---- Spending from a guarded wallet ------------------------------------
+
+    private val chain = Chain.Regtest
+    private val elsewhere = ByteVector(Script.write(Script.pay2wpkh(PrivateKey(ByteVector32(ByteArray(32) { 9 })).publicKey())))
+
+    /** Somebody else's money paying the child's first guarded receive address. */
+    private fun fundingOf(guarded: GroupWalletDerivation.Account) = Transaction(
+        2, listOf(TxIn(OutPoint(TxId(ByteVector32(ByteArray(32) { 0x61 })), 0), ByteVector.empty, 0xffffffffL)),
+        listOf(TxOut(Satoshi(50_000), GroupWalletDerivation.derive(guarded, GroupWalletDerivation.RECEIVE, 0).pubkeyScript)), 0,
+    )
+
+    /** The child's wallet as Electrum would report it holding [funding], confirmed at [height], with the tip at [tip]. */
+    private fun fundedState(guarded: GroupWalletDerivation.Account, funding: Transaction, height: Int, tip: Int): GroupWalletState {
+        val meta = WalletState.AddressMeta.Derived(0)
+        val address = GroupWalletDerivation.derive(guarded, GroupWalletDerivation.RECEIVE, 0).address(chain)
+        val receive = WalletState(mapOf(address to WalletState.AddressState(meta, alreadyUsed = true, utxos = listOf(WalletState.Utxo(funding.txid, 0, height.toLong(), funding, meta)))))
+        val change = WalletState((0 until 3).associate { index ->
+            GroupWalletDerivation.derive(guarded, GroupWalletDerivation.CHANGE, index.toLong()).address(chain) to
+                WalletState.AddressState(WalletState.AddressMeta.Derived(index), alreadyUsed = false, utxos = emptyList())
+        })
+        return GroupWalletState(guarded, receive, change, tipHeight = tip)
+    }
+
+    @Test
+    fun `the builder waits out the leaf's lock, and puts it on every input`() {
+        val guarded = assertNotNull(GuardianManager.verify(guardedStatement(), roomId, thresholdPublicKey))
+        val funding = fundingOf(guarded.account)
+        val address = fr.acinq.bitcoin.Bitcoin.addressFromPublicKeyScript(chain.chainHash, elsewhere.toByteArray()).right!!
+
+        // Eleven confirmations: the owner could spend it, the guardian cannot yet.
+        val young = fundedState(guarded.account, funding, height = 100, tip = 110)
+        assertIs<GroupSpendBuilder.Result.Built>(GroupSpendBuilder.sendAll(young, address, 2, emptySet()))
+        assertEquals(GroupSpendBuilder.Result.NothingToSpend, GroupSpendBuilder.sendAll(young, address, 2, emptySet(), guarded.spender()))
+
+        val old = fundedState(guarded.account, funding, height = 100, tip = 111)
+        val built = assertIs<GroupSpendBuilder.Result.Built>(GroupSpendBuilder.sendAll(old, address, 2, emptySet(), guarded.spender()))
+        assertEquals(listOf(12L), built.psbt.global.tx.txIn.map { it.sequence })
+
+        // What the builder charged for is what a signer weighs it at.
+        val checked = assertIs<GroupSpend.Result.Ok>(GroupSpend.check(built.psbt, guarded.account, guarded.spender(thresholdPublicKey))).checked
+        assertEquals(built.fee.sat, 2 * ((checked.weight + 3) / 4).toLong())
+    }
+
+    @Test
+    fun `an ancestor's quorum spends a descendant's coin through its leaf, on every device`(): Unit = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        val statement = guardedStatement()
+        tell(proposer, statement)
+        tell(other, statement)
+
+        val guarded = assertNotNull(GuardianManager.guardedWalletFor(proposer.db, roomId, guardedChildRoomId, chain, 0))
+        val funding = fundingOf(guarded.account)
+        val built = assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.send(fundedState(guarded.account, funding, 100, 200), fr.acinq.bitcoin.Bitcoin.addressFromPublicKeyScript(chain.chainHash, elsewhere.toByteArray()).right!!,
+                Satoshi(30_000), 2, emptySet(), emptySet(), guarded.spender())
+        )
+
+        val session = FrostSigningManager.proposeGuardianSpend(proposer.db, proposer.room, proposer.publicKey, built.psbt, guardedChildRoomId, chain)
+        pump(proposer, other)
+        assertEquals(FrostSigningSubject.TRANSACTION, other.session(session.id)?.subject)
+        val seen = assertNotNull(FrostSigningManager.checkedSpend(other.db, session.id))
+        assertIs<GroupSpend.Spender.Guardian>(seen.spender)
+        assertEquals(listOf(false, true), seen.outputs.map { it.isChange }, "the change goes back to the child")
+
+        FrostSigningManager.approve(other.db, other.room, session.id)
+        pump(proposer, other)
+
+        listOf(proposer, other).forEach { device ->
+            assertEquals(FrostSigningStage.COMPLETE, device.session(session.id)?.stage)
+            val row = assertNotNull(device.db.groupTransactionDao().getBySessionId(session.id))
+            assertEquals(guardedChildRoomId, row.guardedChatRoomId)
+            val signed = Transaction.read(assertNotNull(row.signedTransaction))
+            signed.correctlySpends(mapOf(OutPoint(funding, 0) to funding.txOut[0]), ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)
+            assertEquals(3, signed.txIn[0].witness.stack.size, "a signature, the leaf, and its control block")
+        }
+    }
+
+    @Test
+    fun `a guardian's spend is refused for a wallet the room was not told about, or without the lock`(): Unit = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        val statement = guardedStatement()
+        tell(proposer, statement)
+        // The other device was never told: it has no wallet to check the spend against.
+
+        val guarded = assertNotNull(GuardianManager.guardedWalletFor(proposer.db, roomId, guardedChildRoomId, chain, 0))
+        val funding = fundingOf(guarded.account)
+        val built = assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.sendAll(fundedState(guarded.account, funding, 100, 200), fr.acinq.bitcoin.Bitcoin.addressFromPublicKeyScript(chain.chainHash, elsewhere.toByteArray()).right!!, 2, emptySet(), guarded.spender())
+        )
+        val session = FrostSigningManager.proposeGuardianSpend(proposer.db, proposer.room, proposer.publicKey, built.psbt, guardedChildRoomId, chain)
+        pump(proposer, other)
+        assertNull(other.session(session.id), "a device not told about the wallet has nothing to sign it against")
+
+        // And the proposer's own device will not propose one that skips the lock.
+        val unlocked = built.psbt.global.tx.let { tx -> tx.copy(txIn = tx.txIn.map { it.copy(sequence = GroupSpend.MAX_SEQUENCE) }) }
+        val psbt = GroupSpend.psbtOf(unlocked, listOf(funding.txOut[0] to GroupWalletDerivation.derive(guarded.account, 0, 0)), emptyMap(), guarded.account)
+        assertIs<GroupSpend.Result.Refused>(GroupSpend.check(psbt, guarded.account, guarded.spender(thresholdPublicKey)))
     }
 }
