@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector32
@@ -116,7 +117,8 @@ class CreateSharedKeyViewModelJvmTest {
                 threshold: Int,
                 parentChatRoomId: HexKey?,
                 participantPublicKeys: Set<HexKey>?,
-                subject: String?
+                subject: String?,
+                walletPolicy: SubgroupWalletPolicy?
             ): DkgSession? {
                 proposed += threshold
                 return session("new".padEnd(64, '0'), DkgRitualStage.COLLECTING_HOST_KEYS)

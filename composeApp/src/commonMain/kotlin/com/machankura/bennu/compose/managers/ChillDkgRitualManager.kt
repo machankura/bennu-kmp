@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
@@ -182,6 +185,12 @@ object ChillDkgRitualManager {
      * and is carried to the other admins on the proposal because there is no
      * longer a room of its own for them to read it off.
      *
+     * [walletPolicy] is what the subgroup's wallet is to be, as the coordinator
+     * chose it on the picker -- carried on the proposal so every admin is told
+     * before joining, and on the session so whoever proposes the birth
+     * certificate proposes it under the same one. Only a subgroup's ceremony has
+     * one. See `docs/subgroup-wallet-policy.md`.
+     *
      * Throws when the group or the threshold cannot support one; the UI checks
      * both before offering the button, so reaching either is a bug rather than a
      * user error.
@@ -194,8 +203,17 @@ object ChillDkgRitualManager {
         threshold: Int,
         parentChatRoomId: HexKey? = null,
         participantPublicKeys: Set<HexKey>? = null,
-        subject: String? = null
+        subject: String? = null,
+        walletPolicy: SubgroupWalletPolicy? = null
     ): DkgSession {
+        // A policy is for a subgroup's wallet, and a ceremony with no parent makes
+        // no subgroup. `acceptProposal` drops the same thing on the way in.
+        // Before the running check, which would otherwise hand back a ceremony
+        // for a question this one should never have asked.
+        require(walletPolicy == null || parentChatRoomId != null) {
+            "Only a subgroup's ceremony carries a wallet policy"
+        }
+
         // Built the way a receiver rebuilds it from the proposal — the p-tags
         // `broadcast` writes, plus this device — so both sides count the same `n`
         // even if the room's own rows have drifted.
@@ -293,6 +311,7 @@ object ChillDkgRitualManager {
             // subgroup's ceremony runs in the parent's room over a subset of it.
             participantPublicKeys = DkgSession.formatParticipants(members),
             subject = ceremonySubject,
+            walletPolicy = walletPolicy?.tagValue,
             hostPublicKey = deriveHostPublicKey(nostrPrivateKey).value.toHex(),
             // Fresh per session. Persisted because participantStep1/2 are pure in
             // it, which is what makes the whole ritual restart-safe.
@@ -471,6 +490,22 @@ object ChillDkgRitualManager {
             return null
         }
 
+        // A policy is only for a subgroup's wallet, and one that does not read is
+        // not one to join on the assumption it says nothing: an admin would be
+        // shown no policy and then asked to sign a key state under one.
+        val walletPolicy = when (val tag = DkgRitualEvents.parseWalletPolicy(innerEvent.tags)) {
+            WalletPolicyTag.Result.Absent -> null
+            WalletPolicyTag.Result.Unreadable -> {
+                logger.w("DKG proposal $sessionId carries a wallet policy that does not read; dropping")
+                return null
+            }
+            is WalletPolicyTag.Result.Present -> tag.policy
+        }
+        if (walletPolicy != null && DkgRitualEvents.parseParentChatRoomId(innerEvent.tags) == null) {
+            logger.w("DKG proposal $sessionId carries a wallet policy and names no parent; dropping")
+            return null
+        }
+
         val session = DkgSession(
             id = sessionId,
             chatRoomId = localChatRoom.chatRoom.id,
@@ -495,6 +530,9 @@ object ChillDkgRitualManager {
             // on it, and the certificate the parent's quorum signs is over this
             // name, so an admin who dislikes it declines that.
             subject = DkgRitualEvents.parseSubject(innerEvent.tags),
+            // What the subgroup's wallet is to be, as claimed -- shown at the join
+            // gate, so joining is agreeing to it. See the checks above.
+            walletPolicy = walletPolicy?.tagValue,
             hostPublicKey = deriveHostPublicKey(nostrPrivateKey).value.toHex(),
             round1Random = RandomInstance.bytes(32).toHex(),
             round2AuxRandom = RandomInstance.bytes(32).toHex(),
@@ -1464,7 +1502,9 @@ object ChillDkgRitualManager {
             sessionId = session.id,
             threshold = if (includeThreshold) session.threshold else null,
             parentChatRoomId = if (includeParent) session.parentChatRoomId else null,
-            subject = subject
+            subject = subject,
+            // With the parent, and for the same reason: only on the proposal.
+            walletPolicy = if (includeParent) session.subgroupWalletPolicy else null
         )
 
         val createdAt = Clock.System.now().epochSeconds

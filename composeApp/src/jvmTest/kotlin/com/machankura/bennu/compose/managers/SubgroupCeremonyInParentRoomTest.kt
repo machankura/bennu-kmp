@@ -35,6 +35,9 @@ import com.machankura.bennu.compose.database.model.types.DkgRitualStage
 import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.nostr.Relays
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
+import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
 
 /**
  * A subgroup's key ceremony, held in the room of the group making it.
@@ -111,7 +114,10 @@ class SubgroupCeremonyInParentRoomTest {
 
     private val quorum = 2
 
-    private suspend fun openCeremony(room: LocalChatRoom) = ChillDkgRitualManager.proposeRitual(
+    private suspend fun openCeremony(
+        room: LocalChatRoom,
+        walletPolicy: SubgroupWalletPolicy? = null,
+    ) = ChillDkgRitualManager.proposeRitual(
         database = parent,
         localChatRoom = room,
         userPublicKey = user,
@@ -119,7 +125,8 @@ class SubgroupCeremonyInParentRoomTest {
         threshold = quorum,
         parentChatRoomId = parentRoomId,
         participantPublicKeys = admins,
-        subject = "Translation"
+        subject = "Translation",
+        walletPolicy = walletPolicy
     )
 
     private suspend fun innerEvents(database: BennuDatabase) = database.marmotInnerEventDao()
@@ -220,6 +227,111 @@ class SubgroupCeremonyInParentRoomTest {
         innerEvents(parent).filterNot { it.kind == DkgRitualEvents.PROPOSAL }.forEach {
             assertNull(DkgRitualEvents.parseSubject(it.tags), "kind ${it.kind} repeats the name")
         }
+    }
+
+    /**
+     * The coordinator's choice of wallet policy reaches every admin before they
+     * join -- docs/subgroup-wallet-policy.md, Phase 2. It is what the join screen
+     * shows and what the certificate is later proposed under, so it has to be on
+     * every admin's session, not only the coordinator's.
+     */
+    @Test
+    fun `the wallet policy travels on the proposal and lands on every admin's session`(): Unit = runBlocking {
+        val room = parentRoom()
+        val session = openCeremony(room, SubgroupWalletPolicy.GUARDED)
+        assertEquals(SubgroupWalletPolicy.GUARDED, session.subgroupWalletPolicy)
+
+        val proposal = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL }
+        )
+        assertEquals(
+            WalletPolicyTag.Result.Present(SubgroupWalletPolicy.GUARDED),
+            DkgRitualEvents.parseWalletPolicy(proposal.tags),
+        )
+        innerEvents(parent).filterNot { it.kind == DkgRitualEvents.PROPOSAL }.forEach {
+            assertEquals(WalletPolicyTag.Result.Absent, DkgRitualEvents.parseWalletPolicy(it.tags), "kind ${it.kind} repeats the policy")
+        }
+
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = receiverRoom(),
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+        assertEquals(
+            SubgroupWalletPolicy.GUARDED,
+            receiver.dkgSessionDao().getSessionById(session.id)?.subgroupWalletPolicy,
+        )
+    }
+
+    @Test
+    fun `a subgroup proposal from a build before policies carries none`(): Unit = runBlocking {
+        val session = openCeremony(parentRoom())
+        assertNull(session.walletPolicy)
+
+        val proposal = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL }
+        )
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = receiverRoom(),
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+        val joined = assertNotNull(receiver.dkgSessionDao().getSessionById(session.id))
+        assertNull(joined.walletPolicy, "joined, with nothing to show at the gate")
+    }
+
+    @Test
+    fun `a proposal whose wallet policy does not read is dropped`(): Unit = runBlocking {
+        val proposal = Event(
+            id = "cc".repeat(32),
+            pubKey = user,
+            createdAt = 1,
+            kind = DkgRitualEvents.PROPOSAL,
+            tags = admins.map { arrayOf("p", it) }.toTypedArray() +
+                DkgRitualEvents.assembleTags(
+                    sessionId = "ab".repeat(32),
+                    threshold = quorum,
+                    parentChatRoomId = parentRoomId,
+                    subject = "Translation",
+                ) + arrayOf(arrayOf(WalletPolicyTag.TAG_NAME, "maybe")),
+            content = "",
+            sig = ""
+        )
+
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = receiverRoom(),
+            innerEvent = proposal,
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        assertNull(
+            receiver.dkgSessionDao().getSessionById("ab".repeat(32)),
+            "an admin is not enrolled in a ceremony whose policy they could not be shown",
+        )
+    }
+
+    @Test
+    fun `only a subgroup's ceremony can carry a wallet policy`(): Unit = runBlocking {
+        val refused = runCatching {
+            ChillDkgRitualManager.proposeRitual(
+                database = parent,
+                localChatRoom = parentRoom(),
+                userPublicKey = user,
+                nostrPrivateKey = coordinator.privKey!!,
+                threshold = quorum,
+                participantPublicKeys = admins,
+                walletPolicy = SubgroupWalletPolicy.UNGUARDED,
+            )
+        }
+
+        assertTrue(refused.isFailure)
+        assertTrue(innerEvents(parent).isEmpty(), "and nothing goes out")
     }
 
     /**

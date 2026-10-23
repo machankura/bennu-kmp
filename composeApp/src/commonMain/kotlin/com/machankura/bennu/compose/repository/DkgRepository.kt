@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.repository
 
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
 import com.machankura.bennu.compose.database.model.DkgSession
 import com.machankura.bennu.compose.database.model.FrostSigningSession
@@ -85,7 +86,8 @@ interface DkgRepository {
         threshold: Int,
         parentChatRoomId: HexKey? = null,
         participantPublicKeys: Set<HexKey>? = null,
-        subject: String? = null
+        subject: String? = null,
+        walletPolicy: SubgroupWalletPolicy? = null
     ): DkgSession?
 
     /** What the ritual is waiting on this device's owner for, if anything. */
@@ -226,7 +228,8 @@ interface DkgRepository {
                 threshold: Int,
                 parentChatRoomId: HexKey?,
                 participantPublicKeys: Set<HexKey>?,
-                subject: String?
+                subject: String?,
+                walletPolicy: SubgroupWalletPolicy?
             ): DkgSession? = null
 
             override suspend fun pendingApproval(session: DkgSession): DkgApprovalStep? = null
