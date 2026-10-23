@@ -10,10 +10,12 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.ui.view.state.GroupWalletAddressesUIState
+import com.machankura.bennu.compose.wallet.GroupAddress
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import fr.acinq.bitcoin.Chain
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The group wallet's addresses, watched for as long as the screen is open.
@@ -32,6 +34,27 @@ class GroupWalletAddressesViewModel(
     var uiState: GroupWalletAddressesUIState by mutableStateOf(initialUIState)
         private set
 
+    /** The index of the address the sheet is showing as a QR code, or null when it is closed. */
+    var shown: Long? by mutableStateOf(null)
+        private set
+
+    private var onShownPaid: (() -> Unit)? = null
+
+    /**
+     * Opens the sheet on the receive address at [index]. [onPaid] runs once if
+     * that address is paid while the sheet is open, as the sheet closes: whoever
+     * is scanning it then has already paid, and nobody else should.
+     */
+    fun show(index: Long, onPaid: () -> Unit) {
+        shown = index
+        onShownPaid = onPaid
+    }
+
+    fun dismiss() {
+        shown = null
+        onShownPaid = null
+    }
+
     fun initiate() {
         viewModelScope.launch(Dispatchers.IO) {
             val wallet = chatRepository.groupWallet(chatRoomId, chain)
@@ -46,7 +69,18 @@ class GroupWalletAddressesViewModel(
 
             uiState = GroupWalletAddressesUIState.Loaded(receive = null)
             wallets.walletFor(wallet.account).state.collect { state ->
-                uiState = GroupWalletAddressesUIState.Loaded(receive = state.receiveAddresses)
+                val receive = state.receiveAddresses
+                uiState = GroupWalletAddressesUIState.Loaded(receive = receive)
+
+                val index = shown ?: return@collect
+                val status = receive?.firstOrNull { it.derivation.index == index }?.status ?: return@collect
+                if (status == GroupAddress.Status.USED) {
+                    val paid = onShownPaid
+                    withContext(Dispatchers.Main) {
+                        dismiss()
+                        paid?.invoke()
+                    }
+                }
             }
         }
     }

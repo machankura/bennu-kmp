@@ -30,6 +30,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.time.Instant
 
 /** Which of its states the address list is in, and that it follows the chain while it is open. */
@@ -117,5 +118,40 @@ class GroupWalletAddressesViewModelJvmTest {
         }
         val current = assertIs<GroupWalletAddressesUIState.Loaded>(state).receive!!.single { it.status == GroupAddress.Status.CURRENT }
         assertEquals(1L, current.derivation.index)
+    }
+
+    private fun GroupWalletAddressesViewModel.untilListed(index: Long, status: GroupAddress.Status) = until { loaded ->
+        (loaded as? GroupWalletAddressesUIState.Loaded)?.receive?.any { it.derivation.index == index && it.status == status } == true
+    }
+
+    @Test
+    fun `the sheet closes once when the address it shows is paid`() {
+        val electrum = FakeElectrum()
+        val addresses = viewModel(opened = wallet, wallets = GroupOnchainWallets(electrum, scope))
+        addresses.untilListed(1L, GroupAddress.Status.NEXT)
+
+        var paid = 0
+        addresses.show(1L) { paid++ }
+        runBlocking { electrum.pay(receive(1).pubkeyScript, Satoshi(25_000)) }
+        addresses.untilListed(1L, GroupAddress.Status.USED)
+        runBlocking { withTimeout(10_000) { while (addresses.shown != null) delay(10) } }
+
+        assertNull(addresses.shown)
+        assertEquals(1, paid)
+    }
+
+    @Test
+    fun `the sheet stays open when some other address is paid`() {
+        val electrum = FakeElectrum()
+        val addresses = viewModel(opened = wallet, wallets = GroupOnchainWallets(electrum, scope))
+        addresses.untilListed(1L, GroupAddress.Status.NEXT)
+
+        var paid = 0
+        addresses.show(1L) { paid++ }
+        runBlocking { electrum.pay(receive(0).pubkeyScript, Satoshi(25_000)) }
+        addresses.untilListed(1L, GroupAddress.Status.CURRENT)
+
+        assertEquals(1L, addresses.shown, "the address it shows became the current one, which is still unused")
+        assertEquals(0, paid)
     }
 }

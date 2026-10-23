@@ -630,6 +630,9 @@
     <string name="paid_s_sats">Paid · %1$s sats</string>
     <string name="paid_spent_since">Paid · spent since</string>
     <string name="copy_address_s">Copy address %1$s</string>
+    <string name="address_s">Address %1$s</string>
+    <string name="show_as_a_qr_code">Show as a QR code</string>
+    <string name="address_s_was_just_paid">Address %1$s was just paid</string>
     <string name="finding_the_group_s_coins">Finding the group's coins…</string>
     <string name="nothing_has_been_sent_to_this_wallet_yet">Nothing has been sent to this wallet yet.</string>
     <string name="this_profile_cannot_watch_the_chain">This profile has no wallet of its own to watch the chain with, so the balance and the next address can't be shown here.</string>
