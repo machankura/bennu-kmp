@@ -139,6 +139,14 @@ object ChillDkgRitualManager {
         memberPublicKeys(localChatRoom).size >= MINIMUM_PARTICIPANTS
 
     /**
+     * Whether [localChatRoom] is a Marmot room, and so can host a subgroup's
+     * ceremony but never one of its own. The same reading [broadcast] makes to
+     * pick a transport.
+     */
+    fun isMarmotRoom(localChatRoom: LocalChatRoom): Boolean =
+        localChatRoom.chatRoom.mlsGroupState != null
+
+    /**
      * Everyone a ceremony is being run with — which is not the same question as
      * who is in the room it runs in.
      *
@@ -243,6 +251,15 @@ object ChillDkgRitualManager {
         require(room.containsAll(members)) {
             "A ceremony in ${localChatRoom.chatRoom.id} cannot include " +
                 "${(members - room).joinToString { it.take(8) }}, who are not in it"
+        }
+
+        // A Marmot room's id is derived from the key it already has, so a ceremony
+        // of its own would make a key the room could never answer to. It hosts its
+        // subgroups' ceremonies and nothing else. The screens stopped offering one
+        // here, and this is what makes that a rule rather than a screen not drawing
+        // a button -- see docs/ceremony-creation.md.
+        require(parentChatRoomId != null || !isMarmotRoom(localChatRoom)) {
+            "${localChatRoom.chatRoom.id} is a Marmot room; it can only host a subgroup's ceremony"
         }
 
         require(members.size >= MINIMUM_PARTICIPANTS) {
@@ -398,6 +415,20 @@ object ChillDkgRitualManager {
         nostrPrivateKey: ByteArray
     ): DkgSession? {
         database.dkgSessionDao().getSessionById(sessionId)?.let { return it }
+
+        // The receiving half of `proposeRitual`'s refusal. A build from before it
+        // can still put a group's own ceremony on the wire in a Marmot room, and
+        // recording it would show every member a ceremony whose key the room can
+        // never use -- which is how a second ceremony ended up beside a subgroup's.
+        if (isMarmotRoom(localChatRoom) &&
+            DkgRitualEvents.parseParentChatRoomId(innerEvent.tags) == null
+        ) {
+            logger.w(
+                "DKG proposal $sessionId names no parent in Marmot room " +
+                    "${localChatRoom.chatRoom.id}; dropping"
+            )
+            return null
+        }
 
         // The participant set is the proposal's own p-tags plus its sender, NOT
         // this device's view of the room. `n` is hashed into the session identity,

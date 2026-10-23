@@ -370,6 +370,79 @@ class SubgroupCeremonyInParentRoomTest {
     }
 
     /**
+     * A Marmot room hosts its subgroups' ceremonies and never one of its own.
+     *
+     * Its id is derived from the key it already has, so a key of its own is one
+     * the room could never answer to. This is what opened a whole-room ceremony
+     * beside a subgroup's when the shared-key screen offered "Start key ceremony"
+     * in the parent's room -- see docs/ceremony-creation.md.
+     */
+    @Test
+    fun `a Marmot room refuses a ceremony of its own`(): Unit = runBlocking {
+        val room = parentRoom(withOwnKey = false)
+
+        val refused = runCatching {
+            ChillDkgRitualManager.proposeRitual(
+                database = parent,
+                localChatRoom = room,
+                userPublicKey = user,
+                nostrPrivateKey = coordinator.privKey!!,
+                threshold = quorum,
+            )
+        }
+
+        assertTrue(refused.isFailure, "a ceremony with no parent is refused in a Marmot room")
+        assertNull(
+            parent.dkgSessionDao().getLatestSessionForChatRoom(parentRoomId),
+            "and no session is recorded",
+        )
+        assertTrue(innerEvents(parent).isEmpty(), "and nothing goes out")
+
+        // A subgroup's, in the same room, is still what the room is for.
+        openCeremony(room)
+        assertNotNull(parent.dkgSessionDao().getLatestSessionForChatRoom(parentRoomId))
+    }
+
+    /**
+     * The receiving half: a build from before the refusal can still send one.
+     */
+    @Test
+    fun `a proposal naming no parent in a Marmot room is dropped`(): Unit = runBlocking {
+        val theirRoom = receiverRoom()
+
+        val proposal = Event(
+            id = "dd".repeat(32),
+            pubKey = user,
+            createdAt = 1,
+            kind = DkgRitualEvents.PROPOSAL,
+            // The shape `broadcast` gives a group's own proposal: the roster as
+            // p-tags, a threshold, a name, and no parent.
+            tags = admins.map { arrayOf("p", it) }.toTypedArray() +
+                DkgRitualEvents.assembleTags(
+                    sessionId = "ff".repeat(32),
+                    threshold = quorum,
+                    subject = "Ekklesia",
+                ),
+            content = "",
+            sig = ""
+        )
+
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = proposal,
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        assertNull(
+            receiver.dkgSessionDao().getSessionById("ff".repeat(32)),
+            "a whole-room ceremony is not recorded in a Marmot room",
+        )
+        assertTrue(innerEvents(receiver).isEmpty(), "and nothing is published")
+    }
+
+    /**
      * The parent does not start signing as its own child.
      *
      * `completedKey`'s last fallback is a ceremony held in this very room, and it
