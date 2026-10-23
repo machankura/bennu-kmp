@@ -54,17 +54,32 @@ data class GroupWallet(
          * Newest by the group's own timestamp with the id breaking a tie, for the
          * reason `GroupRelayList.newestAmong` gives: two devices reading the same
          * events in different orders have to agree.
+         *
+         * Two rules first, for a guarded account, each of which keeps a later
+         * statement from moving every address of one already holding coins:
+         *
+         *  1. a guarded statement outranks a plain one -- an account opened guarded
+         *     stays guarded, whatever a client that predates guardians signs later;
+         *  2. among guarded ones the earliest decides the guardians, and a later one
+         *     naming others is ignored. Changing who guards a wallet is another
+         *     account.
          */
         fun newestAmong(
             signedEvents: List<GroupSignedEvent>,
             thresholdPublicKey: HexKey,
             chain: Chain,
             account: Long = 0L,
-        ): GroupWallet? =
-            signedEvents
-                .asSequence()
+        ): GroupWallet? {
+            val order = compareBy<GroupWallet>({ it.openedAt }, { it.signedEvent.id })
+            val opened = signedEvents
                 .mapNotNull { of(it, thresholdPublicKey) }
                 .filter { it.chain == chain && it.account.account == account }
-                .maxWithOrNull(compareBy({ it.openedAt }, { it.signedEvent.id }))
+
+            val guarded = opened.filter { it.account.isGuarded }
+            val first = guarded.minWithOrNull(order)
+                ?: return opened.maxWithOrNull(order)
+
+            return guarded.filter { it.account.guardians == first.account.guardians }.maxWithOrNull(order)
+        }
     }
 }
