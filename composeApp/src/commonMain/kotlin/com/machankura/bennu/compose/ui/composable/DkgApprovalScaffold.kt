@@ -201,10 +201,10 @@ internal fun DkgApprovalScaffold(
                         }
 
                         Button(
-                            onClick = {
-                                dkgRitualViewModel.approve(step)
-                                onDone()
-                            },
+                            // Closes once the approval has gone out, not on the
+                            // press: closing clears the view model and would cancel
+                            // the publish with it. The button spins meanwhile.
+                            onClick = { dkgRitualViewModel.approve(step, onApproved = onDone) },
                             enabled = !isActionPending,
                             modifier = Modifier.weight(1f)
                         ) {
