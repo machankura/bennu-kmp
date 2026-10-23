@@ -872,12 +872,25 @@ data class ChatMessage(
                     val event = Event.fromJsonOrNull(groupEventResult.innerEventJson)
                         ?: throw MarmotUnprocessableInnerEventException("Can't process ${groupEventResult.innerEventJson}")
 
+                    // A key ceremony's or a signing session's own message. Decided
+                    // first, before anything that shares its kind number gets a
+                    // look: 30310-30312 are also nip30303 kinds, and round 1 of a
+                    // subgroup's ceremony (30312) was being read as a submission,
+                    // failing to parse, and landing in the parent's chat as raw hex
+                    // -- see docs/ceremony-creation.md, finding F11. Stored like
+                    // every inner event, so a ceremony can replay what arrived
+                    // before its proposal; acted on by the managers
+                    // `NostrDao.fileGroupEventResult` dispatches to, which write
+                    // their own transcript lines.
+                    val isProtocolMessage = event.kind in DkgRitualEvents.ALL ||
+                        event.kind in FrostSigningEvents.ALL
+
                     // A submission is an envelope: the nip30303 event it delivers
                     // is in its content, written by whoever wrote it. Everything
                     // else on the wire is the nip30303 event itself. Either way the
                     // row on disk is the outer event -- that is what the group sent
                     // and what the chat line is attributed to.
-                    val submission = if (event.kind == SubmissionEvent.KIND) {
+                    val submission = if (event.kind == SubmissionEvent.KIND && !isProtocolMessage) {
                         SubmissionEvent(
                             id = event.id,
                             pubKey = event.pubKey,
@@ -904,6 +917,8 @@ data class ChatMessage(
                             createdAt = Instant.fromEpochSeconds(event.createdAt)
                         )
                     )
+
+                    if (isProtocolMessage) return null
 
                     // A direct message is not a nip30303 payload to apply. It is
                     // gift wrapped for one member, and what this device does with it
@@ -1150,6 +1165,33 @@ data class ChatMessage(
             )
 
             return when (event.kind) {
+                // First, above every content kind: protocol kinds are never
+                // content, whatever else shares their number, and a `when` takes
+                // the first arm that matches. The ceremony's 30310 and 30311 used
+                // to reach the nip30303 contributor-list and translation arms below
+                // before this one.
+                //
+                // A signing session's own protocol messages. FrostSigningManager
+                // applies them and writes its own transcript lines naming who did
+                // what, so an "unsupported" row here would be a second, worse
+                // account of the same thing.
+                in FrostSigningEvents.ALL -> null
+
+                // A key ceremony's own protocol messages, for the same reason.
+                // These reach a Marmot room when the group is standing up a
+                // subgroup: the child's ChillDKG runs in the parent's room,
+                // because the child has no room until the ceremony has made the
+                // key its id is derived from. `ChillDkgRitualManager` applies
+                // them and writes the ladder of lines naming who joined, who
+                // contributed and who confirmed.
+                //
+                // Null for every member of the room, including the ones the
+                // ceremony is not with. They were never in the participant set
+                // and their device drops the proposal, so the alternative to no
+                // line at all is an "unsupported" one for a ceremony that is
+                // none of their business.
+                in DkgRitualEvents.ALL -> null
+
                 ChatEvent.KIND -> {
                     ChatMessage(
                         giftWrapPayloadId = null,
@@ -1471,26 +1513,6 @@ data class ChatMessage(
                         )
                     }
                 }
-                // A signing session's own protocol messages. FrostSigningManager
-                // applies them and writes its own transcript lines naming who did
-                // what, so an "unsupported" row here would be a second, worse
-                // account of the same thing.
-                in FrostSigningEvents.ALL -> null
-
-                // A key ceremony's own protocol messages, for the same reason.
-                // These reach a Marmot room when the group is standing up a
-                // subgroup: the child's ChillDKG runs in the parent's room,
-                // because the child has no room until the ceremony has made the
-                // key its id is derived from. `ChillDkgRitualManager` applies
-                // them and writes the ladder of lines naming who joined, who
-                // contributed and who confirmed.
-                //
-                // Null for every member of the room, including the ones the
-                // ceremony is not with. They were never in the participant set
-                // and their device drops the proposal, so the alternative to no
-                // line at all is an "unsupported" one for a ceremony that is
-                // none of their business.
-                in DkgRitualEvents.ALL -> null
 
                 // The group saying what key one of its rooms signs with, arriving
                 // here the way every group-signed event does: applied by

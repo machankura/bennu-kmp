@@ -57,17 +57,15 @@ import com.machankura.bennu.compose.nostr.frost.tags.FrostSilentMembersTag
  * on kind by the same inbound path. Starting at 30320 leaves that family room to
  * grow into.
  *
- * The DKG's 30310-30316 look like a clash and are not, but the reason is
- * narrower than it used to be. The nip30303 kinds exist only inside Marmot inner
- * events and the DKG's only inside NIP-17 gift wraps, so the numbers overlap
- * where nothing reads across -- the DKG's proposal and host-key kinds sit on
- * 30310 and 30311 alongside two nip30303 kinds, and its round-1 kind is 30312,
- * alongside SubmissionEvent.
- *
- * These kinds are now the ones that *do* travel on both transports, which is
- * exactly why they must not overlap with either family. They do not. But that
- * separation was an accident of routing rather than a decision, and the next
- * family added should not rely on it.
+ * The DKG's 30310-30316 *did* clash with that family, once a subgroup's ceremony
+ * moved into its parent's Marmot room: its proposal, host key and round 1 sat on
+ * 30310-30312 beside three nip30303 kinds, in the same inner-event space, and
+ * round 1 reached the parent's chat as an unreadable submission. They were told
+ * apart only by NIP-17 gift wraps carrying one and Marmot the other, which was
+ * an accident of routing rather than a decision. `ChatMessage` now recognises
+ * this family's kinds and the DKG's before any content kind, which is the
+ * decision. A new family should still take numbers nobody else uses -- see
+ * docs/ceremony-creation.md.
  */
 object FrostSigningEvents {
     /**

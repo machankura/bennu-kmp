@@ -9,11 +9,16 @@ import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupParentTag
 /**
  * The nostr kinds a ChillDKG ritual is carried on.
  *
- * These are **rumor** kinds: they only ever exist inside a NIP-17 gift wrap
- * addressed to the group, so no relay sees them unencrypted and the replaceable
- * semantics normally implied by the 3xxxx range never apply. They sit next to
- * the app's other private kinds (30300-30309) deliberately — the transport,
- * sealing and broadcast pipeline is the same one chat messages ride.
+ * These are **rumor** kinds: they only ever travel encrypted -- inside a NIP-17
+ * gift wrap for a group's own ceremony, and as a Marmot inner event in the
+ * parent's room for a subgroup's -- so no relay sees them in the clear and the
+ * replaceable semantics normally implied by the 3xxxx range never apply. The
+ * transport, sealing and broadcast pipeline is the one chat messages ride.
+ *
+ * 30310-30312 are shared with nip30303 document kinds, which also travel as
+ * Marmot inner events. `ChatMessage` recognises these before any content kind
+ * for that reason; a round 1 read as a document submission once reached a
+ * parent's chat as raw hex. See docs/ceremony-creation.md.
  *
  * Who talks to whom, in order:
  *

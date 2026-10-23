@@ -92,10 +92,10 @@ class ChronicleEvent(
          * family.
          *
          * 30313 was free next to the document kinds and is not used, on
-         * `FrostSigningEvents`' own advice: the DKG's 30310-30316 already overlap
-         * that range and are told apart only by living in NIP-17 gift wraps
-         * instead, which is "an accident of routing rather than a decision, and
-         * the next family added should not rely on it." This is that next family.
+         * `FrostSigningEvents`' own advice: the DKG's 30310-30316 overlap that
+         * range, and were told apart only by which transport carried them until a
+         * subgroup's ceremony moved into its parent's Marmot room and they
+         * collided. This family took numbers nobody else uses instead.
          *
          * It is also the right neighbourhood on the merits. A chronicle is not a
          * document kind; it is a statement about the record, which is what a key
