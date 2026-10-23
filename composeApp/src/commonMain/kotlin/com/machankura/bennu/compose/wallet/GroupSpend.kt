@@ -84,6 +84,8 @@ object GroupSpend {
     }
 
     data class Checked(
+        /** The account the spend was checked against -- and so the network its addresses are on. */
+        val account: GroupWalletDerivation.Account,
         val psbt: Psbt,
         val inputs: List<SpentInput>,
         val outputs: List<CheckedOutput>,
@@ -189,7 +191,7 @@ object GroupSpend {
             return Result.Refused("pays a fee of ${fee.sat} sats, over $MAX_FEERATE_SAT_PER_VBYTE sats per byte")
         }
 
-        return Result.Ok(Checked(psbt = psbt, inputs = inputs, outputs = outputs, fee = fee, weight = weight))
+        return Result.Ok(Checked(account = account, psbt = psbt, inputs = inputs, outputs = outputs, fee = fee, weight = weight))
     }
 
     /**

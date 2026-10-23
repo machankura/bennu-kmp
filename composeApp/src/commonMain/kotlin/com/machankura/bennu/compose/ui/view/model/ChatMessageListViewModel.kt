@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.text.ProposedSpend
+import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.input.TextFieldState
@@ -227,9 +229,16 @@ class ChatMessageListViewModel(
                             // The first item that can be read, not the first item:
                             // a batch whose lead is unreadable is still about
                             // something, and the notice should say what.
-                            lead = local.items.firstNotNullOfOrNull { item ->
-                                Event.fromJsonOrNull(item.unsignedEventJson)
-                                    ?.let { ProposedEvent.summarize(it) }
+                            lead = if (local.session.subject == FrostSigningSubject.TRANSACTION) {
+                                // Said without reading the PSBT: the notice only has
+                                // to say what kind of thing is waiting, and the
+                                // signing screen is where the spend is checked.
+                                ProposedSpend.UNREADABLE.copy(detail = "")
+                            } else {
+                                local.items.firstNotNullOfOrNull { item ->
+                                    Event.fromJsonOrNull(item.unsignedEventJson)
+                                        ?.let { ProposedEvent.summarize(it) }
+                                }
                             },
                             eventCount = local.items.size
                         )

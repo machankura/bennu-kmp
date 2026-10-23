@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import fr.acinq.bitcoin.OutPoint
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
@@ -838,6 +839,37 @@ object FrostSigningManager {
         val chain = GroupWalletStatementEvent.chainNamed(transaction.chain) ?: return null
         return transaction to GroupWalletDerivation.account(thresholdPublicKey, chain, transaction.account)
     }
+
+    /**
+     * The spend a transaction session signs, checked again from its stored PSBT,
+     * or null for an event session or one whose spend no longer checks out.
+     *
+     * What the approval screen and the proposal list show. Checked rather than
+     * decoded, so that what a member reads is exactly what [GroupSpend.check]
+     * vouched for: every input's place under the account, which outputs are
+     * change, and a fee computed from amounts the sighashes commit to.
+     */
+    suspend fun checkedSpend(database: BennuDatabase, sessionId: String): GroupSpend.Checked? {
+        val session = database.frostSigningSessionDao().getSessionById(sessionId) ?: return null
+        if (session.subject != FrostSigningSubject.TRANSACTION) return null
+        val thresholdPublicKey = database.dkgSessionDao().getSessionById(session.dkgSessionId)?.thresholdPublicKey
+            ?: return null
+        val (transaction, account) = spendAccount(database, session, thresholdPublicKey) ?: return null
+        val psbt = GroupSpend.decode(transaction.psbt) ?: return null
+        return (GroupSpend.check(psbt, account) as? GroupSpend.Result.Ok)?.checked
+    }
+
+    /**
+     * The coins a room's open spends are already spending, which a new spend
+     * should leave alone. A failed session releases its coins; every other one
+     * holds them, a finished one included -- until its transaction is on chain,
+     * the coins are still unspent as far as Electrum can say.
+     */
+    suspend fun reservedOutPoints(database: BennuDatabase, chatRoomId: String): Set<OutPoint> =
+        database.groupTransactionDao().getByChatRoomId(chatRoomId)
+            .filter { database.frostSigningSessionDao().getSessionById(it.frostSigningSessionId)?.stage != FrostSigningStage.FAILED }
+            .flatMap { transaction -> GroupSpend.decode(transaction.psbt)?.global?.tx?.txIn?.map { it.outPoint }.orEmpty() }
+            .toSet()
 
     /**
      * Verifies the group's signatures, puts them on the transaction, and closes

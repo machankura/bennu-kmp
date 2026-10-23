@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.database.repository
 
+import com.machankura.bennu.compose.wallet.GroupSpend
+import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.OutPoint
+import fr.acinq.bitcoin.psbt.Psbt
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -125,6 +129,35 @@ class DatabaseFrostSigningRepository(
     } catch (e: Throwable) {
         logger.e("Error proposing a signature in ${localChatRoom.chatRoom.id}", e)
         null
+    }
+
+    override suspend fun proposeSpend(
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        psbt: Psbt,
+        chain: Chain,
+    ): FrostSigningSession? = proposing(localChatRoom) {
+        FrostSigningManager.proposeSpend(
+            database = database,
+            localChatRoom = localChatRoom,
+            userPublicKey = userPublicKey,
+            psbt = psbt,
+            chain = chain,
+        )
+    }
+
+    override suspend fun checkedSpend(sessionId: String): GroupSpend.Checked? = try {
+        FrostSigningManager.checkedSpend(database, sessionId)
+    } catch (e: Throwable) {
+        logger.e("Error checking the spend of $sessionId", e)
+        null
+    }
+
+    override suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint> = try {
+        FrostSigningManager.reservedOutPoints(database, chatRoomId)
+    } catch (e: Throwable) {
+        logger.e("Error reading the coins reserved in $chatRoomId", e)
+        emptySet()
     }
 
     override suspend fun resend(localChatRoom: LocalChatRoom, sessionId: String): Boolean = try {

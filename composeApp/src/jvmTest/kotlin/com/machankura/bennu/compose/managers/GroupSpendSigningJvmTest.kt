@@ -334,4 +334,27 @@ class GroupSpendSigningJvmTest {
         kotlin.test.assertIs<GroupSpend.Result.Refused>(GroupSpend.check(spending(fee = 1_000_000), account))
         kotlin.test.assertIs<GroupSpend.Result.Ok>(GroupSpend.check(spending(fee = 5_000), account))
     }
+
+    @Test
+    fun `a member reads the spend as checked, and its coins are reserved until it fails`() = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        openWallet(proposer, other)
+
+        val session = FrostSigningManager.proposeSpend(proposer.db, proposer.room, proposer.publicKey, psbt(), chain)
+        pump(proposer, other)
+
+        // What the approval screen draws, read off the member's own copy.
+        val spend = assertNotNull(FrostSigningManager.checkedSpend(other.db, session.id))
+        assertEquals(Satoshi(70_000), spend.amountSent)
+        assertEquals(Satoshi(1_000), spend.fee)
+        assertEquals(listOf(false, true), spend.outputs.map { it.isChange })
+
+        val coins = setOf(OutPoint(funding, 0), OutPoint(funding, 1))
+        assertEquals(coins, FrostSigningManager.reservedOutPoints(other.db, roomId))
+
+        // Abandoned however it was -- the stage is all the reservation reads.
+        other.db.frostSigningSessionDao().upsert(other.session(session.id)!!.copy(stage = FrostSigningStage.FAILED))
+        assertEquals(emptySet(), FrostSigningManager.reservedOutPoints(other.db, roomId), "a failed spend releases its coins")
+    }
 }

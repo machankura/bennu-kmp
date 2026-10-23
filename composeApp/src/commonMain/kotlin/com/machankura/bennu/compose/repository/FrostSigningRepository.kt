@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.repository
 
+import com.machankura.bennu.compose.wallet.GroupSpend
+import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.OutPoint
+import fr.acinq.bitcoin.psbt.Psbt
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
@@ -223,6 +227,24 @@ interface FrostSigningRepository {
     /** The finished events, or empty while any of them is still running. */
     fun signedEvents(items: List<FrostSigningItem>): List<Event>
 
+    /**
+     * Opens a session over one transaction from the group's wallet, or null when
+     * the spend could not be proposed -- it failed a check, or the group has no
+     * wallet on [chain]. See `FrostSigningManager.proposeSpend`.
+     */
+    suspend fun proposeSpend(
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        psbt: Psbt,
+        chain: Chain,
+    ): FrostSigningSession?
+
+    /** The spend a transaction session signs, checked again; null for anything else. */
+    suspend fun checkedSpend(sessionId: String): GroupSpend.Checked?
+
+    /** The coins the room's open spends are already spending. */
+    suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint>
+
     companion object {
         val NO_OP_FROST_SIGNING_REPOSITORY: FrostSigningRepository = object : FrostSigningRepository {
             override fun observeSessionById(sessionId: String): Flow<FrostSigningSession?> = flowOf(null)
@@ -289,6 +311,17 @@ interface FrostSigningRepository {
             override suspend fun decline(localChatRoom: LocalChatRoom, sessionId: String) = Unit
 
             override fun unsignedEvents(items: List<FrostSigningItem>): List<Event> = emptyList()
+
+            override suspend fun proposeSpend(
+                localChatRoom: LocalChatRoom,
+                userPublicKey: HexKey,
+                psbt: Psbt,
+                chain: Chain,
+            ): FrostSigningSession? = null
+
+            override suspend fun checkedSpend(sessionId: String): GroupSpend.Checked? = null
+
+            override suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint> = emptySet()
 
             override fun signedEvents(items: List<FrostSigningItem>): List<Event> = emptyList()
         }

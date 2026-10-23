@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.state
 
+import com.machankura.bennu.compose.wallet.GroupSpend
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -56,6 +57,14 @@ sealed interface FrostSigningUIState {
          * so a second reading of it here is a second thing to keep in step.
          */
         val silent: Set<HexKey> = emptySet(),
+
+        /**
+         * For a session over a transaction, the spend as [com.machankura.bennu.compose.wallet.GroupSpend.check]
+         * vouched for it -- every output, which are change, and the fee. Null for
+         * an event session, and for a spend this device could not check, which
+         * the screen refuses to let anybody sign.
+         */
+        val spend: GroupSpend.Checked? = null,
     ): FrostSigningUIState {
         /**
          * The members the session can be answered by, as rows to draw.

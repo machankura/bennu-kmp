@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -83,6 +85,12 @@ class FrostSigningViewModel(
                     // `FrostSigningRepository.membersOwing`.
                     val owed = session?.let { frostSigningRepository.membersOwing(it) } ?: emptySet()
 
+                    // Checked once: the PSBT is write-once, so what it says cannot
+                    // change under a session that is still being collected.
+                    if (session?.subject == FrostSigningSubject.TRANSACTION && checkedSpend == null) {
+                        checkedSpend = frostSigningRepository.checkedSpend(session.id)
+                    }
+
                     frostSigningUIState = FrostSigningUIState.Loaded(
                         localChatRoom = localChatRoom,
                         session = session,
@@ -100,11 +108,14 @@ class FrostSigningViewModel(
                             .filter { it.kind == FrostSigningEvents.DECLINE }
                             .map { it.signerPublicKey }
                             .toSet(),
-                        silent = owed
+                        silent = owed,
+                        spend = checkedSpend,
                     )
                 }
         }
     }
+
+    private var checkedSpend: GroupSpend.Checked? = null
 
     /** One emission of everything the screen is drawn from -- the fourth flow outgrew `Triple`. */
     private data class Observed(

@@ -1,5 +1,16 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
+import com.machankura.bennu.compose.text.ProposedSpend
+import com.machankura.bennu.compose.text.grouped
+import bennu.composeapp.generated.resources.this_spend_could_not_be_checked
+import bennu.composeapp.generated.resources.spend_from_the_group_s_wallet
+import bennu.composeapp.generated.resources.s_sats
+import bennu.composeapp.generated.resources.s_sats_back_to_the_group_as_change
+import bennu.composeapp.generated.resources.fee_s_sats_at_s_sats_per_byte
+import bennu.composeapp.generated.resources.spends_s_of_the_group_s_coins
+import bennu.composeapp.generated.resources.signed_by_the_group_any_member_can_send_it
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -177,13 +188,23 @@ fun FrostSigningScreen(
                 // flash an error on the way in.
                 val session = state.session ?: return@Scaffold Loading(padding)
 
-                val proposed = frostSigningViewModel.proposedEvents(state.items)
+                val isSpend = session.subject == FrostSigningSubject.TRANSACTION
+                val proposed = if (isSpend) emptyList() else frostSigningViewModel.proposedEvents(state.items)
 
                 // Every event of the batch has to be readable before any of it can
                 // be signed. A member cannot check what they cannot see, and a
                 // batch is all-or-nothing: agreeing to the two that rendered would
-                // be agreeing to the third as well.
-                val readable = state.items.isNotEmpty() && proposed.size == state.items.size
+                // be agreeing to the third as well. A spend is readable when this
+                // device has checked it, every input accounted for.
+                val readable = state.items.isNotEmpty() && if (isSpend) {
+                    state.spend?.inputs?.size == state.items.size
+                } else {
+                    proposed.size == state.items.size
+                }
+
+                // What has to be scrolled past before signing: each event of a
+                // batch, or each output of a spend.
+                val listed = if (isSpend) state.spend?.outputs?.size ?: 0 else proposed.size
 
                 val scrollState = rememberScrollState()
 
@@ -196,7 +217,7 @@ fun FrostSigningScreen(
                         .padding(MaterialTheme.spacing.space250),
                     verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space200)
                 ) {
-                    WhatIsBeingSigned(proposed, state.items.size)
+                    if (isSpend) WhatIsBeingSpent(state.spend) else WhatIsBeingSigned(proposed, state.items.size)
 
                     HorizontalDivider()
 
@@ -384,7 +405,7 @@ fun FrostSigningScreen(
                         // waits until the list has been read to the end. maxValue
                         // is Int.MAX_VALUE until the first layout, and 0 when
                         // everything already fits.
-                        val seenEverything = proposed.size <= 1 ||
+                        val seenEverything = listed <= 1 ||
                             (scrollState.maxValue != Int.MAX_VALUE && scrollState.value >= scrollState.maxValue)
 
                         if (readable && !seenEverything) {
@@ -486,6 +507,70 @@ private fun WhatIsBeingSigned(events: List<Event>, expected: Int) {
             text = "Signed by the group, not by you. Once enough members sign, " +
                 (if (events.size > 1) "these are" else "this is") +
                 " published under the group's shared key.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/**
+ * The spend, every output of it: what leaves the group and where to, what comes
+ * back as change, and the fee. The batch rule holds with more force here -- a
+ * member who cannot see every output must not be able to approve one -- so
+ * every output is a row, change included, and nothing is behind a disclosure
+ * but the coins being spent, which are the group's own and were each checked
+ * against the wallet before this was drawn.
+ */
+@Composable
+private fun WhatIsBeingSpent(spend: GroupSpend.Checked?) {
+    if (spend == null) {
+        Text(
+            text = stringResource(Res.string.this_spend_could_not_be_checked),
+            color = MaterialTheme.colorScheme.error
+        )
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space200)) {
+        Text(
+            text = stringResource(Res.string.spend_from_the_group_s_wallet),
+            style = MaterialTheme.typography.labelMedium
+        )
+
+        spend.outputs.forEach { output ->
+            Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space50)) {
+                Text(
+                    text = ProposedSpend.addressOf(output.txOut.publicKeyScript, spend.account.chain),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = if (output.isChange) {
+                        stringResource(Res.string.s_sats_back_to_the_group_as_change, output.txOut.amount.grouped())
+                    } else {
+                        stringResource(Res.string.s_sats, output.txOut.amount.grouped())
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (output.isChange) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                )
+            }
+            HorizontalDivider()
+        }
+
+        Text(
+            text = stringResource(
+                Res.string.fee_s_sats_at_s_sats_per_byte,
+                spend.fee.grouped(),
+                spend.feeratePerVbyte.toString()
+            ),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = stringResource(Res.string.spends_s_of_the_group_s_coins, spend.inputs.size.toString()),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = stringResource(Res.string.signed_by_the_group_any_member_can_send_it),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

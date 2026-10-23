@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.text.ProposedSpend
+import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
@@ -161,8 +163,18 @@ class ProposalListViewModel(
                 else -> local.proposer?.humanReadableNameOrPubkey()
                     ?: local.session.coordinatorPublicKey.shortened()
             },
-            signs = events.map { ProposedEvent.summarize(it) },
-            unreadable = items.size - events.size,
+            signs = if (local.session.subject == FrostSigningSubject.TRANSACTION) {
+                listOf(
+                    frostSigningRepository.checkedSpend(local.session.id)
+                        ?.let { ProposedSpend.summarize(it, it.account.chain) }
+                        ?: ProposedSpend.UNREADABLE
+                )
+            } else {
+                events.map { ProposedEvent.summarize(it) }
+            },
+            // A spend's inputs are not events, and none of them is unreadable on
+            // its own: the spend is checked whole, and says so in its summary.
+            unreadable = if (local.session.subject == FrostSigningSubject.TRANSACTION) 0 else items.size - events.size,
             awaitsYou = FrostSigningManager.isAwaitingApproval(local.session, items),
             noncesOffered = counted(FrostSigningEvents.NONCE),
             partialSignatures = counted(FrostSigningEvents.PARTIAL_SIGNATURE),
