@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.nostr.wallet
 
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.managers.GuardianDerivation
@@ -216,6 +218,52 @@ class GroupWalletStatementEventTest {
         val wallet = assertNotNull(GroupWallet.newestAmong(listOf(laterPlain, firstGuarded, laterOtherGuardians), thresholdKey, Chain.Mainnet))
         assertEquals(firstGuarded.id, wallet.signedEvent.id)
         assertEquals(laterPlain.id, GroupWallet.newestAmong(listOf(laterPlain), thresholdKey, Chain.Mainnet)?.signedEvent?.id)
+    }
+
+    // ---- the parent's decision: docs/subgroup-wallet-policy.md -------------
+
+    private val decidedGuarded = WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED)
+    private val decidedUnguarded = WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED)
+
+    @Test
+    fun `under a guarded policy a plain statement is no wallet, even alone`() {
+        // Stronger than rule 1: an older client's plain wallet opens nothing,
+        // so no device derives its addresses or watches its coins.
+        val plain = statement(mainnet)
+
+        assertNull(GroupWallet.newestAmong(listOf(plain), thresholdKey, Chain.Mainnet, policy = decidedGuarded))
+
+        val guarded = guardedStatement(createdAt = 1_700_000_100)
+        assertEquals(
+            guarded.id,
+            GroupWallet.newestAmong(listOf(plain, guarded), thresholdKey, Chain.Mainnet, policy = decidedGuarded)?.signedEvent?.id,
+        )
+    }
+
+    @Test
+    fun `under an unguarded policy a guarded statement is no wallet`() {
+        val plain = statement(mainnet, createdAt = 1_700_000_000)
+        val guarded = guardedStatement(createdAt = 1_700_000_100)
+
+        assertEquals(
+            plain.id,
+            GroupWallet.newestAmong(listOf(plain, guarded), thresholdKey, Chain.Mainnet, policy = decidedUnguarded)?.signedEvent?.id,
+            "rule 1 would have picked the guarded one; the parent ruled it out",
+        )
+    }
+
+    @Test
+    fun `an undecided room reads exactly as before policies`() {
+        val plain = statement(mainnet, createdAt = 1_700_000_200)
+        val guarded = guardedStatement(createdAt = 1_700_000_000)
+
+        listOf(WalletPolicyReading.Undecided, null).forEach { policy ->
+            assertEquals(
+                guarded.id,
+                GroupWallet.newestAmong(listOf(plain, guarded), thresholdKey, Chain.Mainnet, policy = policy)?.signedEvent?.id,
+            )
+            assertEquals(plain.id, GroupWallet.newestAmong(listOf(plain), thresholdKey, Chain.Mainnet, policy = policy)?.signedEvent?.id)
+        }
     }
 
     @Test

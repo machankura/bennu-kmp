@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.allows
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.ChatMessage
@@ -95,6 +96,10 @@ object GuardianManager {
         val reading = GroupWalletStatementEvent.read(statement.tags, statement.content) ?: return null
         if (reading.guardians.isEmpty()) return null
         val certificate = reading.certificate ?: return null
+        // A guarded wallet the certificate's own policy does not allow -- one it
+        // contradicts, or decided unguarded -- is not one an honest descendant
+        // opens, so it is not one to list. docs/subgroup-wallet-policy.md.
+        if (!SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags).let { it != null && it.allows(guarded = true) }) return null
 
         val descendantKey = SubgroupBirthCertificateEvent.parseThresholdPublicKey(certificate.tags) ?: return null
         if (!SharedKeyDerivation.marmotGroupId(descendantKey).equals(descendantChatRoomId, ignoreCase = true)) return null

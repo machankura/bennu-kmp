@@ -48,3 +48,13 @@ sealed interface WalletPolicyReading {
 /** Whether this reading is the parent having decided [policy]. */
 fun WalletPolicyReading?.isDecided(policy: SubgroupWalletPolicy): Boolean =
     (this as? WalletPolicyReading.Decided)?.policy == policy
+
+/**
+ * Whether a wallet that is [guarded] -- or plain, when false -- is one this
+ * reading allows: a decided policy allows its own kind only, and an undecided
+ * or absent one allows either, as before policies.
+ */
+fun WalletPolicyReading?.allows(guarded: Boolean): Boolean = when (this) {
+    is WalletPolicyReading.Decided -> guarded == (policy == SubgroupWalletPolicy.GUARDED)
+    WalletPolicyReading.Undecided, null -> true
+}

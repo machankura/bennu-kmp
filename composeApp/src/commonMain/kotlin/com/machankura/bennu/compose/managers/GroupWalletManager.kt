@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
@@ -90,6 +91,7 @@ object GroupWalletManager {
         thresholdPublicKey = thresholdPublicKey,
         chain = chain,
         account = account,
+        policy = walletPolicyFor(database, chatRoomId),
     )
 
     /** The wallet [chatRoomId] has opened on [chain], or null when the group has not opened one. */
@@ -107,6 +109,17 @@ object GroupWalletManager {
             thresholdPublicKey = thresholdPublicKey,
             chain = chain,
             account = account,
+            policy = walletPolicyFor(database, chatRoomId),
         )
     }
+
+    /**
+     * What [chatRoomId]'s parent decided about its wallet at its birth, or null
+     * for a room with no certificate -- `docs/subgroup-wallet-policy.md`. The
+     * same reading the picker and every parent signer make, through
+     * `SubgroupManager.walletPolicyOf`, so the wallet a device opens, offers and
+     * signs for cannot disagree with what the group was made as.
+     */
+    suspend fun walletPolicyFor(database: BennuDatabase, chatRoomId: String): WalletPolicyReading? =
+        SubgroupManager.walletPolicyOf(database, chatRoomId)
 }

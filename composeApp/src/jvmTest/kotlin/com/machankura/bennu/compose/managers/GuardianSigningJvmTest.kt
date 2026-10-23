@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.GroupKeyState
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import androidx.room3.Room
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.builder.getRoomDatabase
@@ -211,6 +213,105 @@ class GuardianSigningJvmTest {
         pump(proposer, other)
 
         assertNull(other.session(session.id), "refused at acceptance, so nothing of the member's is ever published for it")
+    }
+
+    // ---- The parent's decision: docs/subgroup-wallet-policy.md ------------
+
+    /** A parent of this room, as a key whose certificate this test files without signing. */
+    private val decidingParentKey = PrivateKey(ByteVector32(ByteArray(32) { 0x4d })).publicKey().toString()
+    private val decidingParentRoomId = SharedKeyDerivation.marmotGroupId(decidingParentKey)
+    private val grantedToRoom = GuardianDerivation.grant(decidingParentKey, decidingParentRoomId, emptyList(), roomId)
+
+    /**
+     * This room as a subgroup its parent made under [policy], filed on [device]
+     * the way a verified key state leaves it. The policy is read off the
+     * certificate's tags; whether the parent signed it was `stateFrom`'s
+     * question, asked before the row was written.
+     */
+    private suspend fun madeUnder(device: Device, policy: SubgroupWalletPolicy?): Event {
+        val tags = SubgroupBirthCertificateEvent.assembleTags(
+            subgroupChatRoomId = roomId,
+            parentChatRoomId = decidingParentRoomId,
+            thresholdPublicKey = thresholdPublicKey,
+            adminPublicKeys = members,
+            name = "Council",
+            guardians = if (policy == SubgroupWalletPolicy.UNGUARDED) emptyList() else grantedToRoom,
+            walletPolicy = policy,
+        )
+        val certificate = Event("d".repeat(64), decidingParentRoomId, 1_700_000_000, SubgroupBirthCertificateEvent.KIND, tags, roomId, "f".repeat(128))
+        device.db.groupKeyStateDao().upsert(
+            GroupKeyState(
+                chatRoomId = roomId,
+                dkgSessionId = ceremonyId,
+                thresholdPublicKey = thresholdPublicKey,
+                derivationPath = SharedKeyDerivation.formatPath(SharedKeyDerivation.MARMOT_ADMIN_GROUP_PATH),
+                announcedBy = roomId,
+                announcedAt = Instant.fromEpochSeconds(1_700_000_000),
+                parentChatRoomId = decidingParentRoomId,
+                birthCertificateJson = certificate.toJson(),
+            )
+        )
+        return certificate
+    }
+
+    private suspend fun proposeStatement(proposer: Device, guarded: Boolean, certificate: Event) = run {
+        val template = if (guarded) {
+            GroupWalletStatementEvent.template(
+                GroupWalletDerivation.account(thresholdPublicKey, Chain.Regtest, guardians = grantedToRoom),
+                certificate,
+            )
+        } else {
+            GroupWalletStatementEvent.template(GroupWalletDerivation.account(thresholdPublicKey, Chain.Regtest))
+        }
+        FrostSigningManager.proposeSigning(proposer.db, proposer.room, proposer.publicKey, template.kind, template.tags, template.content)
+    }
+
+    @Test
+    fun `a plain wallet is never put to a member whose parent decided guarded`(): Unit = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        madeUnder(proposer, SubgroupWalletPolicy.GUARDED)
+        val certificate = madeUnder(other, SubgroupWalletPolicy.GUARDED)
+
+        // What an older build, or a skipped screen, would propose.
+        val plain = proposeStatement(proposer, guarded = false, certificate)
+        val guarded = proposeStatement(proposer, guarded = true, certificate)
+        pump(proposer, other)
+
+        assertNull(other.session(plain.id), "refused before it is shown")
+        assertNotNull(other.session(guarded.id), "the guarded one is asked")
+    }
+
+    @Test
+    fun `a guarded wallet is never put to a member whose parent decided unguarded`(): Unit = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        madeUnder(proposer, SubgroupWalletPolicy.UNGUARDED)
+        madeUnder(other, SubgroupWalletPolicy.UNGUARDED)
+
+        // A certificate granting keys, as a modified client might carry; the
+        // room's own decided none.
+        val guarded = proposeStatement(proposer, guarded = true, madeUnder(device(members[2], signerIndex = 2), SubgroupWalletPolicy.GUARDED))
+        val plain = proposeStatement(proposer, guarded = false, madeUnder(proposer, SubgroupWalletPolicy.UNGUARDED))
+        pump(proposer, other)
+
+        assertNull(other.session(guarded.id))
+        assertNotNull(other.session(plain.id))
+    }
+
+    @Test
+    fun `an undecided room is asked about either, as before`(): Unit = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        madeUnder(proposer, null)
+        val certificate = madeUnder(other, null)
+
+        val plain = proposeStatement(proposer, guarded = false, certificate)
+        val guarded = proposeStatement(proposer, guarded = true, certificate)
+        pump(proposer, other)
+
+        assertNotNull(other.session(plain.id))
+        assertNotNull(other.session(guarded.id))
     }
 
     // ---- Telling an ancestor about a guarded wallet -----------------------
