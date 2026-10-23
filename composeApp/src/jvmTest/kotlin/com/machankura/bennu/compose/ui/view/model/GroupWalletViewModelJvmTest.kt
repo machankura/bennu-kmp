@@ -10,6 +10,8 @@ import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
 import com.machankura.bennu.compose.ui.view.state.GroupWalletUIState
+import com.machankura.bennu.compose.ui.view.state.SpendStatus
+import com.machankura.bennu.compose.database.model.types.FrostSigningStage
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
 import fr.acinq.bitcoin.ByteVector32
@@ -165,5 +167,77 @@ class GroupWalletViewModelJvmTest {
             PrivateKey(ByteVector32(Hex.decode("1c0ffee".padStart(64, '0')))).publicKey().toString()
         ))
         runBlocking { withTimeout(5_000) { while (!failed) delay(10) } }
+    }
+
+    // ---- spends ------------------------------------------------------------
+
+    private val coinTx = fr.acinq.bitcoin.Transaction(
+        2, listOf(fr.acinq.bitcoin.TxIn(fr.acinq.bitcoin.OutPoint(fr.acinq.bitcoin.TxId(ByteVector32(ByteArray(32) { 1 })), 0), fr.acinq.bitcoin.ByteVector.empty, 0xffffffffL)),
+        listOf(fr.acinq.bitcoin.TxOut(fr.acinq.bitcoin.Satoshi(60_000), GroupWalletDerivation.derive(account, 0, 0).pubkeyScript)), 0,
+    )
+
+    private val spend: com.machankura.bennu.compose.wallet.GroupSpend.Checked = run {
+        val first = GroupWalletDerivation.derive(account, 0, 0)
+        val change = GroupWalletDerivation.derive(account, 1, 0)
+        val tx = fr.acinq.bitcoin.Transaction(
+            2, listOf(fr.acinq.bitcoin.TxIn(fr.acinq.bitcoin.OutPoint(coinTx, 0), fr.acinq.bitcoin.ByteVector.empty, 0xfffffffdL)),
+            listOf(
+                fr.acinq.bitcoin.TxOut(fr.acinq.bitcoin.Satoshi(30_000), fr.acinq.bitcoin.ByteVector("0014" + "00".repeat(20))),
+                fr.acinq.bitcoin.TxOut(fr.acinq.bitcoin.Satoshi(29_000), change.pubkeyScript),
+            ), 0,
+        )
+        val psbt = com.machankura.bennu.compose.wallet.GroupSpend.psbtOf(tx, listOf(coinTx.txOut[0] to first), mapOf(1 to change), account)
+        (com.machankura.bennu.compose.wallet.GroupSpend.check(psbt, account) as com.machankura.bennu.compose.wallet.GroupSpend.Result.Ok).checked
+    }
+
+    private val signedRow = com.machankura.bennu.compose.database.model.GroupTransaction(
+        frostSigningSessionId = "spend-1", chatRoomId = chatRoomId, chain = "mainnet", account = 0,
+        psbt = com.machankura.bennu.compose.wallet.GroupSpend.encode(spend.psbt), txid = spend.tx.txid.toString(), signedTransaction = "00",
+    )
+
+    private inner class SpendingRepository : FrostSigningRepository by FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY {
+        var proposed: fr.acinq.bitcoin.psbt.Psbt? = null
+        override fun observeGroupTransactions(chatRoomId: String) = kotlinx.coroutines.flow.flowOf(listOf(signedRow))
+        override suspend fun checkedSpend(sessionId: String) = spend
+        override suspend fun getSessionById(sessionId: String): FrostSigningSession? = null
+        override suspend fun proposeSpend(localChatRoom: LocalChatRoom, userPublicKey: HexKey, psbt: fr.acinq.bitcoin.psbt.Psbt, chain: Chain): FrostSigningSession? {
+            proposed = psbt
+            return null
+        }
+    }
+
+    @Test
+    fun `the room's spends are listed, and a bump asks for twice the feerate on the same coins`() {
+        val signing = SpendingRepository()
+        val model = viewModel(repository(opened = wallet), signing).apply { initiate() }
+
+        val loaded = runBlocking {
+            withTimeout(5_000) {
+                while ((model.groupWalletUIState as? GroupWalletUIState.Loaded)?.spends.isNullOrEmpty()) delay(10)
+                model.groupWalletUIState as GroupWalletUIState.Loaded
+            }
+        }
+        val row = loaded.spends.single()
+        assertEquals(com.machankura.bennu.compose.ui.view.state.SpendStatus.SIGNED, row.status)
+        assertEquals(true, row.canBump)
+
+        model.bumpFee("spend-1", onSuccess = {}, onFailure = {})
+        runBlocking { withTimeout(5_000) { while (signing.proposed == null) delay(10) } }
+
+        val bumped = (com.machankura.bennu.compose.wallet.GroupSpend.check(signing.proposed!!, account) as com.machankura.bennu.compose.wallet.GroupSpend.Result.Ok).checked
+        assertEquals(spend.tx.txIn.map { it.outPoint }, bumped.tx.txIn.map { it.outPoint })
+        assertEquals(spend.feeratePerVbyte * 2, bumped.feeratePerVbyte)
+    }
+
+    @Test
+    fun `a spend's status is the session's until it is signed, and the chain's after`() {
+        val unsigned = signedRow.copy(signedTransaction = null)
+
+        assertEquals(SpendStatus.WAITING_FOR_SIGNATURES, SpendStatus.of(FrostSigningStage.COLLECTING_NONCES, unsigned))
+        assertEquals(SpendStatus.ABANDONED, SpendStatus.of(FrostSigningStage.FAILED, unsigned))
+        assertEquals(SpendStatus.SIGNED, SpendStatus.of(FrostSigningStage.COMPLETE, signedRow))
+        assertEquals(SpendStatus.SENT, SpendStatus.of(FrostSigningStage.COMPLETE, signedRow.copy(seenAt = Instant.fromEpochSeconds(1))))
+        assertEquals(SpendStatus.CONFIRMED, SpendStatus.of(FrostSigningStage.COMPLETE, signedRow.copy(seenAt = Instant.fromEpochSeconds(1), confirmedAt = Instant.fromEpochSeconds(2))))
+        assertEquals(SpendStatus.REPLACED, SpendStatus.of(FrostSigningStage.COMPLETE, signedRow.copy(replacedByTxid = "ab".repeat(32))))
     }
 }

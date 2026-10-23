@@ -838,4 +838,14 @@
     <string name="couldn_t_ask_the_group_to_send">Couldn't ask the group to send.</string>
     <string name="sending_needs_a_share_and_a_node">Sending needs a share of the group's key, and a wallet of your own on this profile to see the group's coins with.</string>
     <string name="nothing_leaves_until_a_quorum_signs">Nothing leaves the wallet until a quorum of members has seen this spend and signed it.</string>
+    <string name="spends">Spends</string>
+    <string name="waiting_for_signatures">Waiting for signatures</string>
+    <string name="signed_sending_it_to_the_network">Signed, sending it to the network</string>
+    <string name="sent_waiting_for_a_confirmation">Sent, waiting for a confirmation</string>
+    <string name="confirmed">Confirmed</string>
+    <string name="replaced_by_a_later_spend">Replaced by a later spend</string>
+    <string name="send_again">Send again</string>
+    <string name="bump_the_fee">Bump the fee</string>
+    <string name="sent_again">Sent again</string>
+    <string name="couldn_t_bump_the_fee">Couldn't bump the fee: there isn't enough left over to pay it.</string>
 </resources>

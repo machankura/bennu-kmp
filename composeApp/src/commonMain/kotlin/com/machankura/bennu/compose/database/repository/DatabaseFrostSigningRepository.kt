@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.database.repository
 
+import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.wallet.GroupSpend
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.OutPoint
@@ -159,6 +160,9 @@ class DatabaseFrostSigningRepository(
         logger.e("Error reading the coins reserved in $chatRoomId", e)
         emptySet()
     }
+
+    override fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>> =
+        database.groupTransactionDao().observeByChatRoomId(chatRoomId)
 
     override suspend fun resend(localChatRoom: LocalChatRoom, sessionId: String): Boolean = try {
         FrostSigningManager.resend(

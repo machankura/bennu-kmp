@@ -1253,6 +1253,7 @@ fun BennuNavHost(
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
                     wallets = groupChainWallets,
+                    watcher = groupTransactionWatcher,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
                     },

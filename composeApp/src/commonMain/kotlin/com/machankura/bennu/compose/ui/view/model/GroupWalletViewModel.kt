@@ -1,5 +1,13 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.database.model.GroupTransaction
+import com.machankura.bennu.compose.ui.view.state.SpendRow
+import com.machankura.bennu.compose.ui.view.state.SpendStatus
+import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.GroupSpendBuilder
+import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +49,7 @@ class GroupWalletViewModel(
     val chatRepository: ChatRepository,
     val frostSigningRepository: FrostSigningRepository,
     private val wallets: GroupChainWallets?,
+    private val watcher: GroupTransactionWatcher? = null,
 ): ViewModel() {
     private val logger = Logger.withTag(TAG)
 
@@ -80,13 +89,67 @@ class GroupWalletViewModel(
             )
             groupWalletUIState = loaded
 
-            val chainWallet = wallets?.walletFor(wallet.account) ?: return@launch
+            // The chain and the room's spends, as one state: either changing
+            // redraws the screen, and neither may overwrite the other.
+            val chainState = wallets?.walletFor(wallet.account)?.state ?: flowOf(null)
             watching?.cancel()
             watching = viewModelScope.launch(Dispatchers.IO) {
-                chainWallet.state.collect { state ->
-                    groupWalletUIState = loaded.copy(walletState = state)
+                combine(chainState, frostSigningRepository.observeGroupTransactions(chatRoomId)) { state, transactions ->
+                    state to transactions.map { rowOf(it) }
+                }.collect { (state, rows) ->
+                    groupWalletUIState = loaded.copy(walletState = state, spends = rows)
                 }
             }
+        }
+    }
+
+    /** Checked once per session: the PSBT is write-once, so what it says cannot change. */
+    private val checkedSpends = mutableMapOf<String, GroupSpend.Checked?>()
+
+    private suspend fun rowOf(transaction: GroupTransaction): SpendRow {
+        val sessionId = transaction.frostSigningSessionId
+        val spend = checkedSpends.getOrPut(sessionId) { frostSigningRepository.checkedSpend(sessionId) }
+        val stage = frostSigningRepository.getSessionById(sessionId)?.stage
+        return SpendRow(transaction = transaction, status = SpendStatus.of(stage, transaction), spend = spend)
+    }
+
+    /** Sends a signed spend again now. Only worth anything while Electrum has not reported it back. */
+    fun sendAgain(sessionId: String, onSent: () -> Unit) {
+        val watcher = watcher ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (runCatching { watcher.broadcastAgain(sessionId) }.getOrDefault(false)) {
+                withContext(Dispatchers.Main) { onSent() }
+            }
+        }
+    }
+
+    /**
+     * Asks the group to sign [sessionId]'s spend again at twice its feerate: the
+     * same coins, the extra out of the change. A new session with new signatures --
+     * a retry is never the old session again -- and whichever of the two confirms
+     * settles the other.
+     */
+    fun bumpFee(sessionId: String, onSuccess: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+        val state = groupWalletUIState as? GroupWalletUIState.Loaded ?: return
+        val spend = state.spends.firstOrNull { it.transaction.frostSigningSessionId == sessionId }?.spend ?: return
+        if (isActionPending.value) return
+
+        val built = GroupSpendBuilder.bump(spend, spend.feeratePerVbyte * 2) as? GroupSpendBuilder.Result.Built
+        if (built == null) {
+            onFailure()
+            return
+        }
+        isActionPending.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val session = runCatching {
+                frostSigningRepository.proposeSpend(state.localChatRoom, activeUserPublicKey, built.psbt, chain)
+            }.onFailure { logger.e("Failed to bump $sessionId", it) }.getOrNull()
+
+            withContext(Dispatchers.Main) {
+                if (session != null) onSuccess(session.id) else onFailure()
+            }
+            isActionPending.value = false
         }
     }
 
@@ -139,6 +202,7 @@ class GroupWalletViewModel(
             chatRepository: ChatRepository,
             frostSigningRepository: FrostSigningRepository,
             wallets: GroupChainWallets?,
+            watcher: GroupTransactionWatcher? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 GroupWalletViewModel(
@@ -149,6 +213,7 @@ class GroupWalletViewModel(
                     chatRepository = chatRepository,
                     frostSigningRepository = frostSigningRepository,
                     wallets = wallets,
+                    watcher = watcher,
                 )
             }
         }

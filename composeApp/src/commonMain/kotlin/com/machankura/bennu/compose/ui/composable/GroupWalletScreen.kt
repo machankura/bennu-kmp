@@ -1,5 +1,21 @@
 package com.machankura.bennu.compose.ui.composable
 
+import androidx.compose.foundation.layout.Row
+import com.machankura.bennu.compose.text.ProposedSpend
+import com.machankura.bennu.compose.ui.view.state.SpendRow
+import com.machankura.bennu.compose.ui.view.state.SpendStatus
+import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
+import bennu.composeapp.generated.resources.spends
+import bennu.composeapp.generated.resources.waiting_for_signatures
+import bennu.composeapp.generated.resources.abandoned
+import bennu.composeapp.generated.resources.signed_sending_it_to_the_network
+import bennu.composeapp.generated.resources.sent_waiting_for_a_confirmation
+import bennu.composeapp.generated.resources.confirmed
+import bennu.composeapp.generated.resources.replaced_by_a_later_spend
+import bennu.composeapp.generated.resources.send_again
+import bennu.composeapp.generated.resources.bump_the_fee
+import bennu.composeapp.generated.resources.sent_again
+import bennu.composeapp.generated.resources.couldn_t_bump_the_fee
 import androidx.compose.material.icons.filled.Send
 import bennu.composeapp.generated.resources.send
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupSendRoute
@@ -113,6 +129,7 @@ fun GroupWalletScreen(
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
     wallets: GroupChainWallets?,
+    watcher: GroupTransactionWatcher? = null,
     onNavigateToRoute: (Route) -> Unit,
     onNavigateBack: () -> Unit,
 ) {
@@ -125,6 +142,7 @@ fun GroupWalletScreen(
             chatRepository = chatRepository,
             frostSigningRepository = frostSigningRepository,
             wallets = wallets,
+            watcher = watcher,
         )
     )
 
@@ -136,6 +154,11 @@ fun GroupWalletScreen(
 
     val notify = rememberNotifier(rememberCoroutineScope())
     val couldNotOpen = stringResource(Res.string.couldn_t_ask_the_group_to_open_a_wallet)
+    val sentAgain = stringResource(Res.string.sent_again)
+    val couldNotBump = stringResource(Res.string.couldn_t_bump_the_fee)
+    val toSession = { sessionId: String ->
+        onNavigateToRoute(FrostSigningRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId, sessionId = sessionId))
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
@@ -219,6 +242,15 @@ fun GroupWalletScreen(
                                 )
                             }
                         } else null,
+                        onOpenSpend = toSession,
+                        onSendAgain = if (watcher != null) {
+                            { sessionId -> groupWalletViewModel.sendAgain(sessionId) { notify(sentAgain) } }
+                        } else null,
+                        onBump = if (state.canSign) {
+                            { sessionId ->
+                                groupWalletViewModel.bumpFee(sessionId, onSuccess = toSession, onFailure = { notify(couldNotBump) })
+                            }
+                        } else null,
                     )
                 }
             }
@@ -260,6 +292,9 @@ private fun OpenWallet(
     state: GroupWalletUIState.Loaded,
     notify: (String) -> Unit,
     onSend: (() -> Unit)?,
+    onOpenSpend: (sessionId: String) -> Unit,
+    onSendAgain: ((sessionId: String) -> Unit)?,
+    onBump: ((sessionId: String) -> Unit)?,
 ) {
     val clipboardManager = LocalClipboardManager.current
     val addressCopied = stringResource(Res.string.address_copied)
@@ -350,6 +385,27 @@ private fun OpenWallet(
             }
         }
 
+        // Under the coins and for every member, node or not: a spend is the
+        // group's decision, and a member who cannot see the chain can still see
+        // what the group has asked of it and where each request has got to.
+        if (state.spends.isNotEmpty()) {
+            item {
+                Text(
+                    text = stringResource(Res.string.spends),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            items(state.spends, key = { it.transaction.frostSigningSessionId }) { row ->
+                SpendRowCard(
+                    row = row,
+                    chain = state.wallet.chain,
+                    onOpen = { onOpenSpend(row.transaction.frostSigningSessionId) },
+                    onSendAgain = onSendAgain?.takeIf { row.canSendAgain }?.let { { it(row.transaction.frostSigningSessionId) } },
+                    onBump = onBump?.takeIf { row.canBump }?.let { { it(row.transaction.frostSigningSessionId) } },
+                )
+            }
+        }
+
         item {
             Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
                 TextButton(
@@ -377,6 +433,47 @@ private fun OpenWallet(
             }
         }
     }
+}
+
+/** One spend: what it sends, where it has got to, and what can still be done about it. */
+@Composable
+private fun SpendRowCard(
+    row: SpendRow,
+    chain: Chain,
+    onOpen: () -> Unit,
+    onSendAgain: (() -> Unit)?,
+    onBump: (() -> Unit)?,
+) {
+    Card(modifier = Modifier.fillMaxWidth(), onClick = onOpen) {
+        ListItem(
+            headlineContent = {
+                Text(
+                    text = (row.spend?.let { ProposedSpend.summarize(it, chain) } ?: ProposedSpend.UNREADABLE).detail,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            supportingContent = { Text(stringResource(row.status.label())) },
+        )
+        if (onSendAgain != null || onBump != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = MaterialTheme.spacing.compactPadding),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                onSendAgain?.let { TextButton(onClick = it) { Text(stringResource(Res.string.send_again)) } }
+                onBump?.let { TextButton(onClick = it) { Text(stringResource(Res.string.bump_the_fee)) } }
+            }
+        }
+    }
+}
+
+private fun SpendStatus.label() = when (this) {
+    SpendStatus.WAITING_FOR_SIGNATURES -> Res.string.waiting_for_signatures
+    SpendStatus.ABANDONED -> Res.string.abandoned
+    SpendStatus.SIGNED -> Res.string.signed_sending_it_to_the_network
+    SpendStatus.SENT -> Res.string.sent_waiting_for_a_confirmation
+    SpendStatus.CONFIRMED -> Res.string.confirmed
+    SpendStatus.REPLACED -> Res.string.replaced_by_a_later_spend
 }
 
 /** Confirmed and on-the-way said apart: only the first can be spent by a send-all. */

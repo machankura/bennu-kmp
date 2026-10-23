@@ -4,6 +4,9 @@ import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.wallet.GroupWalletState
+import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.database.model.GroupTransaction
+import com.machankura.bennu.compose.database.model.types.FrostSigningStage
 
 sealed interface GroupWalletUIState {
     /**
@@ -33,6 +36,8 @@ sealed interface GroupWalletUIState {
         val walletState: GroupWalletState?,
         val canWatch: Boolean,
         val canSign: Boolean,
+        /** The room's spends, newest first. */
+        val spends: List<SpendRow> = emptyList(),
     ): GroupWalletUIState
 
     data class Error(
@@ -40,4 +45,44 @@ sealed interface GroupWalletUIState {
     ): GroupWalletUIState
 
     data object Loading: GroupWalletUIState
+}
+
+/** Where one of the room's spends has got to, as one fact a member reads. */
+enum class SpendStatus {
+    WAITING_FOR_SIGNATURES,
+    ABANDONED,
+    SIGNED,
+    SENT,
+    CONFIRMED,
+    REPLACED;
+
+    companion object {
+        /**
+         * The session decides until the group has signed; the chain decides after.
+         * Sent means Electrum has reported it back -- a broadcast reports success
+         * whatever the server said, so sending is not evidence of having been sent.
+         */
+        fun of(stage: FrostSigningStage?, transaction: GroupTransaction): SpendStatus = when {
+            transaction.replacedByTxid != null -> REPLACED
+            transaction.confirmedAt != null -> CONFIRMED
+            transaction.seenAt != null -> SENT
+            transaction.signedTransaction != null -> SIGNED
+            stage == FrostSigningStage.FAILED -> ABANDONED
+            else -> WAITING_FOR_SIGNATURES
+        }
+    }
+}
+
+/** One of the room's spends, as the wallet screen lists it. */
+data class SpendRow(
+    val transaction: GroupTransaction,
+    val status: SpendStatus,
+    /** The spend, checked again; null where this device cannot check it. */
+    val spend: GroupSpend.Checked?,
+) {
+    /** Signed, never reported back: the one moment sending it again is worth anything. */
+    val canSendAgain: Boolean get() = status == SpendStatus.SIGNED
+
+    /** Signed and not yet decided by a block: RBF is still possible. */
+    val canBump: Boolean get() = (status == SpendStatus.SIGNED || status == SpendStatus.SENT) && spend != null
 }

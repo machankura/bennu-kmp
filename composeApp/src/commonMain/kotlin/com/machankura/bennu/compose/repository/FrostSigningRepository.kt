@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.repository
 
+import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.wallet.GroupSpend
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.OutPoint
@@ -245,6 +246,9 @@ interface FrostSigningRepository {
     /** The coins the room's open spends are already spending. */
     suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint>
 
+    /** Every spend the room has proposed, newest first, as it moves from proposed to confirmed. */
+    fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>>
+
     companion object {
         val NO_OP_FROST_SIGNING_REPOSITORY: FrostSigningRepository = object : FrostSigningRepository {
             override fun observeSessionById(sessionId: String): Flow<FrostSigningSession?> = flowOf(null)
@@ -322,6 +326,8 @@ interface FrostSigningRepository {
             override suspend fun checkedSpend(sessionId: String): GroupSpend.Checked? = null
 
             override suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint> = emptySet()
+
+            override fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>> = flowOf(emptyList())
 
             override fun signedEvents(items: List<FrostSigningItem>): List<Event> = emptyList()
         }
