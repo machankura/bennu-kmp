@@ -76,7 +76,6 @@ import com.machankura.bennu.compose.database.model.Profile
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.intermdiate.LocalParticipant
 import com.machankura.bennu.compose.repository.ChatRepository
-import com.machankura.bennu.compose.repository.MantraRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProfilePreviewRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
@@ -172,7 +171,6 @@ fun ChatRoomDetailScreen(
     initialChatRoomDetailUIState: ChatRoomDetailUIState = ChatRoomDetailUIState.Loading,
     nostrRepository: NostrRepository,
     chatRepository: ChatRepository,
-    mantraRepository: MantraRepository,
     onNavigateToRoute: (Route) -> Unit,
     onPopBackToRoute: (Route) -> Unit,
     onNavigateBack: () -> Unit,
@@ -184,7 +182,6 @@ fun ChatRoomDetailScreen(
             initialChatRoomDetailUIState = initialChatRoomDetailUIState,
             nostrRepository = nostrRepository,
             chatRepository = chatRepository,
-            mantraRepository = mantraRepository,
             activeUserPublicKey = activeUserPublicKey
         )
     )
@@ -1423,7 +1420,6 @@ private fun ChatRoomMessagingScreenPreview() {
                 ),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                mantraRepository = MantraRepository.NO_OP_MANTRA_REPOSITORY,
                 onNavigateToRoute = {},
                 onPopBackToRoute = {},
                 onNavigateBack = {},
