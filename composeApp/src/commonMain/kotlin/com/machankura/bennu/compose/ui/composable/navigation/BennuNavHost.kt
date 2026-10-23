@@ -164,7 +164,7 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.EditGroupRel
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
-import com.machankura.bennu.compose.wallet.GroupChainWallets
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
 import fr.acinq.phoenix.managers.NodeParamsManager
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupPostsRoute
@@ -276,11 +276,11 @@ fun BennuNavHost(
     // of profile is a restart and a wallet left subscribing on the last one's
     // connection is a wallet nobody can see.
     val activeIdentityForWallets by sovereignWalletViewModel.activeIdentity.collectAsState()
-    val groupChainWallets = remember(activeIdentityForWallets?.business) {
-        activeIdentityForWallets?.business?.let { GroupChainWallets(it.electrumClient, applicationIOScope) }
+    val groupOnchainWallets = remember(activeIdentityForWallets?.business) {
+        activeIdentityForWallets?.business?.let { GroupOnchainWallets(it.electrumClient, applicationIOScope) }
     }
-    DisposableEffect(groupChainWallets) {
-        onDispose { groupChainWallets?.let { wallets -> applicationIOScope.launch { wallets.stop() } } }
+    DisposableEffect(groupOnchainWallets) {
+        onDispose { groupOnchainWallets?.let { wallets -> applicationIOScope.launch { wallets.stop() } } }
     }
 
     // Sends the group's signed spends to the network from this device too, and
@@ -1252,7 +1252,7 @@ fun BennuNavHost(
                     chain = NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
-                    wallets = groupChainWallets,
+                    wallets = groupOnchainWallets,
                     watcher = groupTransactionWatcher,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
@@ -1271,7 +1271,7 @@ fun BennuNavHost(
                     chain = NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
-                    wallets = groupChainWallets,
+                    wallets = groupOnchainWallets,
                     onNavigateToRouteAndPopUpInclusive = { signingRoute ->
                         // Replace the form so back returns to the wallet rather
                         // than to a spend that has already been proposed.

@@ -47,7 +47,7 @@ import kotlin.test.assertTrue
  * `IElectrumClient` is small and documented never to throw, so a fake of it is
  * a few maps: what each script has been paid, and the transactions that paid it.
  */
-class GroupChainWalletJvmTest {
+class GroupOnchainWalletJvmTest {
     private class FakeElectrum : IElectrumClient {
         val unspents = mutableMapOf<ByteVector32, List<UnspentItem>>()
         val txs = mutableMapOf<TxId, Transaction>()
@@ -109,7 +109,7 @@ class GroupChainWalletJvmTest {
     @Test
     fun `being paid moves the receive address on`() {
         val electrum = FakeElectrum()
-        val wallet = GroupChainWallet(account, electrum, scope)
+        val wallet = GroupOnchainWallet(account, electrum, scope)
 
         eventually { wallet.state.first { it.receiveAddress == receive(0).address(Chain.Regtest) } }
         eventually { electrum.pay(receive(0).pubkeyScript, Satoshi(25_000)) }
@@ -122,7 +122,7 @@ class GroupChainWalletJvmTest {
     @Test
     fun `change is the group's money and is not handed out to be paid`() {
         val electrum = FakeElectrum()
-        val wallet = GroupChainWallet(account, electrum, scope)
+        val wallet = GroupOnchainWallet(account, electrum, scope)
 
         eventually { wallet.state.first { it.nextChangeIndex == 0L } }
         eventually { electrum.pay(change(0).pubkeyScript, Satoshi(7_000), height = 0) }
@@ -138,8 +138,8 @@ class GroupChainWalletJvmTest {
     fun `two groups on one client see only their own coins`() {
         val electrum = FakeElectrum()
         val other = GroupWalletDerivation.account(key(0xdecaf), Chain.Regtest)
-        val ours = GroupChainWallet(account, electrum, scope)
-        val theirs = GroupChainWallet(other, electrum, scope)
+        val ours = GroupOnchainWallet(account, electrum, scope)
+        val theirs = GroupOnchainWallet(other, electrum, scope)
 
         eventually { ours.state.first { it.receiveAddress != null } }
         eventually { theirs.state.first { it.receiveAddress != null } }
@@ -154,7 +154,7 @@ class GroupChainWalletJvmTest {
     @Test
     fun `confirmations follow the tip`() {
         val electrum = FakeElectrum()
-        val wallet = GroupChainWallet(account, electrum, scope)
+        val wallet = GroupOnchainWallet(account, electrum, scope)
 
         eventually { wallet.state.first { it.receiveAddress != null } }
         eventually { electrum.pay(receive(0).pubkeyScript, Satoshi(25_000), height = 100) }
@@ -167,8 +167,8 @@ class GroupChainWalletJvmTest {
     @Test
     fun `the receive branch is watched past the first unused address`() {
         val electrum = FakeElectrum()
-        GroupChainWallet(account, electrum, scope).let { wallet ->
-            eventually { wallet.state.first { it.receive.addresses.size == GroupChainWallet.RECEIVE_LOOKAHEAD.toInt() } }
+        GroupOnchainWallet(account, electrum, scope).let { wallet ->
+            eventually { wallet.state.first { it.receive.addresses.size == GroupOnchainWallet.RECEIVE_LOOKAHEAD.toInt() } }
         }
         assertTrue(FakeElectrum.scriptHash(receive(9).pubkeyScript) in electrum.subscribed)
     }

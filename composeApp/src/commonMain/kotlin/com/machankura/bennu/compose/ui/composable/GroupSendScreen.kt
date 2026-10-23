@@ -71,7 +71,7 @@ import com.machankura.bennu.compose.ui.theme.readableContent
 import com.machankura.bennu.compose.ui.theme.spacing
 import com.machankura.bennu.compose.ui.view.model.GroupSendViewModel
 import com.machankura.bennu.compose.ui.view.state.GroupSendUIState
-import com.machankura.bennu.compose.wallet.GroupChainWallets
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
@@ -95,7 +95,7 @@ fun GroupSendScreen(
     initialGroupSendUIState: GroupSendUIState = GroupSendUIState.Loading,
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
-    wallets: GroupChainWallets?,
+    wallets: GroupOnchainWallets?,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
     onNavigateBack: () -> Unit,
 ) {

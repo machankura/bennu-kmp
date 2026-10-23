@@ -16,7 +16,7 @@ import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
 import com.machankura.bennu.compose.ui.view.state.GroupSendUIState
-import com.machankura.bennu.compose.wallet.GroupChainWallets
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
@@ -41,7 +41,7 @@ class GroupSendViewModel(
     initialGroupSendUIState: GroupSendUIState,
     val chatRepository: ChatRepository,
     val frostSigningRepository: FrostSigningRepository,
-    private val wallets: GroupChainWallets?,
+    private val wallets: GroupOnchainWallets?,
 ): ViewModel() {
     private val logger = Logger.withTag(TAG)
 
@@ -86,10 +86,10 @@ class GroupSendViewModel(
                 }
             }
 
-            val chainWallet = wallets.walletFor(wallet.account)
+            val onchainWallet = wallets.walletFor(wallet.account)
             watching?.cancel()
             watching = viewModelScope.launch(Dispatchers.IO) {
-                chainWallet.state.collect { state -> groupSendUIState = ready.copy(walletState = state) }
+                onchainWallet.state.collect { state -> groupSendUIState = ready.copy(walletState = state) }
             }
         }
     }
@@ -146,7 +146,7 @@ class GroupSendViewModel(
             initialGroupSendUIState: GroupSendUIState = GroupSendUIState.Loading,
             chatRepository: ChatRepository,
             frostSigningRepository: FrostSigningRepository,
-            wallets: GroupChainWallets?,
+            wallets: GroupOnchainWallets?,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 GroupSendViewModel(

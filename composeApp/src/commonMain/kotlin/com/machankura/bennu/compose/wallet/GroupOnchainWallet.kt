@@ -33,11 +33,11 @@ import kotlinx.coroutines.launch
  * when it starts, and nothing about the wallet is stored -- the addresses are a
  * derivation, and the coins are on chain.
  */
-class GroupChainWallet(
+class GroupOnchainWallet(
     val account: GroupWalletDerivation.Account,
     electrum: IElectrumClient,
     scope: CoroutineScope,
-    logger: Logger = Logger.withTag("GroupChainWallet"),
+    logger: Logger = Logger.withTag("GroupOnchainWallet"),
 ) {
     private val receive = ElectrumMiniWallet(account.chain.chainHash, electrum, scope, logger, lookAhead = RECEIVE_LOOKAHEAD)
     private val change = ElectrumMiniWallet(account.chain.chainHash, electrum, scope, logger, lookAhead = CHANGE_LOOKAHEAD)

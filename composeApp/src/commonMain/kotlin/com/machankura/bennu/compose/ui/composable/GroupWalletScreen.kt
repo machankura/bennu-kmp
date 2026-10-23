@@ -99,7 +99,7 @@ import com.machankura.bennu.compose.ui.theme.readableContent
 import com.machankura.bennu.compose.ui.theme.spacing
 import com.machankura.bennu.compose.ui.view.model.GroupWalletViewModel
 import com.machankura.bennu.compose.ui.view.state.GroupWalletUIState
-import com.machankura.bennu.compose.wallet.GroupChainWallets
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.bip21Uri
 import com.machankura.bennu.compose.wallet.GroupUtxo
 import com.machankura.bennu.compose.wallet.GroupWalletState
@@ -128,7 +128,7 @@ fun GroupWalletScreen(
     initialGroupWalletUIState: GroupWalletUIState = GroupWalletUIState.Loading,
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
-    wallets: GroupChainWallets?,
+    wallets: GroupOnchainWallets?,
     watcher: GroupTransactionWatcher? = null,
     onNavigateToRoute: (Route) -> Unit,
     onNavigateBack: () -> Unit,

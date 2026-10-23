@@ -22,7 +22,7 @@ import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
 import com.machankura.bennu.compose.ui.view.state.GroupWalletUIState
-import com.machankura.bennu.compose.wallet.GroupChainWallets
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +48,7 @@ class GroupWalletViewModel(
     initialGroupWalletUIState: GroupWalletUIState,
     val chatRepository: ChatRepository,
     val frostSigningRepository: FrostSigningRepository,
-    private val wallets: GroupChainWallets?,
+    private val wallets: GroupOnchainWallets?,
     private val watcher: GroupTransactionWatcher? = null,
 ): ViewModel() {
     private val logger = Logger.withTag(TAG)
@@ -201,7 +201,7 @@ class GroupWalletViewModel(
             initialGroupWalletUIState: GroupWalletUIState = GroupWalletUIState.Loading,
             chatRepository: ChatRepository,
             frostSigningRepository: FrostSigningRepository,
-            wallets: GroupChainWallets?,
+            wallets: GroupOnchainWallets?,
             watcher: GroupTransactionWatcher? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {

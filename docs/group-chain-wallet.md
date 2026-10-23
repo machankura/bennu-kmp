@@ -30,11 +30,11 @@ kept as written; where the build chose differently the table below says so.
 | late members get the statement through the chronicle | they do not: `ChronicleEvent`'s allowlist carries document kinds only, and leaves out every group-signed statement *about* the group — relay lists and profile included — for the replay reason its kdoc gives. A member who joined later sees *Open a group wallet* instead, and signing it again is harmless: a statement for one account is the same values under the same `d` tag, and the newest replaces the rest |
 | the descriptor rides in a `descriptor` tag | two, each marked `receive` or `change`, and the `d` tag is read back and checked against the network and account, so "newest per account" cannot be split by a `d` that disagrees with the fields |
 | the transcript line is checked by signature | by signature *and* rederivation, through `GroupWallet.of` — a line people will send money on is held to the same check as the wallet screen |
-| `GroupWalletManager` starts a wallet for every room with a statement, under the identity's `collectLatest` | `GroupChainWallets`, one per identity, makes a room's wallet the first time its screen asks and keeps it for the identity's life. Starting every room's at launch would subscribe a member in twenty groups to two hundred addresses before they looked at one; `GroupWalletManager` kept the reads (the key, the account, the statement) and nothing that runs |
+| `GroupWalletManager` starts a wallet for every room with a statement, under the identity's `collectLatest` | `GroupOnchainWallets`, one per identity, makes a room's wallet the first time its screen asks and keeps it for the identity's life. Starting every room's at launch would subscribe a member in twenty groups to two hundred addresses before they looked at one; `GroupWalletManager` kept the reads (the key, the account, the statement) and nothing that runs |
 | `receiveAddress` is the first unused address | it is, and that is `ElectrumMiniWallet`'s rule: the *lowest* unused index, so a gap below a paid address is refilled before the next one is offered. Null until Electrum has answered, rather than `/0/0` |
 | members who can sign see *Open a group wallet* on the group's screen; others see nothing | every member sees a *Group wallet* row, saying *Open on mainnet* or *Not opened yet*; the open action lives on the wallet screen's empty state, behind the same `canSign` gate, with Phase 10's sentence about unencrypted shares above the button |
 | the wallet's network is the identity's | `NodeParamsManager.chain`, read statically. An nsec or npub profile has no node, and still has to know which network's statement to look for |
-| `GroupChainWallets` started under the identity's `collectLatest` | made in `BennuNavHost`, remembered on the identity's `PhoenixBusiness` and stopped in a `DisposableEffect` when it changes — the same lifetime, held where the business already is |
+| `GroupOnchainWallets` started under the identity's `collectLatest` | made in `BennuNavHost`, remembered on the identity's `PhoenixBusiness` and stopped in a `DisposableEffect` when it changes — the same lifetime, held where the business already is |
 | `FrostSigningItem.eventId` and `unsignedEventJson` renamed in Kotlin to `message` and `payload` with `@ColumnInfo(name = …)` | not renamed: `message` and `payload` are getters over them. `eventId` is spelled the same way in thirty files that have nothing to do with this table, and a rename a search cannot tell apart from them is not worth what it would tidy |
 | `GroupTransaction` has `broadcastAt` and `confirmedAt` | and `seenAt`, because Electrum's broadcast reports success whatever the server said: sent and seen are the two facts there are, and confirmed is a third. Inserted with `IGNORE` so the proposed PSBT is write-once at the database, not only in the manager |
 | a claimed index is bounded by the range the wallet has generated | by a constant, `GroupSpend.MAX_ADDRESS_INDEX` (100,000). The bound is on work, and a member with no node — who can still sign — has no generated range to bound it by |
@@ -43,7 +43,7 @@ kept as written; where the build chose differently the table below says so.
 | the account comes from the statement, never from the proposal | and the proposal carries `chain` and `account` tags to say *which* statement. Acceptance then looks the statement up under the ceremony's own key, which is also what refuses a spend opened under a subgroup's ceremony held in its parent's room |
 | a new `TYPE_GROUP_TRANSACTION_SIGNED` line | none: `TYPE_FROST_COMPLETE` with a spend's wording — sats sent, sats in fees — since it is the settlement line the transcript and the proposal list already read, and a new type would need adding to five sets |
 | `complete()` for a transaction | `completeSpend`, which re-runs `GroupSpend.check` over the stored PSBT so every signature is checked against the coin it spends, then runs `correctlySpends` before writing `signedTransaction` |
-| the feerate comes from `FeerateManager`'s `halfHour` | from Electrum's six-block estimate, through `GroupChainWallets` — the wallet already holds the identity's Electrum client, and the business's fee manager would be a second way in to the same node. Prefilled, never used unseen |
+| the feerate comes from `FeerateManager`'s `halfHour` | from Electrum's six-block estimate, through `GroupOnchainWallets` — the wallet already holds the identity's Electrum client, and the business's fee manager would be a second way in to the same node. Prefilled, never used unseen |
 | the inputs behind a disclosure on the approval screen | a line saying how many of the group's coins it spends. Each was checked against the wallet before the screen was drawn, so there is nothing about them a member could check by opening one |
 | the composer marks coins reserved | `FrostSigningManager.reservedOutPoints`: every coin an open spend holds, released when its session fails, held by a finished one until Electrum stops reporting the coin |
 | transcript lines for broadcast and for confirmed | confirmed only, `TYPE_GROUP_TRANSACTION_CONFIRMED`, written by `recordConfirmed` once. A broadcast is this device's own act and says nothing the group did; the wallet screen shows each spend's status instead |
@@ -466,11 +466,11 @@ group's signed record.
 
 **Two days.**
 
-`GroupChainWallet`, the counterpart of `FinalWallet`, in
+`GroupOnchainWallet`, the counterpart of `FinalWallet`, in
 `composeApp/src/commonMain/kotlin/com/machankura/bennu/compose/wallet/`:
 
 ```kotlin
-class GroupChainWallet(
+class GroupOnchainWallet(
     val chain: Chain,
     val account: GroupWalletDerivation.Account,
     private val thresholdPublicKey: HexKey,
@@ -505,7 +505,7 @@ bound on how far Phase 7's checks will look.
 **Confirmations** come the way `PeerManager.finalWallet` gets them: combine with
 the tip and map through `WalletState.withConfirmations`.
 
-**Who runs it.** `GroupWalletManager` starts one `GroupChainWallet` per room that
+**Who runs it.** `GroupWalletManager` starts one `GroupOnchainWallet` per room that
 has a verified statement on the active identity's chain, as a child of the same
 `collectLatest` over the identity that runs the notary and the sync pumps, so a
 profile switch cancels it with them. It is in-memory, as Phoenix's is: everything

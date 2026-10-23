@@ -17,16 +17,16 @@ import kotlinx.coroutines.sync.withLock
  * -- and kept for the life of the identity, because an Electrum subscription is
  * cheap and the first answer is slow.
  */
-class GroupChainWallets(
+class GroupOnchainWallets(
     private val electrum: IElectrumClient,
     private val scope: CoroutineScope,
 ) {
     private val mutex = Mutex()
-    private val wallets = mutableMapOf<String, GroupChainWallet>()
+    private val wallets = mutableMapOf<String, GroupOnchainWallet>()
 
     /** The wallet watching [account], made the first time it is asked for. Keyed by xpub, which names one account of one group on one network. */
-    suspend fun walletFor(account: GroupWalletDerivation.Account): GroupChainWallet = mutex.withLock {
-        wallets.getOrPut(account.xpub) { GroupChainWallet(account, electrum, scope) }
+    suspend fun walletFor(account: GroupWalletDerivation.Account): GroupOnchainWallet = mutex.withLock {
+        wallets.getOrPut(account.xpub) { GroupOnchainWallet(account, electrum, scope) }
     }
 
     /**
