@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.database.model
 
+import androidx.room3.ColumnInfo
+import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
 import androidx.room3.Entity
 import androidx.room3.ForeignKey
 import androidx.room3.Index
@@ -166,6 +168,18 @@ data class FrostSigningSession(
      * session predating the column reads back as, which is what they all were.
      */
     val resentAt: Instant? = null,
+
+    /**
+     * What this session's items are messages of: events, or the inputs of one
+     * transaction from the group's wallet.
+     *
+     * Written at proposal and never again. Every session before the column reads
+     * back as [FrostSigningSubject.EVENTS], which is what they all were, and a
+     * build that predates it never sees a transaction session at all -- the
+     * proposal travels on a kind that build does not route.
+     */
+    @ColumnInfo(defaultValue = "EVENTS")
+    val subject: FrostSigningSubject = FrostSigningSubject.EVENTS,
 
     override val createdAt: Instant = Clock.System.now(),
     override val updatedAt: Instant = createdAt,

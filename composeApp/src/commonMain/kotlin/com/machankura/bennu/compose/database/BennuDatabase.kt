@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.database
 
+import com.machankura.bennu.compose.database.model.GroupTransaction
+import com.machankura.bennu.compose.database.dao.GroupTransactionDao
 import androidx.room3.ColumnTypeConverters
 import androidx.room3.AutoMigration
 import androidx.room3.ConstructedBy
@@ -147,6 +149,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         GiftWrapPayload::class,
         GroupKeyState::class,
         GroupSignedEvent::class,
+        GroupTransaction::class,
         InReplyToRelation::class,
         MantraArtifact::class,
         MantraArtifactVersion::class,
@@ -187,7 +190,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 25,
+    version = 26,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -368,6 +371,13 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // backfilled -- a session that has never been resent reads null, which
         // is what every session before the column was.
         AutoMigration(from = 24, to = 25),
+        // v26 is the group wallet's spends (docs/group-chain-wallet.md, Phase 6):
+        // the GroupTransaction table, FrostSigningSession.subject -- NOT NULL with
+        // a default of EVENTS, which is what every session before it was -- and
+        // the nullable FrostSigningItem.inputIndex. Nothing is backfilled and
+        // nothing is rebuilt; a rebuild of either signing table would fire the
+        // cascades from FrostSigningSession, see docs/frost-batch-signing.md.
+        AutoMigration(from = 25, to = 26),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)
@@ -401,6 +411,8 @@ abstract class BennuDatabase: RoomDatabase() {
     abstract fun groupKeyStateDao(): GroupKeyStateDao
 
     abstract fun groupSignedEventDao(): GroupSignedEventDao
+
+    abstract fun groupTransactionDao(): GroupTransactionDao
 
     abstract fun connectionDao(): ConnectionDao
 

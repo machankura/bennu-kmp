@@ -32,6 +32,8 @@ kept as written; where the build chose differently the table below says so.
 | members who can sign see *Open a group wallet* on the group's screen; others see nothing | every member sees a *Group wallet* row, saying *Open on mainnet* or *Not opened yet*; the open action lives on the wallet screen's empty state, behind the same `canSign` gate, with Phase 10's sentence about unencrypted shares above the button |
 | the wallet's network is the identity's | `NodeParamsManager.chain`, read statically. An nsec or npub profile has no node, and still has to know which network's statement to look for |
 | `GroupChainWallets` started under the identity's `collectLatest` | made in `BennuNavHost`, remembered on the identity's `PhoenixBusiness` and stopped in a `DisposableEffect` when it changes — the same lifetime, held where the business already is |
+| `FrostSigningItem.eventId` and `unsignedEventJson` renamed in Kotlin to `message` and `payload` with `@ColumnInfo(name = …)` | not renamed: `message` and `payload` are getters over them. `eventId` is spelled the same way in thirty files that have nothing to do with this table, and a rename a search cannot tell apart from them is not worth what it would tidy |
+| `GroupTransaction` has `broadcastAt` and `confirmedAt` | and `seenAt`, because Electrum's broadcast reports success whatever the server said: sent and seen are the two facts there are, and confirmed is a third. Inserted with `IGNORE` so the proposed PSBT is write-once at the database, not only in the manager |
 
 The headline: **the best path is BIP86's own unhardened tail, `/<change>/<index>`,
 hung under an account key the group's threshold key is tweaked to, with the

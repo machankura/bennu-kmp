@@ -82,7 +82,35 @@ data class FrostSigningItem(
 
     /** Result: the finished 64-byte BIP-340 signature over [eventId], hex. */
     val signature: HexKey? = null,
+
+    /**
+     * For a [com.machankura.bennu.compose.database.model.types.FrostSigningSubject.TRANSACTION]
+     * session, the transaction input this item signs; null for an event.
+     *
+     * Equal to [itemIndex] whenever it is set -- a transaction's items are its
+     * inputs, in input order -- and stored anyway, so that what an item is
+     * signing does not depend on a convention two pieces of code have to keep.
+     */
+    val inputIndex: Int? = null,
 ) {
     /** Whether the group has produced this item's signature. */
     fun isSigned(): Boolean = signature != null
+
+    /**
+     * The 32 bytes this item's nonce is committed to: an event id, or a BIP341
+     * sighash. [eventId] under the name that is true of both.
+     *
+     * An alias and not a renamed column. `eventId` is spelled the same way in
+     * thirty files that have nothing to do with this table, and a rename that a
+     * search-and-replace cannot tell apart from them is a rename that is not
+     * worth the column it would save.
+     */
+    val message: HexKey get() = eventId
+
+    /**
+     * What [message] was computed from: the unsigned event, or the input's place
+     * under the wallet's account as `{"change":1,"index":4}`. [unsignedEventJson]
+     * under the name that is true of both.
+     */
+    val payload: String get() = unsignedEventJson
 }
