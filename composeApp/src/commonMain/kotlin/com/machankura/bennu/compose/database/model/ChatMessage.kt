@@ -888,8 +888,16 @@ data class ChatMessage(
                     // before its proposal; acted on by the managers
                     // `NostrDao.fileGroupEventResult` dispatches to, which write
                     // their own transcript lines.
-                    val isProtocolMessage = event.kind in DkgRitualEvents.ALL ||
-                        event.kind in FrostSigningEvents.ALL
+                    //
+                    // Except a direct message's envelope. It shares 30330 with a
+                    // signing session's decline, and is told apart by what it
+                    // carries: an envelope holds a gift wrap, a decline does not.
+                    // Treating every 30330 as a decline dropped every direct
+                    // message in a current-profile room.
+                    val isDirectMessageEnvelope = MarmotDirectMessage.wrapInside(event) != null
+                    val isProtocolMessage = !isDirectMessageEnvelope && (
+                        event.kind in DkgRitualEvents.ALL || event.kind in FrostSigningEvents.ALL
+                    )
 
                     database.marmotInnerEventDao().upsert(
                         MarmotInnerEvent(
