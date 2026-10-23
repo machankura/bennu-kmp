@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import bennu.composeapp.generated.resources.Res
+import bennu.composeapp.generated.resources.a_closed_channel_s_outputs_go_to_the_onchain_wallet
 import bennu.composeapp.generated.resources.a_lightning_wallet_needs_four_signers
 import bennu.composeapp.generated.resources.at_most_s_sats_in_flight
 import bennu.composeapp.generated.resources.balance
@@ -76,11 +77,13 @@ import bennu.composeapp.generated.resources.run_this_wallet_on_my_device
 import bennu.composeapp.generated.resources.s_of_s_sats_are_the_group_s
 import bennu.composeapp.generated.resources.s_sats
 import bennu.composeapp.generated.resources.s_sats_can_be_received
+import bennu.composeapp.generated.resources.s_sats_wait_in_closed_channels
 import bennu.composeapp.generated.resources.see_the_key_ceremony
 import bennu.composeapp.generated.resources.send
 import bennu.composeapp.generated.resources.sent_s_sats_with_a_fee_of_s_sats
 import bennu.composeapp.generated.resources.signers_needed_s_of_s
 import bennu.composeapp.generated.resources.step_down
+import bennu.composeapp.generated.resources.sweep_into_the_onchain_wallet
 import bennu.composeapp.generated.resources.the_group_is_making_its_lightning_wallet_key
 import bennu.composeapp.generated.resources.the_operator_hasn_t_reported_the_wallet_yet
 import bennu.composeapp.generated.resources.the_operator_s_device_runs_the_node
@@ -221,6 +224,7 @@ fun GroupLightningWalletScreen(
                     onReceive = { onNavigateToRoute(GroupLightningReceiveRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
                     onSend = { onNavigateToRoute(GroupLightningSendRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
                     onClose = { channelId, force -> viewModel.close(channelId, force, onSession = toSession, onFailure = { notify(couldNotPropose) }) },
+                    onSweep = { viewModel.sweep(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
                     isPending = viewModel.isActionPending.value,
                     onNominate = { viewModel.nominateSelf(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
                     onStepDown = { viewModel.stepDown(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
@@ -231,7 +235,7 @@ fun GroupLightningWalletScreen(
 }
 
 @Composable
-private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, onSend: () -> Unit, onClose: (channelId: String, force: Boolean) -> Unit, isPending: Boolean, onNominate: () -> Unit, onStepDown: () -> Unit) {
+private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, onSend: () -> Unit, onClose: (channelId: String, force: Boolean) -> Unit, onSweep: () -> Unit, isPending: Boolean, onNominate: () -> Unit, onStepDown: () -> Unit) {
     val statement = state.wallet.statement
     val operatorName = state.operator?.publicKey?.let { key ->
         if (state.isOperator) stringResource(Res.string.you)
@@ -242,6 +246,17 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
     ) {
         item { Balance(state.report, onReceive = onReceive.takeIf { state.operator?.publicKey != null }, onSend = onSend.takeIf { state.operator?.publicKey != null }) }
+        if (state.unswept.isNotEmpty()) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(MaterialTheme.spacing.containerPadding), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+                        Text(stringResource(Res.string.s_sats_wait_in_closed_channels, Satoshi(state.unswept.sumOf { it.amountSat }).grouped()), style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(Res.string.a_closed_channel_s_outputs_go_to_the_onchain_wallet), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Button(onClick = onSweep, enabled = !isPending) { Text(stringResource(Res.string.sweep_into_the_onchain_wallet)) }
+                    }
+                }
+            }
+        }
         state.report?.takeIf { it.checks.isNotEmpty() }?.let { report ->
             item { Text(stringResource(Res.string.channels), style = MaterialTheme.typography.titleSmall) }
             items(report.checks, key = { it.channel.channelId }) { ChannelRow(it, onClose = { force: Boolean -> onClose(it.channel.channelId, force) }.takeIf { !isPending }) }

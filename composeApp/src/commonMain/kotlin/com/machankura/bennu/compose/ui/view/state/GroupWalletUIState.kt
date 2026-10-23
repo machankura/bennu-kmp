@@ -5,6 +5,7 @@ import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.wallet.GroupWalletState
 import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.database.model.types.FrostSigningStage
 
@@ -77,8 +78,10 @@ enum class SpendStatus {
 data class SpendRow(
     val transaction: GroupTransaction,
     val status: SpendStatus,
-    /** The spend, checked again; null where this device cannot check it. */
+    /** The spend, checked again; null where this device cannot check it, or for a sweep. */
     val spend: GroupSpend.Checked?,
+    /** A sweep from the Lightning wallet into this one, checked again; null for a spend. */
+    val sweep: GroupSweep.Checked? = null,
 ) {
     /** Signed, never reported back: the one moment sending it again is worth anything. */
     val canSendAgain: Boolean get() = status == SpendStatus.SIGNED

@@ -6,6 +6,7 @@ import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
 import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 
 /**
  * The group's Lightning wallet screen, through every state a group passes on its way to one: no onchain
@@ -35,5 +36,7 @@ sealed class GroupLightningWalletUIState {
         /** The operator's newest snapshot, or null before the first arrives. */
         val report: GroupLightningReports.Report? = null,
         val payments: List<GroupLightningPaymentRow> = emptyList(),
+        /** What closed channels left the group that no sweep spends yet. */
+        val unswept: List<GroupSweep.Input> = emptyList(),
     ) : GroupLightningWalletUIState()
 }

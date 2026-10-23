@@ -48,6 +48,8 @@ object WalletWire {
         val payments: List<PaymentView>,
         val offer: String? = null,
         val assignments: Map<String, Long> = emptyMap(),
+        /** What closed channels left the group, for any member to sweep into the onchain wallet. */
+        val heldOutputs: List<GroupSweep.Input> = emptyList(),
     ) {
         val spendableMsat: Long get() = channels.sumOf { it.oursMsat }
         val inboundMsat: Long get() = channels.sumOf { it.theirsMsat }

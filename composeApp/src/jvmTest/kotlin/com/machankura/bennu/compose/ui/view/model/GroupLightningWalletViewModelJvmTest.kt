@@ -23,6 +23,7 @@ import com.machankura.bennu.compose.repository.GroupLightningRepository
 import com.machankura.bennu.compose.ui.view.state.GroupLightningReceiveUIState
 import com.machankura.bennu.compose.ui.view.state.GroupLightningSendUIState
 import com.machankura.bennu.compose.ui.view.state.GroupLightningWalletUIState
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector32
@@ -123,6 +124,8 @@ class GroupLightningWalletViewModelJvmTest {
         override fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?> = flowOf(invoice?.takeIf { it.requestId == requestId })
         override suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession = error("unused")
         override suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession = error("unused")
+        override suspend fun unswept(chatRoomId: String, report: GroupLightningReports.Report?): List<GroupSweep.Input> = report?.snapshot?.heldOutputs.orEmpty()
+        override suspend fun proposeSweep(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, inputs: List<GroupSweep.Input>): FrostSigningSession = error("unused")
     }
 
     private val chat = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {

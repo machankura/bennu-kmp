@@ -234,6 +234,8 @@ class ChatMessageListViewModel(
                                 // to say what kind of thing is waiting, and the
                                 // signing screen is where the spend is checked.
                                 ProposedSpend.UNREADABLE.copy(detail = "")
+                            } else if (local.session.subject == FrostSigningSubject.SWEEP) {
+                                ProposedSpend.UNREADABLE_SWEEP.copy(detail = "")
                             } else {
                                 local.items.firstNotNullOfOrNull { item ->
                                     Event.fromJsonOrNull(item.unsignedEventJson)

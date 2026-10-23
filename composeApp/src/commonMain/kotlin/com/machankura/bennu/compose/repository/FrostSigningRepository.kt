@@ -3,6 +3,7 @@ package com.machankura.bennu.compose.repository
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.OutPoint
 import fr.acinq.bitcoin.psbt.Psbt
@@ -243,6 +244,9 @@ interface FrostSigningRepository {
 
     /** The spend a transaction session signs, checked again; null for anything else. */
     suspend fun checkedSpend(sessionId: String): GroupSpend.Checked?
+
+    /** The sweep a sweep session signs, checked again; null for anything else. */
+    suspend fun checkedSweep(sessionId: String): GroupSweep.Checked? = null
 
     /** The coins the room's open spends are already spending. */
     suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint>

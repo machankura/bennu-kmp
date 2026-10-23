@@ -17,4 +17,12 @@ enum class FrostSigningSubject {
      * account the coin it spends is.
      */
     TRANSACTION,
+
+    /**
+     * A sweep of what a closed Lightning channel left the group into its onchain
+     * wallet: each item is one input, a taproot script-path spend under a key
+     * derived from the group's basepoints, its message that input's sighash.
+     * See `GroupSweep`.
+     */
+    SWEEP,
 }

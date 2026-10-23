@@ -168,6 +168,19 @@ object FrostSigningEvents {
     fun walletTags(chain: String, account: Long): Array<Array<String>> =
         arrayOf(arrayOf(CHAIN_TAG, chain), arrayOf(ACCOUNT_TAG, account.toString()))
 
+    private const val SWEEP_TAG = "sweep"
+
+    /**
+     * The tags of a [TRANSACTION_PROPOSAL] that is a sweep from the Lightning wallet [lightningWallet] into
+     * the onchain wallet: the wallet's tags, and which Lightning wallet the outputs are from.
+     */
+    fun sweepTags(chain: String, account: Long, lightningWallet: Long): Array<Array<String>> =
+        walletTags(chain, account) + arrayOf(arrayOf(SWEEP_TAG, lightningWallet.toString()))
+
+    /** The Lightning wallet a sweep proposal sweeps from, or null for an ordinary spend. */
+    fun parseSweep(tags: Array<Array<String>>): Long? =
+        tags.firstOrNull { it.size >= 2 && it[0] == SWEEP_TAG }?.get(1)?.toLongOrNull()
+
     /** The network and account a [TRANSACTION_PROPOSAL] names, or null when it names either badly. */
     fun parseWallet(tags: Array<Array<String>>): Pair<String, Long>? {
         val chain = tags.firstOrNull { it.size >= 2 && it[0] == CHAIN_TAG }?.get(1) ?: return null

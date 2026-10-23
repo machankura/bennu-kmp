@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.text
 
 import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import fr.acinq.bitcoin.Bitcoin
 import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.Chain
@@ -23,6 +24,18 @@ object ProposedSpend {
     /** The address [script] pays, or the script itself where it has no address. */
     fun addressOf(script: ByteVector, chain: Chain): String =
         Bitcoin.addressFromPublicKeyScript(chain.chainHash, script.toByteArray()).right ?: script.toHex()
+
+    /** A sweep from the Lightning wallet: what reaches the onchain wallet, which is all a member is agreeing to. */
+    fun summarize(sweep: GroupSweep.Checked): ProposedEvent.Summary =
+        ProposedEvent.Summary(
+            label = "Sweep into the group's onchain wallet",
+            detail = "${sweep.amount.grouped()} sats a closed Lightning channel left the group, after ${sweep.fee.grouped()} sats in fees"
+        )
+
+    val UNREADABLE_SWEEP = ProposedEvent.Summary(
+        label = "Sweep into the group's onchain wallet",
+        detail = "A sweep this device cannot check"
+    )
 
     /** What a summary says for a spend this device cannot check: nothing a member could sign on. */
     val UNREADABLE = ProposedEvent.Summary(

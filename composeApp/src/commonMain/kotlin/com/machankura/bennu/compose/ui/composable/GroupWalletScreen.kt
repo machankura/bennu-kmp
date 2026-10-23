@@ -471,7 +471,7 @@ private fun SpendRowCard(
         ListItem(
             headlineContent = {
                 Text(
-                    text = (row.spend?.let { ProposedSpend.summarize(it, chain) } ?: ProposedSpend.UNREADABLE).detail,
+                    text = (row.spend?.let { ProposedSpend.summarize(it, chain) } ?: row.sweep?.let(ProposedSpend::summarize) ?: ProposedSpend.UNREADABLE).detail,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )

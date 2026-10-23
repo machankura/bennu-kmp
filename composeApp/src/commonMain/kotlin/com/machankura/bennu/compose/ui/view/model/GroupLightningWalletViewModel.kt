@@ -93,7 +93,8 @@ class GroupLightningWalletViewModel(
         watching = viewModelScope.launch(Dispatchers.IO) {
             combine(lightningRepository.observeReport(chatRoomId, chain), lightningRepository.observePayments(chatRoomId, chain)) { report, payments -> report to payments }
                 .collect { (report, payments) ->
-                    (uiState as? GroupLightningWalletUIState.Opened)?.let { uiState = it.copy(report = report, payments = payments) }
+                    val unswept = lightningRepository.unswept(chatRoomId, report)
+                    (uiState as? GroupLightningWalletUIState.Opened)?.let { uiState = it.copy(report = report, payments = payments, unswept = unswept) }
                 }
         }
     }
@@ -119,6 +120,13 @@ class GroupLightningWalletViewModel(
     fun close(channelId: String, force: Boolean, onSession: (sessionId: String) -> Unit, onFailure: () -> Unit) {
         val state = uiState as? GroupLightningWalletUIState.Opened ?: return
         act(onSession, onFailure) { lightningRepository.proposeClose(state.localChatRoom, activeUserPublicKey, state.wallet, channelId, force) }
+    }
+
+    /** Proposes sweeping everything closed channels left the group into the onchain wallet. */
+    fun sweep(onSession: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+        val state = uiState as? GroupLightningWalletUIState.Opened ?: return
+        if (state.unswept.isEmpty()) return
+        act(onSession, onFailure) { lightningRepository.proposeSweep(state.localChatRoom, activeUserPublicKey, state.wallet, state.unswept) }
     }
 
     private fun act(onSession: (String) -> Unit, onFailure: () -> Unit, propose: suspend () -> FrostSigningSession) {

@@ -4,6 +4,7 @@ import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.ui.view.state.SpendRow
 import com.machankura.bennu.compose.ui.view.state.SpendStatus
 import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
 import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
 import kotlinx.coroutines.flow.combine
@@ -105,12 +106,14 @@ class GroupWalletViewModel(
 
     /** Checked once per session: the PSBT is write-once, so what it says cannot change. */
     private val checkedSpends = mutableMapOf<String, GroupSpend.Checked?>()
+    private val checkedSweeps = mutableMapOf<String, GroupSweep.Checked?>()
 
     private suspend fun rowOf(transaction: GroupTransaction): SpendRow {
         val sessionId = transaction.frostSigningSessionId
         val spend = checkedSpends.getOrPut(sessionId) { frostSigningRepository.checkedSpend(sessionId) }
+        val sweep = if (spend == null) checkedSweeps.getOrPut(sessionId) { frostSigningRepository.checkedSweep(sessionId) } else null
         val stage = frostSigningRepository.getSessionById(sessionId)?.stage
-        return SpendRow(transaction = transaction, status = SpendStatus.of(stage, transaction), spend = spend)
+        return SpendRow(transaction = transaction, status = SpendStatus.of(stage, transaction), spend = spend, sweep = sweep)
     }
 
     /** Sends a signed spend again now. Only worth anything while Electrum has not reported it back. */

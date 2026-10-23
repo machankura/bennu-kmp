@@ -22,6 +22,8 @@ import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.repository.GroupLightningRepository
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
+import com.machankura.bennu.compose.managers.GroupLightningSweeps
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -65,6 +67,12 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
 
     override suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession =
         GroupLightningAuthorisations.proposeChannelAction(database, localChatRoom, userPublicKey, wallet, channelId, force)
+
+    override suspend fun unswept(chatRoomId: String, report: GroupLightningReports.Report?): List<GroupSweep.Input> =
+        GroupLightningSweeps.unswept(database, chatRoomId, report)
+
+    override suspend fun proposeSweep(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, inputs: List<GroupSweep.Input>): FrostSigningSession =
+        GroupLightningSweeps.propose(database, localChatRoom, userPublicKey, wallet, inputs)
 
     override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> =
         database.icebergKeySessionDao().observeSessionById(sessionId)

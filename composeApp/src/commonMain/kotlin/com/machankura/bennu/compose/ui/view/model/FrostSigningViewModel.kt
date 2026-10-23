@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.ui.view.model
 
 import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -90,6 +91,9 @@ class FrostSigningViewModel(
                     if (session?.subject == FrostSigningSubject.TRANSACTION && checkedSpend == null) {
                         checkedSpend = frostSigningRepository.checkedSpend(session.id)
                     }
+                    if (session?.subject == FrostSigningSubject.SWEEP && checkedSweep == null) {
+                        checkedSweep = frostSigningRepository.checkedSweep(session.id)
+                    }
 
                     frostSigningUIState = FrostSigningUIState.Loaded(
                         localChatRoom = localChatRoom,
@@ -110,12 +114,14 @@ class FrostSigningViewModel(
                             .toSet(),
                         silent = owed,
                         spend = checkedSpend,
+                        sweep = checkedSweep,
                     )
                 }
         }
     }
 
     private var checkedSpend: GroupSpend.Checked? = null
+    private var checkedSweep: GroupSweep.Checked? = null
 
     /** One emission of everything the screen is drawn from -- the fourth flow outgrew `Triple`. */
     private data class Observed(

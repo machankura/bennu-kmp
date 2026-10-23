@@ -1,16 +1,5 @@
 package com.machankura.bennu.compose.ui.composable
 
-import com.machankura.bennu.compose.wallet.GroupSpend
-import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
-import com.machankura.bennu.compose.text.ProposedSpend
-import com.machankura.bennu.compose.text.grouped
-import bennu.composeapp.generated.resources.this_spend_could_not_be_checked
-import bennu.composeapp.generated.resources.spend_from_the_group_s_wallet
-import bennu.composeapp.generated.resources.s_sats
-import bennu.composeapp.generated.resources.s_sats_back_to_the_group_as_change
-import bennu.composeapp.generated.resources.fee_s_sats_at_s_sats_per_byte
-import bennu.composeapp.generated.resources.spends_s_of_the_group_s_coins
-import bennu.composeapp.generated.resources.signed_by_the_group_any_member_can_send_it
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,50 +43,64 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.vitorpamplona.quartz.nip01Core.core.Event
-import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import com.machankura.bennu.compose.database.model.ChatRoom
-import com.machankura.bennu.compose.database.model.FrostSigningSession
-import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
-import com.machankura.bennu.compose.database.model.types.FrostSigningStage
-import com.machankura.bennu.compose.managers.FrostSigningManager
-import com.machankura.bennu.compose.repository.ChatRepository
-import com.machankura.bennu.compose.repository.FrostSigningRepository
-import com.machankura.bennu.compose.text.ProposedEvent
-import com.machankura.bennu.compose.ui.composable.widgets.profile.ProfileAvatar
-import com.machankura.bennu.compose.ui.theme.BennuTheme
-import com.machankura.bennu.compose.ui.view.model.FrostSigningViewModel
-import com.machankura.bennu.compose.ui.view.state.FrostSigningUIState
-import com.machankura.bennu.compose.ui.theme.spacing
-import com.machankura.bennu.compose.ui.composable.widgets.Decorative
 import bennu.composeapp.generated.resources.Res
-import org.jetbrains.compose.resources.stringResource
 import bennu.composeapp.generated.resources.ask_again
 import bennu.composeapp.generated.resources.asked_again
 import bennu.composeapp.generated.resources.asked_again_recently
 import bennu.composeapp.generated.resources.asked_again_to_sign
 import bennu.composeapp.generated.resources.declined_to_sign
+import bennu.composeapp.generated.resources.don_t_sign
+import bennu.composeapp.generated.resources.events_signed_together
 import bennu.composeapp.generated.resources.everyone_has_answered_this_session
 import bennu.composeapp.generated.resources.everyone_has_signed_this_session
+import bennu.composeapp.generated.resources.fee_s_sats_at_s_sats_per_byte
+import bennu.composeapp.generated.resources.has_not_taken_part_yet
+import bennu.composeapp.generated.resources.members
 import bennu.composeapp.generated.resources.members_have_not_answered
 import bennu.composeapp.generated.resources.one_member_has_not_answered
 import bennu.composeapp.generated.resources.one_signer_has_not_signed
-import bennu.composeapp.generated.resources.signers_have_not_signed
-import bennu.composeapp.generated.resources.don_t_sign
-import bennu.composeapp.generated.resources.has_not_taken_part_yet
-import bennu.composeapp.generated.resources.members
 import bennu.composeapp.generated.resources.read_to_the_end_of_the_list_to_sign
 import bennu.composeapp.generated.resources.ready_to_sign
+import bennu.composeapp.generated.resources.s_sats
+import bennu.composeapp.generated.resources.s_sats_back_to_the_group_as_change
 import bennu.composeapp.generated.resources.sign
 import bennu.composeapp.generated.resources.sign_with_the_group_s_key
+import bennu.composeapp.generated.resources.signed_by_the_group_any_member_can_send_it
 import bennu.composeapp.generated.resources.signed_their_part
-import bennu.composeapp.generated.resources.events_signed_together
-import androidx.compose.material3.SnackbarHost
+import bennu.composeapp.generated.resources.signers_have_not_signed
+import bennu.composeapp.generated.resources.spend_from_the_group_s_wallet
+import bennu.composeapp.generated.resources.spends_s_of_the_group_s_coins
+import bennu.composeapp.generated.resources.sweep_into_the_group_s_onchain_wallet
+import bennu.composeapp.generated.resources.sweeps_s_outputs_a_closed_channel_left_the_group
+import bennu.composeapp.generated.resources.this_spend_could_not_be_checked
+import bennu.composeapp.generated.resources.this_sweep_could_not_be_checked
+import com.machankura.bennu.compose.database.model.ChatRoom
+import com.machankura.bennu.compose.database.model.FrostSigningSession
+import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.database.model.types.FrostSigningStage
+import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
+import com.machankura.bennu.compose.managers.FrostSigningManager
+import com.machankura.bennu.compose.repository.ChatRepository
+import com.machankura.bennu.compose.repository.FrostSigningRepository
+import com.machankura.bennu.compose.text.ProposedEvent
+import com.machankura.bennu.compose.text.ProposedSpend
+import com.machankura.bennu.compose.text.grouped
+import com.machankura.bennu.compose.ui.composable.widgets.Decorative
 import com.machankura.bennu.compose.ui.composable.widgets.LocalSnackbarHostState
-import com.machankura.bennu.compose.ui.composable.widgets.rememberNotifier
 import com.machankura.bennu.compose.ui.composable.widgets.NavigateBackButton
-import com.machankura.bennu.compose.ui.theme.readableContent
+import com.machankura.bennu.compose.ui.composable.widgets.profile.ProfileAvatar
+import com.machankura.bennu.compose.ui.composable.widgets.rememberNotifier
+import com.machankura.bennu.compose.ui.theme.BennuTheme
 import com.machankura.bennu.compose.ui.theme.ConformancePreviews
+import com.machankura.bennu.compose.ui.theme.readableContent
+import com.machankura.bennu.compose.ui.theme.spacing
+import com.machankura.bennu.compose.ui.view.model.FrostSigningViewModel
+import com.machankura.bennu.compose.ui.view.state.FrostSigningUIState
+import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
+import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * One signing session, and the member's decision about it.
@@ -189,7 +193,8 @@ fun FrostSigningScreen(
                 val session = state.session ?: return@Scaffold Loading(padding)
 
                 val isSpend = session.subject == FrostSigningSubject.TRANSACTION
-                val proposed = if (isSpend) emptyList() else frostSigningViewModel.proposedEvents(state.items)
+                val isSweep = session.subject == FrostSigningSubject.SWEEP
+                val proposed = if (isSpend || isSweep) emptyList() else frostSigningViewModel.proposedEvents(state.items)
 
                 // Every event of the batch has to be readable before any of it can
                 // be signed. A member cannot check what they cannot see, and a
@@ -198,13 +203,15 @@ fun FrostSigningScreen(
                 // device has checked it, every input accounted for.
                 val readable = state.items.isNotEmpty() && if (isSpend) {
                     state.spend?.inputs?.size == state.items.size
+                } else if (isSweep) {
+                    state.sweep?.inputs?.size == state.items.size
                 } else {
                     proposed.size == state.items.size
                 }
 
                 // What has to be scrolled past before signing: each event of a
                 // batch, or each output of a spend.
-                val listed = if (isSpend) state.spend?.outputs?.size ?: 0 else proposed.size
+                val listed = if (isSpend) state.spend?.outputs?.size ?: 0 else if (isSweep) 1 else proposed.size
 
                 val scrollState = rememberScrollState()
 
@@ -217,7 +224,11 @@ fun FrostSigningScreen(
                         .padding(MaterialTheme.spacing.space250),
                     verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space200)
                 ) {
-                    if (isSpend) WhatIsBeingSpent(state.spend) else WhatIsBeingSigned(proposed, state.items.size)
+                    when {
+                        isSpend -> WhatIsBeingSpent(state.spend)
+                        isSweep -> WhatIsBeingSwept(state.sweep)
+                        else -> WhatIsBeingSigned(proposed, state.items.size)
+                    }
 
                     HorizontalDivider()
 
@@ -521,6 +532,28 @@ private fun WhatIsBeingSigned(events: List<Event>, expected: Int) {
  * but the coins being spent, which are the group's own and were each checked
  * against the wallet before this was drawn.
  */
+/** A sweep: the address it pays, which is the group's own, and what reaches it. */
+@Composable
+private fun WhatIsBeingSwept(sweep: GroupSweep.Checked?) {
+    if (sweep == null) {
+        Text(text = stringResource(Res.string.this_sweep_could_not_be_checked), color = MaterialTheme.colorScheme.error)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space200)) {
+        Text(text = stringResource(Res.string.sweep_into_the_group_s_onchain_wallet), style = MaterialTheme.typography.labelMedium)
+        Text(text = stringResource(Res.string.s_sats, sweep.amount.grouped()), style = MaterialTheme.typography.titleMedium)
+        Text(
+            text = stringResource(Res.string.fee_s_sats_at_s_sats_per_byte, sweep.fee.grouped(), sweep.feeratePerVbyte.toString()),
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = stringResource(Res.string.sweeps_s_outputs_a_closed_channel_left_the_group, sweep.inputs.size.toString()),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
 @Composable
 private fun WhatIsBeingSpent(spend: GroupSpend.Checked?) {
     if (spend == null) {

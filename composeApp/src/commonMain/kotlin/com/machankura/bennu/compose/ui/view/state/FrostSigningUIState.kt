@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.ui.view.state
 
 import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -65,6 +66,8 @@ sealed interface FrostSigningUIState {
          * the screen refuses to let anybody sign.
          */
         val spend: GroupSpend.Checked? = null,
+        /** The sweep a sweep session signs, as this device checked it; null for anything else. */
+        val sweep: GroupSweep.Checked? = null,
     ): FrostSigningUIState {
         /**
          * The members the session can be answered by, as rows to draw.

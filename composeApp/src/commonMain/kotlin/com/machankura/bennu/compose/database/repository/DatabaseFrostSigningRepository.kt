@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.database.repository
 
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.OutPoint
 import fr.acinq.bitcoin.psbt.Psbt
@@ -152,6 +153,13 @@ class DatabaseFrostSigningRepository(
         FrostSigningManager.checkedSpend(database, sessionId)
     } catch (e: Throwable) {
         logger.e("Error checking the spend of $sessionId", e)
+        null
+    }
+
+    override suspend fun checkedSweep(sessionId: String): GroupSweep.Checked? = try {
+        FrostSigningManager.checkedSweep(database, sessionId)
+    } catch (e: Throwable) {
+        logger.e("Error checking the sweep of $sessionId", e)
         null
     }
 

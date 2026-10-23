@@ -760,4 +760,10 @@
     <string name="close_to_the_onchain_wallet">Close to the onchain wallet</string>
     <string name="force_close">Force close</string>
     <string name="channel_actions">Channel actions</string>
+    <string name="this_sweep_could_not_be_checked">This device could not check this sweep, so it cannot be signed here.</string>
+    <string name="sweep_into_the_group_s_onchain_wallet">Sweep into the group's onchain wallet</string>
+    <string name="sweeps_s_outputs_a_closed_channel_left_the_group">Spends %1$s outputs a closed Lightning channel left the group. Every one goes to the group's own onchain wallet.</string>
+    <string name="s_sats_wait_in_closed_channels">%1$s sats wait in closed channels</string>
+    <string name="a_closed_channel_s_outputs_go_to_the_onchain_wallet">They are the group's alone, under its own keys. Sweeping asks the group to sign moving them to the onchain wallet; the sweep is sent once the channel's delay is over.</string>
+    <string name="sweep_into_the_onchain_wallet">Sweep into the onchain wallet</string>
 </resources>

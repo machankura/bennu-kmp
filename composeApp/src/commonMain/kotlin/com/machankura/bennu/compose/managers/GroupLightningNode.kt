@@ -6,6 +6,7 @@ import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.wallet.GroupChainClients
 import com.machankura.bennu.compose.wallet.lightning.GroupNodeKeyManager
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector
@@ -25,7 +26,10 @@ import fr.acinq.lightning.blockchain.electrum.ElectrumWatcher
 import fr.acinq.lightning.blockchain.fee.FeeratePerByte
 import fr.acinq.lightning.blockchain.fee.FeeratePerKw
 import fr.acinq.lightning.channel.ChannelCommand
+import fr.acinq.lightning.channel.GroupHeldOutputs
 import fr.acinq.lightning.channel.states.ChannelStateWithCommitments
+import fr.acinq.lightning.channel.states.Closed
+import fr.acinq.lightning.channel.states.Closing
 import fr.acinq.lightning.crypto.RemoteIcebergFundingSigner
 import fr.acinq.lightning.db.Databases
 import fr.acinq.lightning.db.LightningIncomingPayment
@@ -98,6 +102,8 @@ class GroupLightningNode(
         suspend fun close(channelId: String, scriptPubKey: ByteVector)
         /** Publishes our own commitment of [channelId]. */
         suspend fun forceClose(channelId: String)
+        /** The outputs closing channels pay to the group's basepoints, for the group to sweep. */
+        fun heldOutputs(): List<GroupSweep.Input>
     }
 
     sealed class State {
@@ -112,7 +118,7 @@ class GroupLightningNode(
     private var peer: PeerHandle? = null
     private var transport: GroupIcebergTransport? = null
     private var watching: Job? = null
-    private var lastReported: Pair<List<WalletWire.ChannelView>, List<WalletWire.PaymentView>>? = null
+    private var lastReported: Triple<List<WalletWire.ChannelView>, List<WalletWire.PaymentView>, List<GroupSweep.Input>>? = null
     private var lastReportedAt: kotlin.time.Instant? = null
 
     /** Starts the node if this device may run it now; otherwise says why not. */
@@ -178,13 +184,14 @@ class GroupLightningNode(
     internal suspend fun report(term: Long, force: Boolean = false) {
         val handle = peer ?: return
         val now = now()
-        val current = handle.channels() to handle.payments()
+        val current = Triple(handle.channels(), handle.payments(), handle.heldOutputs())
         val due = force || current != lastReported || lastReportedAt.let { it == null || now - it >= reportEvery }
         if (!due) return
         val snapshot = WalletWire.Snapshot(
             wallet = walletKey, term = term, nodeId = wallet.statement.nodeId, sentAt = now.epochSeconds,
             channels = current.first, payments = current.second.takeLast(REPORTED_PAYMENTS),
             assignments = transport?.assignments().orEmpty(),
+            heldOutputs = current.third,
         )
         GroupLightningReports.publishSnapshot(database, localChatRoom, userPublicKey, snapshot)
         lastReported = current
@@ -347,6 +354,28 @@ class GroupLightningNode(
                 override suspend fun close(channelId: String, scriptPubKey: ByteVector) {
                     peer.mutualClose(ByteVector32(channelId), scriptPubKey, peer.onChainFeeratesFlow.value?.mutualCloseFeerate ?: FeeratePerKw(FeeratePerByte(Satoshi(2))))
                 }
+                override fun heldOutputs(): List<GroupSweep.Input> = peer.channelsFlow.value.values.mapNotNull { state ->
+                    when (state) {
+                        is Closing -> state
+                        is Closed -> state.state
+                        else -> null
+                    }
+                }.flatMap { closing ->
+                    val latest = closing.commitments.latest
+                    val keys = configuration.keyManager.channelKeys(closing.commitments.channelParams.localParams.fundingKeyPath)
+                    buildList {
+                        closing.localCommitPublished?.let { published ->
+                            GroupHeldOutputs.inLocalCommit(keys, latest, published.commitTx)?.let(::add)
+                            // Our HTLC transactions, once they spend our commitment: their delayed outputs are the group's too.
+                            published.irrevocablySpent.values.filter { tx -> tx.txIn.any { it.outPoint.txid == published.commitTx.txid } }
+                                .forEach { htlcTx -> GroupHeldOutputs.inHtlcTx(keys, latest, htlcTx)?.let(::add) }
+                        }
+                        closing.remoteCommitPublished?.let { GroupHeldOutputs.inRemoteCommit(keys, latest, latest.remoteCommit.remotePerCommitmentPoint, it.commitTx)?.let(::add) }
+                        closing.nextRemoteCommitPublished?.let { published ->
+                            latest.nextRemoteCommit?.let { next -> GroupHeldOutputs.inRemoteCommit(keys, latest, next.remotePerCommitmentPoint, published.commitTx)?.let(::add) }
+                        }
+                    }
+                }.map(GroupSweep::inputOf).distinctBy { it.txid to it.index }
                 override suspend fun forceClose(channelId: String) {
                     peer.send(WrappedChannelCommand(ByteVector32(channelId), ChannelCommand.Close.ForceClose))
                 }

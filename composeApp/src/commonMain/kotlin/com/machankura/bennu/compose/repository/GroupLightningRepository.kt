@@ -13,6 +13,7 @@ import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -76,4 +77,10 @@ interface GroupLightningRepository {
 
     /** Proposes closing [channelId] to the onchain wallet, or force-closing it when [force]. */
     suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession
+
+    /** What closed channels left the group that no sweep spends yet, from [report]. */
+    suspend fun unswept(chatRoomId: String, report: GroupLightningReports.Report?): List<GroupSweep.Input>
+
+    /** Proposes sweeping [inputs] into the onchain wallet. */
+    suspend fun proposeSweep(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, inputs: List<GroupSweep.Input>): FrostSigningSession
 }

@@ -14,6 +14,8 @@ import fr.acinq.bitcoin.crypto.frost.TweakCache
 import fr.acinq.bitcoin.psbt.Psbt
 import fr.acinq.secp256k1.Hex
 import co.touchlab.kermit.Logger
+import com.machankura.bennu.compose.network.serialization.CommonJson
+import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
@@ -401,6 +403,14 @@ object FrostSigningManager {
 
         val session = if (innerEvent.kind == FrostSigningEvents.PROPOSAL) {
             acceptProposal(
+                database = database,
+                localChatRoom = localChatRoom,
+                innerEvent = innerEvent,
+                sessionId = sessionId,
+                userPublicKey = userPublicKey
+            )
+        } else if (innerEvent.kind == FrostSigningEvents.TRANSACTION_PROPOSAL && FrostSigningEvents.parseSweep(innerEvent.tags) != null) {
+            acceptSweepProposal(
                 database = database,
                 localChatRoom = localChatRoom,
                 innerEvent = innerEvent,
@@ -838,6 +848,226 @@ object FrostSigningManager {
         val transaction = database.groupTransactionDao().getBySessionId(session.id) ?: return null
         val chain = GroupWalletStatementEvent.chainNamed(transaction.chain) ?: return null
         return transaction to GroupWalletDerivation.account(thresholdPublicKey, chain, transaction.account)
+    }
+
+    /**
+     * Opens a sweep of what a closed Lightning channel left the group into the
+     * onchain wallet at [account] on [chain], after every check [GroupSweep.check]
+     * makes. Like a spend, proposing it is agreeing to it.
+     */
+    suspend fun proposeSweep(
+        database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        sweep: GroupSweep.Sweep,
+        chain: Chain,
+        account: Long = 0L,
+    ): FrostSigningSession {
+        val chatRoomId = localChatRoom.chatRoom.id
+        val ceremony = completedKey(database, chatRoomId)
+            ?: throw IllegalStateException("This group has no shared key to sign with")
+        val thresholdPublicKey = ceremony.thresholdPublicKey
+            ?: throw IllegalStateException("Ceremony ${ceremony.id} holds no threshold key")
+        val signerId = signerIdOf(database, ceremony, userPublicKey)
+            ?: throw IllegalStateException("This device is not a participant in ceremony ${ceremony.id}")
+        val checked = when (val result = checkSweep(database, chatRoomId, thresholdPublicKey, chain, account, sweep)) {
+            is GroupSweep.Result.Ok -> result.checked
+            is GroupSweep.Result.Refused -> throw IllegalArgumentException("This sweep ${result.reason}")
+        }
+
+        val session = FrostSigningSession(
+            id = RandomInstance.bytes(32).toHex(),
+            chatRoomId = chatRoomId,
+            coordinatorPublicKey = userPublicKey,
+            userPublicKey = userPublicKey,
+            dkgSessionId = ceremony.id,
+            threshold = ceremony.threshold,
+            participantCount = ceremony.participantCount,
+            signerId = signerId,
+            derivationPath = null,
+            subject = FrostSigningSubject.SWEEP,
+            signApprovedAt = Clock.System.now()
+        )
+        writeSweep(database, session, checked, chain, account)
+        announceStarted(database, session)
+        logger.i("Proposing sweep ${session.id}: ${checked.inputs.size} output(s), ${checked.amount.sat} sats to the wallet, ${checked.fee.sat} sats fee")
+
+        broadcast(
+            database = database,
+            localChatRoom = localChatRoom,
+            session = session,
+            kind = FrostSigningEvents.TRANSACTION_PROPOSAL,
+            content = CommonJson.encodeToString(GroupSweep.Sweep.serializer(), sweep),
+            includeKey = true,
+            extraTags = FrostSigningEvents.sweepTags(GroupWalletStatementEvent.chainName(chain), account, sweep.wallet)
+        )
+        advance(database, localChatRoom, session.id)
+        return session
+    }
+
+    /**
+     * Records a proposed sweep, after every check [GroupSweep.check] makes, against
+     * the group's own basepoints and the onchain wallet the room opened. Write-once,
+     * as a spend is.
+     */
+    private suspend fun acceptSweepProposal(
+        database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
+        innerEvent: Event,
+        sessionId: String,
+        userPublicKey: HexKey
+    ): FrostSigningSession? {
+        val sweep = decodeSweep(innerEvent.content)
+        database.frostSigningSessionDao().getSessionById(sessionId)?.let { existing ->
+            val stored = database.groupTransactionDao().getBySessionId(sessionId)?.let { decodeSweep(it.psbt) }
+            if (existing.subject != FrostSigningSubject.SWEEP || stored == null || stored != sweep) {
+                logger.w("Session $sessionId re-proposed with a different sweep; ignoring")
+            }
+            return existing
+        }
+        if (sweep == null) {
+            logger.w("Sweep proposal $sessionId does not carry a sweep; dropping")
+            return null
+        }
+        val key = FrostSigningEvents.parseKey(innerEvent.tags)
+            ?.let { database.dkgSessionDao().getSessionById(it) }
+            ?.takeIf { it.stage == DkgRitualStage.COMPLETE }
+        val thresholdPublicKey = key?.thresholdPublicKey
+        if (key == null || thresholdPublicKey == null) {
+            logger.w("Sweep proposal $sessionId names a key this device does not hold; dropping")
+            return null
+        }
+        val signerId = signerIdOf(database, key, userPublicKey) ?: run {
+            logger.w("Sweep proposal $sessionId is for a ceremony this device did not take part in; dropping")
+            return null
+        }
+        val (chainName, account) = FrostSigningEvents.parseWallet(innerEvent.tags) ?: run {
+            logger.w("Sweep proposal $sessionId names no wallet; dropping")
+            return null
+        }
+        val chain = GroupWalletStatementEvent.chainNamed(chainName) ?: return null
+        if (FrostSigningEvents.parseSweep(innerEvent.tags) != sweep.wallet) {
+            logger.w("Sweep proposal $sessionId names one Lightning wallet in its tags and another in its content; dropping")
+            return null
+        }
+        val checked = when (val result = checkSweep(database, localChatRoom.chatRoom.id, thresholdPublicKey, chain, account, sweep)) {
+            is GroupSweep.Result.Ok -> result.checked
+            is GroupSweep.Result.Refused -> {
+                logger.w("Sweep proposal $sessionId ${result.reason}; dropping")
+                return null
+            }
+        }
+        val session = FrostSigningSession(
+            id = sessionId,
+            chatRoomId = localChatRoom.chatRoom.id,
+            coordinatorPublicKey = innerEvent.pubKey,
+            userPublicKey = userPublicKey,
+            dkgSessionId = key.id,
+            threshold = key.threshold,
+            participantCount = key.participantCount,
+            signerId = signerId,
+            derivationPath = null,
+            subject = FrostSigningSubject.SWEEP,
+        )
+        writeSweep(database, session, checked, chain, account)
+        announceStarted(database, session)
+        logger.i("Recorded sweep $sessionId: ${checked.amount.sat} sats to the wallet, ${checked.fee.sat} sats fee; awaiting approval")
+        announceApprovalNeeded(database, session)
+        replayStoredMessages(database, localChatRoom, session)
+        return session
+    }
+
+    /**
+     * [sweep] checked against the Lightning wallet the room agreed for its
+     * network and number, whose basepoints derive from [thresholdPublicKey], and
+     * the onchain wallet at [account] it must pay.
+     */
+    private suspend fun checkSweep(database: BennuDatabase, chatRoomId: String, thresholdPublicKey: HexKey, chain: Chain, account: Long, sweep: GroupSweep.Sweep): GroupSweep.Result {
+        GroupLightningWalletManager.walletFor(database, chatRoomId, chain, sweep.wallet)
+            ?: return GroupSweep.Result.Refused("sweeps a Lightning wallet the group has not opened")
+        val onchain = GroupWalletManager.walletFor(database, chatRoomId, thresholdPublicKey, chain, account)
+            ?: return GroupSweep.Result.Refused("pays an onchain wallet the group has not opened")
+        return GroupSweep.check(sweep, GroupLightningDerivation.basepoints(thresholdPublicKey, chain, sweep.wallet), onchain.account)
+    }
+
+    private suspend fun writeSweep(database: BennuDatabase, session: FrostSigningSession, checked: GroupSweep.Checked, chain: Chain, account: Long) {
+        database.frostSigningSessionDao().upsert(session)
+        database.frostSigningSessionDao().upsertItems(
+            checked.inputs.map { input ->
+                FrostSigningItem(
+                    sessionId = session.id,
+                    itemIndex = input.index,
+                    unsignedEventJson = """{"input":${input.index}}""",
+                    eventId = input.sighash.toHex(),
+                    nonceRandom = RandomInstance.bytes(32).toHex(),
+                    inputIndex = input.index,
+                )
+            }
+        )
+        // The row a spend keeps, so the watcher broadcasts the sweep like any of the group's
+        // transactions; its PSBT column holds the sweep as proposed instead.
+        database.groupTransactionDao().insertIfAbsent(
+            GroupTransaction(
+                frostSigningSessionId = session.id,
+                chatRoomId = session.chatRoomId,
+                chain = GroupWalletStatementEvent.chainName(chain),
+                account = account,
+                psbt = CommonJson.encodeToString(GroupSweep.Sweep.serializer(), checked.sweep),
+                txid = checked.tx.txid.toString(),
+            )
+        )
+    }
+
+    private fun decodeSweep(content: String): GroupSweep.Sweep? =
+        runCatching { CommonJson.decodeFromString(GroupSweep.Sweep.serializer(), content) }.getOrNull()
+
+    /** The sweep a sweep session signs, checked again from its row, or null. */
+    private suspend fun sweepOf(database: BennuDatabase, session: FrostSigningSession, thresholdPublicKey: HexKey): GroupSweep.Checked? {
+        val transaction = database.groupTransactionDao().getBySessionId(session.id) ?: return null
+        val sweep = decodeSweep(transaction.psbt) ?: return null
+        val chain = GroupWalletStatementEvent.chainNamed(transaction.chain) ?: return null
+        return (checkSweep(database, session.chatRoomId, thresholdPublicKey, chain, transaction.account, sweep) as? GroupSweep.Result.Ok)?.checked
+    }
+
+    /** The sweep [sessionId] signs, as the approval screen shows it, or null for any other session. */
+    suspend fun checkedSweep(database: BennuDatabase, sessionId: String): GroupSweep.Checked? {
+        val session = database.frostSigningSessionDao().getSessionById(sessionId) ?: return null
+        if (session.subject != FrostSigningSubject.SWEEP) return null
+        val thresholdPublicKey = database.dkgSessionDao().getSessionById(session.dkgSessionId)?.thresholdPublicKey ?: return null
+        return sweepOf(database, session, thresholdPublicKey)
+    }
+
+    /** A sweep's signatures, each checked under its leaf key, witnessed, and run through the interpreter. */
+    private suspend fun completeSweep(database: BennuDatabase, session: FrostSigningSession, items: List<FrostSigningItem>) {
+        val thresholdPublicKey = database.dkgSessionDao().getSessionById(session.dkgSessionId)?.thresholdPublicKey
+            ?: throw IllegalStateException("The ceremony this sweep signs under is gone")
+        val checked = sweepOf(database, session, thresholdPublicKey) ?: throw IllegalStateException("This sweep no longer checks out")
+        val signatures = items.mapIndexed { index, item ->
+            val input = checked.inputs[index]
+            val signature = ByteVector64(item.signature!!)
+            if (!Crypto.verifySignatureSchnorr(input.sighash, signature, input.leafKey)) {
+                throw IllegalStateException("The aggregated signature for input $index does not verify under its leaf key")
+            }
+            signature
+        }
+        val signed = GroupSweep.witnessed(checked.tx, checked.inputs, signatures)
+        signed.correctlySpends(checked.inputs.associate { it.outPoint to it.txOut }, ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)
+        update(database, session) { it.copy(stage = FrostSigningStage.COMPLETE) }
+        try {
+            val transaction = database.groupTransactionDao().getBySessionId(session.id) ?: return
+            database.groupTransactionDao().upsert(transaction.copy(signedTransaction = Hex.encode(Transaction.write(signed))))
+        } catch (e: Throwable) {
+            logger.e("Signed sweep ${session.id} but could not record it", e)
+        }
+        announce(
+            database = database,
+            session = session,
+            messageType = ChatMessage.TYPE_FROST_COMPLETE,
+            content = "The group signed a sweep of ${checked.amount.sat} sats from its Lightning wallet into its onchain wallet, " +
+                "with ${checked.fee.sat} sats in fees. It is sent once its delay is over.",
+            actor = session.coordinatorPublicKey
+        )
+        logger.i("Sweep ${session.id} complete: txid ${signed.txid}")
     }
 
     /**
@@ -1368,6 +1598,10 @@ object FrostSigningManager {
                 FrostSigningSubject.TRANSACTION -> spendDerivations(database, session, thresholdPublicKey, items)
                     ?.map { it.cache }
                     ?: throw IllegalStateException("The coins this transaction spends no longer derive under the group's wallet")
+
+                FrostSigningSubject.SWEEP -> sweepOf(database, session, thresholdPublicKey)
+                    ?.inputs?.map { it.cache }
+                    ?: throw IllegalStateException("The outputs this sweep spends no longer derive under the group's basepoints")
             }
 
             val messages = items.map { ByteVector(it.eventId.hexToByteArray()) }
@@ -1555,6 +1789,10 @@ object FrostSigningManager {
 
         if (session.subject == FrostSigningSubject.TRANSACTION) {
             completeSpend(database, session, items)
+            return
+        }
+        if (session.subject == FrostSigningSubject.SWEEP) {
+            completeSweep(database, session, items)
             return
         }
 
@@ -2540,6 +2778,21 @@ object FrostSigningManager {
                     FrostSigningEvents.TRANSACTION_PROPOSAL,
                     transaction.psbt,
                     FrostSigningEvents.walletTags(transaction.chain, transaction.account)
+                )
+            }
+
+            // The sweep as proposed, which the transaction row keeps where a spend keeps its PSBT.
+            FrostSigningSubject.SWEEP -> {
+                val transaction = database.groupTransactionDao().getBySessionId(sessionId)
+                val sweep = transaction?.let { decodeSweep(it.psbt) }
+                if (transaction == null || sweep == null) {
+                    logger.w("Session $sessionId: no sweep on file; nothing to resend")
+                    return false
+                }
+                Triple(
+                    FrostSigningEvents.TRANSACTION_PROPOSAL,
+                    transaction.psbt,
+                    FrostSigningEvents.sweepTags(transaction.chain, transaction.account, sweep.wallet)
                 )
             }
         }

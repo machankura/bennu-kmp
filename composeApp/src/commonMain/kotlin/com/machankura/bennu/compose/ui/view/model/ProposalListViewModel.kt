@@ -169,12 +169,14 @@ class ProposalListViewModel(
                         ?.let { ProposedSpend.summarize(it, it.account.chain) }
                         ?: ProposedSpend.UNREADABLE
                 )
+            } else if (local.session.subject == FrostSigningSubject.SWEEP) {
+                listOf(frostSigningRepository.checkedSweep(local.session.id)?.let(ProposedSpend::summarize) ?: ProposedSpend.UNREADABLE_SWEEP)
             } else {
                 events.map { ProposedEvent.summarize(it) }
             },
             // A spend's inputs are not events, and none of them is unreadable on
             // its own: the spend is checked whole, and says so in its summary.
-            unreadable = if (local.session.subject == FrostSigningSubject.TRANSACTION) 0 else items.size - events.size,
+            unreadable = if (local.session.subject != FrostSigningSubject.EVENTS) 0 else items.size - events.size,
             awaitsYou = FrostSigningManager.isAwaitingApproval(local.session, items),
             noncesOffered = counted(FrostSigningEvents.NONCE),
             partialSignatures = counted(FrostSigningEvents.PARTIAL_SIGNATURE),
