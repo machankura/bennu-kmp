@@ -822,4 +822,20 @@
     <string name="fee_s_sats_at_s_sats_per_byte">Fee: %1$s sats, at %2$s sats per byte</string>
     <string name="spends_s_of_the_group_s_coins">Spends %1$s of the group's coins</string>
     <string name="signed_by_the_group_any_member_can_send_it">Signed by the group, not by you. Once enough members sign, any member's device can send it to the network.</string>
+    <string name="send">Send</string>
+    <string name="send_from_the_group_s_wallet">Send from the group's wallet</string>
+    <string name="address">Address</string>
+    <string name="amount_in_sats">Amount in sats</string>
+    <string name="send_everything">Send everything</string>
+    <string name="feerate_in_sats_per_byte">Fee rate in sats per byte</string>
+    <string name="ask_the_group_to_send">Ask the group to send</string>
+    <string name="sends_s_sats_with_a_fee_of_s_sats">Sends %1$s sats, with a fee of %2$s sats.</string>
+    <string name="s_sats_come_back_to_the_group_as_change">%1$s sats come back to the group as change.</string>
+    <string name="that_isn_t_an_address_on_s">That isn't an address on %1$s.</string>
+    <string name="the_group_has_nothing_confirmed_to_spend">The group has nothing confirmed to spend yet.</string>
+    <string name="the_group_doesn_t_have_that_much_confirmed">The group doesn't have that much confirmed, after the fee.</string>
+    <string name="that_is_too_little_to_send">That is too little to send: the network won't relay an output that small.</string>
+    <string name="couldn_t_ask_the_group_to_send">Couldn't ask the group to send.</string>
+    <string name="sending_needs_a_share_and_a_node">Sending needs a share of the group's key, and a wallet of your own on this profile to see the group's coins with.</string>
+    <string name="nothing_leaves_until_a_quorum_signs">Nothing leaves the wallet until a quorum of members has seen this spend and signed it.</string>
 </resources>

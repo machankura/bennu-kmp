@@ -40,6 +40,9 @@ kept as written; where the build chose differently the table below says so.
 | the account comes from the statement, never from the proposal | and the proposal carries `chain` and `account` tags to say *which* statement. Acceptance then looks the statement up under the ceremony's own key, which is also what refuses a spend opened under a subgroup's ceremony held in its parent's room |
 | a new `TYPE_GROUP_TRANSACTION_SIGNED` line | none: `TYPE_FROST_COMPLETE` with a spend's wording — sats sent, sats in fees — since it is the settlement line the transcript and the proposal list already read, and a new type would need adding to five sets |
 | `complete()` for a transaction | `completeSpend`, which re-runs `GroupSpend.check` over the stored PSBT so every signature is checked against the coin it spends, then runs `correctlySpends` before writing `signedTransaction` |
+| the feerate comes from `FeerateManager`'s `halfHour` | from Electrum's six-block estimate, through `GroupChainWallets` — the wallet already holds the identity's Electrum client, and the business's fee manager would be a second way in to the same node. Prefilled, never used unseen |
+| the inputs behind a disclosure on the approval screen | a line saying how many of the group's coins it spends. Each was checked against the wallet before the screen was drawn, so there is nothing about them a member could check by opening one |
+| the composer marks coins reserved | `FrostSigningManager.reservedOutPoints`: every coin an open spend holds, released when its session fails, held by a finished one until Electrum stops reporting the coin |
 
 The headline: **the best path is BIP86's own unhardened tail, `/<change>/<index>`,
 hung under an account key the group's threshold key is tweaked to, with the

@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.ui.composable
 
+import androidx.compose.material.icons.filled.Send
+import bennu.composeapp.generated.resources.send
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupSendRoute
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -203,6 +206,19 @@ fun GroupWalletScreen(
                         modifier = Modifier.padding(padding),
                         state = state,
                         notify = notify,
+                        // Behind both gates: a share to propose with, and a node to
+                        // see the coins with -- a spend built blind is not one.
+                        onSend = if (state.canSign && state.canWatch) {
+                            {
+                                onNavigateToRoute(
+                                    GroupSendRoute(
+                                        activeUserPublicKey = activeUserPublicKey,
+                                        chatRoomId = chatRoomId,
+                                        relayHint = null
+                                    )
+                                )
+                            }
+                        } else null,
                     )
                 }
             }
@@ -243,6 +259,7 @@ private fun OpenWallet(
     modifier: Modifier,
     state: GroupWalletUIState.Loaded,
     notify: (String) -> Unit,
+    onSend: (() -> Unit)?,
 ) {
     val clipboardManager = LocalClipboardManager.current
     val addressCopied = stringResource(Res.string.address_copied)
@@ -255,6 +272,16 @@ private fun OpenWallet(
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
     ) {
         item { BalanceCard(walletState) }
+
+        onSend?.let { send ->
+            item {
+                Button(onClick = send) {
+                    Icon(Icons.Default.Send, contentDescription = Decorative)
+                    Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                    Text(stringResource(Res.string.send))
+                }
+            }
+        }
 
         when {
             !state.canWatch -> item {

@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.wallet
 
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import fr.acinq.lightning.blockchain.electrum.IElectrumClient
+import fr.acinq.lightning.blockchain.fee.FeeratePerByte
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -27,6 +28,14 @@ class GroupChainWallets(
     suspend fun walletFor(account: GroupWalletDerivation.Account): GroupChainWallet = mutex.withLock {
         wallets.getOrPut(account.xpub) { GroupChainWallet(account, electrum, scope) }
     }
+
+    /**
+     * A feerate to start the send form at, in sats per virtual byte: Electrum's
+     * estimate for six blocks, or null when it has none. A suggestion the member
+     * edits, never a value a spend is built on without them seeing it.
+     */
+    suspend fun suggestedFeeratePerVbyte(): Long? =
+        electrum.estimateFees(6)?.let { FeeratePerByte(it).feerate.sat }?.coerceAtLeast(1)
 
     suspend fun stop() = mutex.withLock {
         wallets.values.forEach { it.stop() }

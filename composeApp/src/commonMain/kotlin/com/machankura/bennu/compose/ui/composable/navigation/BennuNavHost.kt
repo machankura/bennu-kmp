@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.composable.navigation
 
+import com.machankura.bennu.compose.ui.composable.GroupSendScreen
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupSendRoute
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
@@ -1240,6 +1242,28 @@ fun BennuNavHost(
                     wallets = groupChainWallets,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<GroupSendRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<GroupSendRoute>()
+
+                GroupSendScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    chain = NodeParamsManager.chain,
+                    chatRepository = databaseChatRepository,
+                    frostSigningRepository = databaseFrostSigningRepository,
+                    wallets = groupChainWallets,
+                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
+                        // Replace the form so back returns to the wallet rather
+                        // than to a spend that has already been proposed.
+                        navController.navigate(route = signingRoute) {
+                            popUpTo<GroupSendRoute> { inclusive = true }
+                        }
                     },
                     onNavigateBack = {
                         navController.popBackStack()
