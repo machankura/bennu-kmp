@@ -37,9 +37,10 @@ failures a resend repairs and which heal on their own. The
 sync note stands alone, and the dead-code inventory reads as a follow-up to it. The
 batch-signing note is a phased plan that has been built: read it after the
 derivation note, whose one rule is the same one it is built around. The member
-chronicle note is a phased plan that has not been built, and reads as the
-membership note's unanswered half: what a member who joins late can be given,
-and the one thing they cannot. The
+chronicle note is a phased plan that has been built and now carries nothing --
+the document kinds it was for are gone -- and reads as the membership note's
+unanswered half: what a member who joins late can be given, and the one thing
+they cannot. The
 jvm-target note is unrelated to all of them: it is a build and packaging story.
 The subgroups note is a phased plan that has been built; it assumes both
 shared-key notes and reads as the ceremony's second half — what a group does
@@ -87,7 +88,7 @@ The group send-an-amount note is a phased plan that has been built, and reads
 as the third gate of the group chain wallet note's Phase 10: why that gate
 could not lift as written, and what stands in for it now that it is gone. Read
 its list of what the gated code got wrong before its phases.
-The ceremony-creation note is a phased plan that has not been built. It reads as
+The ceremony-creation note is a phased plan that has been built. It reads as
 the subgroups note's Phase 10 followed through to the screens: read it after
 that phase, and its table of findings before any phase. Its second half
 removes the nip30303 documents and leaves the member chronicle built but

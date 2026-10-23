@@ -12,9 +12,24 @@ bug exists because a subgroup's ceremony moved into the parent's Marmot room, an
 the screens that start and show ceremonies were written for a room that only ever
 held its own.
 
-**Not built.** Written against the code as it stood at `e3839da5`.
-`CreateSharedKeyScreen` will be the one screen that starts a group's own
-ceremony, and `DkgRitualScreen` will only ever show one.
+**Built**, one commit per phase on `claude/ceremony-creation` (Phase 7 in two),
+against the code as it stood at `e3839da5`. `CreateSharedKeyScreen` is the one
+screen that starts a group's own ceremony, and `DkgRitualScreen` only ever shows
+one. The phases are kept as written because they are the reasoning; where the
+build chose differently it did so these times:
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 7 deletes the 103 files, Phase 8 the tables | the line moved. The `Mantra*` entities convert to and from the nip30303 event classes, so the classes, entities and DAOs went in Phase 8 with the tables. Phase 7 removed the screens (part 1) and the inbound handling, `ProposedEvent`'s arms and the chronicle's document parts (part 2) |
+| the group details' **Shared key** opens an existing ceremony itself, else the creation screen | it always opens `CreateSharedKeyRoute`, which hands over to an existing ceremony. One place decides, and back from the ceremony still returns to the details |
+| only `DkgRitualRoute.dkgSessionId` becomes required | the three approval routes' too, and `DkgRitualUIState.Loaded.session` is non-null. Every approval was already named by the ceremony screen that opened it |
+| the subgroup picker's quorum stepper and the shared-key one are one component | two. The picker's asks a different question ("how many admins have to approve a change"), so the shared-key one is `SharedKeyQuorumStepper`, private to the creation screen |
+| `requestIfEmpty` keeps its "holds work" check | it had to change: the check read the dialect and artifact tables. A room now holds work if it holds a `GroupSignedEvent` of a chroniclable kind, and with none chroniclable it never asks |
+| the chronicle's tests re-fixture | three of four did, with `TEST_KINDS` (a relay list, a profile, a post -- group-signed kinds whose arrival writes no row of its own, so the `GroupSignedEvent` rows are the observable). `ChronicleRoundTripTest` was entirely the rebuild through document rows and is deleted. The positive invite push could not take a test set -- `deliveryWelcome` calls `sendTo` with the app's kinds -- and became the "sends nothing" case |
+| `SignedGroupKeyStateTest` and `GroupSignedEventDaoJvmTest` re-fixture in Phase 8 | Phase 7: they failed at runtime the moment document arms stopped writing rows. They sign posts now, and "the row a signed event becomes points back at it" is deleted -- no kept kind writes a row |
+| a migration test with tables copied from `26.json` | built from the exported `26.json` at run time and compared with `27.json`, so it cannot drift from what Room expects |
+| `CLAUDE.md`'s literal count goes to 20 | 19, after Phase 5 took another |
+| 61 strings plus four already unused | 65 in all: the string catalogue test's two chapter strings went once it checked its escapes on `recovered_of_still_unreadable` instead |
 
 The headline: **a ceremony is started only from a screen that knows what it is
 for, and the screen that shows a ceremony can never start one.** Today
