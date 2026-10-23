@@ -29,6 +29,9 @@ kept as written; where the build chose differently the table below says so.
 | the transcript line is checked by signature | by signature *and* rederivation, through `GroupWallet.of` — a line people will send money on is held to the same check as the wallet screen |
 | `GroupWalletManager` starts a wallet for every room with a statement, under the identity's `collectLatest` | `GroupChainWallets`, one per identity, makes a room's wallet the first time its screen asks and keeps it for the identity's life. Starting every room's at launch would subscribe a member in twenty groups to two hundred addresses before they looked at one; `GroupWalletManager` kept the reads (the key, the account, the statement) and nothing that runs |
 | `receiveAddress` is the first unused address | it is, and that is `ElectrumMiniWallet`'s rule: the *lowest* unused index, so a gap below a paid address is refilled before the next one is offered. Null until Electrum has answered, rather than `/0/0` |
+| members who can sign see *Open a group wallet* on the group's screen; others see nothing | every member sees a *Group wallet* row, saying *Open on mainnet* or *Not opened yet*; the open action lives on the wallet screen's empty state, behind the same `canSign` gate, with Phase 10's sentence about unencrypted shares above the button |
+| the wallet's network is the identity's | `NodeParamsManager.chain`, read statically. An nsec or npub profile has no node, and still has to know which network's statement to look for |
+| `GroupChainWallets` started under the identity's `collectLatest` | made in `BennuNavHost`, remembered on the identity's `PhoenixBusiness` and stopped in a `DisposableEffect` when it changes — the same lifetime, held where the business already is |
 
 The headline: **the best path is BIP86's own unhardened tail, `/<change>/<index>`,
 hung under an account key the group's threshold key is tweaked to, with the

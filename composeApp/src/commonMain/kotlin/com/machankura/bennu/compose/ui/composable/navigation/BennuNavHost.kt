@@ -52,6 +52,7 @@ import com.machankura.bennu.compose.ui.composable.ProposeGroupEventScreen
 import com.machankura.bennu.compose.ui.composable.EditGroupRelaysScreen
 import com.machankura.bennu.compose.ui.composable.GroupNostrProfileScreen
 import com.machankura.bennu.compose.ui.composable.GroupRelaysScreen
+import com.machankura.bennu.compose.ui.composable.GroupWalletScreen
 import com.machankura.bennu.compose.ui.composable.GroupPostsScreen
 import com.machankura.bennu.compose.ui.composable.GroupCuratedSchemasScreen
 import com.machankura.bennu.compose.ui.composable.GroupCuratedEntriesScreen
@@ -160,6 +161,9 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposeGroup
 import com.machankura.bennu.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
+import com.machankura.bennu.compose.wallet.GroupChainWallets
+import fr.acinq.phoenix.managers.NodeParamsManager
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupPostsRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupCuratedSchemasRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupCuratedEntriesRoute
@@ -261,6 +265,19 @@ fun BennuNavHost(
         DatabaseSearchRepository(
             database = auxDatabaseManager.auxDatabase
         )
+    }
+
+    // The group wallets this identity is watching, on its own node's Electrum
+    // client -- null for an nsec or npub profile, which has no node and so no
+    // chain to watch. Remade with the node and stopped with it, because a switch
+    // of profile is a restart and a wallet left subscribing on the last one's
+    // connection is a wallet nobody can see.
+    val activeIdentityForWallets by sovereignWalletViewModel.activeIdentity.collectAsState()
+    val groupChainWallets = remember(activeIdentityForWallets?.business) {
+        activeIdentityForWallets?.business?.let { GroupChainWallets(it.electrumClient, applicationIOScope) }
+    }
+    DisposableEffect(groupChainWallets) {
+        onDispose { groupChainWallets?.let { wallets -> applicationIOScope.launch { wallets.stop() } } }
     }
 
     val navigationViewModel: NavigationViewModel =  viewModel (
@@ -1203,6 +1220,24 @@ fun BennuNavHost(
                     chatRoomId = route.chatRoomId,
                     relayHint = route.relayHint,
                     chatRepository = databaseChatRepository,
+                    onNavigateToRoute = { actionRoute ->
+                        navController.navigate(route = actionRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<GroupWalletRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<GroupWalletRoute>()
+
+                GroupWalletScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    chain = NodeParamsManager.chain,
+                    chatRepository = databaseChatRepository,
+                    frostSigningRepository = databaseFrostSigningRepository,
+                    wallets = groupChainWallets,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
                     },

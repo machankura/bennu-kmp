@@ -788,4 +788,32 @@
     <string name="you_already_have_a_chat_with_s">You already have a chat with %1$s.</string>
     <string name="checking_whether_s_can_receive_messages_here">Checking whether %1$s can receive messages here.</string>
     <string name="s_hasn_t_set_up_messaging_on_bennu_yet">%1$s hasn't set up messaging on Bennu yet. Try again later, or ask them to open Bennu.</string>
+    <!-- The group's on-chain wallet. -->
+    <string name="group_wallet">Group wallet</string>
+    <string name="open_a_group_wallet">Open a group wallet</string>
+    <string name="not_opened_yet">Not opened yet</string>
+    <string name="open_on_s">Open on %1$s</string>
+    <string name="this_group_has_not_opened_a_wallet">This group has not opened a wallet.</string>
+    <string name="opening_a_wallet_asks_the_group_to_agree">Opening a wallet asks the group to agree that it keeps coins here. Any quorum of members can then spend them together, and nobody can spend them alone.</string>
+    <string name="each_member_s_share_is_stored_unencrypted">Each member's share of the group's key is stored unencrypted on their device. Anyone with an unlocked device, or a copy of its data, holds that member's share.</string>
+    <string name="couldn_t_ask_the_group_to_open_a_wallet">Couldn't ask the group to open a wallet.</string>
+    <string name="balance">Balance</string>
+    <string name="s_sats">%1$s sats</string>
+    <string name="s_sats_on_the_way">%1$s sats on the way</string>
+    <string name="receive_address">Receive address</string>
+    <string name="copy_address">Copy address</string>
+    <string name="address_copied">Address copied</string>
+    <string name="finding_the_group_s_coins">Finding the group's coins…</string>
+    <string name="nothing_has_been_sent_to_this_wallet_yet">Nothing has been sent to this wallet yet.</string>
+    <string name="this_profile_cannot_watch_the_chain">This profile has no wallet of its own to watch the chain with, so the balance and the next address can't be shown here.</string>
+    <string name="coins">Coins</string>
+    <string name="change">Change</string>
+    <string name="received">Received</string>
+    <string name="waiting_for_a_confirmation">Waiting for a confirmation</string>
+    <string name="s_confirmations">%1$s confirmations</string>
+    <string name="s_dot_s">%1$s · %2$s</string>
+    <string name="balance_not_known_yet">Not known yet</string>
+    <string name="export_watch_only">Export watch-only</string>
+    <string name="watch_only_descriptors_copied">Watch-only descriptors copied</string>
+    <string name="anyone_with_these_can_see_every_address">Anyone with these can see every address of this wallet and its whole balance. They can't spend from it.</string>
 </resources>

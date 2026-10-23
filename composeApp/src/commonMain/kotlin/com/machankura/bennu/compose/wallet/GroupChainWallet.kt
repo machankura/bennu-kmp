@@ -167,3 +167,6 @@ data class GroupWalletState(
             .map { (branch, index) -> GroupWalletDerivation.derive(account, branch, index) }
             .firstOrNull { it.pubkeyScript == script }
 }
+
+/** A BIP21 URI for [address], so a scanning wallet knows what the text it read is. */
+fun bip21Uri(address: String): String = "bitcoin:$address"

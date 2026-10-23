@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import fr.acinq.phoenix.managers.NodeParamsManager
 import com.machankura.bennu.compose.nostr.MarmotProfile
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -98,6 +99,7 @@ class ChatRoomDetailViewModel(
                     groupPosts = chatRepository.groupPosts(chatRoomId),
                     groupCuratedSchemas = chatRepository.groupCuratedSchemas(chatRoomId),
                     groupCuratedEntries = chatRepository.groupCuratedEntries(chatRoomId),
+                    groupWallet = chatRepository.groupWallet(chatRoomId, NodeParamsManager.chain),
                     canEditNostrProfile = canSign,
                     canAddSubgroup = canSign,
                     canGovern = canGovern,

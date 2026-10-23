@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.state
 
+import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.managers.SubgroupManager
@@ -108,6 +109,14 @@ sealed interface ChatRoomDetailUIState {
          * nothing, which is every group until a quorum signs an entry.
          */
         val groupCuratedEntries: List<GroupCuratedEntry> = emptyList(),
+        /**
+         * The wallet this group has opened on the app's network, or null for one
+         * it has not. Under the identity block because it is not part of the
+         * group's account of itself on nostr -- nobody outside the room reads it --
+         * and the row says only whether it is open; the coins are read on
+         * `GroupWalletScreen`.
+         */
+        val groupWallet: GroupWallet? = null,
         /**
          * Whether this device could sign an event for the group, which on this
          * screen gates the paste at the end of the identity block. Each of the

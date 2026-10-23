@@ -1,5 +1,11 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import bennu.composeapp.generated.resources.open_on_s
+import bennu.composeapp.generated.resources.not_opened_yet
+import bennu.composeapp.generated.resources.group_wallet
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -506,6 +512,35 @@ fun ChatRoomDetailScreen(
                                         onOpen = {
                                             onNavigateToRoute.invoke(
                                                 GroupCuratedEntriesRoute(
+                                                    activeUserPublicKey = activeUserPublicKey,
+                                                    chatRoomId = chatRoomId,
+                                                    relayHint = relayHint
+                                                )
+                                            )
+                                        }
+                                    )
+                                }
+
+                                // The group's coins. After the identity block's
+                                // last signed row and before the paste, because it
+                                // is signed by the same key and read by nobody
+                                // outside the room: the statement opening it never
+                                // leaves the group. Shown to every member, open or
+                                // not -- the screen behind it is where a member who
+                                // can sign asks the group to open one.
+                                item {
+                                    SignedWorkRow(
+                                        icon = Icons.Default.AccountBalanceWallet,
+                                        headline = stringResource(Res.string.group_wallet),
+                                        supporting = chatRoomDetailUIState.groupWallet?.let { wallet ->
+                                            stringResource(
+                                                Res.string.open_on_s,
+                                                GroupWalletStatementEvent.chainName(wallet.chain)
+                                            )
+                                        } ?: stringResource(Res.string.not_opened_yet),
+                                        onOpen = {
+                                            onNavigateToRoute.invoke(
+                                                GroupWalletRoute(
                                                     activeUserPublicKey = activeUserPublicKey,
                                                     chatRoomId = chatRoomId,
                                                     relayHint = relayHint
