@@ -11,6 +11,7 @@ silent, or a decision that looked arbitrary and was not.
 | [subgroups.md](./subgroups.md) | a group making another group — the four ceremonies, what the parent's signature actually covers, and why the child's key is fresh rather than derived |
 | [frost-batch-signing.md](./frost-batch-signing.md) | signing several events in one ceremony — why one nonce can never cover two messages, and the phased schema, wire and UI work that follows from it |
 | [group-chain-wallet.md](./group-chain-wallet.md) | an on-chain wallet the group's threshold key holds, modelled on Phoenix's final wallet — why the path is BIP86's unhardened tail under a public account step, why each input is a batch item with its own cache, and the seven checks a member makes before signing a spend |
+| [group-wallet-addresses.md](./group-wallet-addresses.md) | listing the group wallet's receive addresses as Phoenix lists its swap-in ones — why the list stops at the current address plus two, why a paid address past that still shows, and why a used address can be copied but never shown as a QR code |
 | [frost-session-resend.md](./frost-session-resend.md) | asking the members who never got a signing proposal to look again — why a proposer can repeat only what it wrote, why a member's availability signal needs no repeating, and the one half that has to come from the silent member's own device |
 | [marmot-membership.md](./marmot-membership.md) | how members join an MLS group, and the epoch race that makes a missing member look like a successful invite |
 | [member-chronicle.md](./member-chronicle.md) | handing a member added after the work was done the group's signed record — why the events are not on the wire at all, and why the room's id is enough to verify them |
@@ -41,6 +42,10 @@ jvm-target note is unrelated to all of them: it is a build and packaging story.
 The subgroups note is a phased plan that has been built; it assumes both
 shared-key notes and reads as the ceremony's second half — what a group does
 once it has a key, and what it can say about a group that does not yet.
+The group-wallet-addresses note is a phased plan that has been built, and is the
+group-chain-wallet note's Phase 5 taken one screen further: read that note's
+Phases 4 and 5 first, and its own table of where the build chose differently
+before the code.
 The Material Design note is a phased plan that has not been built, and is the
 only one about what the app looks like rather than what it does; read the
 jvm-target note first if you want to know why its adaptive-layout phase exists.

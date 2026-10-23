@@ -51,6 +51,7 @@ import com.machankura.bennu.compose.ui.composable.EditGroupRelaysScreen
 import com.machankura.bennu.compose.ui.composable.GroupNostrProfileScreen
 import com.machankura.bennu.compose.ui.composable.GroupRelaysScreen
 import com.machankura.bennu.compose.ui.composable.GroupWalletScreen
+import com.machankura.bennu.compose.ui.composable.GroupWalletAddressesScreen
 import com.machankura.bennu.compose.ui.composable.GroupPostsScreen
 import com.machankura.bennu.compose.ui.composable.HomeScreen
 import com.machankura.bennu.compose.ui.composable.ImplementationPendingScreen
@@ -154,6 +155,7 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.EditGroupRel
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletAddressesRoute
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
 import fr.acinq.phoenix.managers.NodeParamsManager
@@ -1245,6 +1247,19 @@ fun BennuNavHost(
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
                     },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<GroupWalletAddressesRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<GroupWalletAddressesRoute>()
+
+                GroupWalletAddressesScreen(
+                    chatRoomId = route.chatRoomId,
+                    chain = NodeParamsManager.chain,
+                    chatRepository = databaseChatRepository,
+                    wallets = groupOnchainWallets,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
