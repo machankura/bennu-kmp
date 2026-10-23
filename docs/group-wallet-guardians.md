@@ -25,6 +25,7 @@ below are kept as written; where the build chose differently the table says so.
 | `check` asks the proposer's device whether a coin has 12 confirmations | the builder does: it only offers a guardian coins its lock has already let go of. `check` cannot ask, because a signer with no node has no tip, and a coin spent too early is a transaction nobody can mine rather than a loss |
 | `GroupTransactionWatcher` notices a guardian's spend | the wallet screen's view model does, each time the guarded wallet's coins change, by reading every used address's history off Electrum -- so a device asleep when the coin moved still finds it, and whichever device reads first writes the one line. A device that never opens the wallet screen writes nothing |
 | schema unchanged | v27: `GroupTransaction.guardedChatRoomId`, the descendant a guardian's spend draws from. A spend's account is otherwise read from the statement, and a guardian's is the descendant's statement, not the room's |
+| a spend that lost its coins to the other side is never settled -- this note's own *What this does not do*, as first written | settled. `GroupTransactionWatcher` asks the chain, for a signed spend Electrum has not heard of, whether each coin is still unspent at its address and, if not, which transaction in that address's history took it; once that transaction is confirmed, `FrostSigningManager.recordReplaced` marks the spend replaced and settles every other spend of the coin, as `recordConfirmed` does for the room's own. A conflict still in the mempool settles nothing |
 | nothing outside the plan | a bug older than it: bitcoin-kmp reads a taproot derivation's fingerprint back from a PSBT as a signed int, so for half of all accounts every member but the proposer refused every spend as not the wallet's own. Fixed on its own, in `fix(wallet): read a PSBT's key fingerprint as unsigned`, because it reaches every plain wallet too |
 
 Still to do by hand, and the condition the mainnet gate lifts on: a guardian
@@ -414,15 +415,6 @@ newest winning — but nothing here prompts it to.
 threshold key, so to the shares of the ceremony that made it, including the
 shares of members who have since left. This is the wallet note's *removal from
 the group does not un-know a key*, inherited one level down.
-
-**It does not settle a spend that lost its coins to the other side.** The
-wallet note settles conflicting spends when one of the group's own confirms,
-because "only the group can spend its coins". A guarded wallet's coins have
-other spenders now. A child's open spend whose coin a guardian took, or a
-guardian's whose coin the child moved first, is never marked replaced: it sits
-as signed, rebroadcast every ten minutes, until somebody abandons it. The fix is
-for `GroupTransactionWatcher` to ask whether an unconfirmed spend's inputs are
-still unspent, and it is a follow-up rather than a line here.
 
 **It does not tell the child before it happens**, and it does not constrain where
 the coins go. "Only back into the child, at a new address" is a covenant, and

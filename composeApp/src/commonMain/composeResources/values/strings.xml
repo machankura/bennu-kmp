@@ -694,7 +694,7 @@
     <string name="signed_sending_it_to_the_network">Signed, sending it to the network</string>
     <string name="sent_waiting_for_a_confirmation">Sent, waiting for a confirmation</string>
     <string name="confirmed">Confirmed</string>
-    <string name="replaced_by_a_later_spend">Replaced by a later spend</string>
+    <string name="replaced_by_a_later_spend">Replaced by another spend of the same coins</string>
     <string name="send_again">Send again</string>
     <string name="bump_the_fee">Bump the fee</string>
     <string name="sent_again">Sent again</string>

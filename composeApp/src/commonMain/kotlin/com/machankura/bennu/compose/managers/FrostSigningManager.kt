@@ -1072,28 +1072,7 @@ object FrostSigningManager {
 
         database.groupTransactionDao().upsert(confirmed.copy(confirmedAt = at, seenAt = confirmed.seenAt ?: at))
 
-        val coins = coinsOf(confirmed)
-        database.groupTransactionDao().getByChatRoomId(confirmed.chatRoomId)
-            .filter { it.frostSigningSessionId != sessionId && (coinsOf(it) intersect coins).isNotEmpty() }
-            .forEach { other ->
-                val otherSession = database.frostSigningSessionDao().getSessionById(other.frostSigningSessionId)
-                    ?: return@forEach
-                when (otherSession.stage) {
-                    FrostSigningStage.COMPLETE -> if (other.confirmedAt == null && other.replacedByTxid == null) {
-                        database.groupTransactionDao().upsert(other.copy(replacedByTxid = confirmed.txid))
-                    }
-
-                    FrostSigningStage.FAILED -> Unit
-
-                    else -> fail(
-                        database = database,
-                        session = otherSession,
-                        reason = "Spent by another transaction",
-                        content = "abandoned a spend: another of the group's transactions spent its coins first. " +
-                            "Nothing was signed."
-                    )
-                }
-            }
+        settleSpendsOf(database, confirmed.chatRoomId, coinsOf(confirmed), byTxid = confirmed.txid, except = sessionId)
 
         val sent = checkedSpend(database, sessionId)?.amountSent
         announce(
@@ -1104,6 +1083,67 @@ object FrostSigningManager {
                 else "The group's transaction confirmed.",
             actor = session.coordinatorPublicKey
         )
+    }
+
+    /**
+     * A spend whose coins a transaction the room never proposed has taken, as
+     * [conflictTxid] confirmed: marked replaced, and every other spend of the same
+     * coins settled with it.
+     *
+     * A guarded wallet's coins have two kinds of spender. The child's own spend
+     * can lose a coin to a guardian's, and a guardian's to the child's, and the
+     * winner is never a row in the loser's room -- so [recordConfirmed] cannot be
+     * what settles the loser. The watcher is: it asks the chain whether a signed
+     * spend's coins are still there, and calls this when one was taken by a
+     * confirmed transaction. Once per spend, by the read of `replacedByTxid`.
+     */
+    suspend fun recordReplaced(database: BennuDatabase, sessionId: String, conflictTxid: String) {
+        val lost = database.groupTransactionDao().getBySessionId(sessionId) ?: return
+        if (lost.confirmedAt != null || lost.replacedByTxid != null) return
+
+        database.groupTransactionDao().upsert(lost.copy(replacedByTxid = conflictTxid))
+        settleSpendsOf(database, lost.chatRoomId, coinsOf(lost), byTxid = conflictTxid, except = sessionId)
+        logger.i("Spend $sessionId lost its coins to $conflictTxid")
+    }
+
+    /**
+     * Every spend in [chatRoomId] other than [except] that wants any of [coins],
+     * settled by [byTxid] having taken them: only one spend of a coin can ever
+     * confirm, so the rest are over whatever stage they are in. One still
+     * collecting is abandoned -- its signatures, if it ever got them, would be
+     * over a transaction nobody can mine. One already signed is a transaction
+     * [byTxid] replaced, a fee bump or a race, and is marked so rather than
+     * failed: it was signed, and saying otherwise would misreport what the group
+     * did.
+     */
+    private suspend fun settleSpendsOf(
+        database: BennuDatabase,
+        chatRoomId: String,
+        coins: Set<OutPoint>,
+        byTxid: String,
+        except: String,
+    ) {
+        database.groupTransactionDao().getByChatRoomId(chatRoomId)
+            .filter { it.frostSigningSessionId != except && (coinsOf(it) intersect coins).isNotEmpty() }
+            .forEach { other ->
+                val otherSession = database.frostSigningSessionDao().getSessionById(other.frostSigningSessionId)
+                    ?: return@forEach
+                when (otherSession.stage) {
+                    FrostSigningStage.COMPLETE -> if (other.confirmedAt == null && other.replacedByTxid == null) {
+                        database.groupTransactionDao().upsert(other.copy(replacedByTxid = byTxid))
+                    }
+
+                    FrostSigningStage.FAILED -> Unit
+
+                    else -> fail(
+                        database = database,
+                        session = otherSession,
+                        reason = "Spent by another transaction",
+                        content = "abandoned a spend: another transaction spent its coins first. " +
+                            "Nothing was signed."
+                    )
+                }
+            }
     }
 
     private fun coinsOf(transaction: GroupTransaction): Set<OutPoint> =
