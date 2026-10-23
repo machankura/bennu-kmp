@@ -71,7 +71,7 @@ object GroupWalletDerivation {
     private const val ACCOUNT_TAG = "bennu/group-wallet/account/v1"
 
     /** The largest unhardened BIP32 index. Hardened ones cannot be walked here. */
-    private const val MAX_INDEX: Long = 0x7FFFFFFFL
+    internal const val MAX_INDEX: Long = 0x7FFFFFFFL
 
     /**
      * One account of one group on one network: the extended public key every
@@ -236,7 +236,7 @@ object GroupWalletDerivation {
     }
 
     /** BIP32's `I_L` for one unhardened step: the scalar CKDpub adds, which a FROST cache takes as a plain tweak. */
-    private fun childTweak(parent: DeterministicWallet.ExtendedPublicKey, index: Long): ByteVector32 =
+    internal fun childTweak(parent: DeterministicWallet.ExtendedPublicKey, index: Long): ByteVector32 =
         ByteVector32(
             Crypto.hmac512(
                 parent.chaincode.toByteArray(),
@@ -244,7 +244,7 @@ object GroupWalletDerivation {
             ).copyOfRange(0, 32)
         )
 
-    private fun plainTweak(cache: TweakCache, tweak: ByteVector32, step: String): TweakCache =
+    internal fun plainTweak(cache: TweakCache, tweak: ByteVector32, step: String): TweakCache =
         when (val tweaked = cache.tweak(tweak, isXonly = false)) {
             is Either.Left -> throw IllegalArgumentException("Could not apply $step to the group's key", tweaked.value)
             is Either.Right -> tweaked.value.first
