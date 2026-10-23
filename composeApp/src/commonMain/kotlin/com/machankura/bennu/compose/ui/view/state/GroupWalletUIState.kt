@@ -2,6 +2,11 @@ package com.machankura.bennu.compose.ui.view.state
 
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.managers.GroupWalletManager
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.managers.GuardianManager
+import fr.acinq.bitcoin.Satoshi
+import fr.acinq.lightning.utils.sum
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.wallet.GroupWalletState
 import com.machankura.bennu.compose.wallet.GroupSpend
@@ -16,11 +21,20 @@ sealed interface GroupWalletUIState {
      * at all -- there is nothing to open then. [canSign] gates the way in, for
      * the reason every proposing screen gives: `proposeSigning` throws for a
      * device holding no share.
+     *
+     * [guarded] is the guarded account a subgroup could open instead, when its
+     * birth certificate grants it guardian keys and guarded wallets are offered
+     * on this network -- see `docs/group-wallet-guardians.md`.
      */
     data class NotOpened(
         val localChatRoom: LocalChatRoom,
         val account: GroupWalletDerivation.Account?,
         val canSign: Boolean,
+        val guarded: GroupWalletManager.GuardedOpening? = null,
+        /** Guarded wallets of groups below this one. A group with no wallet of its own can still guard others'. */
+        val guardedWallets: List<GuardedWalletRow> = emptyList(),
+        /** Guarded statements this device can carry to the groups above. */
+        val shareable: List<GuardianManager.Shareable> = emptyList(),
     ): GroupWalletUIState
 
     /**
@@ -38,6 +52,10 @@ sealed interface GroupWalletUIState {
         val canSign: Boolean,
         /** The room's spends, newest first. */
         val spends: List<SpendRow> = emptyList(),
+        /** Guarded wallets of groups below this one. */
+        val guardedWallets: List<GuardedWalletRow> = emptyList(),
+        /** Guarded statements this device can carry to the groups above. */
+        val shareable: List<GuardianManager.Shareable> = emptyList(),
     ): GroupWalletUIState
 
     data class Error(
@@ -45,6 +63,22 @@ sealed interface GroupWalletUIState {
     ): GroupWalletUIState
 
     data object Loading: GroupWalletUIState
+}
+
+/** A descendant's guarded wallet, as an ancestor's wallet screen lists it. */
+data class GuardedWalletRow(
+    val wallet: GuardianManager.GuardedWallet,
+    /** Null before Electrum's first answer, and for a profile that cannot watch the chain. */
+    val walletState: GroupWalletState?,
+) {
+    /**
+     * What this group could spend now: coins confirmed at least as deep as its
+     * leaf's lock. Null while the chain is not known.
+     */
+    val withinReach: Satoshi?
+        get() = walletState?.let { state ->
+            state.utxos.filter { state.confirmations(it) >= GuardianDerivation.ANCESTOR_DELAY }.map { it.amount }.sum()
+        }
 }
 
 /** Where one of the room's spends has got to, as one fact a member reads. */

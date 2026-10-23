@@ -55,7 +55,20 @@ object ProposedEvent {
                 SubgroupBirthCertificateEvent.parseAdminPublicKeys(event.tags)
                     .size
                     .takeIf { it > 0 }
-                    ?.let { "run by $it members" }
+                    ?.let { "run by $it members" },
+                // The promise this certificate makes on the group's behalf, said
+                // as one: a guardian key is this group, and every group above it,
+                // able to spend from the subgroup's wallet if it opens a guarded one.
+                SubgroupBirthCertificateEvent.parseGuardians(event.tags)
+                    ?.size
+                    ?.takeIf { it > 0 }
+                    ?.let { count ->
+                        when (count) {
+                            1 -> "this group can spend from its wallet"
+                            2 -> "this group and the one above it can spend from its wallet"
+                            else -> "this group and the ${count - 1} above it can spend from its wallet"
+                        }
+                    }
             ).joinToString(" · ")
         )
 

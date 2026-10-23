@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.database.repository
 
 import fr.acinq.bitcoin.Chain
 import com.machankura.bennu.compose.managers.GroupWalletManager
+import com.machankura.bennu.compose.managers.GuardianManager
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.database.GENESIS_AT
@@ -199,6 +200,41 @@ class DatabaseChatRepository(
     } catch (e: Throwable) {
         logger.e("Error deriving the wallet account of $chatRoomId", e)
         null
+    }
+
+    override suspend fun groupWalletGuardedOpening(chatRoomId: String, chain: Chain): GroupWalletManager.GuardedOpening? = try {
+        GroupWalletManager.guardedAccountFor(database, chatRoomId, chain)
+    } catch (e: Throwable) {
+        logger.e("Error deriving the guarded wallet account of $chatRoomId", e)
+        null
+    }
+
+    override suspend fun guardedWallets(chatRoomId: String): List<GuardianManager.GuardedWallet> = try {
+        GuardianManager.guardedWalletsOf(database, chatRoomId)
+    } catch (e: Throwable) {
+        logger.e("Error reading the guarded wallets $chatRoomId was told about", e)
+        emptyList()
+    }
+
+    override suspend fun shareableGuardedWallets(chatRoomId: String, chain: Chain): List<GuardianManager.Shareable> = try {
+        GuardianManager.shareableFrom(database, chatRoomId, chain)
+    } catch (e: Throwable) {
+        logger.e("Error reading what $chatRoomId can tell the groups above it", e)
+        emptyList()
+    }
+
+    override suspend fun shareGuardedWallet(shareable: GuardianManager.Shareable, userPublicKey: HexKey): Int = try {
+        GuardianManager.share(database, shareable.statement, shareable.rooms, userPublicKey)
+    } catch (e: Throwable) {
+        logger.e("Error telling the groups above about ${shareable.statement.pubKey}'s guarded wallet", e)
+        0
+    }
+
+    override suspend fun recordGuardianSpends(chatRoomId: String, taken: List<GuardianManager.Taken>): Int = try {
+        GuardianManager.recordTaken(database, chatRoomId, taken)
+    } catch (e: Throwable) {
+        logger.e("Error recording guardian spends from $chatRoomId's wallet", e)
+        0
     }
 
     override suspend fun groupSignedEvent(chatRoomId: String, id: HexKey): GroupSignedEvent? = try {

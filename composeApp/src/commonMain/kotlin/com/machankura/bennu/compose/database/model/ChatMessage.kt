@@ -14,6 +14,7 @@ import com.machankura.bennu.compose.exceptions.MarmotUnprocessableInnerEventExce
 import com.machankura.bennu.compose.managers.ChronicleManager
 import com.machankura.bennu.compose.managers.GroupKeyStateManager
 import com.machankura.bennu.compose.managers.GroupWalletManager
+import com.machankura.bennu.compose.managers.GuardianManager
 import com.machankura.bennu.compose.managers.SubgroupManager
 import com.machankura.bennu.compose.extensions.toHex
 import com.vitorpamplona.quartz.marmot.GroupEventResult
@@ -33,6 +34,7 @@ import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.nostr.wallet.GuardedWalletNoticeEvent
 import com.machankura.bennu.compose.nostr.chronicle.ChronicleEvent
 import com.machankura.bennu.compose.nostr.chronicle.ChronicleRequestEvent
 import co.touchlab.kermit.Logger
@@ -485,6 +487,21 @@ data class ChatMessage(
          */
         const val TYPE_GROUP_TRANSACTION_CONFIRMED = "groupTransactionConfirmed"
 
+        /**
+         * A member told this group about a descendant's guarded wallet -- a
+         * `GuardedWalletNoticeEvent` this device checked and believes. Written
+         * from the notice, attributed to the member who forwarded it. See
+         * `docs/group-wallet-guardians.md`.
+         */
+        const val TYPE_GUARDED_WALLET_SHARED = "guardedWalletShared"
+
+        /**
+         * One of this group's guardians spent from its guarded wallet through its
+         * leaf. Read off the chain by `GuardianManager.takenIn`, and the child's
+         * only notice of it: nobody in this room signed it.
+         */
+        const val TYPE_GUARDIAN_SPEND = "guardianSpend"
+
         val GROUP_IDENTITY_TYPES = setOf(
             TYPE_GROUP_PROFILE_SIGNED,
             TYPE_GROUP_RELAYS_SIGNED,
@@ -493,6 +510,8 @@ data class ChatMessage(
             TYPE_LEGACY_GROUP_ENTRY_CURATED,
             TYPE_GROUP_WALLET_OPENED,
             TYPE_GROUP_TRANSACTION_CONFIRMED,
+            TYPE_GUARDED_WALLET_SHARED,
+            TYPE_GUARDIAN_SPEND,
         )
 
         /**
@@ -943,6 +962,26 @@ data class ChatMessage(
                         // each other here. That is Phase 7's, and until then a
                         // silent catch-up beats a transcript full of envelopes.
                         return null
+                    }
+
+                    // A descendant's guarded wallet, carried up by a member who is in
+                    // both rooms. The row above is the whole record of it -- there is
+                    // no table -- so all that is left is the line, and only for a
+                    // notice this room can actually believe.
+                    if (event.kind == GuardedWalletNoticeEvent.KIND) {
+                        val content = GuardianManager.describeNotice(database, groupEventResult.groupId, event)
+                            ?: return null
+                        return ChatMessage(
+                            giftWrapPayloadId = null,
+                            messageType = TYPE_GUARDED_WALLET_SHARED,
+                            marmotGroupEventId = groupEvent.id,
+                            marmotInnerEventId = event.id,
+                            senderPublicKey = senderIdentity ?: event.pubKey,
+                            isUserMessage = senderIdentity == activeKeyPair.pubKey.toHex(),
+                            chatRoomId = groupEventResult.groupId,
+                            createdAt = Instant.fromEpochSeconds(event.createdAt),
+                            content = content,
+                        )
                     }
 
                     // Somebody in the room holds none of its signed work and is

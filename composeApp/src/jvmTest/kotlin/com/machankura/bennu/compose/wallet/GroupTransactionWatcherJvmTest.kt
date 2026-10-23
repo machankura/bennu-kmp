@@ -59,17 +59,21 @@ class GroupTransactionWatcherJvmTest {
         val broadcasts = mutableListOf<TxId>()
         /** Confirmations by txid; absent is "Electrum has not heard of it". */
         val confirmations = mutableMapOf<TxId, Int>()
+        /** What each script hash still holds, has seen, and the transactions behind both. */
+        val unspents = mutableMapOf<ByteVector32, List<UnspentItem>>()
+        val histories = mutableMapOf<ByteVector32, List<TransactionHistoryItem>>()
+        val txs = mutableMapOf<TxId, Transaction>()
 
         override val notifications = MutableSharedFlow<ElectrumSubscriptionResponse>()
         override val connectionStatus: StateFlow<ElectrumConnectionStatus> = MutableStateFlow(ElectrumConnectionStatus.Closed(null))
         override suspend fun broadcastTransaction(tx: Transaction): TxId = tx.txid.also { broadcasts += it }
         override suspend fun getConfirmations(tx: Transaction): Int? = confirmations[tx.txid]
-        override suspend fun getTx(txId: TxId): Transaction? = null
+        override suspend fun getTx(txId: TxId): Transaction? = txs[txId]
         override suspend fun getHeader(blockHeight: Int): BlockHeader? = null
         override suspend fun getHeaders(startHeight: Int, count: Int): List<BlockHeader> = emptyList()
         override suspend fun getMerkle(txId: TxId, blockHeight: Int, contextOpt: Transaction?): GetMerkleResponse? = null
-        override suspend fun getScriptHashHistory(scriptHash: ByteVector32): List<TransactionHistoryItem> = emptyList()
-        override suspend fun getScriptHashUnspents(scriptHash: ByteVector32): List<UnspentItem> = emptyList()
+        override suspend fun getScriptHashHistory(scriptHash: ByteVector32): List<TransactionHistoryItem> = histories[scriptHash].orEmpty()
+        override suspend fun getScriptHashUnspents(scriptHash: ByteVector32): List<UnspentItem> = unspents[scriptHash].orEmpty()
         override suspend fun estimateFees(confirmations: Int): FeeratePerKw? = null
         override suspend fun startScriptHashSubscription(scriptHash: ByteVector32) = ScriptHashSubscriptionResponse(scriptHash, null)
         override suspend fun startHeaderSubscription() = HeaderSubscriptionResponse(0, Block.RegtestGenesisBlock.header)
@@ -172,5 +176,71 @@ class GroupTransactionWatcherJvmTest {
             .filter { it.chatMessage.messageType == ChatMessage.TYPE_GROUP_TRANSACTION_CONFIRMED }
         assertEquals(1, lines.size)
         assertTrue(db.groupTransactionDao().getUnsettled().isEmpty(), "neither signed spend is still on its way")
+    }
+
+    // ---- Coins another room's transaction took ------------------------------
+
+    /** The script the guarded coin sits at, and its Electrum script hash. */
+    private val coinScript = ByteVector("5120" + "ab".repeat(32))
+    private val coinHash = ByteVector32(fr.acinq.bitcoin.Crypto.sha256(coinScript.toByteArray()).reversedArray())
+
+    /** A signed spend of [coin] whose PSBT names the output it spends, as every real proposal's does. */
+    private suspend fun signedSpendOfCoin(id: String, tx: Transaction) {
+        db.frostSigningSessionDao().upsert(
+            FrostSigningSession(
+                id = id, chatRoomId = room, coordinatorPublicKey = user, userPublicKey = user, dkgSessionId = "dkg",
+                threshold = 2, participantCount = 3, signerId = 0, stage = FrostSigningStage.COMPLETE, subject = FrostSigningSubject.TRANSACTION,
+            )
+        )
+        val psbt = Psbt(tx).updateWitnessInput(coin, TxOut(Satoshi(10_000), coinScript)).right!!
+        db.groupTransactionDao().insertIfAbsent(
+            GroupTransaction(
+                frostSigningSessionId = id, chatRoomId = room, chain = "regtest", account = 0,
+                psbt = GroupSpend.encode(psbt), txid = tx.txid.toString(), signedTransaction = Hex.encode(Transaction.write(tx)),
+            )
+        )
+    }
+
+    /** Somebody else -- a guardian, or the guarded group itself -- spends [coin], at [height] (0 for the mempool). */
+    private fun takenElsewhere(height: Int): Transaction {
+        val theirs = spending(coin, pay = 7_000).copy(txOut = listOf(TxOut(Satoshi(7_000), ByteVector("0014" + "11".repeat(20)))))
+        electrum.txs[theirs.txid] = theirs
+        electrum.histories[coinHash] = listOf(TransactionHistoryItem(90, coin.txid), TransactionHistoryItem(height, theirs.txid))
+        return theirs
+    }
+
+    @Test
+    fun `a spend whose coin another transaction took is replaced once that transaction confirms`(): Unit = runBlocking {
+        seed()
+        val ours = spending(coin, pay = 9_000)
+        signedSpendOfCoin("ours", ours)
+        // Another of this room's spends of the same coin, still collecting.
+        spend("collecting", spending(coin, OutPoint(TxId(ByteVector32(ByteArray(32) { 6 })), 0), pay = 12_000), FrostSigningStage.COLLECTING_NONCES, signed = false)
+
+        val theirs = takenElsewhere(height = 101)
+        watcher.pass()
+
+        assertEquals(theirs.txid.toString(), db.groupTransactionDao().getBySessionId("ours")?.replacedByTxid)
+        assertEquals(FrostSigningStage.COMPLETE, db.frostSigningSessionDao().getSessionById("ours")?.stage, "it was signed, and stays so")
+        assertEquals(FrostSigningStage.FAILED, db.frostSigningSessionDao().getSessionById("collecting")?.stage)
+        assertTrue(db.groupTransactionDao().getUnsettled().isEmpty(), "nothing is left being sent again every ten minutes")
+    }
+
+    @Test
+    fun `a coin taken only in the mempool, or not taken at all, settles nothing`(): Unit = runBlocking {
+        seed()
+        signedSpendOfCoin("ours", spending(coin, pay = 9_000))
+
+        // Still unspent where it sits.
+        electrum.unspents[coinHash] = listOf(UnspentItem(coin.txid, coin.index.toInt(), 10_000, 90))
+        electrum.histories[coinHash] = listOf(TransactionHistoryItem(90, coin.txid))
+        watcher.pass()
+        assertNull(db.groupTransactionDao().getBySessionId("ours")?.replacedByTxid)
+
+        // Spent by something unconfirmed: ours may yet be the one that confirms.
+        electrum.unspents.remove(coinHash)
+        takenElsewhere(height = 0)
+        watcher.pass()
+        assertNull(db.groupTransactionDao().getBySessionId("ours")?.replacedByTxid)
     }
 }

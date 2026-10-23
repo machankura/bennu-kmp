@@ -49,6 +49,13 @@ data class GroupTransaction(
     val account: Long,
 
     /**
+     * The descendant whose guarded wallet this spend draws from, through this
+     * room's guardian leaf -- or null for a spend from the room's own wallet.
+     * [account] is then the descendant's, from the statement this room was told.
+     */
+    val guardedChatRoomId: String? = null,
+
+    /**
      * The PSBT as proposed, base64. Write-once: it is what every item's sighash
      * was computed from, and a second proposal under the same session id that
      * differs anywhere in its unsigned transaction is ignored.

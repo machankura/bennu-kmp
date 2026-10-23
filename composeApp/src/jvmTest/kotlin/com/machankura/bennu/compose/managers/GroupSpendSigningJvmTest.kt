@@ -452,4 +452,78 @@ class GroupSpendSigningJvmTest {
         val confirmedLine = lines.single { it.messageType == ChatMessage.TYPE_GROUP_TRANSACTION_CONFIRMED }
         assertEquals("The group's transaction confirmed: 30000 sats sent.", confirmedLine.content)
     }
+
+    // ---- A guarded wallet -----------------------------------------------
+
+    /**
+     * Files the room's key state as a subgroup's, under a certificate granting
+     * one guardian -- signed by a parent whose key the test holds, since
+     * `certifies` asks only that the room it names as parent signed it.
+     */
+    private suspend fun fileGuardedParentage(device: Device): GroupWalletManager.GuardedOpening {
+        val parentKey = PrivateKey(ByteVector32(ByteArray(32) { 0x0b }))
+        val parentRoomId = parentKey.publicKey().xOnly().value.toString()
+        val guardians = GuardianDerivation.grant(
+            PrivateKey(ByteVector32(ByteArray(32) { 0x0c })).publicKey().toString(), parentRoomId, emptyList(), roomId,
+        )
+        val tags = com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent.assembleTags(
+            subgroupChatRoomId = roomId, parentChatRoomId = parentRoomId, thresholdPublicKey = thresholdPublicKey,
+            adminPublicKeys = members, name = "Treasury", guardians = guardians,
+        )
+        val id = EventHasher.hashId(parentRoomId, 1_700_000_000, 30329, tags, roomId)
+        val certificate = Event(id, parentRoomId, 1_700_000_000, 30329, tags, roomId,
+            fr.acinq.bitcoin.Crypto.signSchnorr(ByteVector32(id), parentKey, null).toString())
+
+        device.db.groupKeyStateDao().upsert(
+            com.machankura.bennu.compose.database.model.GroupKeyState(
+                chatRoomId = roomId, dkgSessionId = ceremonyId, thresholdPublicKey = thresholdPublicKey,
+                derivationPath = SharedKeyDerivation.formatPath(), announcedBy = roomId,
+                announcedAt = Instant.fromEpochSeconds(1_700_000_000),
+                parentChatRoomId = parentRoomId, birthCertificateJson = certificate.toJson(),
+            )
+        )
+        return assertNotNull(GroupWalletManager.guardedAccountFor(device.db, roomId, chain))
+    }
+
+    @Test
+    fun `a guarded wallet is opened by its quorum, and its own spends stay on the key path`() = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        val opening = fileGuardedParentage(proposer)
+        fileGuardedParentage(other)
+
+        val template = GroupWalletStatementEvent.template(opening.account, opening.certificate)
+        val statement = FrostSigningManager.proposeSigning(proposer.db, proposer.room, proposer.publicKey, template.kind, template.tags, template.content)
+        pump(proposer, other)
+        FrostSigningManager.approve(other.db, other.room, statement.id)
+        pump(proposer, other)
+
+        val guarded = assertNotNull(GroupWalletManager.walletFor(other.db, roomId, chain)).account
+        assertTrue(guarded.isGuarded)
+        assertEquals(opening.account, guarded)
+
+        val first = GroupWalletDerivation.derive(guarded, GroupWalletDerivation.RECEIVE, 0)
+        val change = GroupWalletDerivation.derive(guarded, GroupWalletDerivation.CHANGE, 0)
+        val funding = Transaction(2, listOf(TxIn(OutPoint(TxId(ByteVector32(ByteArray(32) { 0x47 })), 0), ByteVector.empty, 0xffffffffL)),
+            listOf(TxOut(Satoshi(60_000), first.pubkeyScript)), 0)
+        val tx = Transaction(2, listOf(TxIn(OutPoint(funding, 0), ByteVector.empty, 0xfffffffdL)),
+            listOf(TxOut(Satoshi(40_000), elsewhere), TxOut(Satoshi(19_000), change.pubkeyScript)), 0)
+        val psbt = GroupSpend.psbtOf(tx, listOf(funding.txOut[0] to first), mapOf(1 to change), guarded)
+
+        // The plain account's check refuses the guarded coin: same internal key, another output.
+        assertIs<GroupSpend.Result.Refused>(GroupSpend.check(psbt, account))
+
+        val session = FrostSigningManager.proposeSpend(proposer.db, proposer.room, proposer.publicKey, psbt, chain)
+        pump(proposer, other)
+        assertEquals(listOf(false, true), assertNotNull(FrostSigningManager.checkedSpend(other.db, session.id)).outputs.map { it.isChange })
+        FrostSigningManager.approve(other.db, other.room, session.id)
+        pump(proposer, other)
+
+        listOf(proposer, other).forEach { device ->
+            assertEquals(FrostSigningStage.COMPLETE, device.session(session.id)?.stage)
+            val signed = Transaction.read(assertNotNull(device.transaction(session.id)?.signedTransaction))
+            signed.correctlySpends(mapOf(OutPoint(funding, 0) to funding.txOut[0]), ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)
+            assertEquals(1, signed.txIn[0].witness.stack.size, "a key-path spend: one signature, no script, no control block")
+        }
+    }
 }

@@ -6,8 +6,15 @@ import com.machankura.bennu.compose.ui.view.state.SpendStatus
 import com.machankura.bennu.compose.wallet.GroupSpend
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
 import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
+import com.machankura.bennu.compose.managers.GuardianManager
+import com.machankura.bennu.compose.ui.view.state.GuardedWalletRow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,13 +77,29 @@ class GroupWalletViewModel(
 
             val canSign = localChatRoom.chatRoom.mlsGroupState != null && chatRepository.canSign(chatRoomId)
             val wallet = chatRepository.groupWallet(chatRoomId, chain)
+            val guarded = chatRepository.guardedWallets(chatRoomId).filter { it.chain == chain }
+            val shareable = chatRepository.shareableGuardedWallets(chatRoomId, chain)
+            val guardedRows = guarded.map { GuardedWalletRow(it, walletState = null) }
+
+            watching?.cancel()
 
             if (wallet == null) {
-                groupWalletUIState = GroupWalletUIState.NotOpened(
+                val notOpened = GroupWalletUIState.NotOpened(
                     localChatRoom = localChatRoom,
                     account = chatRepository.groupWalletAccount(chatRoomId, chain),
                     canSign = canSign,
+                    guarded = if (GroupWalletRollout.offersGuardiansOn(chain)) {
+                        chatRepository.groupWalletGuardedOpening(chatRoomId, chain)
+                    } else null,
+                    guardedWallets = guardedRows,
+                    shareable = shareable,
                 )
+                groupWalletUIState = notOpened
+                if (guarded.isNotEmpty()) {
+                    watching = viewModelScope.launch(Dispatchers.IO) {
+                        guardedStates(guarded).collect { rows -> groupWalletUIState = notOpened.copy(guardedWallets = rows) }
+                    }
+                }
                 return@launch
             }
 
@@ -86,20 +109,82 @@ class GroupWalletViewModel(
                 walletState = null,
                 canWatch = wallets != null,
                 canSign = canSign,
+                guardedWallets = guardedRows,
+                shareable = shareable,
             )
             groupWalletUIState = loaded
 
-            // The chain and the room's spends, as one state: either changing
-            // redraws the screen, and neither may overwrite the other.
+            // The chain, the room's spends and the wallets it guards, as one
+            // state: any of them changing redraws the screen, and none may
+            // overwrite another.
             val chainState = wallets?.walletFor(wallet.account)?.state ?: flowOf(null)
-            watching?.cancel()
+            noticeGuardianSpends(wallet.account)
             watching = viewModelScope.launch(Dispatchers.IO) {
-                combine(chainState, frostSigningRepository.observeGroupTransactions(chatRoomId)) { state, transactions ->
-                    state to transactions.map { rowOf(it) }
-                }.collect { (state, rows) ->
-                    groupWalletUIState = loaded.copy(walletState = state, spends = rows)
+                combine(
+                    chainState,
+                    frostSigningRepository.observeGroupTransactions(chatRoomId),
+                    guardedStates(guarded),
+                ) { state, transactions, guardedWallets ->
+                    Triple(state, transactions.map { rowOf(it) }, guardedWallets)
+                }.collect { (state, rows, guardedWallets) ->
+                    groupWalletUIState = loaded.copy(walletState = state, spends = rows, guardedWallets = guardedWallets)
                 }
             }
+        }
+    }
+
+    /**
+     * Each guarded wallet with what the chain says of it, on the identity's own
+     * Electrum client -- or with nothing, for a profile that cannot watch.
+     */
+    private suspend fun guardedStates(guarded: List<GuardianManager.GuardedWallet>): Flow<List<GuardedWalletRow>> {
+        val wallets = wallets
+        if (wallets == null || guarded.isEmpty()) return flowOf(guarded.map { GuardedWalletRow(it, walletState = null) })
+
+        val states = guarded.map { wallet -> wallets.walletFor(wallet.account).state.map { GuardedWalletRow(wallet, it) } }
+        return combine(states) { it.toList() }
+    }
+
+    private var noticing: Job? = null
+
+    /**
+     * For a guarded wallet: each time its coins change, reads the chain for
+     * spends a guardian made from it and writes the transcript line for any that
+     * has none -- the group's only notice, since nobody in it signed them.
+     */
+    private suspend fun noticeGuardianSpends(account: GroupWalletDerivation.Account) {
+        val wallets = wallets ?: return
+        if (!account.isGuarded) return
+        val onchain = wallets.walletFor(account)
+
+        noticing?.cancel()
+        noticing = viewModelScope.launch(Dispatchers.IO) {
+            onchain.state
+                .distinctUntilChangedBy { state -> state.utxos.map { it.utxo.outPoint }.toSet() }
+                .collect { state -> chatRepository.recordGuardianSpends(chatRoomId, wallets.guardianSpends(state)) }
+        }
+    }
+
+    /**
+     * Tells the groups above about [shareable]'s guarded wallet: one notice into
+     * each of their rooms this device is in. What is told stays told, so the
+     * row goes from the screen once it is sent.
+     */
+    fun share(shareable: GuardianManager.Shareable, onShared: () -> Unit, onFailure: () -> Unit) {
+        if (isActionPending.value) return
+        isActionPending.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val told = chatRepository.shareGuardedWallet(shareable, activeUserPublicKey)
+            if (told > 0) {
+                groupWalletUIState = when (val state = groupWalletUIState) {
+                    is GroupWalletUIState.Loaded -> state.copy(shareable = state.shareable - shareable)
+                    is GroupWalletUIState.NotOpened -> state.copy(shareable = state.shareable - shareable)
+                    else -> state
+                }
+            }
+            withContext(Dispatchers.Main) { if (told > 0) onShared() else onFailure() }
+            isActionPending.value = false
         }
     }
 
@@ -141,9 +226,15 @@ class GroupWalletViewModel(
         }
         isActionPending.value = true
 
+        // A guardian's spend is bumped as one: the same leaf, the same descendant.
+        val guardedChatRoomId = state.spends.first { it.transaction.frostSigningSessionId == sessionId }.transaction.guardedChatRoomId
+
         viewModelScope.launch(Dispatchers.IO) {
             val session = runCatching {
-                frostSigningRepository.proposeSpend(state.localChatRoom, activeUserPublicKey, built.psbt, chain)
+                when (guardedChatRoomId) {
+                    null -> frostSigningRepository.proposeSpend(state.localChatRoom, activeUserPublicKey, built.psbt, chain)
+                    else -> frostSigningRepository.proposeGuardianSpend(state.localChatRoom, activeUserPublicKey, built.psbt, guardedChatRoomId, chain)
+                }
             }.onFailure { logger.e("Failed to bump $sessionId", it) }.getOrNull()
 
             withContext(Dispatchers.Main) {
@@ -159,16 +250,24 @@ class GroupWalletViewModel(
      * Never batched with anything, for the reason `GroupWalletStatementEvent`
      * gives -- every spend is opened against this, and it should never be as
      * available as its worst co-passenger.
+     *
+     * [guarded] opens the guarded account the room's certificate grants instead
+     * of the plain one: the statement then names the guardians and carries the
+     * certificate, and the group's quorum signing it is the group agreeing to be
+     * guarded.
      */
-    fun openWallet(onSuccess: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+    fun openWallet(guarded: Boolean = false, onSuccess: (sessionId: String) -> Unit, onFailure: () -> Unit) {
         val state = groupWalletUIState as? GroupWalletUIState.NotOpened ?: return
-        val account = state.account ?: return
+        val template = if (guarded) {
+            val opening = state.guarded ?: return
+            GroupWalletStatementEvent.template(opening.account, opening.certificate)
+        } else {
+            GroupWalletStatementEvent.template(state.account ?: return)
+        }
         // A second statement for the same account is harmless -- the same values
         // under the same `d` tag -- but it is a second quorum asked for nothing.
         if (isActionPending.value) return
         isActionPending.value = true
-
-        val template = GroupWalletStatementEvent.template(account)
 
         viewModelScope.launch(Dispatchers.IO) {
             val session = runCatching {

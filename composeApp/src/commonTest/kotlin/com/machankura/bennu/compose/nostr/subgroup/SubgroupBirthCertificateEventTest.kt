@@ -17,7 +17,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import com.machankura.bennu.compose.extensions.toHex
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
 
 /**
  * What a birth certificate is allowed to convince a member of.
@@ -350,6 +352,29 @@ class SubgroupBirthCertificateEventTest {
      * way to test that both are checked. [signature] replaces the real one
      * outright, for the cases where what arrives is not a signature at all.
      */
+    @Test
+    fun `guardian keys ride on a certificate without touching what it certifies`() {
+        val parentKey = parentMaterial.thresholdPublicKey.value.toHex()
+        val guardians = GuardianDerivation.grant(parentKey, parentChatRoomId, emptyList(), subgroupChatRoomId)
+        val tags = SubgroupBirthCertificateEvent.assembleTags(
+            subgroupChatRoomId = subgroupChatRoomId,
+            parentChatRoomId = parentChatRoomId,
+            thresholdPublicKey = childKey,
+            adminPublicKeys = admins,
+            name = name,
+            path = path,
+            guardians = guardians,
+        )
+
+        assertTrue(SubgroupBirthCertificateEvent.certifies(certificate(tags = tags), subgroupChatRoomId, parentChatRoomId))
+        assertEquals(guardians, SubgroupBirthCertificateEvent.parseGuardians(tags))
+        assertEquals(emptyList(), SubgroupBirthCertificateEvent.parseGuardians(certificate().tags))
+
+        // One unreadable entry makes the list unreadable, rather than shorter.
+        val broken = tags.map { if (it[0] == GuardianTag.TAG_NAME) it.copyOf().also { tag -> tag[2] = "04" + tag[2].drop(2) } else it }
+        assertNull(SubgroupBirthCertificateEvent.parseGuardians(broken.toTypedArray()))
+    }
+
     private fun certificate(
         content: String = subgroupChatRoomId,
         tags: Array<Array<String>> = SubgroupBirthCertificateEvent.assembleTags(

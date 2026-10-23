@@ -29,4 +29,16 @@ object GroupWalletRollout {
     val MAINNET_CAP: Satoshi = Satoshi(100_000)
 
     fun capFor(chain: Chain): Satoshi? = MAINNET_CAP.takeIf { chain.isMainnet() }
+
+    /**
+     * Whether a subgroup is offered a guarded wallet on mainnet --
+     * `docs/group-wallet-guardians.md`. Test networks are offered one from the
+     * start. Lifts when a guardian spend has been made on signet by a real
+     * three-level hierarchy, and every member of a mainnet group runs a build
+     * that reads guarded statements: an older client sees no wallet, and can open
+     * a plain one whose addresses the rest do not watch.
+     */
+    const val GUARDIANS_ON_MAINNET: Boolean = false
+
+    fun offersGuardiansOn(chain: Chain): Boolean = GUARDIANS_ON_MAINNET || !chain.isMainnet()
 }
