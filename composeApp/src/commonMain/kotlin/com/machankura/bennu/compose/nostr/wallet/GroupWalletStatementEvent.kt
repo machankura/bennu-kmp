@@ -1,6 +1,12 @@
 package com.machankura.bennu.compose.nostr.wallet
 
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.managers.SharedKeyDerivation
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
+import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupBirthCertificateTag
+import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nip01Core.signers.EventTemplate
@@ -32,6 +38,16 @@ import kotlin.time.Clock
  * group agreed, not a source of keys: nothing reads an address out of it, and a
  * statement naming any xpub but the rederived one is not the group's wallet,
  * whoever signed it.
+ *
+ * ### A guarded statement
+ *
+ * A subgroup whose birth certificate grants it guardian keys may open its wallet
+ * *guarded*: every address carries a leaf per ancestor, and the statement is the
+ * child's quorum agreeing to that. It carries the guardians as [GuardianTag]s
+ * and the certificate itself, whole, so that a member who holds no key state --
+ * one welcomed in after the founding -- can still check every address, and so
+ * that an ancestor it is forwarded to can check where its own key came from.
+ * See `docs/group-wallet-guardians.md`.
  *
  * ### Never on a relay
  *
@@ -67,13 +83,24 @@ object GroupWalletStatementEvent {
         val xpub: String,
         val receiveDescriptor: String,
         val changeDescriptor: String,
+        /** The guardians it names, nearest first; empty for a plain statement. */
+        val guardians: List<GuardianDerivation.Guardian> = emptyList(),
+        /** The birth certificate a guarded statement carries, unverified. */
+        val certificate: Event? = null,
     ) {
         /**
          * The account this statement describes, if [thresholdPublicKey] rederives
          * every value it carries; null otherwise.
+         *
+         * For a guarded one, also: the certificate certifies the room the key
+         * makes, it names that key, and its guardian keys are exactly the ones
+         * the statement names -- the guardians come from the parent's signature
+         * and the child's agreement together, or the statement opens nothing.
          */
         fun verifiedAgainst(thresholdPublicKey: HexKey): GroupWalletDerivation.Account? {
-            val account = runCatching { GroupWalletDerivation.account(thresholdPublicKey, chain, account) }
+            if (guardians.isNotEmpty() && !guardiansCheckOut(thresholdPublicKey)) return null
+
+            val account = runCatching { GroupWalletDerivation.account(thresholdPublicKey, chain, account, guardians) }
                 .getOrNull()
                 ?: return null
 
@@ -83,6 +110,16 @@ object GroupWalletStatementEvent {
                     it.changeDescriptor == changeDescriptor
             }
         }
+
+        private fun guardiansCheckOut(thresholdPublicKey: HexKey): Boolean = runCatching {
+            val certificate = certificate ?: return false
+            val chatRoomId = SharedKeyDerivation.marmotGroupId(thresholdPublicKey)
+            val parentChatRoomId = SubgroupBirthCertificateEvent.parseParentChatRoomId(certificate.tags) ?: return false
+
+            SubgroupBirthCertificateEvent.certifies(certificate, chatRoomId, parentChatRoomId) &&
+                SubgroupBirthCertificateEvent.parseThresholdPublicKey(certificate.tags).equals(thresholdPublicKey, ignoreCase = true) &&
+                SubgroupBirthCertificateEvent.parseGuardians(certificate.tags) == guardians
+        }.getOrDefault(false)
     }
 
     /**
@@ -91,8 +128,24 @@ object GroupWalletStatementEvent {
      */
     fun identifier(chain: Chain, account: Long): String = "${chainName(chain)}:$account"
 
-    fun template(account: GroupWalletDerivation.Account, createdAt: Long = Clock.System.now().epochSeconds): EventTemplate<*> =
-        EventTemplate<Nothing>(
+    /**
+     * The statement opening [account]. A guarded account needs the [certificate]
+     * its guardians were granted in, which the statement carries whole.
+     */
+    fun template(
+        account: GroupWalletDerivation.Account,
+        certificate: Event? = null,
+        createdAt: Long = Clock.System.now().epochSeconds,
+    ): EventTemplate<*> {
+        require(!account.isGuarded || certificate != null) { "a guarded wallet's statement carries the certificate that granted its guardians" }
+
+        val guarded = if (account.isGuarded) {
+            account.guardians.map(GuardianTag::assemble) + listOf(SubgroupBirthCertificateTag.assemble(certificate!!))
+        } else {
+            emptyList()
+        }
+
+        return EventTemplate<Nothing>(
             createdAt = createdAt,
             kind = KIND,
             tags = arrayOf(
@@ -101,9 +154,10 @@ object GroupWalletStatementEvent {
                 arrayOf(ACCOUNT_TAG, account.account.toString()),
                 arrayOf(DESCRIPTOR_TAG, account.receiveDescriptor, RECEIVE_MARKER),
                 arrayOf(DESCRIPTOR_TAG, account.changeDescriptor, CHANGE_MARKER),
-            ),
+            ) + guarded,
             content = account.xpub,
         )
+    }
 
     /** The statement's fields, or null when any is missing or unreadable. Nothing is verified here. */
     fun read(tags: Array<Array<String>>, content: String): Reading? {
@@ -120,7 +174,11 @@ object GroupWalletStatementEvent {
         // account both stand; reading it back here keeps "newest per account" one rule.
         if (value(D_TAG) != identifier(chain, account)) return null
 
-        return Reading(chain, account, content, receive, change)
+        // Guardians that do not all read are not a shorter list of guardians.
+        val guardians = GuardianTag.parseAll(tags) ?: return null
+        val certificate = tags.firstNotNullOfOrNull(SubgroupBirthCertificateTag::parse)?.certificate
+
+        return Reading(chain, account, content, receive, change, guardians, certificate)
     }
 
     /**

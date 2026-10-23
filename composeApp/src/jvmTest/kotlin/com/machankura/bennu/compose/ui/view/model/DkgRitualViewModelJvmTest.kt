@@ -1,7 +1,10 @@
 package com.machankura.bennu.compose.ui.view.model
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
+import com.vitorpamplona.quartz.nip01Core.signers.NostrSignerSync
 import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.phoenix.utils.preferences.InternalPrefs
@@ -27,13 +30,19 @@ import org.junit.rules.TemporaryFolder
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
 import com.machankura.bennu.compose.database.model.DkgSession
+import com.machankura.bennu.compose.database.model.FrostSigningItem
+import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.database.model.intermdiate.LocalFrostSigningSession
 import com.machankura.bennu.compose.database.model.types.DkgApprovalStep
 import com.machankura.bennu.compose.database.model.types.DkgRitualStage
+import com.machankura.bennu.compose.database.model.types.FrostSigningStage
 import com.machankura.bennu.compose.identity.Identity
 import com.machankura.bennu.compose.identity.IdentityKind
 import com.machankura.bennu.compose.identity.toWalletId
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
+import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.DkgRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateSharedKeyRoute
@@ -46,6 +55,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -112,6 +122,7 @@ class DkgRitualViewModelJvmTest {
 
     private val sessionRow = MutableStateFlow<DkgSession?>(session())
     private val messages = MutableStateFlow<List<DkgParticipantMessage>>(emptyList())
+    private val signingSessions = MutableStateFlow<List<LocalFrostSigningSession>>(emptyList())
 
     /** How many times the screen started watching its ceremony. */
     private var sessionSubscriptions = 0
@@ -125,6 +136,9 @@ class DkgRitualViewModelJvmTest {
             sessionRow.onStart { sessionSubscriptions++ }
 
         override fun observeMessages(sessionId: String): Flow<List<DkgParticipantMessage>> = messages
+
+        override fun observeSigningSessions(chatRoomId: String): Flow<List<LocalFrostSigningSession>> =
+            signingSessions
 
         // A deliberately slow answer, so a read-modify-write around it would have
         // the widest possible window to lose somebody else's write in.
@@ -308,5 +322,105 @@ class DkgRitualViewModelJvmTest {
 
         assertEquals(listOf(DkgApprovalStep.HOST_KEY), approved)
         assertFalse(viewModel.isActionPending.value)
+    }
+
+    /** A signing session in this room over one event of [kind]. */
+    private fun signing(
+        id: String,
+        kind: Int,
+        tags: Array<Array<String>>,
+        content: String,
+        stage: FrostSigningStage = FrostSigningStage.COMPLETE,
+    ): LocalFrostSigningSession {
+        val event = NostrSignerSync(KeyPair()).sign<Event>(
+            createdAt = 1_700_000_000L,
+            kind = kind,
+            tags = tags,
+            content = content,
+        )
+        return LocalFrostSigningSession(
+            session = FrostSigningSession(
+                id = id,
+                chatRoomId = chatRoomId,
+                coordinatorPublicKey = bob,
+                userPublicKey = ada,
+                dkgSessionId = sessionId,
+                threshold = 2,
+                participantCount = 3,
+                signerId = 1,
+                stage = stage,
+            ),
+            unorderedItems = listOf(
+                FrostSigningItem(
+                    sessionId = id,
+                    itemIndex = 0,
+                    unsignedEventJson = event.toJson(),
+                    eventId = event.id,
+                    nonceRandom = "cc".repeat(32),
+                )
+            ),
+        )
+    }
+
+    @Test
+    fun `a parent's second subgroup is not shown its first one's signing sessions`(): Unit = runBlocking {
+        // The ceremony is held in the parent's room, so this room is the parent's
+        // -- and it already holds the first subgroup's finished certificate and
+        // key state, newest first, as the store returns them.
+        val firstKey = "02" + "1f".repeat(32)
+        val secondKey = "02" + "2f".repeat(32)
+        sessionRow.value = session(DkgRitualStage.COMPLETE).copy(
+            parentChatRoomId = chatRoomId,
+            thresholdPublicKey = secondKey,
+        )
+        signingSessions.value = listOf(
+            signing(
+                id = "first-key-state",
+                kind = GroupKeyStateEvent.KIND,
+                tags = GroupKeyStateEvent.assembleTags(chatRoomId = "f1".repeat(32), dkgSessionId = "f1"),
+                content = firstKey,
+            ),
+            signing(
+                id = "first-certificate",
+                kind = SubgroupBirthCertificateEvent.KIND,
+                tags = SubgroupBirthCertificateEvent.assembleTags(
+                    subgroupChatRoomId = "f1".repeat(32),
+                    parentChatRoomId = chatRoomId,
+                    thresholdPublicKey = firstKey,
+                    adminPublicKeys = listOf(ada, bob),
+                    name = "First",
+                ),
+                content = "f1".repeat(32),
+            ),
+        )
+
+        val viewModel = viewModel()
+        viewModel.initiate()
+
+        val before = viewModel.awaitLoaded()
+        assertNull(before.certificateSession, "the first subgroup's certificate is not this one's")
+        assertNull(before.keyStateSession, "nor is its key state")
+
+        // Its own, once asked for, is the one shown.
+        signingSessions.value = listOf(
+            signing(
+                id = "second-certificate",
+                kind = SubgroupBirthCertificateEvent.KIND,
+                tags = SubgroupBirthCertificateEvent.assembleTags(
+                    subgroupChatRoomId = "f2".repeat(32),
+                    parentChatRoomId = chatRoomId,
+                    thresholdPublicKey = secondKey,
+                    adminPublicKeys = listOf(ada, bob),
+                    name = "Second",
+                ),
+                content = "f2".repeat(32),
+                stage = FrostSigningStage.COLLECTING_NONCES,
+            ),
+        ) + signingSessions.value
+
+        assertEquals(
+            "second-certificate",
+            viewModel.awaitLoaded { it.certificateSession != null }.certificateSession?.id,
+        )
     }
 }

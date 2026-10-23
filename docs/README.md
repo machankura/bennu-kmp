@@ -13,6 +13,7 @@ silent, or a decision that looked arbitrary and was not.
 | [frost-batch-signing.md](./frost-batch-signing.md) | signing several events in one ceremony — why one nonce can never cover two messages, and the phased schema, wire and UI work that follows from it |
 | [group-chain-wallet.md](./group-chain-wallet.md) | an on-chain wallet the group's threshold key holds, modelled on Phoenix's final wallet — why the path is BIP86's unhardened tail under a public account step, why each input is a batch item with its own cache, and the seven checks a member makes before signing a spend |
 | [group-send-an-amount.md](./group-send-an-amount.md) | sending an amount in sats from the group's wallet, with change — why the gate as written could never lift and is removed in favour of the mainnet cap, the decimal point the gated form multiplies by ten, and change addresses reserved like coins |
+| [group-wallet-guardians.md](./group-wallet-guardians.md) | letting an ancestor group spend from a subgroup's wallet through a taproot leaf — why the parent signs the guardian keys into the child's certificate, why every inherited key is derived one step further per child, and why every ancestor waits 12 blocks |
 | [group-wallet-addresses.md](./group-wallet-addresses.md) | listing the group wallet's receive addresses as Phoenix lists its swap-in ones — why the list stops at the current address plus two, why a paid address past that still shows, and why a used address can be copied but never shown as a QR code |
 | [frost-session-resend.md](./frost-session-resend.md) | asking the members who never got a signing proposal to look again — why a proposer can repeat only what it wrote, why a member's availability signal needs no repeating, and the one half that has to come from the silent member's own device |
 | [marmot-membership.md](./marmot-membership.md) | how members join an MLS group, and the epoch race that makes a missing member look like a successful invite |
@@ -49,6 +50,8 @@ The group-wallet-addresses note is a phased plan that has been built, and is the
 group-chain-wallet note's Phase 5 taken one screen further: read that note's
 Phases 4 and 5 first, and its own table of where the build chose differently
 before the code.
+The group-wallet-guardians note is a phased plan that has been built; it assumes the subgroups and group-chain-wallet notes, and changes one sentence in
+each.
 The Material Design note is a phased plan that has not been built, and is the
 only one about what the app looks like rather than what it does; read the
 jvm-target note first if you want to know why its adaptive-layout phase exists.

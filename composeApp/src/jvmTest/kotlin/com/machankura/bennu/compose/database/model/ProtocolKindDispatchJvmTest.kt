@@ -8,6 +8,11 @@ import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import kotlinx.coroutines.runBlocking
+import kotlin.test.assertNotNull
+import com.machankura.bennu.compose.nostr.MarmotDirectMessage
+import com.vitorpamplona.quartz.nip17Dm.messages.ChatMessageEvent
+import com.vitorpamplona.quartz.nip01Core.tags.people.PTag
+import com.vitorpamplona.quartz.nip01Core.signers.NostrSignerSync
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -36,13 +41,27 @@ class ProtocolKindDispatchJvmTest {
     fun closeDb() = database.close()
 
     private val self = KeyPair()
-    private val sender = KeyPair().pubKey.toHexKey()
+    private val senderSigner = NostrSignerSync(KeyPair())
+    private val sender = senderSigner.pubKey
     private val chatRoomId = "639f".repeat(16)
 
     private var next = 0
 
     /** A kind:445 this device has stored, carrying one inner event of [kind]. */
-    private suspend fun arrive(kind: Kind, content: String): Pair<GroupEvent, ChatMessage?> {
+    private suspend fun arrive(kind: Kind, content: String): Pair<GroupEvent, ChatMessage?> = arrive(
+        Event(
+            id = "%064x".format(2000 + next),
+            pubKey = sender,
+            createdAt = 1,
+            kind = kind,
+            tags = DkgRitualEvents.assembleTags(sessionId = "5e55".repeat(16)),
+            content = content,
+            sig = "",
+        )
+    )
+
+    /** A kind:445 this device has stored, carrying [inner]. */
+    private suspend fun arrive(inner: Event): Pair<GroupEvent, ChatMessage?> {
         val n = next++
         val groupEventId = "%064x".format(1000 + n)
 
@@ -77,16 +96,6 @@ class ProtocolKindDispatchJvmTest {
             content = "ciphertext",
             sig = "0".repeat(128),
         )
-        val inner = Event(
-            id = "%064x".format(2000 + n),
-            pubKey = sender,
-            createdAt = 1,
-            kind = kind,
-            tags = DkgRitualEvents.assembleTags(sessionId = "5e55".repeat(16)),
-            content = content,
-            sig = "",
-        )
-
         val line = ChatMessage.fromGroupEventResult(
             database = database,
             activeKeyPair = self,
@@ -127,6 +136,33 @@ class ProtocolKindDispatchJvmTest {
                 .toSet(),
             "every one is still stored, so a ceremony can replay what arrived before its proposal",
         )
+    }
+
+    /**
+     * A direct message's envelope shares 30330 with a signing session's decline.
+     *
+     * Treating every 30330 as a decline -- which is what recognising protocol
+     * kinds first did at first -- dropped every direct message in a
+     * current-profile room before it was opened. What tells the two apart is
+     * what the event carries.
+     */
+    @Test
+    fun `a direct message envelope is opened, not taken for a decline`(): Unit = runBlocking {
+        val wrap = MarmotDirectMessage.wrap(
+            signer = senderSigner,
+            recipientPublicKey = self.pubKey.toHexKey(),
+            kind = ChatMessageEvent.KIND,
+            createdAt = 1,
+            tags = arrayOf(PTag.assemble(self.pubKey.toHexKey(), null)),
+            content = "the vote is at six",
+        )
+        val envelope = MarmotDirectMessage.envelope(sender, self.pubKey.toHexKey(), wrap, createdAt = 1)
+        assertEquals(FrostSigningEvents.DECLINE, envelope.kind, "the collision this test exists for")
+
+        val (_, line) = arrive(Event.fromJson(envelope.toJson()))
+
+        val opened = assertNotNull(line, "the envelope must reach the direct-message path")
+        assertTrue(opened.content.contains("the vote is at six"), "and be opened: ${opened.content}")
     }
 
     @Test

@@ -4,7 +4,10 @@ import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.managers.FrostSigningManager
+import fr.acinq.bitcoin.Crypto
 import fr.acinq.bitcoin.Transaction
+import fr.acinq.bitcoin.TxId
+import fr.acinq.bitcoin.byteVector32
 import fr.acinq.lightning.blockchain.electrum.IElectrumClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +37,15 @@ import kotlin.time.Instant
  * sent again every [REBROADCAST_AFTER], which is what `IElectrumClient` asks of
  * its callers. A confirmation goes through [FrostSigningManager.recordConfirmed],
  * which settles every other spend of the same coins.
+ *
+ * A spend Electrum has not heard of may have lost its coins. Only the group can
+ * spend a plain wallet's coins, so there the loser is always another of the
+ * room's own spends and the winner's confirmation settles it. A guarded wallet's
+ * coins have a second spender, in another room: so an unseen spend asks the
+ * chain whether its coins are still there, and one taken by a *confirmed*
+ * transaction it is not goes through [FrostSigningManager.recordReplaced]. A
+ * conflict still in the mempool settles nothing -- ours may yet be the one that
+ * confirms.
  */
 class GroupTransactionWatcher(
     private val database: BennuDatabase,
@@ -100,8 +112,12 @@ class GroupTransactionWatcher(
             database.groupTransactionDao().upsert(row)
         }
 
-        // Null while disconnected, or while Electrum has not heard of it.
-        val confirmations = electrum.getConfirmations(signed) ?: return
+        // Null while disconnected, or while Electrum has not heard of it -- which
+        // is also what a spend whose coins somebody else took looks like.
+        val confirmations = electrum.getConfirmations(signed) ?: run {
+            conflictOf(row, signed)?.let { FrostSigningManager.recordReplaced(database, row.frostSigningSessionId, it.toString()) }
+            return
+        }
         if (row.seenAt == null) {
             row = row.copy(seenAt = now())
             database.groupTransactionDao().upsert(row)
@@ -109,6 +125,34 @@ class GroupTransactionWatcher(
         if (confirmations >= 1) {
             FrostSigningManager.recordConfirmed(database, row.frostSigningSessionId, now())
         }
+    }
+
+    /**
+     * A confirmed transaction other than [signed] that spent one of its coins, or
+     * null when every coin is still unspent, or was only taken by something
+     * unconfirmed, or the chain cannot be asked right now.
+     *
+     * Read per coin off the address it is at: is it still unspent there, and if
+     * not, which transaction in that address's history spent it. The address is
+     * the spent output's script, which the proposed PSBT carries for every input.
+     */
+    private suspend fun conflictOf(transaction: GroupTransaction, signed: Transaction): TxId? {
+        val psbt = GroupSpend.decode(transaction.psbt) ?: return null
+
+        signed.txIn.forEachIndexed { index, input ->
+            val txOut = (psbt.inputs.getOrNull(index) as? fr.acinq.bitcoin.psbt.Input.WitnessInput)?.txOut ?: return@forEachIndexed
+            val scriptHash = Crypto.sha256(txOut.publicKeyScript).byteVector32().reversed()
+
+            val unspent = electrum.getScriptHashUnspents(scriptHash)
+                .any { it.txid == input.outPoint.txid && it.outputIndex.toLong() == input.outPoint.index }
+            if (unspent) return@forEachIndexed
+
+            electrum.getScriptHashHistory(scriptHash)
+                .filter { it.blockHeight > 0 && it.txid != signed.txid }
+                .firstOrNull { item -> electrum.getTx(item.txid)?.txIn?.any { it.outPoint == input.outPoint } == true }
+                ?.let { return it.txid }
+        }
+        return null
     }
 
     companion object {

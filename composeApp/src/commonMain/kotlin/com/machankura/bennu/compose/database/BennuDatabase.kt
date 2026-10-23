@@ -153,7 +153,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 27,
+    version = 28,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -345,6 +345,12 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // payloadEventId, and deletes the chat lines nothing renders any more
         // (docs/ceremony-creation.md, Phase 8). Manual -- it deletes rows --
         // so it is MIGRATION_26_27 in `getRoomDatabase`, not an entry here.
+        //
+        // v28 adds the nullable GroupTransaction.guardedChatRoomId: the descendant
+        // whose guarded wallet a guardian's spend draws from
+        // (docs/group-wallet-guardians.md, Phase 7). Every spend before it was the
+        // room's own, which is what null means.
+        AutoMigration(from = 27, to = 28),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)

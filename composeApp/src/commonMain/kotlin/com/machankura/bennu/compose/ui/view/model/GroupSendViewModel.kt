@@ -1,6 +1,9 @@
 package com.machankura.bennu.compose.ui.view.model
 
 import com.machankura.bennu.compose.wallet.GroupWalletRollout
+import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.nostr.wallet.GroupWallet
+import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.MutableState
@@ -49,6 +52,8 @@ class GroupSendViewModel(
     val chatRepository: ChatRepository,
     val frostSigningRepository: FrostSigningRepository,
     private val wallets: GroupOnchainWallets?,
+    /** The descendant whose guarded wallet this form spends from, or null for the room's own. */
+    val guardedChatRoomId: String? = null,
 ): ViewModel() {
     private val logger = Logger.withTag(TAG)
 
@@ -72,7 +77,18 @@ class GroupSendViewModel(
                 return@launch
             }
 
-            val wallet = chatRepository.groupWallet(chatRoomId, chain)
+            // A descendant's guarded wallet, as this room was told it, with the
+            // group as its guardian -- or the room's own wallet.
+            val guarded = guardedChatRoomId?.let { descendant ->
+                chatRepository.guardedWallets(chatRoomId).firstOrNull {
+                    it.descendantChatRoomId.equals(descendant, ignoreCase = true) && it.chain == chain
+                }
+            }
+            val wallet = when {
+                guardedChatRoomId == null -> chatRepository.groupWallet(chatRoomId, chain)
+                guarded == null -> null
+                else -> GroupWallet(GroupSignedEvent.fromEvent(guarded.statement, chatRoomId = guarded.descendantChatRoomId), guarded.account)
+            }
             val canSign = localChatRoom.chatRoom.mlsGroupState != null && chatRepository.canSign(chatRoomId)
             if (wallet == null || !canSign || wallets == null) {
                 groupSendUIState = GroupSendUIState.Unavailable
@@ -85,6 +101,7 @@ class GroupSendViewModel(
                 walletState = null,
                 reserved = frostSigningRepository.reservedOutPoints(chatRoomId),
                 reservedChange = frostSigningRepository.reservedChangeIndices(chatRoomId, wallet.account),
+                spender = guarded?.spender() ?: GroupSpend.Spender.Owner,
             )
             groupSendUIState = ready
 
@@ -131,7 +148,7 @@ class GroupSendViewModel(
     /** The confirmed coins no open spend holds, summed, or null before Electrum has answered. */
     fun spendable(): Satoshi? {
         val state = groupSendUIState as? GroupSendUIState.Ready ?: return null
-        return state.walletState?.let { GroupSpendBuilder.spendableBalance(it, state.reserved) }
+        return state.walletState?.let { GroupSpendBuilder.spendableBalance(it, state.reserved, state.spender) }
     }
 
     /**
@@ -171,9 +188,9 @@ class GroupSendViewModel(
         val address = addressField.text.toString().trim().takeIf { it.isNotEmpty() } ?: return null
 
         val built = if (amount == null) {
-            GroupSpendBuilder.sendAll(walletState, address, feerate, state.reserved)
+            GroupSpendBuilder.sendAll(walletState, address, feerate, state.reserved, state.spender)
         } else {
-            GroupSpendBuilder.send(walletState, address, amount, feerate, state.reserved, state.reservedChange)
+            GroupSpendBuilder.send(walletState, address, amount, feerate, state.reserved, state.reservedChange, state.spender)
         }
         return GroupSpendBuilder.capped(built, GroupWalletRollout.capFor(chain))
     }
@@ -186,12 +203,21 @@ class GroupSendViewModel(
 
         viewModelScope.launch(Dispatchers.IO) {
             val session = runCatching {
-                frostSigningRepository.proposeSpend(
-                    localChatRoom = state.localChatRoom,
-                    userPublicKey = activeUserPublicKey,
-                    psbt = built.psbt,
-                    chain = chain,
-                )
+                when (val descendant = guardedChatRoomId.takeIf { state.spender is GroupSpend.Spender.Guardian }) {
+                    null -> frostSigningRepository.proposeSpend(
+                        localChatRoom = state.localChatRoom,
+                        userPublicKey = activeUserPublicKey,
+                        psbt = built.psbt,
+                        chain = chain,
+                    )
+                    else -> frostSigningRepository.proposeGuardianSpend(
+                        localChatRoom = state.localChatRoom,
+                        userPublicKey = activeUserPublicKey,
+                        psbt = built.psbt,
+                        descendantChatRoomId = descendant,
+                        chain = chain,
+                    )
+                }
             }.onFailure { logger.e("Failed to propose a spend from $chatRoomId", it) }.getOrNull()
 
             withContext(Dispatchers.Main) {
@@ -212,11 +238,12 @@ class GroupSendViewModel(
             chatRepository: ChatRepository,
             frostSigningRepository: FrostSigningRepository,
             wallets: GroupOnchainWallets?,
+            guardedChatRoomId: String? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 GroupSendViewModel(
                     activeUserPublicKey, chatRoomId, chain, initialGroupSendUIState,
-                    chatRepository, frostSigningRepository, wallets,
+                    chatRepository, frostSigningRepository, wallets, guardedChatRoomId,
                 )
             }
         }

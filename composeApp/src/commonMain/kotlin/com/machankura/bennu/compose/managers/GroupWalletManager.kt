@@ -3,6 +3,8 @@ package com.machankura.bennu.compose.managers
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
+import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
 
@@ -34,6 +36,40 @@ object GroupWalletManager {
         account: Long = 0L,
     ): GroupWalletDerivation.Account? =
         thresholdKeyFor(database, chatRoomId)?.let { GroupWalletDerivation.account(it, chain, account) }
+
+    /** A guarded account a room could open, and the certificate that granted its guardians, which the statement carries. */
+    data class GuardedOpening(
+        val account: GroupWalletDerivation.Account,
+        val certificate: Event,
+    )
+
+    /**
+     * The guarded account [chatRoomId] would open on [chain], or null for a room
+     * whose certificate grants it no guardian keys -- a room nobody's subgroup,
+     * or one certified before certificates carried them.
+     *
+     * Off the verified key state, the one place a certificate this device
+     * believes is kept. A member who holds no key state cannot open one; that
+     * member cannot sign, either.
+     */
+    suspend fun guardedAccountFor(
+        database: BennuDatabase,
+        chatRoomId: String,
+        chain: Chain,
+        account: Long = 0L,
+    ): GuardedOpening? {
+        val thresholdPublicKey = thresholdKeyFor(database, chatRoomId) ?: return null
+        val certificate = GroupKeyStateManager.keyStateFor(database, chatRoomId)
+            ?.takeIf { it.verifies() }
+            ?.birthCertificateJson
+            ?.let { Event.fromJsonOrNull(it) }
+            ?: return null
+        val guardians = SubgroupBirthCertificateEvent.parseGuardians(certificate.tags)
+            ?.takeIf { it.isNotEmpty() }
+            ?: return null
+
+        return GuardedOpening(GroupWalletDerivation.account(thresholdPublicKey, chain, account, guardians), certificate)
+    }
 
     /**
      * The wallet [chatRoomId] has opened on [chain] under [thresholdPublicKey], or

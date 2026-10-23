@@ -1169,6 +1169,7 @@ fun BennuNavHost(
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
                     wallets = groupOnchainWallets,
+                    guardedChatRoomId = route.guardedChatRoomId,
                     onNavigateToRouteAndPopUpInclusive = { signingRoute ->
                         // Replace the form so back returns to the wallet rather
                         // than to a spend that has already been proposed.

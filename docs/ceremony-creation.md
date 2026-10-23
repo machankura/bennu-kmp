@@ -45,6 +45,14 @@ key** handed over to its finished ceremony, and back returned to its details.
 Not exercised on a device: the certificate and key state after Tapscript, and
 starting a ceremony from `CreateSharedKeyScreen` in a group without a key.
 
+**A regression Phase 6 shipped, and its fix.** `FrostSigningEvents.DECLINE` and
+`MarmotDirectMessage.ENVELOPE_KIND` are both 30330. Phase 6 returned early for
+every protocol kind before the direct-message branch, so every direct message in
+a current-profile room was dropped unopened. Found while mapping this fix onto
+Curare. An event of kind 30330 that holds a gift wrap is now an envelope, never a
+decline -- the test `MarmotDirectMessage.wrapInside` already made -- and
+`ProtocolKindDispatchJvmTest` opens one. Any port of Phase 6 has to carry this.
+
 The headline: **a ceremony is started only from a screen that knows what it is
 for, and the screen that shows a ceremony can never start one.** Today
 `DkgRitualScreen` does three jobs (showing progress, asking for approvals, and
