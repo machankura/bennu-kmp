@@ -39,7 +39,7 @@ class GroupSignedWorkRowsJvmTest {
         if (!GroupWalletRollout.ENABLED) return@render
 
         val signingKey = onNodeWithText("Signing key").getBoundsInRoot().top
-        val wallet = onNodeWithText("Group onchain wallet").getBoundsInRoot().top
+        val wallet = onNodeWithText(WALLET_ROW).getBoundsInRoot().top
         val subgroups = onNodeWithText("Subgroups").getBoundsInRoot().top
 
         assertTrue(signingKey < wallet, "the wallet row climbed above the signing key row")
@@ -54,7 +54,7 @@ class GroupSignedWorkRowsJvmTest {
 
         render(state(), onNavigateToRoute = { opened = it }) {
             onNodeWithText("Not opened yet").assertIsDisplayed()
-            onNodeWithText("Group onchain wallet").performClick()
+            onNodeWithText(WALLET_ROW).performClick()
         }
 
         assertEquals(GroupWalletRoute(activeUserPublicKey, chatRoomId, relayHint = null), opened)
@@ -76,9 +76,12 @@ class GroupSignedWorkRowsJvmTest {
     fun `a NIP-17 room has no key to sign with and so no wallet row`() = render(
         state(mlsGroupState = null)
     ) {
-        onNodeWithText("Group onchain wallet").assertDoesNotExist()
+        onNodeWithText(WALLET_ROW).assertDoesNotExist()
         onNodeWithText("Subgroups").assertIsDisplayed()
     }
+
+    /** The wallet row is named for its room: the fixture's subject. */
+    private val WALLET_ROW = "Translation room onchain wallet"
 
     private fun state(mlsGroupState: String? = "state") = ChatRoomDetailUIState.Loaded(
         localChatRoom = GroupSignedWorkFixtures.localChatRoom(mlsGroupState),
