@@ -1,7 +1,5 @@
 package com.machankura.bennu.compose.ui.composable
 
-import com.machankura.bennu.compose.wallet.GroupWalletRollout
-import bennu.composeapp.generated.resources.for_now_a_spend_sends_everything
 import bennu.composeapp.generated.resources.while_the_wallet_is_new_at_most_s_sats
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -169,29 +167,19 @@ fun GroupSendScreen(
                         label = { Text(stringResource(Res.string.address)) },
                     )
 
-                    // Send-all only while the wallet is new: no switch, no amount,
-                    // and a sentence saying everything confirmed is what goes.
-                    if (GroupWalletRollout.SEND_AN_AMOUNT) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(stringResource(Res.string.send_everything))
-                            Switch(
-                                checked = groupSendViewModel.sendEverything.value,
-                                onCheckedChange = { groupSendViewModel.sendEverything.value = it },
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = stringResource(Res.string.for_now_a_spend_sends_everything),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(stringResource(Res.string.send_everything))
+                        Switch(
+                            checked = groupSendViewModel.sendEverything.value,
+                            onCheckedChange = { groupSendViewModel.sendEverything.value = it },
                         )
                     }
 
-                    if (GroupWalletRollout.SEND_AN_AMOUNT && !groupSendViewModel.sendEverything.value) {
+                    if (!groupSendViewModel.sendEverything.value) {
                         OutlinedTextField(
                             modifier = Modifier.fillMaxWidth(),
                             state = groupSendViewModel.amountField,

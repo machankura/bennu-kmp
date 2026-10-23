@@ -108,7 +108,7 @@ class GroupSendViewModel(
         val state = groupSendUIState as? GroupSendUIState.Ready ?: return null
         val walletState = state.walletState ?: return null
 
-        val amount = if (sendEverything.value || !GroupWalletRollout.SEND_AN_AMOUNT) {
+        val amount = if (sendEverything.value) {
             null
         } else {
             when (val input = amount()) {

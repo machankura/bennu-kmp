@@ -43,7 +43,6 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.time.Instant
@@ -64,9 +63,10 @@ class GroupSendViewModelJvmTest {
     private val localChatRoom = LocalChatRoom(
         chatRoom = ChatRoom(id = chatRoomId, userPublicKey = "a".repeat(64), subject = "Treasury", description = null, initialGiftWrapPayloadId = "p", mlsGroupState = "state")
     )
-    private val account = GroupWalletDerivation.account(
-        PrivateKey(ByteVector32(Hex.decode("1c0ffee".padStart(64, '0')))).publicKey().toString(), Chain.Regtest,
+    private fun accountOn(chain: Chain): GroupWalletDerivation.Account = GroupWalletDerivation.account(
+        PrivateKey(ByteVector32(Hex.decode("1c0ffee".padStart(64, '0')))).publicKey().toString(), chain,
     )
+    private val account: GroupWalletDerivation.Account = accountOn(Chain.Regtest)
     private val wallet = GroupWallet(
         GroupSignedEvent(
             id = "e".repeat(64), chatRoomId = chatRoomId, publicKey = chatRoomId, kind = GroupWalletStatementEvent.KIND,
@@ -76,18 +76,22 @@ class GroupSendViewModelJvmTest {
         account,
     )
 
-    private val walletState: GroupWalletState = run {
+    /** One confirmed coin of [sats] under [account], and one unused change address. */
+    private fun walletStateOf(account: GroupWalletDerivation.Account, sats: Long): GroupWalletState {
+        val chain = account.chain
         val derived = GroupWalletDerivation.derive(account, GroupWalletDerivation.RECEIVE, 0)
-        val tx = Transaction(2, listOf(TxIn(OutPoint(TxId(ByteVector32(ByteArray(32) { 1 })), 0), ByteVector.empty, 0xffffffffL)), listOf(TxOut(Satoshi(100_000), derived.pubkeyScript)), 0)
+        val tx = Transaction(2, listOf(TxIn(OutPoint(TxId(ByteVector32(ByteArray(32) { 1 })), 0), ByteVector.empty, 0xffffffffL)), listOf(TxOut(Satoshi(sats), derived.pubkeyScript)), 0)
         val meta = WalletState.AddressMeta.Derived(0)
         val change = GroupWalletDerivation.derive(account, GroupWalletDerivation.CHANGE, 0)
-        GroupWalletState(
+        return GroupWalletState(
             account,
-            WalletState(mapOf(derived.address(Chain.Regtest) to WalletState.AddressState(meta, true, listOf(WalletState.Utxo(tx.txid, 0, 100, tx, meta))))),
-            WalletState(mapOf(change.address(Chain.Regtest) to WalletState.AddressState(WalletState.AddressMeta.Derived(0), false, emptyList()))),
+            WalletState(mapOf(derived.address(chain) to WalletState.AddressState(meta, true, listOf(WalletState.Utxo(tx.txid, 0, 100, tx, meta))))),
+            WalletState(mapOf(change.address(chain) to WalletState.AddressState(WalletState.AddressMeta.Derived(0), false, emptyList()))),
             tipHeight = 110,
         )
     }
+
+    private val walletState: GroupWalletState = walletStateOf(account, 100_000)
 
     private class RecordingSigning : FrostSigningRepository by FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY {
         var proposed: Psbt? = null
@@ -97,8 +101,12 @@ class GroupSendViewModelJvmTest {
         }
     }
 
-    private fun viewModel(initial: GroupSendUIState, chat: ChatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY, signing: FrostSigningRepository = RecordingSigning()) =
-        GroupSendViewModel("a".repeat(64), chatRoomId, Chain.Regtest, initial, chat, signing, wallets = null)
+    private fun viewModel(
+        initial: GroupSendUIState,
+        chat: ChatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
+        signing: FrostSigningRepository = RecordingSigning(),
+        chain: Chain = Chain.Regtest,
+    ) = GroupSendViewModel("a".repeat(64), chatRoomId, chain, initial, chat, signing, wallets = null)
 
     @Test
     fun `a profile with no node is not offered the form`() {
@@ -124,14 +132,8 @@ class GroupSendViewModelJvmTest {
         model.feerateField.setTextAndPlaceCursorAtEnd("4")
         model.amountField.setTextAndPlaceCursorAtEnd("40,000")
         val built = assertIs<GroupSpendBuilder.Result.Built>(model.preview())
-        if (GroupWalletRollout.SEND_AN_AMOUNT) {
-            assertEquals(Satoshi(40_000), built.amount)
-            assertNotNull(built.change)
-        } else {
-            // Gated to send-all: the amount typed is not what is sent.
-            assertEquals(Satoshi(100_000), built.amount + built.fee)
-            assertNull(built.change)
-        }
+        assertEquals(Satoshi(40_000), built.amount)
+        assertEquals(Satoshi(100_000), built.amount + built.fee + assertNotNull(built.change), "the rest comes back")
 
         model.propose(onSuccess = {}, onFailure = {})
         runBlocking { withTimeout(5_000) { while (signing.proposed == null) delay(10) } }
@@ -147,11 +149,26 @@ class GroupSendViewModelJvmTest {
         model.amountField.setTextAndPlaceCursorAtEnd("21000.5")
 
         assertEquals(SatsInput.NotWhole, model.amount())
-        val preview = model.preview()
-        assertNotEquals(Satoshi(210_005), (preview as? GroupSpendBuilder.Result.Built)?.amount)
-        if (GroupWalletRollout.SEND_AN_AMOUNT) {
-            assertEquals(GroupSpendBuilder.Result.InvalidAmount(SatsInput.NotWhole), preview)
-        }
+        assertEquals(GroupSpendBuilder.Result.InvalidAmount(SatsInput.NotWhole), model.preview())
+    }
+
+    @Test
+    fun `on mainnet the cap holds an amount, as it holds sending everything`() {
+        val mainnet = accountOn(Chain.Mainnet)
+        val model = viewModel(
+            GroupSendUIState.Ready(localChatRoom, wallet, walletStateOf(mainnet, 300_000), reserved = emptySet()),
+            chain = Chain.Mainnet,
+        )
+        model.addressField.setTextAndPlaceCursorAtEnd("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4")
+        model.feerateField.setTextAndPlaceCursorAtEnd("4")
+
+        model.amountField.setTextAndPlaceCursorAtEnd("150,000")
+        assertEquals(GroupSpendBuilder.Result.OverCap(GroupWalletRollout.MAINNET_CAP), model.preview())
+
+        model.amountField.setTextAndPlaceCursorAtEnd("100,000")
+        val built = assertIs<GroupSpendBuilder.Result.Built>(model.preview(), "the cap itself is allowed")
+        assertNotNull(built.change)
+        assertIs<GroupSpend.Result.Ok>(GroupSpend.check(built.psbt, mainnet))
     }
 
     @Test

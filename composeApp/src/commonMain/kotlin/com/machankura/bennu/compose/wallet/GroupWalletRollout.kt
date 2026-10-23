@@ -19,14 +19,9 @@ object GroupWalletRollout {
     const val ENABLED: Boolean = true
 
     /**
-     * Whether a member can send a chosen amount, with change, or only everything
-     * to one address. Send-all only until send-an-amount has had a release with
-     * nobody reporting a mislabelled change output.
-     */
-    const val SEND_AN_AMOUNT: Boolean = false
-
-    /**
-     * The most one spend proposed from this device may send on mainnet. Lifts
+     * The most one spend proposed from this device may send on mainnet -- and,
+     * since a member can send an amount with change on every network, the
+     * bound on what a builder bug in that change could put at risk. Lifts
      * when a release has run real spends end to end with no session that failed
      * to aggregate and no transaction that failed to confirm. Test networks have
      * no cap: nothing on them is worth one.

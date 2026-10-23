@@ -9,7 +9,7 @@ Read [group-chain-wallet.md](./group-chain-wallet.md) first, Phases 8 and 10 in
 particular. This plan is that note's third rollout gate, and it starts from the
 code as it stands at `96055da5`.
 
-**Phases 1 and 3 built; 2 and 4-7 not.** Written against `GroupSendScreen`, `GroupSendViewModel`,
+**Phases 1-3 built; 4-7 not.** Written against `GroupSendScreen`, `GroupSendViewModel`,
 `GroupSpendBuilder`, `GroupSpend` and `GroupWalletRollout` as they are at that
 commit.
 
@@ -150,7 +150,7 @@ and what `GroupedSats` shows. In `GroupSendViewModelJvmTest`, typing
 
 ## Phase 2: the gate comes out
 
-**Half a day.** Phase 0 opened the gate on every network, so what is left is
+**Half a day. Built.** Phase 0 opened the gate on every network, so what is left is
 removing it, not turning it into a per-network switch. A `const` that is
 always true is a branch the compiler keeps and a reader still has to follow.
 
@@ -180,9 +180,10 @@ always true is a branch the compiler keeps and a reader still has to follow.
   needs to be in the same release. Phases 1 and 3 can land behind the closed
   gate in any order. This phase is the one that makes them reachable.
 
-The wallet note's Phase 10 table loses its *send-all only* row, and its "built"
-table's `SEND_AN_AMOUNT` row says the gate was removed, why, and which commit
-removed it (Phase 6).
+The wallet note's Phase 10 table has lost its *send-all only* row, and its
+"built" table says the gate was removed and why. That was done in this phase
+rather than Phase 6, so the note never describes a gate the code no longer
+has.
 
 ---
 

@@ -50,7 +50,7 @@ kept as written; where the build chose differently the table below says so.
 | a conflicting spend is noticed when a reserved coin is spent by a different transaction | when one of the group's spends *confirms*: only the group can spend its coins, so the only other transaction that can take one is another of its own spends, and the confirmation is the moment the question is settled. Settled by the confirmed spend's own row, so every device decides the same way |
 | a fee bump is proposed at a feerate the member chooses | at twice the spend's feerate, from a *Bump the fee* button on the spend's row — comfortably over BIP125's increment, and one decision rather than a form |
 | `GroupTransaction` rows are kept by the screen that shows them | `GroupTransactionWatcher`, one per identity beside the wallets, started with the identity's node whether or not anybody opens the wallet. It found a real bug before it shipped: following each spend from the list a pass began with wrote a settled row back from its stale copy |
-| a feature flag, off, until Phases 1-9 are in | `GroupWalletRollout.ENABLED`, on: its own lift condition — Phases 1-9 in, the JVM suite passing — was met when it landed. The other two gates hold: `SEND_AN_AMOUNT` is false, so the form sends everything, and `MAINNET_CAP` is 100,000 sats per spend proposed from this device |
+| a feature flag, off, until Phases 1-9 are in | `GroupWalletRollout.ENABLED`, on: its own lift condition — Phases 1-9 in, the JVM suite passing — was met when it landed. `MAINNET_CAP` holds, at 100,000 sats per spend proposed from this device. `SEND_AN_AMOUNT` was removed: its lift condition, a release with no mislabelled change, could not be met while it kept every network on send-all. A member sends an amount on every network, with the cap as the bound on mainnet — [group-send-an-amount.md](./group-send-an-amount.md) |
 | the gates are on the composer | and on nothing else, on purpose: a device with a gate closed still accepts, shows and signs what another member proposes, through every check `GroupSpend` makes. A gate decides what this device offers, never what a quorum may decide |
 
 The headline: **the best path is BIP86's own unhardened tail, `/<change>/<index>`,
@@ -796,7 +796,6 @@ that a function returned early.
 |---|---|
 | the wallet is behind a feature flag, off | Phases 1-9 are in and the jvm suite passes |
 | on mainnet, a statement can be signed and a spend proposed, but the composer refuses to move more than a small fixed amount | a release has run real spends end to end with no session that failed to aggregate or a transaction that failed to confirm |
-| send-all only | send-an-amount has had a release with nobody reporting a mislabelled change output |
 
 If a testnet build exists by then, the cap is unnecessary there and the first two
 rows run on it instead.
