@@ -14,10 +14,16 @@ wallet makes more expensive to break, and
 with `k` inputs is a batch of `k` and that note's nonce rule is the one this
 plan is built around too.
 
-**Not built.** Written against the code as it stood at `b75d4b42`, with the
-`lightning-kmp-app` submodule at `e0d2b82`. Every path into the library below is
-into that submodule, which a fresh worktree does not have checked out — run
-`git submodule update --init --recursive` first.
+**Being built**, one commit per phase. Written against the code as it stood at
+`b75d4b42`, with the `lightning-kmp-app` submodule at `e0d2b82`. Every path into
+the library below is into that submodule, which a fresh worktree does not have
+checked out — run `git submodule update --init --recursive` first. The phases are
+kept as written; where the build chose differently the table below says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| one `tr([fp]xpub/<0;1>/*)` descriptor | two, `…/0/*` and `…/1/*`, as bitcoin-kmp's `BIP84Descriptors` does. Many watch-only importers, Bitcoin Core's `importdescriptors` among them, refuse a multipath descriptor |
+| `derive(account, thresholdPublicKey, change, index)` | `derive(account, change, index)`: the `Account` carries the cache that signs as its key, so the threshold key is not asked for twice and cannot be passed in mismatched |
 
 The headline: **the best path is BIP86's own unhardened tail, `/<change>/<index>`,
 hung under an account key the group's threshold key is tweaked to, with the
