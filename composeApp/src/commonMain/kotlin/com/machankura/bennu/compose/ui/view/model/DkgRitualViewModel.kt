@@ -135,20 +135,25 @@ class DkgRitualViewModel(
         val sessions = dkgRepository.observeSessionById(dkgSessionId)
 
         // The session in which the group agrees what its admin room will sign
-        // with. The room a ceremony runs in signs nothing else, so the newest
-        // session in it is the key state's -- but it is matched on the kind it
-        // carries anyway, so a room that one day signs something else does not
-        // confuse the two.
+        // with. Matched on the ceremony the state names, not on being the newest
+        // key state in the room: a subgroup's ceremony runs in its parent's room,
+        // and so does every other subgroup's, so the newest one there is as
+        // likely a sibling's as this one's.
         val keyStateSession = dkgRepository.observeSigningSessions(chatRoomId)
-            .map { it.firstCarrying(GroupKeyStateEvent.KIND) }
+            .map { sessions ->
+                sessions.firstCarrying(GroupKeyStateEvent.KIND) {
+                    GroupKeyStateEvent.parseDkgSessionId(it.tags) == dkgSessionId
+                }
+            }
 
-        // Everything about one ceremony, re-pointed when the ceremony or its
-        // purpose changes -- which for a member arriving cold is once -- and not
-        // on every change to the session row.
+        // Everything about one ceremony, re-pointed when the ceremony, its
+        // purpose or its key changes -- which for a member arriving cold is at
+        // most twice, the key arriving as the ceremony finishes -- and not on
+        // every change to the session row.
         val parts = sessions
-            .map { it?.id to it?.parentChatRoomId }
+            .map { Triple(it?.id, it?.parentChatRoomId, it?.thresholdPublicKey) }
             .distinctUntilChanged()
-            .flatMapLatest { (sessionId, parent) -> ceremonyParts(sessionId, parent) }
+            .flatMapLatest { (sessionId, parent, key) -> ceremonyParts(sessionId, parent, key) }
 
         return combine(
             sessions,
@@ -200,8 +205,19 @@ class DkgRitualViewModel(
      * rather than this room's: it is made where the parent's key can sign it,
      * which is never the ceremony's room. An ordinary ceremony passes no parent
      * and gets nothing watched there, which is exactly right.
+     *
+     * The parent's room holds a certificate session for every subgroup it has
+     * been asked about, so the one shown is the one naming [thresholdPublicKey].
+     * Taking the newest regardless is how a parent's second subgroup opened on
+     * its first one's finished certificate, with the button to ask for its own
+     * already disabled. Before the ceremony has a key there is nothing to have
+     * certified, and no session is this one's.
      */
-    private fun ceremonyParts(sessionId: String?, parentChatRoomId: HexKey?): Flow<CeremonyParts> {
+    private fun ceremonyParts(
+        sessionId: String?,
+        parentChatRoomId: HexKey?,
+        thresholdPublicKey: HexKey?,
+    ): Flow<CeremonyParts> {
         if (sessionId == null) return flowOf(CeremonyParts(sessionId = null))
 
         val certified = parentChatRoomId
@@ -209,9 +225,14 @@ class DkgRitualViewModel(
             ?: flowOf(false)
 
         val certificateSession = parentChatRoomId
+            ?.takeIf { thresholdPublicKey != null }
             ?.let { parent ->
-                dkgRepository.observeSigningSessions(parent)
-                    .map { it.firstCarrying(SubgroupBirthCertificateEvent.KIND) }
+                dkgRepository.observeSigningSessions(parent).map { sessions ->
+                    sessions.firstCarrying(SubgroupBirthCertificateEvent.KIND) {
+                        SubgroupBirthCertificateEvent.parseThresholdPublicKey(it.tags)
+                            .equals(thresholdPublicKey, ignoreCase = true)
+                    }
+                }
             }
             ?: flowOf(null)
 
@@ -240,11 +261,19 @@ class DkgRitualViewModel(
         }
     }
 
-    /** The signing session carrying an event of [kind], if there is one. */
-    private fun List<LocalFrostSigningSession>.firstCarrying(kind: Kind): FrostSigningSession? =
+    /**
+     * The newest signing session carrying an event of [kind] that is [about]
+     * this ceremony, if there is one.
+     */
+    private fun List<LocalFrostSigningSession>.firstCarrying(
+        kind: Kind,
+        about: (Event) -> Boolean,
+    ): FrostSigningSession? =
         firstOrNull { local ->
             local.items.any { item ->
-                runCatching { Event.fromJson(item.unsignedEventJson).kind }.getOrNull() == kind
+                runCatching { Event.fromJson(item.unsignedEventJson) }
+                    .getOrNull()
+                    ?.let { it.kind == kind && about(it) } == true
             }
         }?.session
 
