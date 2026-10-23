@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.state
 
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.managers.GroupWalletManager
@@ -25,12 +26,20 @@ sealed interface GroupWalletUIState {
      * [guarded] is the guarded account a subgroup could open instead, when its
      * birth certificate grants it guardian keys and guarded wallets are offered
      * on this network -- see `docs/group-wallet-guardians.md`.
+     *
+     * [policy] is what the room's own certificate decided about its wallet, or
+     * null for a room with none -- `docs/subgroup-wallet-policy.md`. A decided
+     * policy leaves one way in: [guarded] alone for *guarded*, the plain
+     * [account] alone for *unguarded*, which [offersPlain] and [guarded] say.
      */
     data class NotOpened(
         val localChatRoom: LocalChatRoom,
         val account: GroupWalletDerivation.Account?,
         val canSign: Boolean,
         val guarded: GroupWalletManager.GuardedOpening? = null,
+        val policy: WalletPolicyReading? = null,
+        /** Whether a plain wallet may be opened: false only when the parent decided this one is guarded. */
+        val offersPlain: Boolean = true,
         /** Guarded wallets of groups below this one. A group with no wallet of its own can still guard others'. */
         val guardedWallets: List<GuardedWalletRow> = emptyList(),
         /** Guarded statements this device can carry to the groups above. */

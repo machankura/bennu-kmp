@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import kotlin.test.assertTrue
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
@@ -181,7 +184,12 @@ class GroupWalletViewModelJvmTest {
         "b".repeat(64), emptyList(), chatRoomId,
     )
 
-    private fun guardedRepository(chain: Chain) = object : ChatRepository by repository(opened = null) {
+    private fun guardedRepository(
+        chain: Chain,
+        policy: WalletPolicyReading? = WalletPolicyReading.Undecided,
+    ) = object : ChatRepository by repository(opened = null) {
+        override suspend fun walletPolicyOf(chatRoomId: String): WalletPolicyReading? = policy
+
         override suspend fun groupWalletGuardedOpening(chatRoomId: String, chain: Chain) =
             com.machankura.bennu.compose.managers.GroupWalletManager.GuardedOpening(
                 GroupWalletDerivation.account(
@@ -220,6 +228,59 @@ class GroupWalletViewModelJvmTest {
         val reading = assertNotNull(GroupWalletStatementEvent.read(tags, content))
         assertEquals(guardians, reading.guardians)
         assertEquals(certificate.id, reading.certificate?.id)
+    }
+
+    // ---- the parent's decision: docs/subgroup-wallet-policy.md -------------
+
+    @Test
+    fun `a subgroup whose parent decided guarded is offered the guarded wallet alone`() {
+        val state = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest, WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED)), chain = Chain.Regtest)
+                .apply { initiate() }.settled()
+        )
+
+        assertNotNull(state.guarded)
+        assertFalse(state.offersPlain)
+    }
+
+    @Test
+    fun `a subgroup whose parent decided unguarded is offered the plain wallet alone`() {
+        val state = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest, WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED)), chain = Chain.Regtest)
+                .apply { initiate() }.settled()
+        )
+
+        assertNull(state.guarded)
+        assertTrue(state.offersPlain)
+        assertEquals(account, state.account)
+    }
+
+    @Test
+    fun `an undecided subgroup is offered both, and a root group the plain one`() {
+        val undecided = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest), chain = Chain.Regtest).apply { initiate() }.settled()
+        )
+        assertNotNull(undecided.guarded)
+        assertTrue(undecided.offersPlain)
+
+        val root = assertIs<GroupWalletUIState.NotOpened>(viewModel(repository(opened = null)).apply { initiate() }.settled())
+        assertNull(root.guarded)
+        assertTrue(root.offersPlain)
+    }
+
+    @Test
+    fun `a plain wallet is never proposed under a parent that decided guarded`() {
+        val signing = RecordingSigning()
+        val model = viewModel(
+            guardedRepository(Chain.Regtest, WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED)), signing, chain = Chain.Regtest
+        ).apply { initiate() }
+        model.settled()
+
+        model.openWallet(guarded = false, onSuccess = {}, onFailure = {})
+        runBlocking { delay(200) }
+
+        assertNull(signing.proposed)
+        assertFalse(model.isActionPending.value)
     }
 
     // ---- spends ------------------------------------------------------------

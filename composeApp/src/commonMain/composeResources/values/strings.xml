@@ -656,4 +656,6 @@
     <string name="this_group_s_guardian_keys_can_t_be_read">This group's own guardian keys can't be read, so it can't guard a subgroup.</string>
     <string name="the_subgroup_s_wallet_will_be_guarded">The subgroup's wallet will be guarded: this group, and every group above it, can spend any coin in it once it has %1$d confirmations.</string>
     <string name="the_subgroup_s_wallet_will_not_be_guarded">The subgroup's wallet will not be guarded: only the subgroup can spend from it.</string>
+    <string name="the_group_above_decided_this_wallet_is_guarded">The group above this one decided this group's wallet is guarded. Each group above it can spend any coin in it once it has %1$d confirmations, without this group agreeing.</string>
+    <string name="the_group_above_decided_this_wallet_is_not_guarded">The group above this one decided this group's wallet is not guarded. Only this group can spend from it.</string>
 </resources>
