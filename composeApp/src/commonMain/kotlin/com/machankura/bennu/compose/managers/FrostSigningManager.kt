@@ -809,7 +809,7 @@ object FrostSigningManager {
     private fun derivationPayload(derived: GroupWalletDerivation.Derived): String =
         """{"change":${derived.change},"index":${derived.index}}"""
 
-    private val DERIVATION_PAYLOAD = Regex("""^\{"change":(\d+),"index":(\d+)}$""")
+    private val DERIVATION_PAYLOAD = Regex("""^\{"change":(\d+),"index":(\d+)\}$""")
 
     /**
      * The account a spend session signs under and where each of its inputs is,
