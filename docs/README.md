@@ -10,6 +10,7 @@ silent, or a decision that looked arbitrary and was not.
 | [shared-key-derivation.md](./shared-key-derivation.md) | deriving further keys from the group's threshold key with FROST tweaks — why not BIP32, why no chain code, and the one rule that must not be broken |
 | [subgroups.md](./subgroups.md) | a group making another group — the four ceremonies, what the parent's signature actually covers, and why the child's key is fresh rather than derived |
 | [frost-batch-signing.md](./frost-batch-signing.md) | signing several events in one ceremony — why one nonce can never cover two messages, and the phased schema, wire and UI work that follows from it |
+| [group-chain-wallet.md](./group-chain-wallet.md) | an on-chain wallet the group's threshold key holds, modelled on Phoenix's final wallet — why the path is BIP86's unhardened tail under a public account step, why each input is a batch item with its own cache, and the seven checks a member makes before signing a spend |
 | [frost-session-resend.md](./frost-session-resend.md) | asking the members who never got a signing proposal to look again — why a proposer can repeat only what it wrote, why a member's availability signal needs no repeating, and the one half that has to come from the silent member's own device |
 | [marmot-membership.md](./marmot-membership.md) | how members join an MLS group, and the epoch race that makes a missing member look like a successful invite |
 | [member-chronicle.md](./member-chronicle.md) | handing a member added after the work was done the group's signed record — why the events are not on the wire at all, and why the room's id is enough to verify them |
@@ -62,6 +63,10 @@ smallest of the plans: it changes the entrance to the direct-message flow and
 nothing past it, so read it with `StartDirectMessageToNpubOrNip05Dialog` and
 `ChatRoomMessagingViewModel.initiateNewChat` open, its four decisions before its
 four phases, and its table of where the build chose differently first.
+The group chain wallet note is a phased plan that has not been built. It assumes
+both shared-key notes and the batch-signing note, and reads as the derivation
+note's one rule with money behind it; read its derivation section before any
+phase, since every phase after the first is built on that path.
 The Marmot v2 note is a phased plan that has been built, and is the largest of
 them: it assumes the membership and derivation notes, takes the quartz 1.15.2 bump
 as its Phase 0, and is ordered so that the phases that reach other clients come
