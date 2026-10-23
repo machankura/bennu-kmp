@@ -14,19 +14,10 @@ import com.machankura.bennu.compose.nostr.chronicle.tags.ChronicleRecipientTag
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChunkEvent
-import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
-import com.machankura.bennu.compose.nostr.nip30303.SubmissionEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationArtifactVersionContributorListEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChapterContributorListEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationContributorListEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationEvent
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 
 /**
  * The envelope a chronicle travels in: what it carries, what it refuses, and the
@@ -35,6 +26,10 @@ import com.machankura.bennu.compose.nostr.nip30303.TranslationEvent
  * Nothing here verifies a signature -- that is `GroupKeyStateTest`'s half, and
  * `ChronicleManager`'s at apply time. What these cover is the framing, and the two
  * bounds a page has to hold whoever sent it.
+ *
+ * The app's own list of kinds is empty, so what a chronicle may carry and the
+ * order it applies in are tested against [TEST_KINDS]; the framing and the caps
+ * do not care what kind a payload is.
  */
 class ChronicleEventTest {
     private val recipient = "d".repeat(64)
@@ -59,8 +54,8 @@ class ChronicleEventTest {
     @Test
     fun `what is encoded is what comes back whole`() {
         val events = listOf(
-            payload(DialectEvent.KIND, "isiZulu"),
-            payload(ArtifactEvent.KIND, "an artifact"),
+            payload(MetadataEvent.KIND, "{\"name\":\"Ekklesia\"}"),
+            payload(TextNoteEvent.KIND, "a post"),
         )
 
         val decoded = ChronicleEvent.decodePage(ChronicleEvent.encodePage(events))
@@ -81,7 +76,7 @@ class ChronicleEventTest {
         // object for a batch of one so that builds predating batching can read
         // it. Both chronicle kinds are new, so there is no such build and no reason
         // to carry the second shape.
-        val encoded = ChronicleEvent.encodePage(listOf(payload(DialectEvent.KIND)))
+        val encoded = ChronicleEvent.encodePage(listOf(payload(TextNoteEvent.KIND)))
 
         assertTrue(encoded.startsWith("["), "a page is always an array")
         assertTrue(encoded.endsWith("]"))
@@ -90,7 +85,7 @@ class ChronicleEventTest {
 
     @Test
     fun `a page that is not an array is not a page`() {
-        assertNull(ChronicleEvent.decodePage(payload(DialectEvent.KIND).toJson()))
+        assertNull(ChronicleEvent.decodePage(payload(TextNoteEvent.KIND).toJson()))
         assertNull(ChronicleEvent.decodePage(""))
         assertNull(ChronicleEvent.decodePage("not json"))
         assertNull(ChronicleEvent.decodePage("[unclosed"))
@@ -110,7 +105,7 @@ class ChronicleEventTest {
         // whose signature does not verify is a well-framed page with one bad
         // event in it, and dropping its honest neighbours would let one forgery
         // deny an entire chronicle.
-        val good = payload(DialectEvent.KIND)
+        val good = payload(TextNoteEvent.KIND)
 
         assertNull(ChronicleEvent.decodePage("[${good.toJson()},\"not an event\"]"))
         assertNull(ChronicleEvent.decodePage("[\"not an event\",${good.toJson()}]"))
@@ -121,7 +116,7 @@ class ChronicleEventTest {
     @Test
     fun `a page over the event cap is refused on the way in`() {
         val overCap = (0..ChronicleEvent.MAX_PAGE_EVENTS).map {
-            payload(DialectEvent.KIND, id = it.toString().padStart(64, '0'))
+            payload(TextNoteEvent.KIND, id = it.toString().padStart(64, '0'))
         }
         assertEquals(ChronicleEvent.MAX_PAGE_EVENTS + 1, overCap.size)
 
@@ -139,7 +134,7 @@ class ChronicleEventTest {
         // runs, and the page-over-the-cap test above passes for the wrong reason.
         // Both caps have to be re-sized together; this is what says so.
         val atCap = (0 until ChronicleEvent.MAX_PAGE_EVENTS).map {
-            payload(DialectEvent.KIND, id = it.toString().padStart(64, '0'))
+            payload(TextNoteEvent.KIND, id = it.toString().padStart(64, '0'))
         }
         val page = ChronicleEvent.encodePage(atCap)
 
@@ -157,7 +152,7 @@ class ChronicleEventTest {
         // work a remote party can ask this device to do. A chronicle is the second
         // place in this protocol where somebody else sets that size.
         val huge = ChronicleEvent.encodePage(
-            listOf(payload(DialectEvent.KIND, content = "x".repeat(ChronicleEvent.MAX_PAGE_BYTES)))
+            listOf(payload(TextNoteEvent.KIND, content = "x".repeat(ChronicleEvent.MAX_PAGE_BYTES)))
         )
         assertTrue(huge.encodeToByteArray().size > ChronicleEvent.MAX_PAGE_BYTES)
 
@@ -170,7 +165,7 @@ class ChronicleEventTest {
         // this were measured in characters the cap would let through up to four
         // times what it says.
         val wide = "世".repeat(ChronicleEvent.MAX_PAGE_BYTES / 2)
-        val page = ChronicleEvent.encodePage(listOf(payload(DialectEvent.KIND, content = wide)))
+        val page = ChronicleEvent.encodePage(listOf(payload(TextNoteEvent.KIND, content = wide)))
 
         assertTrue(page.length < ChronicleEvent.MAX_PAGE_BYTES)
         assertTrue(page.encodeToByteArray().size > ChronicleEvent.MAX_PAGE_BYTES)
@@ -180,42 +175,24 @@ class ChronicleEventTest {
     // ---- What a chronicle may carry ---------------------------------------
 
     @Test
-    fun `the allowlist is every kind the group signs and only those`() {
+    fun `a kind set admits what it lists and nothing else`() {
         listOf(
-            DialectEvent.KIND,
-            ArtifactEvent.KIND,
-            ArtifactVersionEvent.KIND,
-            ChapterEvent.KIND,
-            ChunkEvent.KIND,
-            TranslationArtifactVersionEvent.KIND,
-            TranslationChapterEvent.KIND,
-            TranslationChunkEvent.KIND,
-        ).forEach { assertTrue(ChronicleEvent.isChroniclable(it), "kind $it should be chroniclable") }
+            AdvertisedRelayListEvent.KIND,
+            MetadataEvent.KIND,
+            TextNoteEvent.KIND,
+        ).forEach { assertTrue(TEST_KINDS.isChroniclable(it), "kind $it should be chroniclable") }
 
-        assertEquals(8, ChronicleEvent.CHRONICLABLE_KINDS.size)
-    }
+        assertEquals(3, TEST_KINDS.all.size)
+        assertFalse(TEST_KINDS.isEmpty())
 
-    @Test
-    fun `the translated text is chroniclable now that the group signs it`() {
-        // Worth its own case because it was the feature's headline limitation for
-        // as long as `saveTranslation` wrote the row and queued the member's own
-        // rumor. A chronicle can only carry what the receiver can check, so a
-        // translation nobody signed could not travel, and a new member got the
-        // whole structure and none of the prose.
-        assertTrue(ChronicleEvent.isChroniclable(TranslationChunkEvent.KIND))
+        // Group-signed, with an arm in applyInnerEvent, and still refused: being
+        // signed is not what earns a kind its place, being on the list is.
+        assertFalse(TEST_KINDS.isChroniclable(GroupWalletStatementEvent.KIND))
+        assertNull(TEST_KINDS.applyRank(GroupWalletStatementEvent.KIND))
 
-        // Same shape, same fix: the version an artifact starts life with used to
-        // be derived on arrival, so it was authored by the group with no
-        // signature to show for it. It is the second item of the artifact's batch
-        // now.
-        assertTrue(ChronicleEvent.isChroniclable(ArtifactVersionEvent.KIND))
-    }
-
-    @Test
-    fun `the kinds nobody signs are still left out`() {
-        // Nothing builds one of these at all; the inbound arm exists and no
-        // producer does.
-        assertFalse(ChronicleEvent.isChroniclable(TranslationEvent.KIND))
+        // And the empty list admits nothing at all.
+        assertTrue(ChronicleKinds.NONE.isEmpty())
+        assertFalse(ChronicleKinds.NONE.isChroniclable(TextNoteEvent.KIND))
     }
 
     @Test
@@ -226,7 +203,8 @@ class ChronicleEventTest {
         // validly signed statement about what the room signs with, replayed by
         // whoever kept a copy. Nothing but this stops it.
         assertFalse(ChronicleEvent.isChroniclable(GroupKeyStateEvent.KIND))
-        assertNull(ChronicleEvent.applyRank(GroupKeyStateEvent.KIND))
+        assertFalse(TEST_KINDS.isChroniclable(GroupKeyStateEvent.KIND))
+        assertNull(TEST_KINDS.applyRank(GroupKeyStateEvent.KIND))
     }
 
     @Test
@@ -244,12 +222,14 @@ class ChronicleEventTest {
         // chronicle may carry an event its own key did not sign, which no
         // chroniclable kind does. See docs/subgroups.md.
         assertFalse(ChronicleEvent.isChroniclable(SubgroupBirthCertificateEvent.KIND))
-        assertNull(ChronicleEvent.applyRank(SubgroupBirthCertificateEvent.KIND))
+        assertFalse(TEST_KINDS.isChroniclable(SubgroupBirthCertificateEvent.KIND))
+        assertNull(TEST_KINDS.applyRank(SubgroupBirthCertificateEvent.KIND))
     }
 
     @Test
-    fun `a chronicle carries documents not envelopes or protocol`() {
-        assertFalse(ChronicleEvent.isChroniclable(SubmissionEvent.KIND))
+    fun `a chronicle carries the group's work not envelopes or protocol`() {
+        // Against the app's own list, which is the one that will grow: the day a
+        // kind is added back, none of these may come with it.
         assertFalse(ChronicleEvent.isChroniclable(ChronicleEvent.KIND))
         assertFalse(ChronicleEvent.isChroniclable(ChronicleRequestEvent.KIND))
         FrostSigningEvents.ALL.forEach {
@@ -257,86 +237,57 @@ class ChronicleEventTest {
         }
     }
 
-    @Test
-    fun `the contributor lists are left out while nothing applies them`() {
-        // Not an oversight. ChatMessage.applyInnerEvent has no arm that writes a
-        // row for any of these, so chronicling them would cost bytes and restore
-        // nothing. They belong in the list on the day that changes.
-        assertFalse(ChronicleEvent.isChroniclable(TranslationArtifactVersionContributorListEvent.KIND))
-        assertFalse(ChronicleEvent.isChroniclable(TranslationChapterContributorListEvent.KIND))
-        assertFalse(ChronicleEvent.isChroniclable(TranslationContributorListEvent.KIND))
-    }
-
     // ---- Dependency order ------------------------------------------------
 
     @Test
-    fun `the order is the foreign keys not the kind numbers`() {
-        fun rank(kind: Int) = assertNotNull(ChronicleEvent.applyRank(kind), "kind $kind has no rank")
+    fun `the order is the list's not the kind numbers'`() {
+        fun rank(kind: Int) = assertNotNull(TEST_KINDS.applyRank(kind), "kind $kind has no rank")
 
-        // Every one of these is a foreign key in Room, so a chronicle applied the
-        // other way round is a constraint violation rather than a wrong answer.
-        assertTrue(rank(DialectEvent.KIND) < rank(ArtifactEvent.KIND))
-        assertTrue(rank(ArtifactEvent.KIND) < rank(ArtifactVersionEvent.KIND))
-        assertTrue(rank(ArtifactVersionEvent.KIND) < rank(ChapterEvent.KIND))
-        assertTrue(rank(ChapterEvent.KIND) < rank(ChunkEvent.KIND))
-        assertTrue(rank(ArtifactVersionEvent.KIND) < rank(TranslationArtifactVersionEvent.KIND))
-        assertTrue(rank(DialectEvent.KIND) < rank(TranslationArtifactVersionEvent.KIND))
-        assertTrue(rank(TranslationArtifactVersionEvent.KIND) < rank(TranslationChapterEvent.KIND))
-        assertTrue(rank(ChapterEvent.KIND) < rank(TranslationChapterEvent.KIND))
-
-        // A translated chunk hangs off both sides at once -- the source chunk it
-        // translates and the translation chapter it sits in -- so it is last.
-        assertTrue(rank(ChunkEvent.KIND) < rank(TranslationChunkEvent.KIND))
-        assertTrue(rank(TranslationChapterEvent.KIND) < rank(TranslationChunkEvent.KIND))
+        // In the app the list is the database's foreign keys, so a chronicle
+        // applied the other way round is a constraint violation rather than a
+        // wrong answer. Here it is only the test's own order, which is enough to
+        // show the machinery follows the list.
+        assertTrue(rank(AdvertisedRelayListEvent.KIND) < rank(MetadataEvent.KIND))
+        assertTrue(rank(MetadataEvent.KIND) < rank(TextNoteEvent.KIND))
 
         // And the numbers really do disagree with the order, which is why this is
         // a list rather than a sortedBy { kind }.
-        assertTrue(DialectEvent.KIND > ArtifactEvent.KIND)
-        assertTrue(rank(DialectEvent.KIND) < rank(ArtifactEvent.KIND))
+        assertTrue(AdvertisedRelayListEvent.KIND > MetadataEvent.KIND)
+        assertTrue(rank(AdvertisedRelayListEvent.KIND) < rank(MetadataEvent.KIND))
     }
 
     @Test
-    fun `sorting a page puts what is referenced before what refers to it`() {
+    fun `sorting a page puts it in the list's order`() {
         val jumbled = listOf(
-            payload(TranslationChunkEvent.KIND),
-            payload(TranslationChapterEvent.KIND),
-            payload(ChunkEvent.KIND),
-            payload(DialectEvent.KIND),
-            payload(TranslationArtifactVersionEvent.KIND),
-            payload(ChapterEvent.KIND),
-            payload(ArtifactVersionEvent.KIND),
-            payload(ArtifactEvent.KIND),
+            payload(TextNoteEvent.KIND),
+            payload(MetadataEvent.KIND),
+            payload(AdvertisedRelayListEvent.KIND),
         )
 
         assertEquals(
             listOf(
-                DialectEvent.KIND,
-                ArtifactEvent.KIND,
-                ArtifactVersionEvent.KIND,
-                ChapterEvent.KIND,
-                ChunkEvent.KIND,
-                TranslationArtifactVersionEvent.KIND,
-                TranslationChapterEvent.KIND,
-                TranslationChunkEvent.KIND,
+                AdvertisedRelayListEvent.KIND,
+                MetadataEvent.KIND,
+                TextNoteEvent.KIND,
             ),
-            ChronicleEvent.inApplyOrder(jumbled).map { it.kind }
+            TEST_KINDS.inApplyOrder(jumbled).map { it.kind }
         )
     }
 
     @Test
     fun `two of a kind keep the order they were handed in`() {
-        // Nothing orders two chapters of one version, and keeping the caller's
-        // order is one less thing that differs between two members assembling the
-        // same chronicle.
-        val chapters = listOf(
-            payload(ChapterEvent.KIND, "one", id = "1".repeat(64)),
-            payload(ChapterEvent.KIND, "two", id = "2".repeat(64)),
-            payload(ChapterEvent.KIND, "three", id = "3".repeat(64)),
+        // Nothing orders two posts by the group, and keeping the caller's order
+        // is one less thing that differs between two members assembling the same
+        // chronicle.
+        val posts = listOf(
+            payload(TextNoteEvent.KIND, "one", id = "1".repeat(64)),
+            payload(TextNoteEvent.KIND, "two", id = "2".repeat(64)),
+            payload(TextNoteEvent.KIND, "three", id = "3".repeat(64)),
         )
 
         assertEquals(
             listOf("one", "two", "three"),
-            ChronicleEvent.inApplyOrder(chapters).map { it.content }
+            TEST_KINDS.inApplyOrder(posts).map { it.content }
         )
     }
 
@@ -345,12 +296,13 @@ class ChronicleEventTest {
     @Test
     fun `a page says which chronicle it is where in it and who for`() {
         val template = ChronicleEvent.build(
-            payloads = listOf(payload(DialectEvent.KIND)),
+            payloads = listOf(payload(TextNoteEvent.KIND)),
             chronicleId = chronicleId,
             index = 2,
             count = 5,
             recipient = recipient,
-            createdAt = 1_700_000_100L
+            createdAt = 1_700_000_100L,
+            kinds = TEST_KINDS,
         )
 
         val readBack = ChronicleEvent(
@@ -406,17 +358,18 @@ class ChronicleEventTest {
         // security -- the inbound one is the boundary -- but a page nobody can
         // read back is better failed where it was made.
         assertFailsWith<IllegalArgumentException> {
-            ChronicleEvent.build(emptyList(), chronicleId, 0, 1, recipient)
+            ChronicleEvent.build(emptyList(), chronicleId, 0, 1, recipient, kinds = TEST_KINDS)
         }
         assertFailsWith<IllegalArgumentException> {
             ChronicleEvent.build(
                 payloads = (0..ChronicleEvent.MAX_PAGE_EVENTS).map {
-                    payload(DialectEvent.KIND, id = it.toString().padStart(64, '0'))
+                    payload(TextNoteEvent.KIND, id = it.toString().padStart(64, '0'))
                 },
                 chronicleId = chronicleId,
                 index = 0,
                 count = 1,
-                recipient = recipient
+                recipient = recipient,
+                kinds = TEST_KINDS,
             )
         }
         assertFailsWith<IllegalArgumentException> {
@@ -425,18 +378,36 @@ class ChronicleEventTest {
                 chronicleId = chronicleId,
                 index = 0,
                 count = 1,
-                recipient = recipient
+                recipient = recipient,
+                kinds = TEST_KINDS,
             )
         }
         assertFailsWith<IllegalArgumentException> {
             ChronicleEvent.build(
                 payloads = listOf(
-                    payload(DialectEvent.KIND, content = "x".repeat(ChronicleEvent.MAX_PAGE_BYTES))
+                    payload(TextNoteEvent.KIND, content = "x".repeat(ChronicleEvent.MAX_PAGE_BYTES))
                 ),
                 chronicleId = chronicleId,
                 index = 0,
                 count = 1,
-                recipient = recipient
+                recipient = recipient,
+                kinds = TEST_KINDS,
+            )
+        }
+    }
+
+    @Test
+    fun `the app's own list builds no page at all`() {
+        // The outbound half of the app carrying nothing: a payload the test list
+        // admits is refused under the default, so nothing that assembles a page
+        // without naming its kinds can put one on the wire.
+        assertFailsWith<IllegalArgumentException> {
+            ChronicleEvent.build(
+                payloads = listOf(payload(TextNoteEvent.KIND)),
+                chronicleId = chronicleId,
+                index = 0,
+                count = 1,
+                recipient = recipient,
             )
         }
     }

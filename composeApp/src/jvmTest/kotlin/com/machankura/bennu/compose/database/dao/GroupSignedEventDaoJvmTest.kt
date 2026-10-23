@@ -32,8 +32,8 @@ import com.machankura.bennu.compose.database.model.NostrEvent
 import com.machankura.bennu.compose.database.model.Profile
 import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
-import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
+import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 
 /**
  * The table that keeps what a quorum signed, checked against a real quorum.
@@ -132,8 +132,8 @@ class GroupSignedEventDaoJvmTest {
         )
     }
 
-    private val dialect = signed(
-        DialectEvent.build(name = "isiZulu", country = "ZA", language = "zu", createdAt = 1_700_000_000L)
+    private val post = signed(
+        TextNoteEvent.build(note = "isiZulu", createdAt = 1_700_000_000L)
     )
 
     /**
@@ -169,7 +169,7 @@ class GroupSignedEventDaoJvmTest {
     }
 
     private fun rowFor(
-        event: Event = dialect,
+        event: Event = post,
         path: String? = derivationPath,
         sessionId: String? = "session-1",
     ) = GroupSignedEvent.fromEvent(
@@ -184,20 +184,20 @@ class GroupSignedEventDaoJvmTest {
         seedRoom()
         db.groupSignedEventDao().record(rowFor())
 
-        val stored = db.groupSignedEventDao().getById(dialect.id)
+        val stored = db.groupSignedEventDao().getById(post.id)
         assertNotNull(stored, "the event just recorded could not be read back")
 
-        assertEquals(dialect.pubKey, stored.publicKey)
-        assertEquals(dialect.kind, stored.kind)
-        assertEquals(dialect.content, stored.content)
-        assertEquals(dialect.sig, stored.signature)
-        assertEquals(dialect.createdAt, stored.createdAt.epochSeconds)
-        assertContentEquals(dialect.tags.map { it.toList() }, stored.tags.map { it.toList() })
+        assertEquals(post.pubKey, stored.publicKey)
+        assertEquals(post.kind, stored.kind)
+        assertEquals(post.content, stored.content)
+        assertEquals(post.sig, stored.signature)
+        assertEquals(post.createdAt, stored.createdAt.epochSeconds)
+        assertContentEquals(post.tags.map { it.toList() }, stored.tags.map { it.toList() })
 
         // The claim the columns exist to support: the group's signature is still
         // checkable from the row, with nothing else on hand.
         assertTrue(stored.verifies(), "the stored row no longer verifies as the room's")
-        assertEquals(dialect.id, stored.toEvent().id)
+        assertEquals(post.id, stored.toEvent().id)
     }
 
     @Test
@@ -205,7 +205,7 @@ class GroupSignedEventDaoJvmTest {
         seedRoom()
         db.groupSignedEventDao().record(rowFor())
 
-        val stored = db.groupSignedEventDao().getById(dialect.id)
+        val stored = db.groupSignedEventDao().getById(post.id)
         assertNotNull(stored)
 
         assertEquals(derivationPath, stored.derivationPath)
@@ -227,7 +227,7 @@ class GroupSignedEventDaoJvmTest {
         seedRoom()
         db.groupSignedEventDao().record(rowFor(path = null))
 
-        val stored = db.groupSignedEventDao().getById(dialect.id)
+        val stored = db.groupSignedEventDao().getById(post.id)
         assertNotNull(stored)
 
         assertNull(stored.derivationPath)
@@ -245,7 +245,7 @@ class GroupSignedEventDaoJvmTest {
         // state and never ran the session.
         db.groupSignedEventDao().record(rowFor(path = null, sessionId = null))
 
-        val stored = db.groupSignedEventDao().getById(dialect.id)
+        val stored = db.groupSignedEventDao().getById(post.id)
         assertNotNull(stored)
 
         assertEquals(derivationPath, stored.derivationPath)
@@ -259,7 +259,7 @@ class GroupSignedEventDaoJvmTest {
         db.groupSignedEventDao().record(rowFor(path = null, sessionId = null))
         db.groupSignedEventDao().record(rowFor())
 
-        val stored = db.groupSignedEventDao().getById(dialect.id)
+        val stored = db.groupSignedEventDao().getById(post.id)
         assertNotNull(stored)
 
         assertEquals(derivationPath, stored.derivationPath)
@@ -270,31 +270,23 @@ class GroupSignedEventDaoJvmTest {
     fun `a batch is filed together and reads back oldest first`() = runBlocking {
         seedRoom()
 
-        val artifact = signed(
-            ArtifactEvent.build(
-                name = "In Detention",
-                url = "https://example.com/in-detention",
-                visibility = "private",
-                license = "cc",
-                dialectId = dialect.id,
-                versionLabel = "1.0",
-                createdAt = 1_700_000_010L
-            )
+        val profile = signed(
+            MetadataEvent.createNew(name = "In Detention", createdAt = 1_700_000_010L)
         )
 
         db.groupSignedEventDao().recordAll(
-            listOf(rowFor(event = artifact), rowFor(event = dialect))
+            listOf(rowFor(event = profile), rowFor(event = post))
         )
 
         val dao = db.groupSignedEventDao()
         assertEquals(
-            listOf(dialect.id, artifact.id),
+            listOf(post.id, profile.id),
             dao.getByChatRoomId(chatRoomId).map { it.id },
             "a room's signed work has to come back in the order it can be applied in"
         )
         assertEquals(
-            listOf(dialect.id),
-            dao.getByChatRoomIdAndKind(chatRoomId, DialectEvent.KIND).map { it.id }
+            listOf(post.id),
+            dao.getByChatRoomIdAndKind(chatRoomId, TextNoteEvent.KIND).map { it.id }
         )
         assertEquals(2, dao.getByFrostSigningSessionId("session-1").size)
     }
@@ -304,38 +296,11 @@ class GroupSignedEventDaoJvmTest {
         seedRoom()
         db.groupSignedEventDao().record(rowFor().copy(content = "isiXhosa"))
 
-        val stored = db.groupSignedEventDao().getById(dialect.id)
+        val stored = db.groupSignedEventDao().getById(post.id)
         assertNotNull(stored)
 
         // The id is the hash of the fields, so an edited row is an event the
         // group never signed. Nothing else has to be consulted to know that.
         assertFalse(stored.verifies(), "an event with edited content must not verify")
-    }
-
-    @Test
-    fun `the row a signed event becomes points back at it`() = runBlocking {
-        seedRoom()
-        db.groupSignedEventDao().record(rowFor())
-
-        ChatMessage.applyInnerEvent(
-            database = db,
-            groupId = chatRoomId,
-            event = dialect,
-            marmotGroupEventId = null,
-            marmotInnerEventId = null,
-            senderPublicKey = chatRoomId,
-            isUserMessage = false,
-            createdAt = Instant.fromEpochSeconds(dialect.createdAt),
-            groupSignedEventId = dialect.id,
-        )
-
-        val row = db.mantraDialectDao().getDialectById(dialect.id)
-        assertNotNull(row, "the dialect the group signed was not applied")
-
-        // Both Marmot ids are null on a group-signed event -- no group event and
-        // no inner event carried it -- so this column is the only provenance the
-        // row has.
-        assertNull(row.marmotGroupEventId)
-        assertEquals(dialect.id, row.groupSignedEventId)
     }
 }
