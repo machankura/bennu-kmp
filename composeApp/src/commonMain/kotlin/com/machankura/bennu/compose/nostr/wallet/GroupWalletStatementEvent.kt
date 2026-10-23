@@ -51,7 +51,7 @@ object GroupWalletStatementEvent {
     val KIND: Kind = 30331
 
     /** The kinds a member may never send to a relay, whatever the group signed. */
-    val NEVER_BROADCAST: Set<Kind> = setOf(KIND)
+    val NEVER_BROADCAST: Set<Kind> = setOf(KIND) + com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents.GROUP_SIGNED
 
     private const val D_TAG = "d"
     private const val CHAIN_TAG = "chain"

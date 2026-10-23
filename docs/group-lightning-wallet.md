@@ -35,6 +35,7 @@ build chose differently, this table says so.
 | 3 | done: in the fork (`e15e31ba`), `withGroupBasepoints`, `GroupHeldOutputs` and `KeyManager.defaultFinalScriptPubKey`, 991 tests passing. In the app, `GroupLightningDerivation`, pinned, with a FROST quorum spending `to_remote` and `to_local` |
 | 4 | done: `GroupChainClients`, one Electrum connection per network for the wallets and the watcher; the wallet routes carry a chain; a second wallet row for testnet3 behind `GroupLightningRollout`, which is off |
 | 5 | done: `IcebergRitualManager`, schema 27 (`IcebergKeySession`, `IcebergParticipantMessage`), the ceremony screen and its transcript lines. Seven four-device tests, and the app's 1,391 JVM tests pass |
+| 6, 7 | done together, as their screen and summaries are one piece: the wallet and operator statements, the node seed (schema 28), `GroupLightningWalletManager`, `GroupLightningOperatorManager` and the Lightning wallet screen. Twelve new tests; the app's 1,403 JVM tests pass |
 
 | what the plan said | what it turned out to be |
 |---|---|
@@ -60,6 +61,11 @@ build chose differently, this table says so.
 | an `IcebergKeySession` holds the share, and the protocol state | it holds the share and the *inputs*, as `DkgSession` does: a random root that every contribution is derived from, and every message in `IcebergParticipantMessage`. The root is dropped once the share exists, or when the ceremony fails |
 | the ceremony's transcript lines get their own session column | they reuse `ChatMessage.dkgSessionId` for the Iceberg session's id. The line's type says which ceremony screen it opens |
 | entry from the Lightning wallet screen | the Lightning wallet screen arrives in Phase 6. Until then the ceremony screen is reached from its own transcript lines, and `IcebergCeremonyRoute` with no session shows the room's newest, with the way to start one |
+| the seed is sent once the statement completes | with the proposal. Every co-signer then holds the seed the statement names before they are asked to sign it, and a device files a seed only after recomputing the node id it produces. A seed whose statement never completes is never used |
+| the statement carries the basepoints | it does not: every member recomputes them from the room's key with `GroupLightningDerivation`, so there is nothing to carry |
+| a reader who is not an Iceberg participant checks everything except the ceremony and the seed | as written, and a reader who *is* a participant but has no record of the ceremony refuses the statement rather than believing it |
+| an operator statement ties on term and the lower event id wins | as written, and pinned by a test where two members nominate themselves for the same term |
+| the start gate reads how recently the room synced | `GroupLightningOperatorManager.mayRunNode` takes the time of the last sync as an argument. The operator node (Phase 8) supplies it |
 | the kinds are reserved | in code: `GroupLightningEvents`, 30333-30349, with a test asserting the run is unbroken and touches no kind the app already dispatches on |
 | library phases land in the forks' `threshold` branches | on a new branch, `claude/group-lightning-wallet`, in `lightning-kmp-app` and in `experimental/lightning-kmp`. It is local and not pushed. The app's submodule pointer follows it, so a checkout of this branch needs those commits from the same machine until they are pushed |
 

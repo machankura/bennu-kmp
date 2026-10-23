@@ -1,0 +1,146 @@
+package com.machankura.bennu.compose.ui.view.model
+
+import com.machankura.bennu.compose.database.model.ChatRoom
+import com.machankura.bennu.compose.database.model.FrostSigningSession
+import com.machankura.bennu.compose.database.model.GroupSignedEvent
+import com.machankura.bennu.compose.database.model.IcebergKeySession
+import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
+import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
+import com.machankura.bennu.compose.database.model.types.IcebergRitualStage
+import com.machankura.bennu.compose.managers.GroupLightningDerivation
+import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
+import com.machankura.bennu.compose.managers.GroupLightningWalletManager
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
+import com.machankura.bennu.compose.repository.ChatRepository
+import com.machankura.bennu.compose.repository.GroupLightningRepository
+import com.machankura.bennu.compose.ui.view.state.GroupLightningWalletUIState
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import fr.acinq.bitcoin.ByteVector32
+import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.secp256k1.Hex
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+import kotlin.time.Instant
+
+/** Which of its states the Lightning wallet screen puts a room in, on the way from nothing to an elected operator. */
+@OptIn(ExperimentalCoroutinesApi::class)
+class GroupLightningWalletViewModelJvmTest {
+    @BeforeTest
+    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
+
+    @AfterTest
+    fun tearDown() = Dispatchers.resetMain()
+
+    private val chatRoomId = "d4c3b2a1".repeat(8)
+    private val me = "a".repeat(64)
+    private val localChatRoom = LocalChatRoom(chatRoom = ChatRoom(id = chatRoomId, userPublicKey = me, subject = "Treasury", description = null, mlsGroupState = "state"))
+    private val roomKey = PrivateKey(ByteVector32(Hex.decode("1c0ffee".padStart(64, '0')))).publicKey().toString()
+
+    private val key = IcebergKeySession(
+        id = "ab".repeat(32), chatRoomId = chatRoomId, coordinatorPublicKey = me, userPublicKey = me, threshold = 2, participantCount = 4,
+        participantPublicKeys = IcebergKeySession.formatParticipants(listOf(me, "b".repeat(64), "c".repeat(64), "d".repeat(64))),
+        onchainDkgSessionId = "x", stage = IcebergRitualStage.COMPLETE, share = "00", groupPublicKey = "02" + "11".repeat(32),
+    )
+
+    private val wallet = GroupLightningWalletManager.Wallet(
+        statement = GroupLightningWalletStatementEvent.Statement(Chain.Testnet3, 0, 0, key.groupPublicKey!!, key.id, 2, key.participants(), "02" + "33".repeat(32), "02" + "44".repeat(32), GroupLightningWalletStatementEvent.Policy.DEFAULT),
+        signedEvent = GroupSignedEvent(id = "e".repeat(64), chatRoomId = chatRoomId, publicKey = chatRoomId, kind = GroupLightningWalletStatementEvent.KIND, tags = emptyArray(), content = "", signature = "f".repeat(128), createdAt = Instant.fromEpochSeconds(1)),
+        basepoints = GroupLightningDerivation.basepoints(roomKey, Chain.Testnet3, 0),
+        ceremony = key,
+        seed = null,
+    )
+
+    private fun operator(publicKey: HexKey?) = GroupLightningOperatorManager.Operator(
+        GroupLightningOperatorStatementEvent.Statement(Chain.Testnet3, 0, publicKey, 4, null),
+        wallet.signedEvent,
+    )
+
+    private class Lightning(
+        val onchain: Boolean = true,
+        val completed: IcebergKeySession? = null,
+        val running: IcebergKeySession? = null,
+        val wallet: GroupLightningWalletManager.Wallet? = null,
+        val operator: GroupLightningOperatorManager.Operator? = null,
+        val thresholds: List<Int> = listOf(2),
+    ) : GroupLightningRepository {
+        override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> = flowOf(running)
+        override fun observeCeremonies(chatRoomId: String): Flow<List<IcebergKeySession>> = flowOf(listOfNotNull(running))
+        override suspend fun ceremonyMessages(sessionId: String): List<IcebergParticipantMessage> = emptyList()
+        override suspend fun pendingApproval(session: IcebergKeySession): IcebergApprovalStep? = null
+        override suspend fun ceremonyThresholds(chatRoomId: String): List<Int> = thresholds
+        override suspend fun keyHolderCount(chatRoomId: String): Int = 4
+        override suspend fun hasOnchainWallet(chatRoomId: String, chain: Chain): Boolean = onchain
+        override suspend fun proposeCeremony(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, threshold: Int, chain: Chain): IcebergKeySession = error("unused")
+        override suspend fun approveCeremony(localChatRoom: LocalChatRoom, sessionId: String, step: IcebergApprovalStep, nostrPrivateKey: ByteArray) = Unit
+        override suspend fun completedCeremony(chatRoomId: String): IcebergKeySession? = completed
+        override suspend fun lightningWallet(chatRoomId: String, chain: Chain): GroupLightningWalletManager.Wallet? = wallet
+        override suspend fun operator(chatRoomId: String, chain: Chain): GroupLightningOperatorManager.Operator? = operator
+        override fun lspNodeId(chain: Chain): HexKey? = "02" + "44".repeat(32)
+        override suspend fun proposeWallet(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, chain: Chain): FrostSigningSession = error("unused")
+        override suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession = error("unused")
+        override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession = error("unused")
+    }
+
+    private val chat = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
+        override suspend fun getChatRoomByIdentifier(identifier: String): LocalChatRoom? = localChatRoom
+    }
+
+    private fun settled(lightning: GroupLightningRepository): GroupLightningWalletUIState {
+        val viewModel = GroupLightningWalletViewModel(me, chatRoomId, Chain.Testnet3, GroupLightningWalletUIState.Loading, MutableStateFlow(null), chat, lightning)
+        viewModel.initiate()
+        return runBlocking {
+            withTimeout(5_000) {
+                while (viewModel.uiState == GroupLightningWalletUIState.Loading) delay(10)
+                viewModel.uiState
+            }
+        }
+    }
+
+    @Test
+    fun `without an onchain wallet there is nothing to open`() {
+        assertIs<GroupLightningWalletUIState.NeedsOnchainWallet>(settled(Lightning(onchain = false, completed = key, wallet = wallet)))
+    }
+
+    @Test
+    fun `with no key the group is asked to make one, or told it is too small`() {
+        assertTrue(assertIs<GroupLightningWalletUIState.NeedsKey>(settled(Lightning())).canMakeKey)
+        assertTrue(!assertIs<GroupLightningWalletUIState.NeedsKey>(settled(Lightning(thresholds = emptyList()))).canMakeKey)
+        val running = key.copy(stage = IcebergRitualStage.COLLECTING_REVEALS, share = null)
+        assertEquals(running, assertIs<GroupLightningWalletUIState.NeedsKey>(settled(Lightning(running = running))).ceremony)
+    }
+
+    @Test
+    fun `with a key and no statement the wallet can be opened, given the key to sign it`() {
+        val state = assertIs<GroupLightningWalletUIState.NotOpened>(settled(Lightning(completed = key)))
+        assertEquals(key, state.key)
+        assertTrue(!state.canPropose, "a profile with no private key to send the seed with cannot propose")
+    }
+
+    @Test
+    fun `an open wallet says who runs it, and whether that is this device`() {
+        val nobody = assertIs<GroupLightningWalletUIState.Opened>(settled(Lightning(completed = key, wallet = wallet)))
+        assertTrue(nobody.isParticipant && !nobody.isOperator && nobody.operator == null)
+        val mine = assertIs<GroupLightningWalletUIState.Opened>(settled(Lightning(completed = key, wallet = wallet, operator = operator(me))))
+        assertTrue(mine.isOperator)
+        val theirs = assertIs<GroupLightningWalletUIState.Opened>(settled(Lightning(completed = key, wallet = wallet, operator = operator("b".repeat(64)))))
+        assertTrue(!theirs.isOperator)
+    }
+}

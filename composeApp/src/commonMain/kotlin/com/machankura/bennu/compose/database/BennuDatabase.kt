@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.database
 
+import com.machankura.bennu.compose.database.dao.GroupLightningSeedDao
+import com.machankura.bennu.compose.database.model.GroupLightningSeed
 import com.machankura.bennu.compose.database.dao.IcebergKeySessionDao
 import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
 import com.machankura.bennu.compose.database.model.IcebergKeySession
@@ -151,6 +153,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         GiftWrapSeal::class,
         GiftWrapPayload::class,
         GroupKeyState::class,
+        GroupLightningSeed::class,
         GroupSignedEvent::class,
         GroupTransaction::class,
         IcebergKeySession::class,
@@ -195,7 +198,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 27,
+    version = 28,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -387,6 +390,9 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // Phase 5): the IcebergKeySession and IcebergParticipantMessage tables. Two new
         // tables and nothing else, which Room migrates itself.
         AutoMigration(from = 26, to = 27),
+        // v28 is the Lightning wallet's node seed (docs/group-lightning-wallet.md, Phase 6):
+        // the GroupLightningSeed table, keyed by the node id each seed produces.
+        AutoMigration(from = 27, to = 28),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)
@@ -460,6 +466,8 @@ abstract class BennuDatabase: RoomDatabase() {
     abstract fun mantraTranslationContributorDao(): MantraTranslationContributorDao
 
     abstract fun icebergKeySessionDao(): IcebergKeySessionDao
+
+    abstract fun groupLightningSeedDao(): GroupLightningSeedDao
 
     abstract fun marmotCommitResultDao(): MarmotCommitResultDao
 

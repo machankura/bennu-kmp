@@ -1,0 +1,186 @@
+package com.machankura.bennu.compose.managers
+
+import co.touchlab.kermit.Logger
+import com.machankura.bennu.compose.database.BennuDatabase
+import com.machankura.bennu.compose.database.model.FrostSigningSession
+import com.machankura.bennu.compose.database.model.GroupLightningSeed
+import com.machankura.bennu.compose.database.model.GroupSignedEvent
+import com.machankura.bennu.compose.database.model.IcebergKeySession
+import com.machankura.bennu.compose.database.model.MarmotInnerEvent
+import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.database.model.types.IcebergRitualStage
+import com.machankura.bennu.compose.extensions.toHex
+import com.machankura.bennu.compose.network.serialization.CommonJson
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
+import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
+import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
+import com.vitorpamplona.quartz.nip44Encryption.Nip44
+import com.vitorpamplona.quartz.utils.RandomInstance
+import fr.acinq.bitcoin.ByteVector
+import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.DeterministicWallet
+import fr.acinq.bitcoin.PublicKey
+import fr.acinq.lightning.crypto.LocalKeyManager
+import kotlinx.serialization.Serializable
+import kotlin.time.Clock
+import kotlin.time.Instant
+
+/**
+ * A group's Lightning wallet as the room has agreed it: the statement the group signed
+ * ([GroupLightningWalletStatementEvent]), checked against everything this device can recompute, and the
+ * node seed the members hold (`docs/group-lightning-wallet.md`, Phase 6).
+ */
+object GroupLightningWalletManager {
+    private val logger = Logger.withTag("GroupLightningWalletManager")
+
+    /**
+     * A statement this device believes, with what it was checked against.
+     *
+     * @param ceremony this device's own record of the Iceberg ceremony, or null when this device is not
+     *   one of its participants and reads the wallet without being able to sign for it.
+     * @param seed the node seed, when this device holds the one the statement names.
+     */
+    data class Wallet(
+        val statement: GroupLightningWalletStatementEvent.Statement,
+        val signedEvent: GroupSignedEvent,
+        val basepoints: GroupLightningDerivation.Basepoints,
+        val ceremony: IcebergKeySession?,
+        val seed: GroupLightningSeed?,
+    )
+
+    @Serializable
+    private data class SeedMessage(val chain: String, val wallet: Long, val nodeId: String, val to: Map<String, String>)
+
+    /** The node id a group node running from [seed] on [chain] has: lightning-kmp's own derivation. */
+    fun nodeIdOf(seed: ByteVector, chain: Chain): PublicKey =
+        DeterministicWallet.generate(seed).derivePrivateKey(LocalKeyManager.nodeKeyBasePath(chain)).publicKey
+
+    /** The newest statement for [chain] and [wallet] in [chatRoomId] that this device believes, or null. */
+    suspend fun walletFor(database: BennuDatabase, chatRoomId: String, chain: Chain, wallet: Long = 0L): Wallet? =
+        database.groupSignedEventDao().getByChatRoomIdAndKind(chatRoomId, GroupLightningWalletStatementEvent.KIND)
+            .sortedWith(compareByDescending<GroupSignedEvent> { it.createdAt }.thenBy { it.id })
+            .firstNotNullOfOrNull { signed ->
+                verify(database, chatRoomId, signed)?.takeIf { it.statement.chain == chain && it.statement.wallet == wallet }
+            }
+
+    /**
+     * Whether [signed] is a Lightning wallet statement for [chatRoomId] that this device can stand behind:
+     * the room signed it, the onchain wallet it closes to is open, its Iceberg key is the one this
+     * device's ceremony made (when this device was in it), and its participants are the people who hold
+     * the onchain key (D1). Null otherwise, with the reason in the log.
+     */
+    suspend fun verify(database: BennuDatabase, chatRoomId: String, signed: GroupSignedEvent): Wallet? {
+        if (signed.kind != GroupLightningWalletStatementEvent.KIND || !signed.verifies()) return null
+        val statement = GroupLightningWalletStatementEvent.read(signed.tags) ?: return null
+        val roomKey = GroupWalletManager.thresholdKeyFor(database, chatRoomId) ?: return null
+        if (GroupWalletManager.walletFor(database, chatRoomId, statement.chain, statement.onchainAccount) == null) {
+            logger.w("Lightning wallet ${signed.id} closes to an onchain wallet this room has not opened")
+            return null
+        }
+        FrostSigningManager.completedKey(database, chatRoomId)?.participantPublicKeySet()?.let { holders ->
+            if (holders.map { it.lowercase() }.sorted() != statement.participants) {
+                logger.w("Lightning wallet ${signed.id} names participants who are not the onchain key's holders")
+                return null
+            }
+        }
+        val ceremony = database.icebergKeySessionDao().getSessionById(statement.ceremonyId)
+        val user = ceremony?.userPublicKey ?: database.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom?.userPublicKey
+        if (ceremony == null && user != null && user.lowercase() in statement.participants) {
+            logger.w("Lightning wallet ${signed.id} names a ceremony this participant has no record of")
+            return null
+        }
+        if (ceremony != null) {
+            val agrees = ceremony.stage == IcebergRitualStage.COMPLETE &&
+                ceremony.groupPublicKey == statement.icebergKey &&
+                ceremony.threshold == statement.threshold &&
+                ceremony.participants() == statement.participants
+            if (!agrees) {
+                logger.w("Lightning wallet ${signed.id} disagrees with this device's ceremony ${ceremony.id}")
+                return null
+            }
+        }
+        val seed = database.groupLightningSeedDao().get(chatRoomId, statement.nodeId)
+        return Wallet(statement, signed, GroupLightningDerivation.basepoints(roomKey, statement.chain, statement.wallet), ceremony, seed)
+    }
+
+    /**
+     * Proposes the wallet: makes its node seed, sends it to every other participant encrypted to them
+     * (kind 30340), and opens a signing session over the statement. The wallet exists once a quorum signs.
+     */
+    suspend fun proposeWallet(
+        database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        nostrPrivateKey: ByteArray,
+        chain: Chain,
+        lspNodeId: HexKey,
+        wallet: Long = 0L,
+        onchainAccount: Long = 0L,
+        policy: GroupLightningWalletStatementEvent.Policy = GroupLightningWalletStatementEvent.Policy.DEFAULT,
+    ): FrostSigningSession {
+        require(GroupLightningRollout.allows(chain)) { "A Lightning wallet cannot be opened on ${chain.name}" }
+        val roomId = localChatRoom.chatRoom.id
+        val ceremony = IcebergRitualManager.completedKey(database, roomId)
+            ?: throw IllegalStateException("This group has no Lightning wallet key yet")
+        requireNotNull(GroupWalletManager.walletFor(database, roomId, chain, onchainAccount)) {
+            "Open a group onchain wallet on ${chain.name} first: it is where the Lightning wallet closes to"
+        }
+
+        val seed = ByteVector(RandomInstance.bytes(32))
+        val nodeId = nodeIdOf(seed, chain).value.toHex()
+        val chainName = GroupWalletStatementEvent.chainName(chain)
+        database.groupLightningSeedDao().insertIfAbsent(GroupLightningSeed(roomId, nodeId, chainName, wallet, seed.toHex(), userPublicKey))
+        val to = ceremony.participants().filter { it != userPublicKey.lowercase() }.associateWith { recipient ->
+            Nip44.encrypt(seed.toHex(), nostrPrivateKey, recipient.hexToByteArray()).encodePayload()
+        }
+        queue(database, localChatRoom, userPublicKey, GroupLightningEvents.NODE_SEED, CommonJson.encodeToString(SeedMessage.serializer(), SeedMessage(chainName, wallet, nodeId, to)))
+
+        val statement = GroupLightningWalletStatementEvent.Statement(
+            chain = chain,
+            wallet = wallet,
+            onchainAccount = onchainAccount,
+            icebergKey = ceremony.groupPublicKey!!,
+            ceremonyId = ceremony.id,
+            threshold = ceremony.threshold,
+            participants = ceremony.participants(),
+            nodeId = nodeId,
+            lspNodeId = lspNodeId,
+            policy = policy,
+        )
+        val template = GroupLightningWalletStatementEvent.template(statement)
+        return FrostSigningManager.proposeSigning(database, localChatRoom, userPublicKey, template.kind, template.tags, template.content)
+    }
+
+    /**
+     * Files the seed a member sent this device, after checking it produces the node id the member
+     * claimed. The claim is all the sender gets to say: the node id is recomputed here, and a statement
+     * names a node, not a seed.
+     */
+    suspend fun receiveSeed(database: BennuDatabase, localChatRoom: LocalChatRoom, innerEvent: Event, userPublicKey: HexKey, nostrPrivateKey: ByteArray) {
+        val message = runCatching { CommonJson.decodeFromString(SeedMessage.serializer(), innerEvent.content) }.getOrNull() ?: return
+        val chain = GroupWalletStatementEvent.chainNamed(message.chain) ?: return
+        val ciphertext = message.to[userPublicKey.lowercase()] ?: return
+        val seedHex = runCatching { Nip44.decrypt(ciphertext, nostrPrivateKey, innerEvent.pubKey.hexToByteArray()) }.getOrNull() ?: return
+        val seed = runCatching { ByteVector(seedHex) }.getOrNull()?.takeIf { it.size() == 32 } ?: return
+        val nodeId = nodeIdOf(seed, chain).value.toHex()
+        if (nodeId != message.nodeId) {
+            logger.w("A node seed from ${innerEvent.pubKey.take(8)} does not produce the node it claims; dropping")
+            return
+        }
+        database.groupLightningSeedDao().insertIfAbsent(GroupLightningSeed(localChatRoom.chatRoom.id, nodeId, message.chain, message.wallet, seed.toHex(), innerEvent.pubKey))
+    }
+
+    /** Queues one of this device's messages as a Marmot inner event for the room, as the ritual managers do. */
+    internal suspend fun queue(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, kind: Int, content: String, tags: Array<Array<String>> = emptyArray()) {
+        val createdAt = Clock.System.now().epochSeconds
+        val id = EventHasher.hashId(pubKey = userPublicKey, createdAt = createdAt, kind = kind, tags = tags, content = content)
+        database.marmotInnerEventDao().upsert(
+            MarmotInnerEvent(id = id, publicKey = userPublicKey, kind = kind, createdAt = Instant.fromEpochSeconds(createdAt), tags = tags, content = content, chatRoomId = localChatRoom.chatRoom.id)
+        )
+    }
+}

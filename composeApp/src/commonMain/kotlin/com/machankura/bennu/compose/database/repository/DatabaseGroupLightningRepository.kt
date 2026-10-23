@@ -6,7 +6,11 @@ import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
 import com.machankura.bennu.compose.managers.FrostSigningManager
+import com.machankura.bennu.compose.database.model.FrostSigningSession
+import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
+import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.managers.GroupWalletManager
+import fr.acinq.phoenixd.conf.LSP
 import com.machankura.bennu.compose.managers.IcebergRitualManager
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.repository.GroupLightningRepository
@@ -15,6 +19,26 @@ import fr.acinq.bitcoin.Chain
 import kotlinx.coroutines.flow.Flow
 
 class DatabaseGroupLightningRepository(private val database: BennuDatabase) : GroupLightningRepository {
+    override suspend fun completedCeremony(chatRoomId: String): IcebergKeySession? = IcebergRitualManager.completedKey(database, chatRoomId)
+
+    override suspend fun lightningWallet(chatRoomId: String, chain: Chain): GroupLightningWalletManager.Wallet? =
+        GroupLightningWalletManager.walletFor(database, chatRoomId, chain)
+
+    override suspend fun operator(chatRoomId: String, chain: Chain): GroupLightningOperatorManager.Operator? =
+        GroupLightningOperatorManager.current(database, chatRoomId, chain)
+
+    override fun lspNodeId(chain: Chain): HexKey? =
+        runCatching { LSP.from(chain).walletParams.trampolineNode.id.toString() }.getOrNull()
+
+    override suspend fun proposeWallet(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, chain: Chain): FrostSigningSession =
+        GroupLightningWalletManager.proposeWallet(database, localChatRoom, userPublicKey, nostrPrivateKey, chain, requireNotNull(lspNodeId(chain)) { "No LSP is known for ${chain.name}" })
+
+    override suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession =
+        GroupLightningOperatorManager.nominateSelf(database, localChatRoom, userPublicKey, chain)
+
+    override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession =
+        GroupLightningOperatorManager.stepDown(database, localChatRoom, userPublicKey, chain)
+
     override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> =
         database.icebergKeySessionDao().observeSessionById(sessionId)
 

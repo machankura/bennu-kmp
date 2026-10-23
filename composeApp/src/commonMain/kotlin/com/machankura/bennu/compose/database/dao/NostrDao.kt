@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.database.dao
 
+import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.managers.IcebergRitualManager
 import androidx.room3.Dao
@@ -1589,6 +1590,17 @@ abstract class NostrDao(
 
                         DkgRitualEvents.isDkgRitualKind(innerEvent.kind) ->
                             ChillDkgRitualManager.processRitualPayload(
+                                database = database,
+                                localChatRoom = localChatRoom,
+                                innerEvent = innerEvent,
+                                userPublicKey = activeKeyPair.pubKey.toHex(),
+                                nostrPrivateKey = activeKeyPair.privKey!!
+                            )
+
+                        // A member handing out the Lightning wallet's node seed,
+                        // encrypted to each participant inside the room.
+                        innerEvent.kind == GroupLightningEvents.NODE_SEED ->
+                            GroupLightningWalletManager.receiveSeed(
                                 database = database,
                                 localChatRoom = localChatRoom,
                                 innerEvent = innerEvent,

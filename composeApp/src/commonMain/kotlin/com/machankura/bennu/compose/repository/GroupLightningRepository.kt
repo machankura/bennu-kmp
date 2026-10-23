@@ -1,6 +1,9 @@
 package com.machankura.bennu.compose.repository
 
+import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.IcebergKeySession
+import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
+import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
@@ -34,4 +37,21 @@ interface GroupLightningRepository {
     suspend fun proposeCeremony(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, threshold: Int, chain: Chain): IcebergKeySession
 
     suspend fun approveCeremony(localChatRoom: LocalChatRoom, sessionId: String, step: IcebergApprovalStep, nostrPrivateKey: ByteArray)
+
+    /** The newest completed Lightning wallet key this device holds a share of, or null. */
+    suspend fun completedCeremony(chatRoomId: String): IcebergKeySession?
+
+    /** The wallet the room agreed on [chain], as this device can check it, or null. */
+    suspend fun lightningWallet(chatRoomId: String, chain: Chain): GroupLightningWalletManager.Wallet?
+
+    suspend fun operator(chatRoomId: String, chain: Chain): GroupLightningOperatorManager.Operator?
+
+    /** The LSP a Lightning wallet on [chain] opens channels with, or null for a network with none. */
+    fun lspNodeId(chain: Chain): HexKey?
+
+    suspend fun proposeWallet(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, chain: Chain): FrostSigningSession
+
+    suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession
+
+    suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession
 }

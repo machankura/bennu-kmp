@@ -709,4 +709,19 @@
     <string name="couldn_t_start_the_key_ceremony">Couldn't start the key ceremony.</string>
     <string name="couldn_t_approve_this_step">Couldn't approve this step.</string>
     <string name="your_share_of_this_key_is_stored_unencrypted">Your share of this key is stored unencrypted on this device, as the onchain wallet's is.</string>
+    <string name="lightning_wallet">Lightning wallet</string>
+    <string name="make_a_key">Make a key</string>
+    <string name="see_the_key_ceremony">See the key ceremony</string>
+    <string name="open_a_lightning_wallet">Open a Lightning wallet</string>
+    <string name="opening_a_lightning_wallet_asks">Opening a Lightning wallet asks the group to sign for its node, its LSP and how much can be in flight at once. The scheme behind its key has not been reviewed outside the project, so it is offered on %1$s only.</string>
+    <string name="node_s">Node %1$s</string>
+    <string name="lsp_s">LSP %1$s</string>
+    <string name="at_most_s_sats_in_flight">At most %1$s sats in flight</string>
+    <string name="nobody_runs_this_wallet">Nobody runs this wallet yet</string>
+    <string name="run_by_s_term_s">Run by %1$s, term %2$s</string>
+    <string name="run_this_wallet_on_my_device">Run this wallet on my device</string>
+    <string name="the_operator_s_device_runs_the_node">The operator's device runs the wallet's node and has to stay online. Every other member's device signs for it automatically while it is open.</string>
+    <string name="step_down">Step down</string>
+    <string name="couldn_t_propose_this">Couldn't propose this to the group.</string>
+    <string name="the_group_is_making_its_lightning_wallet_key">The group is making a key for its Lightning wallet.</string>
 </resources>

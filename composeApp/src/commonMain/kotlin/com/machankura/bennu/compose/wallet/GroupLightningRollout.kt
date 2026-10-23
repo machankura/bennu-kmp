@@ -24,5 +24,9 @@ object GroupLightningRollout {
      */
     val NETWORK: Chain = Chain.Testnet3
 
-    fun allows(chain: Chain): Boolean = chain == NETWORK
+    /**
+     * Whether a Lightning wallet may be opened on [chain] at all. [NETWORK], and regtest for tests and
+     * development; never mainnet, whatever a screen offers.
+     */
+    fun allows(chain: Chain): Boolean = chain == NETWORK || chain == Chain.Regtest
 }

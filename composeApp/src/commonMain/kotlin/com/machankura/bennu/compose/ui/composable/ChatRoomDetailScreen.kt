@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.ui.composable
 
+import androidx.compose.material.icons.filled.Bolt
+import bennu.composeapp.generated.resources.lightning_wallet
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningWalletRoute
 import bennu.composeapp.generated.resources.group_wallet_on_s
 import fr.acinq.phoenix.managers.NodeParamsManager
 import com.machankura.bennu.compose.wallet.GroupLightningRollout
@@ -480,6 +483,24 @@ fun ChatRoomDetailScreen(
                                                     activeUserPublicKey = activeUserPublicKey,
                                                     chatRoomId = chatRoomId,
                                                     relayHint = relayHint
+                                                )
+                                            )
+                                        }
+                                    )
+                                }
+
+                                // The group's Lightning wallet, which closes to the onchain
+                                // wallet on its own network -- the row above this one.
+                                if (GroupLightningRollout.ENABLED) item {
+                                    SignedWorkRow(
+                                        icon = Icons.Default.Bolt,
+                                        headline = stringResource(Res.string.lightning_wallet),
+                                        supporting = GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK),
+                                        onOpen = {
+                                            onNavigateToRoute.invoke(
+                                                GroupLightningWalletRoute(
+                                                    activeUserPublicKey = activeUserPublicKey,
+                                                    chatRoomId = chatRoomId
                                                 )
                                             )
                                         }

@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.text
 
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
@@ -202,6 +204,24 @@ object ProposedEvent {
             detail = GroupWalletStatementEvent.read(event.tags, event.content)?.let { statement ->
                 "On ${GroupWalletStatementEvent.chainName(statement.chain)}, account ${statement.account}"
             } ?: "A wallet statement this device cannot read"
+        )
+
+        // The group keeping a Lightning wallet. What a member agrees to is a key, a node and an LSP
+        // holding money under a policy, so the summary names the network, the threshold and the cap
+        // on what can be in flight at once.
+        GroupLightningWalletStatementEvent.KIND -> Summary(
+            label = "Open a Lightning wallet",
+            detail = GroupLightningWalletStatementEvent.read(event.tags)?.let { statement ->
+                "On ${GroupWalletStatementEvent.chainName(statement.chain)}, ${statement.threshold} of ${statement.participants.size} to sign, " +
+                    "at most ${statement.policy.inFlightCapSat} sats in flight"
+            } ?: "A Lightning wallet statement this device cannot read"
+        )
+
+        GroupLightningOperatorStatementEvent.KIND -> Summary(
+            label = "Choose who runs the Lightning wallet",
+            detail = GroupLightningOperatorStatementEvent.read(event.tags)?.let { statement ->
+                statement.operator?.let { "Term ${statement.term}: ${it.take(8)} runs the node" } ?: "Term ${statement.term}: nobody runs the node"
+            } ?: "An operator statement this device cannot read"
         )
 
         else -> Summary(label = "Event of kind ${event.kind}", detail = event.content)
