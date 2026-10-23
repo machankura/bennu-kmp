@@ -7,6 +7,7 @@ import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
 import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
@@ -69,4 +70,7 @@ interface GroupLightningRepository {
 
     /** The operator's invoice for [requestId], once it has arrived and been checked. */
     fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?>
+
+    /** Proposes [pay] to the group; the operator's node pays it once a quorum signs. */
+    suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession
 }

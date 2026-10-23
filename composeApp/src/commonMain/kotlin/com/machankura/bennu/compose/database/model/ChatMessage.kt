@@ -2,6 +2,9 @@ package com.machankura.bennu.compose.database.model
 
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
+import com.machankura.bennu.compose.text.grouped
+import fr.acinq.bitcoin.Satoshi
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
 import androidx.room3.Entity
 import androidx.room3.ForeignKey
@@ -536,6 +539,7 @@ data class ChatMessage(
         const val TYPE_GROUP_WALLET_OPENED = "groupWalletOpened"
         const val TYPE_GROUP_LIGHTNING_WALLET_OPENED = "groupLightningWalletOpened"
         const val TYPE_GROUP_LIGHTNING_OPERATOR_ELECTED = "groupLightningOperatorElected"
+        const val TYPE_GROUP_LIGHTNING_PAYMENT_AUTHORISED = "groupLightningPaymentAuthorised"
 
         /**
          * A transaction from the group's wallet confirmed. Written by each device
@@ -554,6 +558,7 @@ data class ChatMessage(
             TYPE_GROUP_TRANSACTION_CONFIRMED,
             TYPE_GROUP_LIGHTNING_WALLET_OPENED,
             TYPE_GROUP_LIGHTNING_OPERATOR_ELECTED,
+            TYPE_GROUP_LIGHTNING_PAYMENT_AUTHORISED,
         )
 
         /**
@@ -1769,6 +1774,25 @@ data class ChatMessage(
                         } else {
                             "The group chose who runs its Lightning wallet (term ${statement.term})."
                         }
+                    )
+                }
+
+                // A payment the group signed for. The line says how much and that the operator's node
+                // pays it; whether it went is the snapshot's to say, on the wallet's screen.
+                GroupLightningAuthorisationEvent.KIND -> {
+                    val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
+                    if (!signed.verifies()) return null
+                    val pay = GroupLightningAuthorisationEvent.read(event.tags) ?: return null
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = TYPE_GROUP_LIGHTNING_PAYMENT_AUTHORISED,
+                        marmotGroupEventId = marmotGroupEventId,
+                        marmotInnerEventId = marmotInnerEventId,
+                        senderPublicKey = senderPublicKey,
+                        isUserMessage = isUserMessage,
+                        chatRoomId = groupId,
+                        createdAt = createdAt,
+                        content = "The group authorised a Lightning payment of ${Satoshi(pay.amountMsat / 1000).grouped()} sats. The operator's node pays it."
                     )
                 }
 

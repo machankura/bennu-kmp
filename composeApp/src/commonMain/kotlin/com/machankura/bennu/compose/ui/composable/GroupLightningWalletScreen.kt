@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.ui.composable
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -64,6 +65,7 @@ import bennu.composeapp.generated.resources.s_of_s_sats_are_the_group_s
 import bennu.composeapp.generated.resources.s_sats
 import bennu.composeapp.generated.resources.s_sats_can_be_received
 import bennu.composeapp.generated.resources.see_the_key_ceremony
+import bennu.composeapp.generated.resources.send
 import bennu.composeapp.generated.resources.sent_s_sats_with_a_fee_of_s_sats
 import bennu.composeapp.generated.resources.signers_needed_s_of_s
 import bennu.composeapp.generated.resources.step_down
@@ -84,6 +86,7 @@ import com.machankura.bennu.compose.repository.GroupLightningRepository
 import com.machankura.bennu.compose.text.grouped
 import com.machankura.bennu.compose.ui.composable.navigation.routes.FrostSigningRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningReceiveRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningSendRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.IcebergCeremonyRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
@@ -204,6 +207,7 @@ fun GroupLightningWalletScreen(
                     modifier = Modifier.padding(padding),
                     state = state,
                     onReceive = { onNavigateToRoute(GroupLightningReceiveRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
+                    onSend = { onNavigateToRoute(GroupLightningSendRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
                     isPending = viewModel.isActionPending.value,
                     onNominate = { viewModel.nominateSelf(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
                     onStepDown = { viewModel.stepDown(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
@@ -214,7 +218,7 @@ fun GroupLightningWalletScreen(
 }
 
 @Composable
-private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, isPending: Boolean, onNominate: () -> Unit, onStepDown: () -> Unit) {
+private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, onSend: () -> Unit, isPending: Boolean, onNominate: () -> Unit, onStepDown: () -> Unit) {
     val statement = state.wallet.statement
     val operatorName = state.operator?.publicKey?.let { key ->
         if (state.isOperator) stringResource(Res.string.you)
@@ -224,7 +228,7 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
         modifier = modifier.readableContent().fillMaxSize().padding(MaterialTheme.spacing.screenMargin),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
     ) {
-        item { Balance(state.report, onReceive = onReceive.takeIf { state.operator?.publicKey != null }) }
+        item { Balance(state.report, onReceive = onReceive.takeIf { state.operator?.publicKey != null }, onSend = onSend.takeIf { state.operator?.publicKey != null }) }
         state.report?.takeIf { it.checks.isNotEmpty() }?.let { report ->
             item { Text(stringResource(Res.string.channels), style = MaterialTheme.typography.titleSmall) }
             items(report.checks, key = { it.channel.channelId }) { ChannelRow(it) }
@@ -270,7 +274,7 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
 
 /** The operator's figure for what the group can spend and receive, or a word that there is none yet. */
 @Composable
-private fun Balance(report: GroupLightningReports.Report?, onReceive: (() -> Unit)?) {
+private fun Balance(report: GroupLightningReports.Report?, onReceive: (() -> Unit)?, onSend: (() -> Unit)?) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(MaterialTheme.spacing.containerPadding), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
             Text(stringResource(Res.string.balance), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -281,12 +285,24 @@ private fun Balance(report: GroupLightningReports.Report?, onReceive: (() -> Uni
                 Text(stringResource(Res.string.s_sats_can_be_received, Satoshi(report.snapshot.inboundMsat / 1000).grouped()), style = MaterialTheme.typography.bodyMedium)
                 Text(stringResource(Res.string.reported_by_the_operator_in_term_s, report.snapshot.term.toString()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            // Whoever runs the node makes the invoice, so there is nothing to ask while nobody does.
-            onReceive?.let {
-                OutlinedButton(onClick = it) {
-                    Icon(Icons.AutoMirrored.Filled.CallReceived, contentDescription = Decorative)
-                    Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
-                    Text(stringResource(Res.string.receive))
+            // Whoever runs the node makes the invoice and pays what the group signs for, so there is
+            // nothing to ask while nobody does.
+            if (onReceive != null || onSend != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)) {
+                    onReceive?.let {
+                        OutlinedButton(onClick = it) {
+                            Icon(Icons.AutoMirrored.Filled.CallReceived, contentDescription = Decorative)
+                            Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                            Text(stringResource(Res.string.receive))
+                        }
+                    }
+                    onSend?.let {
+                        OutlinedButton(onClick = it) {
+                            Icon(Icons.AutoMirrored.Filled.CallMade, contentDescription = Decorative)
+                            Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                            Text(stringResource(Res.string.send))
+                        }
+                    }
                 }
             }
         }

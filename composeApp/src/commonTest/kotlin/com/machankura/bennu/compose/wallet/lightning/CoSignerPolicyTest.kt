@@ -38,8 +38,8 @@ class CoSignerPolicyTest {
     private fun spec(ours: Long, theirs: Long, vararg htlcs: DirectedHtlc) = CommitmentSpec(htlcs.toSet(), FeeratePerKw(Satoshi(2_500)), toLocal = theirs.msat, toRemote = ours.msat)
 
     /** The commitment after [previous]'s, as the counterparty would send it. */
-    private fun next(previous: CoSignerPolicy.Ledger, spec: CommitmentSpec, budgets: Map<String, Long> = emptyMap()): CoSignerPolicy.Verdict =
-        CoSignerPolicy.checkRemoteCommitment(previous, previous.commitIndex + 1, "tx${previous.commitIndex + 1}:$spec".hashCode().toString(), spec, budgets)
+    private fun next(previous: CoSignerPolicy.Ledger, spec: CommitmentSpec, budgets: Map<String, Long> = emptyMap(), closed: Set<String> = emptySet()): CoSignerPolicy.Verdict =
+        CoSignerPolicy.checkRemoteCommitment(previous, previous.commitIndex + 1, "tx${previous.commitIndex + 1}:$spec".hashCode().toString(), spec, budgets, closed)
 
     private fun signed(verdict: CoSignerPolicy.Verdict) = assertIs<CoSignerPolicy.Verdict.Sign>(verdict)
     private fun refused(verdict: CoSignerPolicy.Verdict) = assertIs<CoSignerPolicy.Verdict.Refuse>(verdict)
@@ -103,5 +103,26 @@ class CoSignerPolicyTest {
         assertIs<CoSignerPolicy.Verdict.Sign>(CoSignerPolicy.checkRemoteCommitment(start, 0, "tx0", spec(100_000_000, 900_000_000), emptyMap()))
         refused(CoSignerPolicy.checkRemoteCommitment(start, 0, "other", spec(100_000_000, 900_000_000), emptyMap()))
         refused(CoSignerPolicy.checkRemoteCommitment(start, 2, "tx2", spec(100_000_000, 900_000_000), emptyMap()))
+    }
+
+    @Test
+    fun `an expired authorisation settles what is in flight, and offers nothing new`() {
+        val budgets = mapOf(hash(7).toHex() to 30_000_000L)
+        val closed = setOf(hash(7).toHex())
+        refused(next(start, spec(80_000_000, 900_000_000, offered(0, 20_000_000, 7)), budgets, closed))
+        val inFlight = signed(next(start, spec(80_000_000, 900_000_000, offered(0, 20_000_000, 7)), budgets)).ledger
+        refused(next(inFlight, spec(70_000_000, 900_000_000, offered(0, 20_000_000, 7), offered(1, 10_000_000, 7)), budgets, closed))
+        val settled = signed(next(inFlight, spec(80_000_000, 920_000_000), budgets, closed))
+        assertEquals(mapOf(hash(7).toHex() to 20_000_000L), settled.consumed)
+    }
+
+    @Test
+    fun `what the group offers at once stays under the cap, and what it is offered is not counted`() {
+        val budgets = mapOf(hash(7).toHex() to 50_000_000L, hash(8).toHex() to 50_000_000L)
+        fun capped(previous: CoSignerPolicy.Ledger, spec: CommitmentSpec) =
+            CoSignerPolicy.checkRemoteCommitment(previous, previous.commitIndex + 1, "tx${previous.commitIndex + 1}:$spec".hashCode().toString(), spec, budgets, inFlightCapMsat = 40_000_000)
+        val one = signed(capped(start, spec(70_000_000, 900_000_000, offered(0, 30_000_000, 7)))).ledger
+        refused(capped(one, spec(50_000_000, 900_000_000, offered(0, 30_000_000, 7), offered(1, 20_000_000, 8))))
+        signed(capped(one, spec(70_000_000, 850_000_000, offered(0, 30_000_000, 7), toUs(1, 50_000_000, 2))))
     }
 }

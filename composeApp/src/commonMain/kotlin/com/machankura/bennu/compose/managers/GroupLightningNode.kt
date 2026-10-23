@@ -8,6 +8,7 @@ import com.machankura.bennu.compose.wallet.lightning.GroupNodeKeyManager
 import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector
+import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.PublicKey
 import fr.acinq.bitcoin.utils.Either
@@ -25,9 +26,11 @@ import fr.acinq.lightning.db.Databases
 import fr.acinq.lightning.db.LightningIncomingPayment
 import fr.acinq.lightning.db.LightningOutgoingPayment
 import fr.acinq.lightning.db.WalletPayment
+import fr.acinq.lightning.io.PaymentSent
 import fr.acinq.lightning.io.Peer
 import fr.acinq.lightning.io.TcpSocket
 import fr.acinq.lightning.logging.LoggerFactory
+import fr.acinq.lightning.payment.Bolt11Invoice
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -81,6 +84,10 @@ class GroupLightningNode(
         fun payments(): List<WalletWire.PaymentView>
         /** A Bolt11 invoice paying the node, for [amountMsat] or any amount. */
         suspend fun createInvoice(amountMsat: Long?, description: String): String
+        /** Whether the node has tried to pay [paymentHash] before, in this run or an earlier one. */
+        suspend fun hasPaid(paymentHash: String): Boolean
+        /** Pays [bolt11] [amountMsat], through the LSP, and says how it went. */
+        suspend fun pay(bolt11: String, amountMsat: Long): WalletWire.PaymentView
     }
 
     sealed class State {
@@ -183,6 +190,26 @@ class GroupLightningNode(
         }
     }
 
+    private val paying = mutableSetOf<String>()
+
+    /**
+     * Pays every payment the group has authorised and this node has not tried yet, each once. A payment
+     * that fails is not tried again: the group signs a new authorisation for another attempt, and the
+     * co-signers' budgets are what stop either from paying twice.
+     */
+    internal suspend fun payAuthorised() {
+        val handle = peer ?: return
+        GroupLightningAuthorisations.toPay(database, wallet, now()).forEach { pay ->
+            if (pay.paymentHash in paying || handle.hasPaid(pay.paymentHash)) return@forEach
+            paying += pay.paymentHash
+            scope.launch {
+                runCatching { handle.pay(pay.invoice, pay.amountMsat) }
+                    .onSuccess { logger.i("Paid ${pay.paymentHash.take(16)}: ${if (it.succeeded) "sent" else "not sent"}") }
+                    .onFailure { logger.e("Paying ${pay.paymentHash.take(16)} failed", it) }
+            }
+        }
+    }
+
     /** Stops the node as soon as the room's newest operator statement names a later term. */
     private fun watchForHandover(term: Long) {
         watching?.cancel()
@@ -197,6 +224,7 @@ class GroupLightningNode(
                 }
                 runCatching { report(term) }.onFailure { logger.e("Could not report the wallet to the room", it) }
                 runCatching { answerInvoiceRequests() }.onFailure { logger.e("Could not answer an invoice request", it) }
+                runCatching { payAuthorised() }.onFailure { logger.e("Could not make an authorised payment", it) }
             }
         }
     }
@@ -244,7 +272,8 @@ class GroupLightningNode(
             require(walletParams.trampolineNode.id == configuration.lspNodeId) { "the wallet's LSP is not the node it would connect to" }
             val client = clients.clientFor(configuration.chain)
             val watcher = ElectrumWatcher(client, scope, loggerFactory)
-            val peer = Peer(nodeParams, walletParams, client, watcher, databasesFor(nodeParams.nodeId, configuration.chain), TcpSocket.Builder(), scope)
+            val databases = databasesFor(nodeParams.nodeId, configuration.chain)
+            val peer = Peer(nodeParams, walletParams, client, watcher, databases, TcpSocket.Builder(), scope)
             val payments = mutableListOf<WalletWire.PaymentView>()
             scope.launch {
                 nodeParams.nodeEvents.collect { event ->
@@ -278,6 +307,20 @@ class GroupLightningNode(
                 override fun payments(): List<WalletWire.PaymentView> = payments.toList()
                 override suspend fun createInvoice(amountMsat: Long?, description: String): String =
                     peer.createInvoice(Lightning.randomBytes32(), amountMsat?.let(::MilliSatoshi), Either.Left(description)).write()
+                override suspend fun hasPaid(paymentHash: String): Boolean =
+                    databases.payments.listLightningOutgoingPayments(ByteVector32(paymentHash)).isNotEmpty()
+                override suspend fun pay(bolt11: String, amountMsat: Long): WalletWire.PaymentView {
+                    val invoice = Bolt11Invoice.read(bolt11).get()
+                    return when (val result = peer.payInvoice(MilliSatoshi(amountMsat), invoice)) {
+                        // A payment that went is reported through the node's events, like every other.
+                        is PaymentSent -> paymentView(result.payment, incoming = false)
+                        else -> WalletWire.PaymentView(
+                            id = result.request.paymentId.toString(), incoming = false, amountMsat = amountMsat, feesMsat = 0,
+                            paymentHash = invoice.paymentHash.toHex(), description = invoice.description,
+                            completedAt = Clock.System.now().toEpochMilliseconds(), succeeded = false,
+                        ).also { payments += it }
+                    }
+                }
             }
         }
     }

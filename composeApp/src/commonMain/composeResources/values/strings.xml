@@ -747,4 +747,14 @@
     <string name="invoice_copied">Invoice copied</string>
     <string name="nobody_runs_this_wallet_to_make_an_invoice">Nobody runs this wallet yet, so there is no node to make an invoice.</string>
     <string name="couldn_t_ask_for_an_invoice">Couldn't ask for an invoice.</string>
+    <string name="the_invoice_names_the_amount_s_sats">The invoice names the amount: %1$s sats.</string>
+    <string name="fee_limit_in_sats">Fee limit in sats</string>
+    <string name="left_empty_s_sats">Left empty, %1$s sats.</string>
+    <string name="ask_the_group_to_pay">Ask the group to pay</string>
+    <string name="paying_asks_the_group_to_sign">The group signs for this payment as for any decision. Once it has, the operator's device pays it, and no member's device lets more than the amount and the fee limit leave.</string>
+    <string name="that_isn_t_a_lightning_invoice">That isn't a Lightning invoice.</string>
+    <string name="that_invoice_is_for_another_network">That invoice is for another network, not %1$s.</string>
+    <string name="that_invoice_has_expired">That invoice has expired.</string>
+    <string name="that_invoice_names_no_amount">That invoice names no amount, so give one.</string>
+    <string name="that_invoice_pays_this_wallet">That invoice pays this wallet's own node.</string>
 </resources>

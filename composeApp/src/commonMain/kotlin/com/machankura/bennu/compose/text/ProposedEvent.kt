@@ -1,15 +1,11 @@
 package com.machankura.bennu.compose.text
 
-import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
-import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
-import com.vitorpamplona.quartz.nip01Core.core.Event
-import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
-import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
 import com.machankura.bennu.compose.nostr.GroupRelaySet
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
-import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
-import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
 import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
 import com.machankura.bennu.compose.nostr.nip30303.ArtifactVersionEvent
 import com.machankura.bennu.compose.nostr.nip30303.ChapterEvent
@@ -17,6 +13,14 @@ import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
 import com.machankura.bennu.compose.nostr.nip30303.TranslationArtifactVersionEvent
 import com.machankura.bennu.compose.nostr.nip30303.TranslationChapterEvent
 import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.text.grouped
+import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
+import fr.acinq.bitcoin.Satoshi
+import fr.acinq.lightning.payment.Bolt11Invoice
 
 /**
  * An event a group is being asked to sign, said in words.
@@ -223,6 +227,20 @@ object ProposedEvent {
                 statement.operator?.let { "Term ${statement.term}: ${it.take(8)} runs the node" } ?: "Term ${statement.term}: nobody runs the node"
             } ?: "An operator statement this device cannot read"
         )
+
+        // A payment from the Lightning wallet. What a member agrees to is money leaving, so the
+        // summary leads with the amount and the most the fee can be, then who is paid and for what as
+        // the invoice says; the payee is a node key, shortened, since nobody checks one by eye.
+        GroupLightningAuthorisationEvent.KIND -> GroupLightningAuthorisationEvent.read(event.tags)?.let { pay ->
+            val invoice = runCatching { Bolt11Invoice.read(pay.invoice).get() }.getOrNull()
+            Summary(
+                label = "Pay ${Satoshi(pay.amountMsat / 1000).grouped()} sats",
+                detail = buildString {
+                    append("To ${invoice?.nodeId?.toString()?.take(16) ?: "a node"}, with a fee of at most ${Satoshi(pay.maxFeeMsat / 1000).grouped()} sats")
+                    invoice?.description?.takeIf { it.isNotBlank() }?.let { append(", for \"$it\"") }
+                },
+            )
+        } ?: Summary(label = "Authorise the Lightning wallet", detail = "An authorisation this device cannot read")
 
         else -> Summary(label = "Event of kind ${event.kind}", detail = event.content)
     }

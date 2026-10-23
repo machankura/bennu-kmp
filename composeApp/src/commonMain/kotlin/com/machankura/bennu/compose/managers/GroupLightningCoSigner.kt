@@ -346,7 +346,8 @@ object GroupLightningCoSigner {
         // answers to the ledger.
         if (pinned == null) return null
         val budgets = GroupLightningAuthorisations.budgets(database, wallet)
-        return when (val verdict = CoSignerPolicy.checkRemoteCommitment(load(pinned.ledger), commitIndex, tx.txid.toString(), spec, budgets)) {
+        val closed = GroupLightningAuthorisations.expired(database, wallet)
+        return when (val verdict = CoSignerPolicy.checkRemoteCommitment(load(pinned.ledger), commitIndex, tx.txid.toString(), spec, budgets, closed, wallet.statement.policy.inFlightCapSat * 1000)) {
             is CoSignerPolicy.Verdict.Refuse -> verdict.reason
             is CoSignerPolicy.Verdict.Sign -> null
         }
@@ -376,7 +377,7 @@ object GroupLightningCoSigner {
         val allowance = wallet.statement.policy.commitmentFeeAllowanceSat * 1000
         val next = when (pinned) {
             null -> CoSignerPolicy.open(context.commitIndex ?: return, tx.txid.toString(), spec, allowance)
-            else -> when (val verdict = CoSignerPolicy.checkRemoteCommitment(load(pinned.ledger), context.commitIndex ?: return, tx.txid.toString(), spec, GroupLightningAuthorisations.budgets(database, wallet))) {
+            else -> when (val verdict = CoSignerPolicy.checkRemoteCommitment(load(pinned.ledger), context.commitIndex ?: return, tx.txid.toString(), spec, GroupLightningAuthorisations.budgets(database, wallet), GroupLightningAuthorisations.expired(database, wallet), wallet.statement.policy.inFlightCapSat * 1000)) {
                 is CoSignerPolicy.Verdict.Refuse -> return
                 is CoSignerPolicy.Verdict.Sign -> {
                     GroupLightningAuthorisations.consume(database, wallet, verdict.consumed)

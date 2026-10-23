@@ -1,18 +1,48 @@
 package com.machankura.bennu.compose.managers
 
 import com.machankura.bennu.compose.database.BennuDatabase
+import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.IcebergBudgetSpend
+import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector32
+import fr.acinq.lightning.payment.Bolt11Invoice
+import kotlin.time.Clock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Instant
 
 /**
- * What the group has authorised its Lightning wallet to spend, as a co-signer reads it
- * (`docs/group-lightning-wallet.md`, Phases 12 and 13).
+ * What the group has authorised its Lightning wallet to spend, as a co-signer reads it and the operator's
+ * node acts on it (`docs/group-lightning-wallet.md`, Phases 12 and 13).
  *
- * An authorisation is a group-signed event (kind 30346). Until Phase 12 there are none, so a co-signer
- * lets no outgoing payment through and signs no force close: the wallet can receive, and nothing else.
+ * An authorisation is a group-signed event (kind 30346, [GroupLightningAuthorisationEvent]). The group
+ * may sign two for one invoice -- once more after the first expired, say. They are one payment: the
+ * budget is the larger, and it is open while either is. Force closes are Phase 13's, and none is
+ * authorised until then.
  */
 object GroupLightningAuthorisations {
+    /** How long an authorisation stays open when its invoice does not say sooner. */
+    val DEFAULT_LIFETIME: Duration = 24.hours
+
+    /** Every payment the group has authorised for [wallet], as this device verifies it, oldest first. */
+    suspend fun payments(database: BennuDatabase, wallet: GroupLightningWalletManager.Wallet): List<GroupLightningAuthorisationEvent.Pay> =
+        database.groupSignedEventDao().getByChatRoomIdAndKind(wallet.signedEvent.chatRoomId, GroupLightningAuthorisationEvent.KIND)
+            .filter { it.verifies() }
+            .sortedWith(compareBy({ it.createdAt }, { it.id }))
+            .mapNotNull { GroupLightningAuthorisationEvent.read(it.tags) }
+            .filter { it.chain == wallet.statement.chain && it.wallet == wallet.statement.wallet }
+
+    /** Every payment the group has authorised, with its whole budget, by payment hash, in millisatoshi. */
+    suspend fun authorisedPayments(database: BennuDatabase, wallet: GroupLightningWalletManager.Wallet): Map<String, Long> =
+        payments(database, wallet).groupBy { it.paymentHash }.mapValues { (_, all) -> all.maxOf { it.budgetMsat } }
+
+    /** The payment hashes whose every authorisation has expired at [now]: no new HTLC pays them. */
+    suspend fun expired(database: BennuDatabase, wallet: GroupLightningWalletManager.Wallet, now: Instant = Clock.System.now()): Set<String> =
+        payments(database, wallet).groupBy { it.paymentHash }.filterValues { all -> all.all { it.expiresAt <= now.epochSeconds } }.keys
+
     /** What each authorised payment has left to spend, by payment hash, in millisatoshi. */
     suspend fun budgets(database: BennuDatabase, wallet: GroupLightningWalletManager.Wallet): Map<String, Long> {
         val key = GroupLightningCoSigner.walletKey(wallet.signedEvent.chatRoomId, wallet.statement.chain, wallet.statement.wallet)
@@ -29,8 +59,42 @@ object GroupLightningAuthorisations {
         consumed.forEach { (hash, amount) -> dao.upsertBudgetSpend(IcebergBudgetSpend(key, hash, (spent[hash] ?: 0) + amount)) }
     }
 
-    /** Every payment the group has authorised, with its whole budget: none until Phase 12. */
-    suspend fun authorisedPayments(database: BennuDatabase, wallet: GroupLightningWalletManager.Wallet): Map<String, Long> = emptyMap()
+    /** The authorised payments the operator's node should make at [now]: open, one per payment hash, oldest first. */
+    suspend fun toPay(database: BennuDatabase, wallet: GroupLightningWalletManager.Wallet, now: Instant = Clock.System.now()): List<GroupLightningAuthorisationEvent.Pay> =
+        payments(database, wallet).filter { it.expiresAt > now.epochSeconds }.distinctBy { it.paymentHash }
+
+    /** Why [bolt11] cannot be authorised for [wallet], or null when it can. */
+    sealed class Problem {
+        data object Unreadable : Problem()
+        data object OtherNetwork : Problem()
+        data object Expired : Problem()
+        data object NeedsAmount : Problem()
+        /** The invoice pays the group's own node: a payment to itself that would only cost fees. */
+        data object PaysTheGroup : Problem()
+    }
+
+    /** The authorisation [bolt11] would be, or the [Problem] with it. [amountMsat] is used only when the invoice names none. */
+    fun prepare(wallet: GroupLightningWalletManager.Wallet, bolt11: String, amountMsat: Long?, maxFeeMsat: Long, now: Instant = Clock.System.now()): Result<GroupLightningAuthorisationEvent.Pay> {
+        val text = bolt11.trim().removePrefix("lightning:").removePrefix("LIGHTNING:")
+        val invoice = runCatching { Bolt11Invoice.read(text).get() }.getOrNull() ?: return Result.failure(ProblemException(Problem.Unreadable))
+        if (invoice.chain != wallet.statement.chain) return Result.failure(ProblemException(Problem.OtherNetwork))
+        if (invoice.isExpired(now.epochSeconds)) return Result.failure(ProblemException(Problem.Expired))
+        if (invoice.nodeId.toString() == wallet.statement.nodeId) return Result.failure(ProblemException(Problem.PaysTheGroup))
+        val amount = invoice.amount?.msat ?: amountMsat?.takeIf { it > 0 } ?: return Result.failure(ProblemException(Problem.NeedsAmount))
+        val invoiceExpiry = invoice.timestampSeconds + (invoice.expirySeconds ?: Bolt11Invoice.DEFAULT_EXPIRY_SECONDS.toLong())
+        val expires = minOf(invoiceExpiry, (now + DEFAULT_LIFETIME).epochSeconds)
+        return Result.success(
+            GroupLightningAuthorisationEvent.Pay(wallet.statement.chain, wallet.statement.wallet, text, amount, maxFeeMsat, invoice.paymentHash.toHex(), expires)
+        )
+    }
+
+    class ProblemException(val problem: Problem) : IllegalArgumentException(problem.toString())
+
+    /** Proposes [pay] to the group; it is authorised once a quorum signs. */
+    suspend fun propose(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession {
+        val template = GroupLightningAuthorisationEvent.template(pay)
+        return FrostSigningManager.proposeSigning(database, localChatRoom, userPublicKey, template.kind, template.tags, template.content)
+    }
 
     /** Whether the group has authorised a force close of [channelId]: never, until Phase 13. */
     suspend fun forceCloseAuthorised(database: BennuDatabase, chatRoomId: String, statement: GroupLightningWalletStatementEvent.Statement, channelId: ByteVector32): Boolean = false

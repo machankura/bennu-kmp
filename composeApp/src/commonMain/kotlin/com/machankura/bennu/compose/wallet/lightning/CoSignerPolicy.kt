@@ -62,9 +62,20 @@ object CoSignerPolicy {
     }
 
     /**
-     * @param budgets what each open authorisation has left to spend, by payment hash, in millisatoshi.
+     * @param budgets what each authorisation has left to spend, by payment hash, in millisatoshi.
+     * @param closed the payment hashes whose authorisations have expired: an HTLC already in flight for
+     *   one still settles against its budget, and no new one is offered.
+     * @param inFlightCapMsat the most the HTLCs the group offers may add up to at once: the statement's cap.
      */
-    fun checkRemoteCommitment(previous: Ledger, commitIndex: Long, commitTxId: String, remoteSpec: CommitmentSpec, budgets: Map<String, Long>): Verdict {
+    fun checkRemoteCommitment(
+        previous: Ledger,
+        commitIndex: Long,
+        commitTxId: String,
+        remoteSpec: CommitmentSpec,
+        budgets: Map<String, Long>,
+        closed: Set<String> = emptySet(),
+        inFlightCapMsat: Long = Long.MAX_VALUE,
+    ): Verdict {
         if (commitIndex == previous.commitIndex) {
             return if (commitTxId == previous.commitTxId) Verdict.Sign(previous, emptyMap())
             else Verdict.Refuse("commitment $commitIndex was already signed as a different transaction")
@@ -84,9 +95,15 @@ object CoSignerPolicy {
         val added = offered.filterKeys { it !in previous.offered }
         for ((id, htlc) in added.entries.sortedBy { it.key }) {
             val left = remaining[htlc.paymentHash] ?: return Verdict.Refuse("HTLC $id pays ${htlc.paymentHash.take(16)}, which the group has not authorised")
+            if (htlc.paymentHash in closed) return Verdict.Refuse("HTLC $id pays ${htlc.paymentHash.take(16)}, whose authorisation has expired")
             if (htlc.amountMsat > left) return Verdict.Refuse("HTLC $id sends ${htlc.amountMsat} msat against an authorisation with $left msat left")
             remaining[htlc.paymentHash] = left - htlc.amountMsat
         }
+
+        // The cap holds only for what the group sends: an HTLC offered to it is the counterparty's to
+        // add, and refusing to sign over one would stall the channel rather than protect anything.
+        val outgoing = offered.values.sumOf { it.amountMsat }
+        if (added.isNotEmpty() && outgoing > inFlightCapMsat) return Verdict.Refuse("$outgoing msat would be in flight, over the cap of $inFlightCapMsat")
 
         // Rule 3: the value against the floor.
         val value = ours + offered.values.sumOf { it.amountMsat }

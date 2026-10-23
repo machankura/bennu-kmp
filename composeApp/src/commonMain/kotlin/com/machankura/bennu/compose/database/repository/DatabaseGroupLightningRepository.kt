@@ -9,6 +9,7 @@ import com.machankura.bennu.compose.managers.FrostSigningManager
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.GroupLightningInvoiceRow
 import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
+import com.machankura.bennu.compose.managers.GroupLightningAuthorisations
 import com.machankura.bennu.compose.managers.GroupLightningCoSigner
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
 import com.machankura.bennu.compose.managers.GroupLightningReports
@@ -16,6 +17,7 @@ import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.managers.GroupWalletManager
 import fr.acinq.phoenixd.conf.LSP
 import com.machankura.bennu.compose.managers.IcebergRitualManager
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.repository.GroupLightningRepository
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -57,6 +59,9 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
 
     override fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?> =
         database.groupLightningRecordsDao().observeInvoice(GroupLightningCoSigner.walletKey(chatRoomId, chain, 0L), requestId)
+
+    override suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession =
+        GroupLightningAuthorisations.propose(database, localChatRoom, userPublicKey, pay)
 
     override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> =
         database.icebergKeySessionDao().observeSessionById(sessionId)

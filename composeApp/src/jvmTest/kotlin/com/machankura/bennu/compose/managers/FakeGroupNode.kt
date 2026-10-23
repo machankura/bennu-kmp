@@ -21,6 +21,9 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
     var channels = listOf<WalletWire.ChannelView>()
     val payments = mutableListOf<WalletWire.PaymentView>()
     val invoices = mutableListOf<Bolt11Invoice>()
+    /** Every payment asked of the node, as (invoice, amount). */
+    val paid = mutableListOf<Pair<String, Long>>()
+    var paymentsSucceed = true
 
     override suspend fun connect(): Boolean { connected = true; return true }
     override fun disconnect() { disconnected = true }
@@ -32,6 +35,13 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
             configuration.chain, amountMsat?.let(::MilliSatoshi), randomBytes32(), configuration.keyManager.nodeKeys.nodeKey.privateKey,
             Either.Left(description), CltvExpiryDelta(144), INVOICE_FEATURES,
         ).also { invoices += it }.write()
+    override suspend fun hasPaid(paymentHash: String): Boolean = payments.any { !it.incoming && it.paymentHash == paymentHash }
+    override suspend fun pay(bolt11: String, amountMsat: Long): WalletWire.PaymentView {
+        paid += bolt11 to amountMsat
+        val invoice = Bolt11Invoice.read(bolt11).get()
+        return WalletWire.PaymentView("out${paid.size}", incoming = false, amountMsat = amountMsat, feesMsat = 1_000, paymentHash = invoice.paymentHash.toHex(), description = invoice.description, completedAt = 1, succeeded = paymentsSucceed)
+            .also { payments += it }
+    }
 }
 
 /** What a Bolt11 invoice must advertise to be read back at all. */

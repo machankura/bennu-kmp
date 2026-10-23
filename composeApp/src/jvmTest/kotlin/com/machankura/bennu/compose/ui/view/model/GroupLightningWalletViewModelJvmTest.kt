@@ -10,21 +10,31 @@ import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
 import com.machankura.bennu.compose.database.model.types.IcebergRitualStage
+import com.machankura.bennu.compose.managers.GroupLightningAuthorisations
 import com.machankura.bennu.compose.managers.GroupLightningDerivation
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
 import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.GroupLightningRepository
 import com.machankura.bennu.compose.ui.view.state.GroupLightningReceiveUIState
+import com.machankura.bennu.compose.ui.view.state.GroupLightningSendUIState
 import com.machankura.bennu.compose.ui.view.state.GroupLightningWalletUIState
 import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.bitcoin.utils.Either
+import fr.acinq.lightning.CltvExpiryDelta
+import fr.acinq.lightning.Feature
+import fr.acinq.lightning.FeatureSupport
+import fr.acinq.lightning.Features
+import fr.acinq.lightning.payment.Bolt11Invoice
+import fr.acinq.lightning.utils.msat
 import fr.acinq.secp256k1.Hex
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -111,6 +121,7 @@ class GroupLightningWalletViewModelJvmTest {
         override suspend fun requestInvoice(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, amountMsat: Long?, description: String): String =
             "r1".also { requests += amountMsat to description }
         override fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?> = flowOf(invoice?.takeIf { it.requestId == requestId })
+        override suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession = error("unused")
     }
 
     private val chat = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
@@ -197,5 +208,32 @@ class GroupLightningWalletViewModelJvmTest {
         viewModel.initiate()
         runBlocking { withTimeout(5_000) { while (viewModel.uiState == GroupLightningReceiveUIState.Loading) delay(10) } }
         return viewModel
+    }
+
+    @Test
+    fun `sending previews the authorisation, with a fee limit when none is given`() {
+        val lightning = Lightning(completed = key, wallet = wallet, operator = operator("b".repeat(64)))
+        val viewModel = GroupLightningSendViewModel(me, chatRoomId, Chain.Testnet3, GroupLightningSendUIState.Loading, chat, lightning)
+        viewModel.initiate()
+        runBlocking<Unit> { withTimeout(5_000) { while (viewModel.uiState == GroupLightningSendUIState.Loading) delay(10) } }
+        assertIs<GroupLightningSendUIState.Form>(viewModel.uiState)
+        assertEquals(null, viewModel.preview(), "nothing typed, nothing to say")
+
+        fun invoice(chain: Chain, amount: Long?) = Bolt11Invoice.create(
+            chain, amount?.msat, ByteVector32(Hex.decode("07".repeat(32))), PrivateKey(ByteVector32(Hex.decode("05".repeat(32)))), Either.Left("tea"), CltvExpiryDelta(144),
+            Features(Feature.VariableLengthOnion to FeatureSupport.Mandatory, Feature.PaymentSecret to FeatureSupport.Mandatory),
+        ).write()
+        viewModel.invoiceField.edit { append(invoice(Chain.Testnet3, 50_000_000)) }
+        val pay = viewModel.preview()!!.getOrThrow()
+        assertEquals(50_000_000, pay.amountMsat)
+        assertEquals(500_000, pay.maxFeeMsat, "a percent of fifty thousand sats")
+        assertEquals(50_000_000, viewModel.invoiceAmountMsat())
+
+        viewModel.maxFeeField.edit { append("20") }
+        assertEquals(20_000, viewModel.preview()!!.getOrThrow().maxFeeMsat)
+
+        viewModel.invoiceField.edit { replace(0, length, invoice(Chain.Mainnet, 1_000)) }
+        val problem = (viewModel.preview()!!.exceptionOrNull() as GroupLightningAuthorisations.ProblemException).problem
+        assertEquals(GroupLightningAuthorisations.Problem.OtherNetwork, problem)
     }
 }
