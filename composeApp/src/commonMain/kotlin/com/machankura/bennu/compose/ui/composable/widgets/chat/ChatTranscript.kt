@@ -110,7 +110,7 @@ import com.machankura.bennu.compose.ui.composable.widgets.ErrorState
 @Composable
 fun ChatTranscript(
     viewModel: ChatMessageListViewModel,
-    onOpenSharedKey: (dkgSessionId: String?) -> Unit,
+    onOpenSharedKey: (dkgSessionId: String) -> Unit,
     /**
      * Opens the signing this line is about, by session id -- or the room's
      * whole list of proposals when the line predates [ChatMessage.frostSigningSessionId]
@@ -265,9 +265,13 @@ fun ChatTranscript(
                                         // The line knows which ceremony it is
                                         // about; the room does not. Passing it is
                                         // what stops a subgroup's request opening
-                                        // the group's own finished ceremony.
-                                        onClick = {
-                                            onOpenSharedKey(localChatMessage.chatMessage.dkgSessionId)
+                                        // the group's own finished ceremony. A
+                                        // line that names none opens nothing: the
+                                        // ceremony screen shows the ceremony it is
+                                        // named, and guessing one is how a
+                                        // subgroup's got buried under another.
+                                        onClick = localChatMessage.chatMessage.dkgSessionId?.let { dkgSessionId ->
+                                            { onOpenSharedKey(dkgSessionId) }
                                         }
                                     )
                                     return@items
@@ -792,7 +796,8 @@ private fun RitualNotice(
     localChatMessage: LocalChatMessage,
     isAnswered: Boolean,
     isSettled: Boolean,
-    onClick: () -> Unit,
+    /** Null for a line that names no ceremony, which then opens nothing. */
+    onClick: (() -> Unit)?,
 ) {
     val chatMessage = localChatMessage.chatMessage
 
@@ -875,7 +880,7 @@ private fun RitualNotice(
         modifier = Modifier
             .fillMaxWidth()
             .minimumInteractiveComponentSize()
-            .clickable(onClick = onClick)
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
             .padding(horizontal = MaterialTheme.spacing.space250, vertical = MaterialTheme.spacing.space125),
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space125),
         verticalAlignment = Alignment.CenterVertically

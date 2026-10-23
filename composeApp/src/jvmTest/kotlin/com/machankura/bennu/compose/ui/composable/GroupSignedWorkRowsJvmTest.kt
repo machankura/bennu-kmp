@@ -17,7 +17,6 @@ import com.machankura.bennu.compose.nostr.GroupNostrProfile
 import com.machankura.bennu.compose.nostr.GroupPost
 import com.machankura.bennu.compose.nostr.GroupRelayList
 import com.machankura.bennu.compose.repository.ChatRepository
-import com.machankura.bennu.compose.repository.MantraRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.activeUserPublicKey
 import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.chatRoomId
@@ -239,7 +238,6 @@ class GroupSignedWorkRowsJvmTest {
                             initialChatRoomDetailUIState = uiState,
                             nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                             chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                            mantraRepository = MantraRepository.NO_OP_MANTRA_REPOSITORY,
                             onNavigateToRoute = onNavigateToRoute,
                             onPopBackToRoute = {},
                             onNavigateBack = {},

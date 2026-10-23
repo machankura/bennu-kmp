@@ -5,8 +5,7 @@ import bennu.composeapp.generated.resources.Res
 import bennu.composeapp.generated.resources.currently_no_messages_have_been_shared
 import bennu.composeapp.generated.resources.don_t_sign
 import bennu.composeapp.generated.resources.something_went_wrong
-import bennu.composeapp.generated.resources.add_chapter_to
-import bennu.composeapp.generated.resources.chapter_words_characters
+import bennu.composeapp.generated.resources.recovered_of_still_unreadable
 import bennu.composeapp.generated.resources.sent_a_private_message_to
 import org.jetbrains.compose.resources.getString
 import kotlin.test.Test
@@ -56,8 +55,8 @@ class StringCatalogueJvmTest {
         // and reads plausibly -- "Recovered 3 of 12" against "Recovered 12 of 3" -- so
         // the ordering is worth asserting on a multi-argument one.
         assertEquals(
-            "Add chapter to Genesis",
-            getString(Res.string.add_chapter_to, "Genesis"),
+            "Recovered 3 of 12 · 9 still unreadable.",
+            getString(Res.string.recovered_of_still_unreadable, "3", "12", "9", "."),
         )
         assertEquals(
             "Ada sent a private message to Grace",
@@ -71,8 +70,8 @@ class StringCatalogueJvmTest {
         // decodes it and the resource holds the character. If it had been left alone the
         // app would render the six characters of the escape.
         assertEquals(
-            "Chapter 3 · 900 words · 4800 characters",
-            getString(Res.string.chapter_words_characters, "3", "900", "4800"),
+            "Recovered 3 of 12 · 9 still unreadable",
+            getString(Res.string.recovered_of_still_unreadable, "3", "12", "9", ""),
         )
     }
 }

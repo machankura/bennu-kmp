@@ -26,19 +26,6 @@ import com.machankura.bennu.compose.database.dao.GiftWrapSealDao
 import com.machankura.bennu.compose.database.dao.GroupKeyStateDao
 import com.machankura.bennu.compose.database.dao.GroupSignedEventDao
 import com.machankura.bennu.compose.database.dao.InReplyToRelationDao
-import com.machankura.bennu.compose.database.dao.MantraArtifactDao
-import com.machankura.bennu.compose.database.dao.MantraArtifactVersionDao
-import com.machankura.bennu.compose.database.dao.MantraChapterDao
-import com.machankura.bennu.compose.database.dao.MantraChunkDao
-import com.machankura.bennu.compose.database.dao.MantraDao
-import com.machankura.bennu.compose.database.dao.MantraDialectDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationArtifactVersionDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationArtifactVersionContributorDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationChapterDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationChapterContributorDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationChunkDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationContributorDao
 import com.machankura.bennu.compose.database.dao.MarmotCommitResultDao
 import com.machankura.bennu.compose.database.dao.MarmotOutboundDao
 import com.machankura.bennu.compose.database.dao.MarmotGroupEventDao
@@ -81,18 +68,6 @@ import com.machankura.bennu.compose.database.model.GiftWrapSeal
 import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.database.model.InReplyToRelation
-import com.machankura.bennu.compose.database.model.MantraArtifact
-import com.machankura.bennu.compose.database.model.MantraArtifactVersion
-import com.machankura.bennu.compose.database.model.MantraChapter
-import com.machankura.bennu.compose.database.model.MantraChunk
-import com.machankura.bennu.compose.database.model.MantraDialect
-import com.machankura.bennu.compose.database.model.MantraTranslation
-import com.machankura.bennu.compose.database.model.MantraTranslationArtifactVersion
-import com.machankura.bennu.compose.database.model.MantraTranslationArtifactVersionContributor
-import com.machankura.bennu.compose.database.model.MantraTranslationChapter
-import com.machankura.bennu.compose.database.model.MantraTranslationChapterContributor
-import com.machankura.bennu.compose.database.model.MantraTranslationChunk
-import com.machankura.bennu.compose.database.model.MantraTranslationContributor
 import com.machankura.bennu.compose.database.model.MarmotCommitResult
 import com.machankura.bennu.compose.database.model.MarmotGroupEvent
 import com.machankura.bennu.compose.database.model.MarmotInnerEvent
@@ -151,18 +126,6 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         GroupSignedEvent::class,
         GroupTransaction::class,
         InReplyToRelation::class,
-        MantraArtifact::class,
-        MantraArtifactVersion::class,
-        MantraChapter::class,
-        MantraChunk::class,
-        MantraDialect::class,
-        MantraTranslation::class,
-        MantraTranslationArtifactVersion::class,
-        MantraTranslationArtifactVersionContributor::class,
-        MantraTranslationChapter::class,
-        MantraTranslationChapterContributor::class,
-        MantraTranslationChunk::class,
-        MantraTranslationContributor::class,
         MarmotCommitResult::class,
         MarmotGroupEvent::class,
         MarmotInnerEvent::class,
@@ -190,7 +153,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 27,
+    version = 28,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -378,11 +341,16 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // nothing is rebuilt; a rebuild of either signing table would fire the
         // cascades from FrostSigningSession, see docs/frost-batch-signing.md.
         AutoMigration(from = 25, to = 26),
-        // v27 adds the nullable GroupTransaction.guardedChatRoomId: the descendant
+        // v27 drops the nip30303 document tables and MarmotInnerEvent's
+        // payloadEventId, and deletes the chat lines nothing renders any more
+        // (docs/ceremony-creation.md, Phase 8). Manual -- it deletes rows --
+        // so it is MIGRATION_26_27 in `getRoomDatabase`, not an entry here.
+        //
+        // v28 adds the nullable GroupTransaction.guardedChatRoomId: the descendant
         // whose guarded wallet a guardian's spend draws from
         // (docs/group-wallet-guardians.md, Phase 7). Every spend before it was the
         // room's own, which is what null means.
-        AutoMigration(from = 26, to = 27),
+        AutoMigration(from = 27, to = 28),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)
@@ -428,32 +396,6 @@ abstract class BennuDatabase: RoomDatabase() {
     abstract fun giftWrapPayloadDao(): GiftWrapPayloadDao
 
     abstract fun inReplyToRelationDao(): InReplyToRelationDao
-
-    abstract fun mantraDao(): MantraDao
-
-    abstract fun mantraArtifactDao(): MantraArtifactDao
-
-    abstract fun mantraArtifactVersionDao(): MantraArtifactVersionDao
-
-    abstract fun mantraChapterDao(): MantraChapterDao
-
-    abstract fun mantraChunkDao(): MantraChunkDao
-
-    abstract fun mantraDialectDao(): MantraDialectDao
-
-    abstract fun mantraTranslationArtifactVersionDao(): MantraTranslationArtifactVersionDao
-
-    abstract fun mantraTranslationArtifactVersionContributorDao(): MantraTranslationArtifactVersionContributorDao
-
-    abstract fun mantraTranslationChapterDao(): MantraTranslationChapterDao
-
-    abstract fun mantraTranslationChapterContributorDao(): MantraTranslationChapterContributorDao
-
-    abstract fun mantraTranslationChunkDao(): MantraTranslationChunkDao
-
-    abstract fun mantraTranslationDao(): MantraTranslationDao
-
-    abstract fun mantraTranslationContributorDao(): MantraTranslationContributorDao
 
     abstract fun marmotCommitResultDao(): MarmotCommitResultDao
 

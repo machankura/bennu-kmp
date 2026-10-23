@@ -76,11 +76,10 @@ import com.machankura.bennu.compose.database.model.Profile
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.intermdiate.LocalParticipant
 import com.machankura.bennu.compose.repository.ChatRepository
-import com.machankura.bennu.compose.repository.MantraRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProfilePreviewRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
-import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRitualRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateSharedKeyRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
@@ -172,7 +171,6 @@ fun ChatRoomDetailScreen(
     initialChatRoomDetailUIState: ChatRoomDetailUIState = ChatRoomDetailUIState.Loading,
     nostrRepository: NostrRepository,
     chatRepository: ChatRepository,
-    mantraRepository: MantraRepository,
     onNavigateToRoute: (Route) -> Unit,
     onPopBackToRoute: (Route) -> Unit,
     onNavigateBack: () -> Unit,
@@ -184,7 +182,6 @@ fun ChatRoomDetailScreen(
             initialChatRoomDetailUIState = initialChatRoomDetailUIState,
             nostrRepository = nostrRepository,
             chatRepository = chatRepository,
-            mantraRepository = mantraRepository,
             activeUserPublicKey = activeUserPublicKey
         )
     )
@@ -619,12 +616,17 @@ fun ChatRoomDetailScreen(
                             // -- and those are reached from the transcript line that
                             // names the ceremony they are about, never from here,
                             // which has no way to say which.
+                            //
+                            // To the creation screen, which hands over to the group's
+                            // ceremony if it already has one: the ceremony screen only
+                            // shows a ceremony it is named, and this button has none
+                            // to name. See docs/ceremony-creation.md.
                             if (chatRoomDetailUIState.localChatRoom.chatRoom.mlsGroupState == null) {
                                 item {
                                     TextButton(
                                         onClick = {
                                             onNavigateToRoute.invoke(
-                                                DkgRitualRoute(
+                                                CreateSharedKeyRoute(
                                                     activeUserPublicKey = activeUserPublicKey,
                                                     chatRoomId = chatRoomId
                                                 )
@@ -1418,7 +1420,6 @@ private fun ChatRoomMessagingScreenPreview() {
                 ),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                mantraRepository = MantraRepository.NO_OP_MANTRA_REPOSITORY,
                 onNavigateToRoute = {},
                 onPopBackToRoute = {},
                 onNavigateBack = {},

@@ -135,6 +135,35 @@ and orders each round's messages by their sender's host key to match. Sorting is
 the only ordering every device can arrive at without being told. Nothing in the
 protocol checks this, so `ChillDkgRitualOrderingTest` does.
 
+## Where a ceremony starts, and how one ends early
+
+A ceremony is started in exactly three places, each of which knows what it is
+for: group creation (`SelectChatRoomTypeViewModel`) for a new group's own key,
+the subgroup picker (`SelectSubgroupAdminsViewModel`) for a subgroup's, and
+`CreateSharedKeyScreen` for an existing NIP-17 group that has no key yet.
+`CeremonyEntryPointsJvmTest` counts them. `DkgRitualScreen` shows one ceremony,
+named by its route, and never starts one: it used to, from the same button slot
+its approvals used, and a member coming back from approving a subgroup's
+ceremony opened a second, whole-room one in the parent's room. A Marmot room
+cannot hold a ceremony of its own at all -- `proposeRitual` refuses and
+`acceptProposal` drops one -- since its id is derived from the key it already
+has. See [ceremony-creation.md](./ceremony-creation.md).
+
+A failed ceremony is tried again from the screen that starts its kind: the
+creation screen for a group's own, the subgroup picker, filled in from the one
+that failed, for a subgroup's.
+
+Any participant can **abandon** a running ceremony from its screen, which
+broadcasts the same 30316 a fault does and ends it for everyone; nobody outside
+the ceremony can, and a 30316 from a non-participant is ignored. ChillDKG has no
+"no" short of this, and without it a ceremony opened by mistake could only be
+left running.
+
+The kinds above travel in both transports: gift wraps for a group's own
+ceremony, Marmot inner events in the parent's room for a subgroup's. In the
+second, 30310-30312 once collided with document kinds that shared the numbers,
+and `ChatMessage` now recognises a ceremony's kinds before any content kind.
+
 ## After it completes
 
 The group has a threshold public key; each device keeps its own share, restorable

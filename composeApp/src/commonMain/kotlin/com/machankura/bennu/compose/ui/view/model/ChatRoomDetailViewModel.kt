@@ -13,7 +13,6 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.repository.ChatRepository
-import com.machankura.bennu.compose.repository.MantraRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.HomeRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
@@ -33,7 +32,6 @@ class ChatRoomDetailViewModel(
     initialChatRoomDetailUIState: ChatRoomDetailUIState,
     val nostrRepository: NostrRepository,
     val chatRepository: ChatRepository,
-    val mantraRepository: MantraRepository,
 ): ViewModel() {
 
     var chatRoomDetailUIState: ChatRoomDetailUIState by mutableStateOf(initialChatRoomDetailUIState)
@@ -219,7 +217,6 @@ class ChatRoomDetailViewModel(
             initialChatRoomDetailUIState: ChatRoomDetailUIState = ChatRoomDetailUIState.Loading,
             nostrRepository: NostrRepository,
             chatRepository: ChatRepository,
-            mantraRepository: MantraRepository,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ChatRoomDetailViewModel(
@@ -229,7 +226,6 @@ class ChatRoomDetailViewModel(
                     initialChatRoomDetailUIState = initialChatRoomDetailUIState,
                     nostrRepository = nostrRepository,
                     chatRepository = chatRepository,
-                    mantraRepository = mantraRepository,
                 )
             }
         }

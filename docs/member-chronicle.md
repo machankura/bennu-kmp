@@ -9,7 +9,17 @@ Read [shared-key-derivation.md](./shared-key-derivation.md) first. The property
 this whole design rests on -- that a room's id *is* the key it signs with -- is
 stated there, and everything cheap about what follows is downstream of it.
 
-**Built**, phases 1-9, one commit each, with two exceptions named in Phase 7. The
+**Built, and carrying nothing at the moment.** The document kinds it was built
+for were removed with their screens ([ceremony-creation.md](./ceremony-creation.md),
+Phase 7), and nothing else the group signs is safe or useful to replay. What a
+chronicle may carry is now a `ChronicleKinds` value, `ChronicleEvent.KINDS`, and
+it is empty: a device asks for no chronicle, sends none, and applies nothing from
+a page an older build sends. The machinery below is kept and tested with a kind
+set of the tests' own. Adding a kind back means editing `ChronicleEvent.KINDS` on
+purpose, with the reason it is safe to replay. The row rebuild and translation
+supersession described below went with the documents.
+
+Built, phases 1-9, one commit each, with two exceptions named in Phase 7. The
 phases are kept as written because they are the reasoning, and the code reads
 better against the argument it came from than against a summary of itself. Where
 the implementation chose differently the section says so, and it did so five

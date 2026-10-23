@@ -26,6 +26,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.flow.first
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import kotlinx.coroutines.runBlocking
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.ChatMessage
@@ -47,7 +48,6 @@ import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
-import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
 
 /**
  * Two devices, two databases, one real signing session, and the wire between
@@ -877,7 +877,7 @@ class SignedGroupKeyStateTest {
             database = creator.db,
             localChatRoom = creator.room,
             userPublicKey = creator.publicKey,
-            events = dialects()
+            events = posts()
         )
         pump(creator, other)
         FrostSigningManager.approve(other.db, other.room, session.id)
@@ -924,7 +924,7 @@ class SignedGroupKeyStateTest {
             database = creator.db,
             localChatRoom = creator.room,
             userPublicKey = creator.publicKey,
-            events = dialects()
+            events = posts()
         )
         pump(creator, other)
         FrostSigningManager.approve(other.db, other.room, session.id)
@@ -973,7 +973,7 @@ class SignedGroupKeyStateTest {
             database = creator.db,
             localChatRoom = creator.room,
             userPublicKey = creator.publicKey,
-            events = dialects()
+            events = posts()
         )
         pump(creator, other)
         FrostSigningManager.approve(other.db, other.room, session.id)
@@ -1006,7 +1006,7 @@ class SignedGroupKeyStateTest {
             database = creator.db,
             localChatRoom = creator.room,
             userPublicKey = creator.publicKey,
-            events = dialects()
+            events = posts()
         )
         pump(creator, other)
         FrostSigningManager.approve(other.db, other.room, session.id)
@@ -1042,9 +1042,9 @@ class SignedGroupKeyStateTest {
         )
     }
 
-    /** Every event of a batch is applied, not just the first. */
+    /** Every event of a batch is recorded as signed, not just the first. */
     @Test
-    fun `every dialect in a batch lands on every device`() = runBlocking {
+    fun `every post in a batch lands on every device`() = runBlocking {
         val creator = device(members[0], signerIndex = 0)
         val other = device(members[1], signerIndex = 1)
 
@@ -1052,21 +1052,21 @@ class SignedGroupKeyStateTest {
             database = creator.db,
             localChatRoom = creator.room,
             userPublicKey = creator.publicKey,
-            events = dialects()
+            events = posts()
         )
         pump(creator, other)
         FrostSigningManager.approve(other.db, other.room, session.id)
         pump(creator, other)
 
         listOf(creator, other).forEach { device ->
-            val names = device.items(session.id).map { item ->
+            val notes = device.items(session.id).map { item ->
                 assertNotNull(
-                    device.db.mantraDialectDao().getDialectById(item.eventId),
-                    "item ${item.itemIndex} should have been applied"
-                ).name
+                    device.db.groupSignedEventDao().getById(item.eventId),
+                    "item ${item.itemIndex} should have been recorded as signed"
+                ).content
             }
 
-            assertEquals(listOf("Sepedi", "isiZulu", "Setswana"), names)
+            assertEquals(listOf("Sepedi", "isiZulu", "Setswana"), notes)
         }
     }
 
@@ -1080,7 +1080,7 @@ class SignedGroupKeyStateTest {
         val creator = device(members[0], signerIndex = 0)
 
         val tooMany = (0..FrostSigningManager.MAX_BATCH_SIZE).map { index ->
-            DialectEvent.build(name = "d$index", country = "ZA", language = "l$index")
+            TextNoteEvent.build(note = "post $index")
         }
 
         assertFailsWith<IllegalArgumentException> {
@@ -1113,7 +1113,7 @@ class SignedGroupKeyStateTest {
             database = creator.db,
             localChatRoom = creator.room,
             userPublicKey = creator.publicKey,
-            events = dialects()
+            events = posts()
         )
         pump(creator, other)
 
@@ -1165,13 +1165,13 @@ class SignedGroupKeyStateTest {
             database = creator.db,
             localChatRoom = creator.room,
             userPublicKey = creator.publicKey,
-            events = dialects()
+            events = posts()
         )
         pump(creator, other)
 
         val before = other.items(session.id)
 
-        val substitute = DialectEvent.build(name = "Xitsonga", country = "ZA", language = "tso")
+        val substitute = TextNoteEvent.build(note = "Xitsonga")
         FrostSigningManager.processSigningPayload(
             database = other.db,
             localChatRoom = other.room,
@@ -1207,23 +1207,19 @@ class SignedGroupKeyStateTest {
         assertEquals(before.map { it.nonceRandom }, other.items(session.id).map { it.nonceRandom })
     }
 
-    /** Three dialects, distinct enough that an order bug shows up as a wrong name. */
-    private fun dialects() = listOf(
-        Triple("Sepedi", "ZA", "nso"),
-        Triple("isiZulu", "ZA", "zul"),
-        Triple("Setswana", "ZA", "tsn"),
-    ).map { (name, country, language) ->
-        DialectEvent.build(name = name, country = country, language = language)
+    /** Three posts, distinct enough that an order bug shows up as the wrong words. */
+    private fun posts() = listOf("Sepedi", "isiZulu", "Setswana").map { note ->
+        TextNoteEvent.build(note = note)
     }
 
     // ---- What a room signs as, once it has a key state ---------------------
 
     @Test
-    fun `a dialect the group signs is authored by the room it was signed in`() = runBlocking {
+    fun `a post the group signs is authored by the room it was signed in`() = runBlocking {
         val creator = device(members[0], signerIndex = 0)
         val other = device(members[1], signerIndex = 1)
 
-        val template = DialectEvent.build(name = "Sepedi", country = "ZA", language = "nso")
+        val template = TextNoteEvent.build(note = "Sepedi")
         val session = FrostSigningManager.proposeSigning(
             database = creator.db,
             localChatRoom = creator.room,
@@ -1237,19 +1233,19 @@ class SignedGroupKeyStateTest {
         pump(creator, other)
 
         listOf(creator, other).forEach { device ->
-            val dialect = device.db.mantraDialectDao().getDialectById(device.item(session.id).eventId)
-            assertNotNull(dialect, "a signed dialect should exist on every signer's device")
-            assertEquals("Sepedi", dialect.name)
+            val post = device.db.groupSignedEventDao().getById(device.item(session.id).eventId)
+            assertNotNull(post, "a signed post should exist on every signer's device")
+            assertEquals("Sepedi", post.content)
             // The ask this whole change serves: the group's work is authored by
             // the group's room, not by the member who typed it and not by the
             // bare threshold key.
-            assertEquals(adminRoomId, dialect.publicKey)
-            assertTrue(dialect.publicKey != creator.publicKey)
-            assertTrue(dialect.publicKey != rootPublicKey)
+            assertEquals(adminRoomId, post.publicKey)
+            assertTrue(post.publicKey != creator.publicKey)
+            assertTrue(post.publicKey != rootPublicKey)
             assertTrue(
                 Nip01Crypto.verify(
-                    signature = dialect.signature.hexToByteArray(),
-                    hash = dialect.id.hexToByteArray(),
+                    signature = post.signature.hexToByteArray(),
+                    hash = post.id.hexToByteArray(),
                     pubKey = adminRoomId.hexToByteArray()
                 )
             )
@@ -1402,7 +1398,7 @@ class SignedGroupKeyStateTest {
             description = null
         )
 
-        val template = DialectEvent.build(name = "Sepedi", country = "ZA", language = "nso")
+        val template = TextNoteEvent.build(note = "Sepedi")
         val session = FrostSigningManager.proposeSigning(
             database = creator.db,
             localChatRoom = creator.room,
@@ -1435,7 +1431,7 @@ class SignedGroupKeyStateTest {
         )
         member.db.chatRoomDao().upsert(bystanderRoom)
 
-        val template = DialectEvent.build(name = "Sepedi", country = "ZA", language = "nso")
+        val template = TextNoteEvent.build(note = "Sepedi")
 
         assertFailsWith<IllegalStateException> {
             FrostSigningManager.proposeSigning(

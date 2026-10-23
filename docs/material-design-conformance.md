@@ -4,6 +4,10 @@ What the M3 foundations actually require, where this app's 43 screens stand
 against them today, and a phased order of work that makes each phase mechanical
 by the time it starts.
 
+*Nine of those 43 -- the artifact, chapter, dialect and translation screens --
+have since been removed as unreachable ([ceremony-creation.md](./ceremony-creation.md)),
+and one, `CreateSharedKeyScreen`, added. The counts below are as measured.*
+
 The app already builds on Material 3 — `compose-material3:1.10.0-alpha05`, a
 generated `ColorScheme`, `Scaffold`/`TopAppBar`/`ListItem` throughout. What is
 missing is not the library. It is that **the design decisions live at the call
@@ -882,7 +886,8 @@ navigation component counts drop *below* their floors.
 **Left for a person, and for a later commit.**
 
 Proposals → signing and artifacts → chapters are the two remaining list-detail
-families the plan names. Chat was done first and alone, deliberately: it is the
+families the plan names (artifacts → chapters has since been removed with the
+documents). Chat was done first and alone, deliberately: it is the
 one the spec is most careful about, and it is the one whose eleven entry points
 made the shape of the answer clear. The other two are the same shape with
 different content.
