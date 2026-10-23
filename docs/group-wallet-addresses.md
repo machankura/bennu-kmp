@@ -9,9 +9,28 @@ Read [group-chain-wallet.md](./group-chain-wallet.md) first, Phases 4 and 5 in
 particular: this list is a view over the same `ElectrumMiniWallet` state that
 picks the receive address, and it adds nothing to what the wallet watches.
 
-**Not built.** Written against the code as it stood at `707e1465`, with the
-`lightning-kmp-app` submodule at `e0d2b82`. `GroupWalletState.receiveAddresses`
-will be the entry point, and `GroupWalletAddressesScreen` the screen it feeds.
+**Built**, phases 1-5, one commit per phase. Written against the code as it stood
+at `707e1465`, with the `lightning-kmp-app` submodule at `e0d2b82`.
+`GroupWalletState.receiveAddresses` and `changeAddresses` are the entry points,
+and `GroupWalletAddressesScreen` is the screen they feed. The phases are kept as
+written; where the build chose differently the table below says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| the explainer ends *share one of the next two* | *share one of the ones after it*, so the sentence does not have to change if `ADDRESSES_AHEAD` does |
+| `FakeElectrum` gains a `spend` and a history | and moves out of `GroupOnchainWalletJvmTest` into a file of its own, `FakeElectrum.kt`, so the view model's tests can drive a chain too |
+| rows keyed by index | keyed by branch and index: Phase 4's change section starts at index 0 too, and a `LazyColumn` with two rows under one key throws |
+| `receiveAddresses` is one function over the receive branch | one private `listed(branch, state, current)` behind both it and Phase 4's `changeAddresses`; a branch with no current index lists only its used addresses |
+| an unused row is clickable | and says what a click does: `onClickLabel` is *Show as a QR code*, so a screen reader announces it rather than an unlabelled action |
+| the sheet is the `BottomSheetDialog` widget | the `ModalBottomSheet` wrapper that `BottomSheetDialog.kt` declares, as `ChatRoomDetailScreen` calls it |
+| the sheet closes when its address's status is anything other than current or next | when it is `USED`, which is the same thing: those are the three there are |
+| one view-model test for the sheet | two, the second that a payment to *another* address leaves the sheet open: paying the current address can turn the shown one from next into current, and that is not a reason to close it |
+| the copy button's description is *Copy address %1$s* with the index | it is, and a receive row and a change row with the same index therefore share it. The section heading between them is what tells them apart to a screen reader |
+
+A real wallet has not been looked at through this screen yet. Every phase was
+checked with `:composeApp:jvmTest`, `:composeApp:compileDebugKotlinAndroid` and
+`m3-audit.sh --check`, and the list's rules are tested against the fake chain,
+but no device has drawn it over an Electrum server.
 
 The headline: **the list is indices `0` through `max(current + 2, highest used)`,
 newest first, read straight off the receive mini-wallet's `WalletState`. Nothing
