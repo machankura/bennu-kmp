@@ -13,14 +13,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -57,7 +55,6 @@ import com.machankura.bennu.compose.database.model.intermdiate.LocalParticipant
 import com.machankura.bennu.compose.database.model.types.DkgRitualStage
 import com.machankura.bennu.compose.database.model.types.FrostSigningStage
 import com.machankura.bennu.compose.extensions.memberName
-import com.machankura.bennu.compose.managers.ChillDkgRitualManager
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.DkgRepository
 import com.machankura.bennu.compose.ui.composable.widgets.LoadingDataIndicator
@@ -65,6 +62,8 @@ import com.machankura.bennu.compose.ui.composable.widgets.profile.ProfileColor
 import com.machankura.bennu.compose.ui.theme.BennuTheme
 import com.machankura.bennu.compose.database.model.types.DkgApprovalStep
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgJoinApprovalRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.SelectSubgroupAdminsRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateSharedKeyRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRound1ApprovalRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRound2ApprovalRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
@@ -87,7 +86,6 @@ import bennu.composeapp.generated.resources.before_the_subgroup_exists_its_paren
 import bennu.composeapp.generated.resources.the_parent_group_is_certifying_this_subgroup
 import bennu.composeapp.generated.resources.the_parent_group_could_not_certify_this_subgroup
 import bennu.composeapp.generated.resources.the_parent_group_has_certified_this_subgroup
-import bennu.composeapp.generated.resources.how_many_members_will_it_take_to_sign
 import bennu.composeapp.generated.resources.key
 import bennu.composeapp.generated.resources.members
 import bennu.composeapp.generated.resources.nothing_was_created_and_no_key_exists_it_is
@@ -95,19 +93,15 @@ import bennu.composeapp.generated.resources.review_and_confirm
 import bennu.composeapp.generated.resources.review_and_contribute
 import bennu.composeapp.generated.resources.review_and_join
 import bennu.composeapp.generated.resources.shared_key
-import bennu.composeapp.generated.resources.start_key_ceremony
 import bennu.composeapp.generated.resources.the_ceremony_was_abandoned
-import bennu.composeapp.generated.resources.the_group_can_hold_one_key_together_split_so
 import bennu.composeapp.generated.resources.the_group_has_a_shared_key
 import bennu.composeapp.generated.resources.the_group_has_agreed_what_the_admin_room
 import bennu.composeapp.generated.resources.the_group_could_not_agree_what_the_admin
 import bennu.composeapp.generated.resources.the_group_is_agreeing_what_the_admin_room
 import bennu.composeapp.generated.resources.agree_the_groups_signing_key
 import bennu.composeapp.generated.resources.before_the_room_exists_the_group_signs
-import bennu.composeapp.generated.resources.this_is_fixed_once_the_ceremony_runs
 import bennu.composeapp.generated.resources.try_again
 import bennu.composeapp.generated.resources.your_share_of_it_is_on_this_device_only_your
-import bennu.composeapp.generated.resources.everyone_has_to_be_online_at_the_same_time
 import bennu.composeapp.generated.resources.of
 import bennu.composeapp.generated.resources.of_members_will_be_needed_to_sign_with_this
 import bennu.composeapp.generated.resources.shared_key_for
@@ -120,21 +114,26 @@ import com.machankura.bennu.compose.ui.composable.widgets.buttons.ExtendedFab
 import com.machankura.bennu.compose.ui.theme.ConformancePreviews
 
 /**
- * The shared-key ceremony: a ChillDKG ritual run across the group's NIP-17
- * chat, shown as a ladder of rounds so members can see it is moving and who it
- * is waiting on.
+ * One shared-key ceremony: a ChillDKG ritual, shown as a ladder of rounds so
+ * members can see it is moving and who it is waiting on.
  *
  * A DKG needs *everyone* present, which is unusual for a chat feature and the
  * main thing this screen has to communicate — hence a count against every step
  * rather than an indeterminate spinner.
+ *
+ * It shows a ceremony and never starts one. It used to do both, from the same
+ * slot in the bottom bar the approvals use, and a member coming back from
+ * approving a subgroup's ceremony found "Start key ceremony" where "Review and
+ * join" had been. Starting lives in `CreateSharedKeyScreen` and the subgroup
+ * picker, which know what a ceremony is for -- see docs/ceremony-creation.md.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun DkgRitualScreen(
     activeUserPublicKey: HexKey,
     chatRoomId: String,
-    /** Which of the room's ceremonies to show; null takes the newest. */
-    dkgSessionId: String? = null,
+    /** Which of the room's ceremonies to show -- see `DkgRitualRoute.dkgSessionId`. */
+    dkgSessionId: String,
     initialDkgRitualUIState: DkgRitualUIState = DkgRitualUIState.Loading,
     activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
@@ -168,7 +167,6 @@ fun DkgRitualScreen(
             is DkgRitualUIState.Loaded -> {
                 val session = dkgRitualUIState.session
                 val participantCount = dkgRitualUIState.participantCount
-                val canStartRitual = dkgRitualViewModel.canStartRitual()
                 val isActionPending = dkgRitualViewModel.isActionPending.value
 
                 Scaffold(
@@ -177,7 +175,16 @@ fun DkgRitualScreen(
                         TopAppBar(
                             title = {
                                 Text(
-                                    text = stringResource(Res.string.shared_key_for, dkgRitualUIState.localChatRoom.chatRoom.subject ?: "this group"),
+                                    // The ceremony's name, not the room's: a subgroup's
+                                    // runs in its parent's room, and "Shared key for
+                                    // #Checkers" over Tapscript's ceremony names the
+                                    // one group it is not for.
+                                    text = stringResource(
+                                        Res.string.shared_key_for,
+                                        session.subject
+                                            ?: dkgRitualUIState.localChatRoom.chatRoom.subject
+                                            ?: "this group"
+                                    ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -207,17 +214,17 @@ fun DkgRitualScreen(
                                                     DkgApprovalStep.HOST_KEY -> DkgJoinApprovalRoute(
                                                         activeUserPublicKey = activeUserPublicKey,
                                                         chatRoomId = chatRoomId,
-                                                        dkgSessionId = dkgRitualUIState.session?.id
+                                                        dkgSessionId = session.id
                                                     )
                                                     DkgApprovalStep.ROUND_1 -> DkgRound1ApprovalRoute(
                                                         activeUserPublicKey = activeUserPublicKey,
                                                         chatRoomId = chatRoomId,
-                                                        dkgSessionId = dkgRitualUIState.session?.id
+                                                        dkgSessionId = session.id
                                                     )
                                                     DkgApprovalStep.ROUND_2 -> DkgRound2ApprovalRoute(
                                                         activeUserPublicKey = activeUserPublicKey,
                                                         chatRoomId = chatRoomId,
-                                                        dkgSessionId = dkgRitualUIState.session?.id
+                                                        dkgSessionId = session.id
                                                     )
                                                 }
                                             )
@@ -230,34 +237,26 @@ fun DkgRitualScreen(
                             return@Scaffold
                         }
 
-                        // Any member can open a ritual — the coordinator has no say in
-                        // the key — but only when there isn't one already running.
-                        if (canStartRitual) {
+                        // A failed ceremony is tried again from the screen that knows what
+                        // it was for, never from here: this screen only shows a ceremony.
+                        if (session.stage == DkgRitualStage.FAILED) {
                             BottomAppBar(
                                 floatingActionButton = {
                                     ExtendedFab(
-                                        label = if (session == null) {
-                                            stringResource(Res.string.start_key_ceremony)
-                                        } else {
-                                            stringResource(Res.string.try_again)
-                                        },
-                                        icon = {
-                                            if (isActionPending) {
-                                                CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                                            } else {
-                                                Icon(Icons.Default.Key, contentDescription = "Start")
-                                            }
-                                        },
-                                        onClick = { dkgRitualViewModel.startRitual() }
+                                        label = stringResource(Res.string.try_again),
+                                        icon = { Icon(Icons.Default.Key, contentDescription = Decorative) },
+                                        onClick = {
+                                            onNavigateToRoute(
+                                                retryRoute(
+                                                    activeUserPublicKey = activeUserPublicKey,
+                                                    chatRoomId = chatRoomId,
+                                                    session = session,
+                                                )
+                                            )
+                                        }
                                     )
                                 },
-                                actions = {
-                                    Text(
-                                        modifier = Modifier.padding(start = MaterialTheme.spacing.space200),
-                                        text = stringResource(Res.string.of, dkgRitualViewModel.threshold.value, participantCount),
-                                        style = MaterialTheme.typography.labelLarge
-                                    )
-                                }
+                                actions = {}
                             )
                         }
                     }
@@ -271,32 +270,6 @@ fun DkgRitualScreen(
                             .padding(MaterialTheme.spacing.space125),
                         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space125)
                     ) {
-                        if (session == null) {
-                            Text(
-                                text = stringResource(Res.string.the_group_can_hold_one_key_together_split_so),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-
-                            Text(
-                                text = stringResource(Res.string.everyone_has_to_be_online_at_the_same_time, participantCount),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-
-                            if (canStartRitual) {
-                                SharedKeyQuorumStepper(
-                                    threshold = dkgRitualViewModel.threshold.value,
-                                    participantCount = participantCount,
-                                    quorumRange = dkgRitualViewModel.quorumRange(),
-                                    onThresholdChange = dkgRitualViewModel::setThreshold
-                                )
-                            } else {
-                                Text(
-                                    text = "A shared key needs at least " +
-                                        "${ChillDkgRitualManager.MINIMUM_PARTICIPANTS} members to split it between.",
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                            }
-                        } else {
                             RitualProgress(
                                 session = session,
                                 participantCount = participantCount,
@@ -318,7 +291,6 @@ fun DkgRitualScreen(
                                     dkgRitualViewModel.createAdminGroup(onNavigateToRoute)
                                 }
                             )
-                        }
                     }
                 }
             }
@@ -347,6 +319,25 @@ fun DkgRitualScreen(
         }
     }
 }
+
+/**
+ * Where a failed ceremony is tried again: the screen that starts that kind.
+ *
+ * A group's own goes back to `CreateSharedKeyScreen`. A subgroup's goes back to
+ * the picker, filled in from the ceremony that failed, because trying again is a
+ * new ceremony over choices the member may want to change -- an admin who never
+ * showed up, say.
+ */
+internal fun retryRoute(activeUserPublicKey: HexKey, chatRoomId: String, session: DkgSession): Route =
+    session.parentChatRoomId
+        ?.let { parent ->
+            SelectSubgroupAdminsRoute(
+                activeUserPublicKey = activeUserPublicKey,
+                parentChatRoomId = parent,
+                retrying = session.id,
+            )
+        }
+        ?: CreateSharedKeyRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)
 
 /** The ladder, and the members it is climbing. */
 @Composable
@@ -823,17 +814,29 @@ private fun DkgRitualScreenPreview() {
             DkgRitualScreen(
                 activeUserPublicKey = "",
                 chatRoomId = "chatRoomId",
+                dkgSessionId = "session",
                 initialDkgRitualUIState = DkgRitualUIState.Loaded(
                     localChatRoom = LocalChatRoom(
                         chatRoom = ChatRoom(
-                            id = "",
+                            id = "chatRoomId",
                             userPublicKey = "",
                             subject = "Group discussions",
                             description = "See something... say something.",
                             initialGiftWrapPayloadId = null,
                             mlsGroupState = null
                         ),
-                    )
+                    ),
+                    session = DkgSession(
+                        id = "session",
+                        chatRoomId = "chatRoomId",
+                        coordinatorPublicKey = "",
+                        userPublicKey = "",
+                        threshold = 2,
+                        participantCount = 3,
+                        hostPublicKey = "",
+                        round1Random = "",
+                        round2AuxRandom = "",
+                    ),
                 ),
                 activeIdentityStateFlow = MutableStateFlow(null),
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,

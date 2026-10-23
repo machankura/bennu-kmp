@@ -16,6 +16,7 @@ import com.machankura.bennu.compose.identity.Identity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.machankura.bennu.compose.database.model.types.ChatRoomType
@@ -49,6 +50,8 @@ import com.machankura.bennu.compose.ui.view.state.SelectSubgroupAdminsUIState
 class SelectSubgroupAdminsViewModel(
     val activeUserPublicKey: HexKey,
     val parentChatRoomId: String,
+    /** A failed subgroup ceremony to start from; see `SelectSubgroupAdminsRoute.retrying`. */
+    val retrying: String? = null,
     initialUIState: SelectSubgroupAdminsUIState,
     val activeIdentityStateFlow: StateFlow<Identity?>,
     val chatRepository: ChatRepository,
@@ -78,6 +81,9 @@ class SelectSubgroupAdminsViewModel(
 
     val threshold: MutableState<Int> = mutableStateOf(ChatRoomType.MINIMUM_QUORUM)
 
+    /** Whether [retrying] has been read into the form, which happens once. */
+    private var prefilled = false
+
     fun initiate() {
         viewModelScope.launch(Dispatchers.IO) {
             val parentRoom = chatRepository.getChatRoomByIdentifier(parentChatRoomId)
@@ -97,8 +103,40 @@ class SelectSubgroupAdminsViewModel(
                 candidates = candidates,
             )
 
+            // Before the key-package lookup, so anybody who can no longer be
+            // welcomed is unpicked by the same rule as a fresh pick would be.
+            prefillFromRetry(candidates.map { it.participant.participantPublicKey }.toSet())
+
             resolveKeyPackages(candidates.map { it.participant.participantPublicKey })
         }
+    }
+
+    /**
+     * Starts the form from the failed ceremony this is trying again.
+     *
+     * Only from one that was this parent's subgroup, and only admins who are
+     * still in the parent: the ceremony recorded who it was with, and the
+     * parent's membership may have moved since. Once, because the screen asks
+     * to start again every time it comes back into view and a member's edits
+     * must not be put back.
+     */
+    private suspend fun prefillFromRetry(candidates: Set<HexKey>) {
+        val sessionId = retrying ?: return
+        if (prefilled) return
+        prefilled = true
+
+        val failed = dkgRepository.observeSessionById(sessionId).first() ?: return
+        if (failed.parentChatRoomId != parentChatRoomId) return
+
+        name.value = failed.subject.orEmpty()
+
+        selectedPublicKeys.clear()
+        selectedPublicKeys.addAll(
+            failed.participantPublicKeySet().orEmpty()
+                .filter { it != activeUserPublicKey && it in candidates }
+        )
+
+        threshold.value = failed.threshold.coerceIn(quorumRange())
     }
 
     /**
@@ -265,14 +303,6 @@ class SelectSubgroupAdminsViewModel(
                 // arrive -- which is now literally the same place every other
                 // admin answers from, through the ritual notices that name their
                 // own ceremony.
-                //
-                // Sending them to the shared-key screen instead was actively
-                // harmful: that screen's job is to *offer* a ceremony to a room
-                // that has none, so the coordinator arrived at a "Start key
-                // ceremony" button seconds after starting one, and pressing it
-                // opened a second -- for no subgroup, so `proposeRitual`'s guard
-                // did not recognise it as a duplicate -- which then buried the
-                // subgroup's under the room's newest.
                 onNavigateToRoute(
                     ChatRoomMessagingRoute(
                         activeUserPublicKey = activeUserPublicKey,
@@ -290,6 +320,7 @@ class SelectSubgroupAdminsViewModel(
         fun factory(
             activeUserPublicKey: HexKey,
             parentChatRoomId: String,
+            retrying: String? = null,
             initialUIState: SelectSubgroupAdminsUIState = SelectSubgroupAdminsUIState.Loading,
             activeIdentityStateFlow: StateFlow<Identity?>,
             chatRepository: ChatRepository,
@@ -299,6 +330,7 @@ class SelectSubgroupAdminsViewModel(
                 SelectSubgroupAdminsViewModel(
                     activeUserPublicKey = activeUserPublicKey,
                     parentChatRoomId = parentChatRoomId,
+                    retrying = retrying,
                     initialUIState = initialUIState,
                     activeIdentityStateFlow = activeIdentityStateFlow,
                     chatRepository = chatRepository,

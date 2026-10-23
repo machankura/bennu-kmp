@@ -65,7 +65,7 @@ internal fun DkgApprovalScaffold(
     approveLabel: String,
     activeUserPublicKey: HexKey,
     chatRoomId: String,
-    dkgSessionId: String? = null,
+    dkgSessionId: String,
     activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
@@ -118,23 +118,6 @@ internal fun DkgApprovalScaffold(
             }
 
             is DkgRitualUIState.Loaded -> {
-                // Loaded means the room is loaded, not the ritual: [initiate] sets
-                // this state and only then starts collecting the session, so the
-                // first emission always has a null session and a null pending step.
-                // Reading that as "nothing to approve" would flash the empty state
-                // on the way in, which looks exactly like the screen not working.
-                if (state.session == null) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(padding).readableContent().padding(MaterialTheme.spacing.space250),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Spacer(modifier = Modifier.height(MaterialTheme.spacing.space600))
-                        CircularProgressIndicator()
-                    }
-
-                    return@Scaffold
-                }
-
                 // The ritual may have moved on since this screen was opened -- a
                 // redelivery can carry it forward, and the member may have approved
                 // on another device. Approving anyway would be approving a step that

@@ -36,6 +36,9 @@ import com.machankura.bennu.compose.identity.toWalletId
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.DkgRepository
+import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateSharedKeyRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.SelectSubgroupAdminsRoute
+import com.machankura.bennu.compose.ui.composable.retryRoute
 import com.machankura.bennu.compose.ui.view.state.DkgRitualUIState
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -253,6 +256,36 @@ class DkgRitualViewModelJvmTest {
         }
         assertEquals(sessionId, settled.session?.id)
         assertEquals(setOf(ada, bob, "c".repeat(64)), settled.hostKeyParticipants)
+    }
+
+    @Test
+    fun `a ceremony this device has no row for is an error, not an offer`(): Unit = runBlocking {
+        sessionRow.value = null
+        val viewModel = viewModel()
+        viewModel.initiate()
+
+        withTimeout(5_000) {
+            while (viewModel.dkgRitualUIState !is DkgRitualUIState.Error) delay(10)
+        }
+    }
+
+    @Test
+    fun `a failed ceremony is tried again where its kind is started`() {
+        val parent = "9a7e".repeat(16)
+
+        val group = retryRoute(ada, chatRoomId, session(DkgRitualStage.FAILED))
+        assertEquals(CreateSharedKeyRoute(activeUserPublicKey = ada, chatRoomId = chatRoomId), group)
+
+        val subgroup = retryRoute(
+            ada,
+            chatRoomId,
+            session(DkgRitualStage.FAILED).copy(parentChatRoomId = parent)
+        )
+        assertEquals(
+            SelectSubgroupAdminsRoute(activeUserPublicKey = ada, parentChatRoomId = parent, retrying = sessionId),
+            subgroup,
+            "a subgroup's goes back to the picker, filled in from the one that failed",
+        )
     }
 
     @Test

@@ -10,9 +10,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.machankura.bennu.compose.database.model.types.DkgApprovalStep
-import com.machankura.bennu.compose.database.model.types.DkgRitualStage
 import com.machankura.bennu.compose.database.model.types.FrostSigningStage
-import com.machankura.bennu.compose.database.model.types.ChatRoomType
 import com.machankura.bennu.compose.managers.ChillDkgRitualManager
 import com.machankura.bennu.compose.managers.MarmotGroupCreation
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
@@ -53,21 +51,24 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Watches a group's ChillDKG ritual, and opens one on request.
+ * Watches one ChillDKG ritual, and the steps that follow it.
  *
  * Nothing here drives the protocol — the ritual advances in
  * [ChillDkgRitualManager] as messages arrive on the inbound path, so this only
  * has to read the session and show it moving.
+ *
+ * It never opens one. That is `CreateSharedKeyViewModel`'s job for a group's own
+ * key, and the subgroup picker's for a subgroup's: a screen that showed a
+ * ceremony and offered to start one from the same button is how a member
+ * approving a subgroup's ceremony opened a second -- see
+ * docs/ceremony-creation.md.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class DkgRitualViewModel(
     val chatRoomId: String,
     val activeUserPublicKey: HexKey,
-    /**
-     * The ceremony to show, when the caller knew which. Null falls back to the
-     * room's newest -- see [DkgRitualRoute.dkgSessionId].
-     */
-    val dkgSessionId: String? = null,
+    /** The ceremony to show -- see [DkgRitualRoute.dkgSessionId]. */
+    val dkgSessionId: String,
     initialDkgRitualUIState: DkgRitualUIState,
     val activeIdentityStateFlow: StateFlow<Identity?>,
     val chatRepository: ChatRepository,
@@ -91,54 +92,6 @@ class DkgRitualViewModel(
      */
     private val adminGroupBlockedOn = MutableStateFlow<List<String>>(emptyList())
 
-    /**
-     * The quorum the ritual will generate a key for. Pre-filled with the same
-     * majority default the group-creation screen offers.
-     *
-     * TODO: the quorum chosen at creation time is not persisted on ChatRoom, so
-     *  it cannot be read back here. Storing it there would let this default to
-     *  what the group was actually promised rather than re-deriving it.
-     */
-    val threshold: MutableState<Int> = mutableStateOf(ChatRoomType.MINIMUM_QUORUM)
-
-    /**
-     * Whether this device can open a ceremony right now.
-     *
-     * Any member may: ChillDKG gives the coordinator no say in the outcome, and a
-     * NIP-17 room records no creator to reserve the job for. What rules it out is
-     * a ceremony already running, or a group too small to split a key across.
-     */
-    fun canStartRitual(): Boolean {
-        val loaded = dkgRitualUIState as? DkgRitualUIState.Loaded ?: return false
-
-        if (loaded.session != null && loaded.session.stage != DkgRitualStage.FAILED) return false
-
-        // Not just the ceremony on screen. A room can hold more than one, and this
-        // screen exists to offer one to a room that has none -- so a room with a
-        // ceremony running under a different purpose must not be offered another,
-        // whatever this screen happens to be showing.
-        if (loaded.roomHasCeremony) return false
-
-        return ChillDkgRitualManager.canRunRitual(loaded.localChatRoom)
-    }
-
-    fun quorumRange(): IntRange {
-        val loaded = dkgRitualUIState as? DkgRitualUIState.Loaded
-            ?: return ChatRoomType.quorumRange(ChatRoomType.MINIMUM_QUORUM)
-
-        // Below the minimum the range runs backwards and is empty, which `coerceIn`
-        // rejects outright. There is no ritual to run at that size either.
-        return ChatRoomType.quorumRange(
-            maxOf(loaded.participantCount, ChatRoomType.MINIMUM_QUORUM)
-        )
-    }
-
-    fun setThreshold(value: Int) {
-        if (isActionPending.value) return
-
-        threshold.value = value.coerceIn(quorumRange())
-    }
-
     fun initiate() {
         // The screen asks every time it comes back into view -- returning from an
         // approval screen, say -- and starting again used to reset the state to
@@ -154,23 +107,18 @@ class DkgRitualViewModel(
                 return@launch
             }
 
-            val memberCount = ChillDkgRitualManager.memberPublicKeys(localChatRoom).size
-            threshold.value = ChatRoomType
-                .defaultQuorum(memberCount)
-                .coerceIn(ChatRoomType.quorumRange(maxOf(memberCount, ChatRoomType.MINIMUM_QUORUM)))
-
             // One writer. Every part of the screen used to be its own coroutine
             // reading the state, copying one field and writing it back, and one
             // that read before another wrote put the other's field back the way it
             // was -- which could leave the screen with no ceremony on it, offering
             // to start one. Now each part is a flow and the state is built from all
             // of them at once.
-            ceremonyState(localChatRoom).collect { loaded ->
+            ceremonyState(localChatRoom).collect { state ->
                 // An action that failed has said so; a later emission must not
                 // paper over it.
                 if (dkgRitualUIState is DkgRitualUIState.Error) return@collect
 
-                dkgRitualUIState = loaded
+                dkgRitualUIState = state
             }
         }
     }
@@ -178,26 +126,13 @@ class DkgRitualViewModel(
     /**
      * The whole screen as one flow, so no part of it can overwrite another.
      *
-     * Room-scoped where nothing better is known, deliberately. Only the member
-     * who opened a subgroup arrives here knowing it is one -- everybody else
-     * reaches this screen from the room, through the transcript's ritual notice
-     * or the group's details, neither of which has a purpose to hand it. So the
-     * purpose is read off the session rather than required to open it.
-     *
-     * The named ceremony where the caller knew which, and the room's newest
-     * otherwise. A room holds more than one the moment a subgroup's admins are
-     * the whole group, and then "the room's newest" is whichever ceremony was
-     * opened last.
+     * The purpose -- a group's own key or a subgroup's -- is read off the
+     * session rather than handed in, because only the member who opened a
+     * subgroup arrives knowing it is one; everybody else comes from a transcript
+     * line that names the ceremony and nothing more.
      */
-    private fun ceremonyState(localChatRoom: LocalChatRoom): Flow<DkgRitualUIState.Loaded> {
-        val sessions = dkgSessionId
-            ?.let { dkgRepository.observeSessionById(it) }
-            ?: dkgRepository.observeLatestSessionForChatRoom(chatRoomId)
-
-        // Whether the room has any ceremony at all, which is a different question
-        // from which one is being shown -- see `DkgRitualUIState.roomHasCeremony`.
-        val roomHasCeremony = dkgRepository.observeLatestSessionForChatRoom(chatRoomId)
-            .map { newest -> newest != null && newest.stage != DkgRitualStage.FAILED }
+    private fun ceremonyState(localChatRoom: LocalChatRoom): Flow<DkgRitualUIState> {
+        val sessions = dkgRepository.observeSessionById(dkgSessionId)
 
         // The session in which the group agrees what its admin room will sign
         // with. The room a ceremony runs in signs nothing else, so the newest
@@ -219,17 +154,21 @@ class DkgRitualViewModel(
             sessions,
             parts,
             keyStateSession,
-            roomHasCeremony,
             adminGroupBlockedOn,
-        ) { session, ceremony, keyState, hasCeremony, blockedOn ->
-            Snapshot(session, ceremony, keyState, hasCeremony, blockedOn)
+        ) { session, ceremony, keyState, blockedOn ->
+            Snapshot(session, ceremony, keyState, blockedOn)
         }
             // The parts lag the session by one emission when the ceremony changes;
             // a state that drew one ceremony's counts under another's name is the
             // thing this is here to stop.
             .filter { it.ceremony.sessionId == it.session?.id }
             .mapLatest { snapshot ->
+                // A ceremony this device has no row for. Every way here names one
+                // the device recorded -- a transcript line it wrote, or one it has
+                // just opened -- so this is a bug to say out loud rather than an
+                // empty screen to fill with an offer.
                 val session = snapshot.session
+                    ?: return@mapLatest DkgRitualUIState.Error("Couldn't find this key ceremony")
                 val ceremony = snapshot.ceremony
 
                 DkgRitualUIState.Loaded(
@@ -242,12 +181,11 @@ class DkgRitualViewModel(
                     // written around a suspension: whether round 1 can be asked
                     // for depends on how many host keys have arrived, which only
                     // the messages flow sees.
-                    pendingApproval = session?.let { dkgRepository.pendingApproval(it) },
+                    pendingApproval = dkgRepository.pendingApproval(session),
                     adminGroupBlockedOn = snapshot.adminGroupBlockedOn,
                     keyStateSession = snapshot.keyStateSession,
                     isKeyStateSigned = ceremony.isKeyStateSigned,
-                    roomHasCeremony = snapshot.roomHasCeremony,
-                    parentChatRoomId = session?.parentChatRoomId,
+                    parentChatRoomId = session.parentChatRoomId,
                     isCertified = ceremony.isCertified,
                     certificateSession = ceremony.certificateSession,
                 )
@@ -325,7 +263,6 @@ class DkgRitualViewModel(
         val session: DkgSession?,
         val ceremony: CeremonyParts,
         val keyStateSession: FrostSigningSession?,
-        val roomHasCeremony: Boolean,
         val adminGroupBlockedOn: List<String>,
     )
 
@@ -343,7 +280,7 @@ class DkgRitualViewModel(
         if (isActionPending.value) return
 
         val loaded = dkgRitualUIState as? DkgRitualUIState.Loaded ?: return
-        val session = loaded.session ?: return
+        val session = loaded.session
         if (session.thresholdPublicKey == null) return
 
         // Nothing to ask for, and nobody to ask twice. A failed session is the
@@ -409,7 +346,7 @@ class DkgRitualViewModel(
         // any of the subgroup's admins -- see `SubgroupManager` -- and they reach
         // this screen from the room, with no route to have told them anything.
         val parent = loaded.parentChatRoomId ?: return
-        val session = loaded.session ?: return
+        val session = loaded.session
         if (session.thresholdPublicKey == null) return
 
         // Nothing to ask for, and nobody to ask twice. A failed session is the
@@ -449,39 +386,6 @@ class DkgRitualViewModel(
         }
     }
 
-    /** Opens a ritual, making this device its coordinator, and publishes the proposal. */
-    fun startRitual() {
-        if (isActionPending.value) return
-
-        val loaded = dkgRitualUIState as? DkgRitualUIState.Loaded ?: return
-
-        val nostrPrivateKey = activeIdentityStateFlow.value?.nostrPrivateKey
-        if (nostrPrivateKey == null) {
-            dkgRitualUIState = DkgRitualUIState.Error("Couldn't read your keys. Please try again.")
-            return
-        }
-
-        isActionPending.value = true
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val session = dkgRepository.proposeRitual(
-                localChatRoom = loaded.localChatRoom,
-                userPublicKey = activeUserPublicKey,
-                nostrPrivateKey = nostrPrivateKey.value.toByteArray(),
-                threshold = threshold.value
-            )
-
-            isActionPending.value = false
-
-            if (session == null) {
-                logger.e("Failed to start DKG ritual for $chatRoomId")
-                dkgRitualUIState = DkgRitualUIState.Error("Couldn't start the key ceremony. Please try again.")
-            }
-            // On success the session flow above delivers the new row; no need to
-            // set it here and risk racing the observer.
-        }
-    }
-
     /**
      * Agrees to whatever the ritual is currently waiting on from this device.
      *
@@ -498,7 +402,7 @@ class DkgRitualViewModel(
         if (isActionPending.value) return
 
         val loaded = dkgRitualUIState as? DkgRitualUIState.Loaded ?: return
-        val session = loaded.session ?: return
+        val session = loaded.session
 
         val nostrPrivateKey = activeIdentityStateFlow.value?.nostrPrivateKey
         if (nostrPrivateKey == null) {
@@ -549,7 +453,7 @@ class DkgRitualViewModel(
         if (isActionPending.value) return
 
         val loaded = dkgRitualUIState as? DkgRitualUIState.Loaded ?: return
-        val session = loaded.session ?: return
+        val session = loaded.session
         val thresholdPublicKey = session.thresholdPublicKey ?: return
 
         // The screen offers nothing until the group has signed, so this is a
@@ -656,7 +560,7 @@ class DkgRitualViewModel(
         fun factory(
             chatRoomId: String,
             activeUserPublicKey: HexKey,
-            dkgSessionId: String? = null,
+            dkgSessionId: String,
             initialDkgRitualUIState: DkgRitualUIState = DkgRitualUIState.Loading,
             activeIdentityStateFlow: StateFlow<Identity?>,
             chatRepository: ChatRepository,

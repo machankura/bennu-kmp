@@ -13,8 +13,12 @@ import com.machankura.bennu.compose.managers.ChillDkgRitualManager
 sealed interface DkgRitualUIState {
     data class Loaded(
         val localChatRoom: LocalChatRoom,
-        /** Null until somebody opens a ritual. */
-        val session: DkgSession? = null,
+        /**
+         * The ceremony this screen was named. Never absent once loaded: the screen
+         * shows a ceremony and does not offer to start one, so there is no state
+         * in which it has none to show -- see docs/ceremony-creation.md.
+         */
+        val session: DkgSession,
         /**
          * Who has published each round's message, for the progress ladder.
          *
@@ -64,18 +68,6 @@ sealed interface DkgRitualUIState {
          */
         val isKeyStateSigned: Boolean = false,
         /**
-         * Whether this room already holds a ceremony that has not failed --
-         * whichever one [session] happens to be showing.
-         *
-         * Two different questions, and conflating them opened a second ceremony
-         * in a room that already had one. [session] is the ceremony being looked
-         * at; this is whether the room has any. `proposeRitual`'s guard is scoped
-         * by purpose, so a room holding a subgroup's ceremony would happily take
-         * a second one for no subgroup -- and then "the room's newest ceremony"
-         * is the new empty one and the subgroup's is buried under it.
-         */
-        val roomHasCeremony: Boolean = false,
-        /**
          * The group this ceremony is making a subgroup of, or null for an
          * ordinary one.
          *
@@ -124,9 +116,7 @@ sealed interface DkgRitualUIState {
                 .distinctBy { it.participant.participantPublicKey }
                 .associateBy { it.participant.participantPublicKey }
 
-            val participants = session
-                ?.let { ChillDkgRitualManager.participantsOf(it, localChatRoom) }
-                ?: roomMembers.keys
+            val participants = ChillDkgRitualManager.participantsOf(session, localChatRoom)
 
             return (participants + hostKeyParticipants + round1Participants + round2Participants)
                 .map { publicKey ->
@@ -142,13 +132,11 @@ sealed interface DkgRitualUIState {
         }
 
         /**
-         * The `n` of the t-of-n. Counted over people, not participant rows — a room
-         * can hold the same member twice — and taken from the session once one
-         * exists, because that is the count every device agreed to run the ritual on.
+         * The `n` of the t-of-n, as the session has it, because that is the count
+         * every device agreed to run the ritual on.
          */
         val participantCount: Int
-            get() = session?.participantCount
-                ?: ChillDkgRitualManager.memberPublicKeys(localChatRoom).size
+            get() = session.participantCount
     }
 
     data class Error(

@@ -639,6 +639,7 @@ fun BennuNavHost(
                 SelectSubgroupAdminsScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     parentChatRoomId = route.parentChatRoomId,
+                    retrying = route.retrying,
                     activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     chatRepository = databaseChatRepository,
                     dkgRepository = databaseDkgRepository,

@@ -3,7 +3,7 @@ package com.machankura.bennu.compose.ui.composable.navigation.routes
 import kotlinx.serialization.Serializable
 
 /**
- * The shared-key ceremony for one NIP-17 group.
+ * One shared-key ceremony, shown and never started.
  *
  * Deliberately says nothing about *what the ceremony is for*. A subgroup's
  * ceremony grows the ladder by a rung -- the parent's birth certificate -- and
@@ -17,13 +17,15 @@ data class DkgRitualRoute(
     val activeUserPublicKey: String,
     val chatRoomId: String,
     /**
-     * Which of the room's ceremonies to show, when the caller knows.
+     * Which of the room's ceremonies to show. Required: this screen shows a
+     * ceremony and never offers to start one, so a caller without a ceremony to
+     * name is asking to start one and goes to `CreateSharedKeyRoute` instead.
      *
-     * A room can hold more than one -- a subgroup whose admins are the whole
-     * group runs in the room the group's own ceremony ran in -- so "the room's
-     * ceremony" does not name one thing. A transcript line knows which it is
-     * about and passes it; a caller with only a room passes null and gets the
-     * newest, which is the best answer available to it.
+     * A room can hold more than one -- a parent's room hosts every subgroup
+     * ceremony the group runs -- so "the room's ceremony" does not name one
+     * thing, and falling back to the newest is how a second, whole-room ceremony
+     * once ended up on the screen in place of a subgroup's. See
+     * docs/ceremony-creation.md.
      */
-    val dkgSessionId: String? = null
+    val dkgSessionId: String
 ): Route()

@@ -81,6 +81,8 @@ import com.machankura.bennu.compose.ui.view.state.SelectSubgroupAdminsUIState
 fun SelectSubgroupAdminsScreen(
     activeUserPublicKey: HexKey,
     parentChatRoomId: String,
+    /** A failed subgroup ceremony to start from; see `SelectSubgroupAdminsRoute.retrying`. */
+    retrying: String? = null,
     initialUIState: SelectSubgroupAdminsUIState = SelectSubgroupAdminsUIState.Loading,
     activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
@@ -92,6 +94,7 @@ fun SelectSubgroupAdminsScreen(
         factory = SelectSubgroupAdminsViewModel.factory(
             activeUserPublicKey = activeUserPublicKey,
             parentChatRoomId = parentChatRoomId,
+            retrying = retrying,
             initialUIState = initialUIState,
             activeIdentityStateFlow = activeIdentityStateFlow,
             chatRepository = chatRepository,

@@ -224,7 +224,7 @@ fun CreateSharedKeyScreen(
 
 /** Same shape as the group-creation quorum picker, so the choice reads the same. */
 @Composable
-internal fun SharedKeyQuorumStepper(
+private fun SharedKeyQuorumStepper(
     threshold: Int,
     participantCount: Int,
     quorumRange: IntRange,
