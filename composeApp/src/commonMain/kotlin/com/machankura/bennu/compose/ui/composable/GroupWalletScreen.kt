@@ -19,6 +19,7 @@ import bennu.composeapp.generated.resources.couldn_t_bump_the_fee
 import androidx.compose.material.icons.filled.Send
 import bennu.composeapp.generated.resources.send
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupSendRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletAddressesRoute
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +33,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import bennu.composeapp.generated.resources.Res
 import bennu.composeapp.generated.resources.address_copied
+import bennu.composeapp.generated.resources.all_addresses
 import bennu.composeapp.generated.resources.anyone_with_these_can_see_every_address
 import bennu.composeapp.generated.resources.balance
 import bennu.composeapp.generated.resources.balance_not_known_yet
@@ -242,6 +245,14 @@ fun GroupWalletScreen(
                                 )
                             }
                         } else null,
+                        onOpenAddresses = {
+                            onNavigateToRoute(
+                                GroupWalletAddressesRoute(
+                                    activeUserPublicKey = activeUserPublicKey,
+                                    chatRoomId = chatRoomId
+                                )
+                            )
+                        },
                         onOpenSpend = toSession,
                         onSendAgain = if (watcher != null) {
                             { sessionId -> groupWalletViewModel.sendAgain(sessionId) { notify(sentAgain) } }
@@ -292,6 +303,7 @@ private fun OpenWallet(
     state: GroupWalletUIState.Loaded,
     notify: (String) -> Unit,
     onSend: (() -> Unit)?,
+    onOpenAddresses: () -> Unit,
     onOpenSpend: (sessionId: String) -> Unit,
     onSendAgain: ((sessionId: String) -> Unit)?,
     onBump: ((sessionId: String) -> Unit)?,
@@ -361,6 +373,14 @@ private fun OpenWallet(
                                 Icon(Icons.Default.ContentCopy, contentDescription = Decorative)
                                 Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
                                 Text(stringResource(Res.string.copy_address))
+                            }
+                            // In the card because it answers the question the card
+                            // raises: which address to give, when somebody else in
+                            // the group may be giving this one.
+                            TextButton(onClick = onOpenAddresses) {
+                                Icon(Icons.Default.FormatListNumbered, contentDescription = Decorative)
+                                Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                                Text(stringResource(Res.string.all_addresses))
                             }
                         }
                     }

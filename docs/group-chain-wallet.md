@@ -497,7 +497,9 @@ script hashes it does not know.
 **Gap limit.** Phoenix's final wallet watches one address; the swap-in wallet's
 default `lookAhead` is 3. A group hands addresses out from several devices, so two
 members can show the same next address and the gap is mostly bounded by deposits
-nobody made. Start at 10 for receive and 3 for change — each is one Electrum
+nobody made. (The address list in
+[group-wallet-addresses.md](./group-wallet-addresses.md) is what lets them hand
+out different ones.) Start at 10 for receive and 3 for change — each is one Electrum
 subscription per group, and a member in twenty groups pays for all of them.
 `derivationOf` searches only addresses the wallets have generated, which is the
 bound on how far Phase 7's checks will look.
