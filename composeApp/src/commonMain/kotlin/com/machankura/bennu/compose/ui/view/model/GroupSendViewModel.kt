@@ -22,6 +22,7 @@ import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.Satoshi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -98,6 +99,26 @@ class GroupSendViewModel(
 
     /** What the amount field says, read the one way everything that reads it does. */
     fun amount(): SatsInput = parseSats(amountField.text)
+
+    /** The confirmed coins no open spend holds, summed, or null before Electrum has answered. */
+    fun spendable(): Satoshi? {
+        val state = groupSendUIState as? GroupSendUIState.Ready ?: return null
+        return state.walletState?.let { GroupSpendBuilder.spendableBalance(it, state.reserved) }
+    }
+
+    /**
+     * Whether [result] is about the amount typed, and so belongs on the amount
+     * field rather than under the form. Never while sending everything: there
+     * is no amount field then, and a send-all too small or over the cap is the
+     * form's problem as a whole.
+     */
+    fun isAboutTheAmount(result: GroupSpendBuilder.Result?): Boolean =
+        !sendEverything.value && (
+            result is GroupSpendBuilder.Result.InvalidAmount ||
+                result is GroupSpendBuilder.Result.OverCap ||
+                result == GroupSpendBuilder.Result.NotEnough ||
+                result == GroupSpendBuilder.Result.BelowDust
+            )
 
     /**
      * The spend the form describes right now, or null while it is incomplete --

@@ -9,7 +9,7 @@ Read [group-chain-wallet.md](./group-chain-wallet.md) first, Phases 8 and 10 in
 particular. This plan is that note's third rollout gate, and it starts from the
 code as it stands at `96055da5`.
 
-**Phases 1-3 built; 4-7 not.** Written against `GroupSendScreen`, `GroupSendViewModel`,
+**Phases 1-4 built; 5-7 not.** Written against `GroupSendScreen`, `GroupSendViewModel`,
 `GroupSpendBuilder`, `GroupSpend` and `GroupWalletRollout` as they are at that
 commit.
 
@@ -259,64 +259,62 @@ releases its change index.
 
 ## Phase 4: the form
 
-**Two days.** Everything the screen draws, under the CLAUDE.md rules.
+**Two days. Built.** Everything the screen draws, under the CLAUDE.md rules.
 
-Order, top to bottom:
+Top to bottom:
 
 1. **Address.** Unchanged.
-2. **Send everything.** The row, not only the switch, toggles it:
-   `Modifier.toggleable(role = Role.Switch)` on the `Row`, the `Switch` taking
-   `onCheckedChange = null`, and `minimumInteractiveComponentSize()`. That is one
-   48dp target with one name, rather than a small switch beside a label that
-   does nothing when tapped.
+2. **Send everything.** The whole row is the control:
+   `Modifier.toggleable(role = Role.Switch)` and
+   `minimumInteractiveComponentSize()` on the `Row`, with the `Switch` taking
+   `onCheckedChange = null`. That makes one 48dp target with one name, instead
+   of a small switch beside a label that does nothing when tapped.
 3. **Amount in sats**, shown when the switch is off:
-   - `keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number,
-     imeAction = ImeAction.Next)`, with Phase 1's transformations;
-   - `suffix = { Text(stringResource(Res.string.sats)) }`, so the unit is part of
-     the field and not only its label;
-   - `supportingText` holds **how much can be spent**: *"120,000 sats confirmed
-     and free to spend"*. That is the sum of what `GroupSpendBuilder.spendable`
-     returns. The function is private today; make it public, so the screen
-     and the builder count the same coins. It is less than the wallet screen's
-     balance by whatever open spends hold, and the line says *free to spend*
-     because of that difference. On mainnet, while the cap holds, a second line
-     says *"At most 100,000 sats in one spend while the wallet is new."*
-   - `isError` and `supportingText` show **amount errors at the field**:
-     `NotWhole`, `TooLarge`, `NotEnough`, `BelowDust`, `OverCap`. Address and
-     fee problems stay in the preview below, so each error appears next to the
-     field it is about.
+   - the number keyboard with `ImeAction.Next`, and Phase 1's `GroupedSats`;
+   - `suffix` *sats*, so the unit is part of the field and not only its label;
+   - `supportingText` says how much can be spent: *"100,000 sats confirmed and
+     free to spend"*. That is `GroupSpendBuilder.spendableBalance`, built on
+     `spendable`, which is now public so the screen and the builder count the
+     same coins. On mainnet a second line gives the cap, using the existing
+     `while_the_wallet_is_new_at_most_s_sats` rather than a reworded copy, so
+     the warning before the cap is hit and the error when it is hit are the
+     same sentence;
+   - amount problems go to the field, as `isError` plus the supporting text:
+     `InvalidAmount`, `NotEnough`, `BelowDust` and `OverCap`. The decision is
+     `GroupSendViewModel.isAboutTheAmount`, which is always false while sending
+     everything, because then there is no field to put them on. While the field
+     shows a problem, the preview below shows nothing, so the problem is said
+     once.
 4. **Fee rate.** Unchanged.
-5. **Preview.** As today, plus one line when `absorbed > 0`: *"%1$s sats left
-   over are too few to come back as change, and go to the fee."* The other
-   addition is `TooManyOpen`.
+5. **Preview.** Built, or the reason it cannot be: address, nothing to spend,
+   `TooManyOpen`. The *go to the fee* line and `TooManyOpen` landed in Phase 3.
+   The wording of every reason is now one function, `problemWith`, shared by
+   the field and the preview.
 6. **Nothing leaves until a quorum signs** and the button. Unchanged.
 
-When the switch is turned on and off again, the amount typed is kept. The field
-is hidden, not cleared, and `amountField` already outlives the composition.
+Turning *Send everything* on hides the amount field without clearing it, so
+turning it off again finds the amount typed.
 
-**Strings**, sentence case, format arguments, in `strings.xml`:
-`sats`, `s_sats_confirmed_and_free_to_spend`,
-`at_most_s_sats_in_one_spend_while_the_wallet_is_new`,
-`sats_are_whole_numbers`, `that_is_more_sats_than_there_are`,
-`s_sats_left_over_go_to_the_fee`, `too_many_spends_are_open_with_change`.
-(`for_now_a_spend_sends_everything` was removed in Phase 2.) The existing `while_the_wallet_is_new_at_most_s_sats` may be reworded and reused
-rather than duplicated.
+**Strings:** `sats` and `s_sats_confirmed_and_free_to_spend` are new here. The
+rest came in earlier phases. `sats_are_whole_numbers`,
+`that_is_more_sats_than_there_will_ever_be` and `that_isn_t_an_amount_in_sats`
+came in Phase 1, and `s_sats_left_over_go_to_the_fee` and
+`too_many_spends_are_open_with_change` in Phase 3.
 
-**Budgets that must not move:** 0 spacing `.dp` literals, 0 hardcoded colours,
-0 unguarded `.clickable`, 0 untriaged `contentDescription = null`. The amount
-field adds no icon.
+**Budgets:** the audit's budgets are all met. The amount field adds no icon,
+and the switch row is a `toggleable` with a minimum size, not a `.clickable`.
 
-**Test**, `jvmTest/…/ui/composable/GroupSendScreenJvmTest.kt`, in the style of
-`ProposeGroupEventScreenJvmTest`, with a `Ready` state on regtest:
-
-- typing `40000` shows `40,000` in the field and *Sends 40,000 sats* in the
-  preview, and the button is enabled;
-- typing `0.5` shows the whole-numbers error on the field, and the button is
-  disabled;
-- tapping the *Send everything* row hides the field, and tapping it again
-  brings the field back with `40,000`;
-- on mainnet, the field is shown with the cap line under it, and `150000`
-  shows the cap error on the field.
+**Test**, `jvmTest/…/ui/composable/GroupSendScreenJvmTest.kt`, five cases, on
+regtest unless stated:
+- typing `40000` shows `40,000`, *Sends 40,000 sats*, and change, and the
+  button is enabled;
+- the amount is shown as free to spend, and off mainnet there is no cap line;
+- `0.5` puts the whole-numbers error on the field, which is in its error
+  state, with no preview and a disabled button;
+- the *Send everything* row hides the field and the change, and tapping it
+  again brings back `40,000` and its preview;
+- on mainnet, the cap line shows before typing, and `150000` puts the field
+  in its error state with the button disabled.
 
 ---
 

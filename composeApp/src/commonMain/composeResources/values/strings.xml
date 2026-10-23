@@ -645,6 +645,8 @@
     <string name="send_from_the_group_s_wallet">Send from the group's wallet</string>
     <string name="address">Address</string>
     <string name="amount_in_sats">Amount in sats</string>
+    <string name="sats">sats</string>
+    <string name="s_sats_confirmed_and_free_to_spend">%1$s sats confirmed and free to spend</string>
     <string name="send_everything">Send everything</string>
     <string name="feerate_in_sats_per_byte">Fee rate in sats per byte</string>
     <string name="ask_the_group_to_send">Ask the group to send</string>

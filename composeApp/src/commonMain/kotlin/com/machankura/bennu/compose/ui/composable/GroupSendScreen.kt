@@ -1,6 +1,13 @@
 package com.machankura.bennu.compose.ui.composable
 
 import bennu.composeapp.generated.resources.while_the_wallet_is_new_at_most_s_sats
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
+import bennu.composeapp.generated.resources.sats
+import bennu.composeapp.generated.resources.s_sats_confirmed_and_free_to_spend
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -160,6 +167,10 @@ fun GroupSendScreen(
                         .padding(MaterialTheme.spacing.screenMargin),
                     verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
                 ) {
+                    val preview = groupSendViewModel.preview()
+                    // A problem with the amount is said on the amount field, beside what caused it.
+                    val amountProblem = preview?.takeIf { groupSendViewModel.isAboutTheAmount(it) }
+
                     OutlinedTextField(
                         modifier = Modifier.fillMaxWidth(),
                         state = groupSendViewModel.addressField,
@@ -167,26 +178,45 @@ fun GroupSendScreen(
                         label = { Text(stringResource(Res.string.address)) },
                     )
 
+                    // The row is the target, so the label toggles too: one 48dp control with one name.
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth()
+                            .toggleable(
+                                value = groupSendViewModel.sendEverything.value,
+                                role = Role.Switch,
+                                onValueChange = { groupSendViewModel.sendEverything.value = it },
+                            )
+                            .minimumInteractiveComponentSize(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(stringResource(Res.string.send_everything))
-                        Switch(
-                            checked = groupSendViewModel.sendEverything.value,
-                            onCheckedChange = { groupSendViewModel.sendEverything.value = it },
-                        )
+                        Switch(checked = groupSendViewModel.sendEverything.value, onCheckedChange = null)
                     }
 
+                    // Hidden rather than cleared, so turning send-everything off again finds the amount typed.
                     if (!groupSendViewModel.sendEverything.value) {
+                        val spendable = groupSendViewModel.spendable()
+                        val cap = GroupWalletRollout.capFor(chain)
                         OutlinedTextField(
                             modifier = Modifier.fillMaxWidth(),
                             state = groupSendViewModel.amountField,
                             outputTransformation = GroupedSats,
                             lineLimits = TextFieldLineLimits.SingleLine,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                             label = { Text(stringResource(Res.string.amount_in_sats)) },
+                            suffix = { Text(stringResource(Res.string.sats)) },
+                            isError = amountProblem != null,
+                            supportingText = if (amountProblem == null && spendable == null && cap == null) null else {
+                                {
+                                    if (amountProblem != null) {
+                                        Text(problemWith(amountProblem, chain))
+                                    } else Column {
+                                        spendable?.let { Text(stringResource(Res.string.s_sats_confirmed_and_free_to_spend, it.grouped())) }
+                                        cap?.let { Text(stringResource(Res.string.while_the_wallet_is_new_at_most_s_sats, it.grouped())) }
+                                    }
+                                }
+                            },
                         )
                     }
 
@@ -199,10 +229,9 @@ fun GroupSendScreen(
                     )
 
                     // Still finding change is still finding coins: neither is anything to correct.
-                    val preview = groupSendViewModel.preview()
                     if (state.walletState == null || preview == GroupSpendBuilder.Result.FindingChange) {
                         LoadingDataIndicator(fillScreen = false, text = stringResource(Res.string.finding_the_group_s_coins))
-                    } else {
+                    } else if (amountProblem == null) {
                         preview?.let { SendPreview(it, chain) }
                     }
 
@@ -267,22 +296,26 @@ private fun SendPreview(result: GroupSpendBuilder.Result, chain: Chain) {
         }
 
         else -> Text(
-            text = when (result) {
-                GroupSpendBuilder.Result.NotAnAddress ->
-                    stringResource(Res.string.that_isn_t_an_address_on_s, GroupWalletStatementEvent.chainName(chain))
-                GroupSpendBuilder.Result.NothingToSpend -> stringResource(Res.string.the_group_has_nothing_confirmed_to_spend)
-                GroupSpendBuilder.Result.NotEnough -> stringResource(Res.string.the_group_doesn_t_have_that_much_confirmed)
-                GroupSpendBuilder.Result.TooManyOpen -> stringResource(Res.string.too_many_spends_are_open_with_change)
-                is GroupSpendBuilder.Result.OverCap -> stringResource(Res.string.while_the_wallet_is_new_at_most_s_sats, result.cap.grouped())
-                is GroupSpendBuilder.Result.InvalidAmount -> when (result.input) {
-                    SatsInput.NotWhole -> stringResource(Res.string.sats_are_whole_numbers)
-                    SatsInput.TooLarge -> stringResource(Res.string.that_is_more_sats_than_there_will_ever_be)
-                    else -> stringResource(Res.string.that_isn_t_an_amount_in_sats)
-                }
-                else -> stringResource(Res.string.that_is_too_little_to_send)
-            },
+            text = problemWith(result, chain),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.error,
         )
     }
+}
+
+/** Why [result] cannot be proposed, in words. */
+@Composable
+private fun problemWith(result: GroupSpendBuilder.Result, chain: Chain): String = when (result) {
+    GroupSpendBuilder.Result.NotAnAddress ->
+        stringResource(Res.string.that_isn_t_an_address_on_s, GroupWalletStatementEvent.chainName(chain))
+    GroupSpendBuilder.Result.NothingToSpend -> stringResource(Res.string.the_group_has_nothing_confirmed_to_spend)
+    GroupSpendBuilder.Result.NotEnough -> stringResource(Res.string.the_group_doesn_t_have_that_much_confirmed)
+    GroupSpendBuilder.Result.TooManyOpen -> stringResource(Res.string.too_many_spends_are_open_with_change)
+    is GroupSpendBuilder.Result.OverCap -> stringResource(Res.string.while_the_wallet_is_new_at_most_s_sats, result.cap.grouped())
+    is GroupSpendBuilder.Result.InvalidAmount -> when (result.input) {
+        SatsInput.NotWhole -> stringResource(Res.string.sats_are_whole_numbers)
+        SatsInput.TooLarge -> stringResource(Res.string.that_is_more_sats_than_there_will_ever_be)
+        else -> stringResource(Res.string.that_isn_t_an_amount_in_sats)
+    }
+    else -> stringResource(Res.string.that_is_too_little_to_send)
 }

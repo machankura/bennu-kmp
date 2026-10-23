@@ -150,8 +150,16 @@ object GroupSpendBuilder {
         )
     }
 
-    private fun spendable(state: GroupWalletState, reserved: Set<OutPoint>): List<GroupUtxo> =
+    /** The coins a new spend may use: confirmed, and held by no open spend. */
+    fun spendable(state: GroupWalletState, reserved: Set<OutPoint>): List<GroupUtxo> =
         state.utxos.filter { it.isConfirmed && it.utxo.outPoint !in reserved }
+
+    /**
+     * What [spendable] adds up to: the most a form can offer, before the fee.
+     * Less than the wallet's confirmed balance by whatever open spends hold.
+     */
+    fun spendableBalance(state: GroupWalletState, reserved: Set<OutPoint>): Satoshi =
+        spendable(state, reserved).map { it.amount }.sum()
 
     private fun scriptOf(state: GroupWalletState, address: String): ByteVector? =
         Bitcoin.addressToPublicKeyScript(state.account.chain.chainHash, address.trim()).right
