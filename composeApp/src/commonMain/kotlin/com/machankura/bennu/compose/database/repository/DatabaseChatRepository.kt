@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.database.repository
 
+import fr.acinq.bitcoin.Chain
+import com.machankura.bennu.compose.managers.GroupWalletManager
+import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.database.GENESIS_AT
 import com.machankura.bennu.compose.database.BennuDatabase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -210,6 +214,20 @@ class DatabaseChatRepository(
     } catch (e: Throwable) {
         logger.e("Error reading the curated entries of $chatRoomId", e)
         emptyList()
+    }
+
+    override suspend fun groupWallet(chatRoomId: String, chain: Chain): GroupWallet? = try {
+        GroupWalletManager.walletFor(database, chatRoomId, chain)
+    } catch (e: Throwable) {
+        logger.e("Error reading the wallet of $chatRoomId", e)
+        null
+    }
+
+    override suspend fun groupWalletAccount(chatRoomId: String, chain: Chain): GroupWalletDerivation.Account? = try {
+        GroupWalletManager.accountFor(database, chatRoomId, chain)
+    } catch (e: Throwable) {
+        logger.e("Error deriving the wallet account of $chatRoomId", e)
+        null
     }
 
     override suspend fun groupSignedEvent(chatRoomId: String, id: HexKey): GroupSignedEvent? = try {

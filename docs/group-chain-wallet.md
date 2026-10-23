@@ -24,6 +24,9 @@ kept as written; where the build chose differently the table below says so.
 |---|---|
 | one `tr([fp]xpub/<0;1>/*)` descriptor | two, `…/0/*` and `…/1/*`, as bitcoin-kmp's `BIP84Descriptors` does. Many watch-only importers, Bitcoin Core's `importdescriptors` among them, refuse a multipath descriptor |
 | `derive(account, thresholdPublicKey, change, index)` | `derive(account, change, index)`: the `Account` carries the cache that signs as its key, so the threshold key is not asked for twice and cannot be passed in mismatched |
+| late members get the statement through the chronicle | they do not: `ChronicleEvent`'s allowlist carries document kinds only, and leaves out every group-signed statement *about* the group — relay lists and profile included — for the replay reason its kdoc gives. A member who joined later sees *Open a group wallet* instead, and signing it again is harmless: a statement for one account is the same values under the same `d` tag, and the newest replaces the rest |
+| the descriptor rides in a `descriptor` tag | two, each marked `receive` or `change`, and the `d` tag is read back and checked against the network and account, so "newest per account" cannot be split by a `d` that disagrees with the fields |
+| the transcript line is checked by signature | by signature *and* rederivation, through `GroupWallet.of` — a line people will send money on is held to the same check as the wallet screen |
 
 The headline: **the best path is BIP86's own unhardened tail, `/<change>/<index>`,
 hung under an account key the group's threshold key is tweaked to, with the

@@ -10,6 +10,7 @@ import com.machankura.bennu.compose.nostr.curated.CuratedEntryEvent
 import com.machankura.bennu.compose.nostr.curated.CuratedSchemaEvent
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
 import com.machankura.bennu.compose.nostr.nip30303.ArtifactVersionEvent
 import com.machankura.bennu.compose.nostr.nip30303.ChapterEvent
@@ -223,6 +224,18 @@ object ProposedEvent {
                     entry.source?.let { "suggested by ${it.pubKey.shortened()}" }
                 ).joinToString(" · ").ifEmpty { "An untitled entry" }
             }
+        )
+
+        // The group opening a wallet. What a member is agreeing to is that the
+        // group keeps coins here, so the summary names the network -- the one
+        // thing that changes what the coins are worth -- and the account, and
+        // not the xpub, which is a derivation of the room's key nobody can check
+        // by eye.
+        GroupWalletStatementEvent.KIND -> Summary(
+            label = "Open a group wallet",
+            detail = GroupWalletStatementEvent.read(event.tags, event.content)?.let { statement ->
+                "On ${GroupWalletStatementEvent.chainName(statement.chain)}, account ${statement.account}"
+            } ?: "A wallet statement this device cannot read"
         )
 
         else -> Summary(label = "Event of kind ${event.kind}", detail = event.content)

@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.repository
 
+import fr.acinq.bitcoin.Chain
+import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.GiftWrapPayload
 import com.machankura.bennu.compose.database.model.GroupKeyState
@@ -105,6 +108,18 @@ interface ChatRepository {
      * a list is not one. See `GroupRelayList.isAgreed`.
      */
     suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList>
+
+    /**
+     * The wallet this group has opened on [chain], or null when it has not --
+     * read off the group's signed statement and rederived from the room's key.
+     */
+    suspend fun groupWallet(chatRoomId: String, chain: Chain): GroupWallet?
+
+    /**
+     * The account this group *would* open on [chain], whether or not it has, or
+     * null for a room with no key: what a statement proposing the wallet carries.
+     */
+    suspend fun groupWalletAccount(chatRoomId: String, chain: Chain): GroupWalletDerivation.Account?
 
     /**
      * The kind:1s this group signed, newest first.
@@ -381,6 +396,13 @@ interface ChatRepository {
 
             override suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList> =
                 GroupRelayList.allAmong(emptyList(), chatRoomId)
+
+            override suspend fun groupWallet(chatRoomId: String, chain: Chain): GroupWallet? = null
+
+            override suspend fun groupWalletAccount(
+                chatRoomId: String,
+                chain: Chain
+            ): GroupWalletDerivation.Account? = null
 
             override suspend fun groupPosts(chatRoomId: String): List<GroupPost> = emptyList()
 

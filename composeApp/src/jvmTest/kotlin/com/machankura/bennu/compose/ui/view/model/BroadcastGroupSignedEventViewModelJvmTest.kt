@@ -26,6 +26,7 @@ import com.machankura.bennu.compose.nostr.GroupRelay
 import com.machankura.bennu.compose.nostr.GroupRelayList
 import com.machankura.bennu.compose.nostr.GroupRelaySet
 import com.machankura.bennu.compose.nostr.Relays
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.nostr.GroupCuratedSchema
 import com.machankura.bennu.compose.nostr.curated.CuratedEntryEvent
 import com.machankura.bennu.compose.nostr.curated.CuratedSchema
@@ -38,6 +39,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -416,5 +418,26 @@ class BroadcastGroupSignedEventViewModelJvmTest {
         assertEquals(event.content, wire["content"]!!.jsonPrimitive.content)
         assertEquals(event.signature, wire["sig"]!!.jsonPrimitive.content)
         assertEquals("""[["alt","The group's profile"]]""", wire["tags"].toString())
+    }
+
+    // -- what never goes at all ------------------------------------------------
+
+    @Test
+    fun `the group's wallet statement is never handed to a relay`() {
+        val transport = FakeTransport(mapOf(one.url to ok(one)))
+
+        // The xpub on a relay is every address and the whole balance, to anyone.
+        // A refusal nobody tested is the one that disappears in a refactor of
+        // what the broadcast list accepts.
+        assertFailsWith<IllegalArgumentException> {
+            runBlocking {
+                BroadcastGroupSignedEventViewModel.sendToRelays(
+                    publishTransport = transport,
+                    signedEvent = signedEvent(kind = GroupWalletStatementEvent.KIND),
+                    targets = listOf(one),
+                )
+            }
+        }
+        assertNull(transport.sent, "nothing reached the transport")
     }
 }

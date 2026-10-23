@@ -13,6 +13,7 @@ import com.machankura.bennu.compose.database.model.traits.UserViewableEntity
 import com.machankura.bennu.compose.exceptions.MarmotUnprocessableInnerEventException
 import com.machankura.bennu.compose.managers.ChronicleManager
 import com.machankura.bennu.compose.managers.GroupKeyStateManager
+import com.machankura.bennu.compose.managers.GroupWalletManager
 import com.machankura.bennu.compose.managers.SubgroupManager
 import com.machankura.bennu.compose.extensions.toHex
 import com.vitorpamplona.quartz.marmot.GroupEventResult
@@ -33,6 +34,8 @@ import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.GroupWallet
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
 import com.machankura.bennu.compose.nostr.nip30303.ArtifactVersionEvent
 import com.machankura.bennu.compose.nostr.nip30303.ChapterEvent
@@ -491,12 +494,23 @@ data class ChatMessage(
          */
         const val TYPE_GROUP_ENTRY_CURATED = "groupEntryCurated"
 
+        /**
+         * The group opened a wallet.
+         *
+         * A system line like the others in [GROUP_IDENTITY_TYPES]: nobody said it,
+         * the group signed it. It names the network and nothing else -- the
+         * addresses are on the wallet's screen, derived there from the room's key,
+         * and the statement's xpub is not something a transcript should repeat.
+         */
+        const val TYPE_GROUP_WALLET_OPENED = "groupWalletOpened"
+
         val GROUP_IDENTITY_TYPES = setOf(
             TYPE_GROUP_PROFILE_SIGNED,
             TYPE_GROUP_RELAYS_SIGNED,
             TYPE_GROUP_POST_SIGNED,
             TYPE_GROUP_SCHEMA_SIGNED,
             TYPE_GROUP_ENTRY_CURATED,
+            TYPE_GROUP_WALLET_OPENED,
         )
 
         /**
@@ -1650,6 +1664,31 @@ data class ChatMessage(
                 // `GroupRelayList` reads the lists straight off those; this arm
                 // exists so a signed relay list is a line in the transcript rather
                 // than raw JSON in a bubble.
+                // The group opening a wallet. Checked the whole way -- the room's
+                // signature, and the statement rederiving from the room's own key --
+                // because a line saying "the group opened a wallet" is a line people
+                // will send money on. A statement that fails either gets no line;
+                // it is filed as a `GroupSignedEvent` all the same, and `GroupWallet`
+                // refuses it there for the same reasons.
+                GroupWalletStatementEvent.KIND -> {
+                    val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
+                    val thresholdPublicKey = GroupWalletManager.thresholdKeyFor(database, groupId)
+                        ?: return null
+                    val wallet = GroupWallet.of(signed, thresholdPublicKey) ?: return null
+
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = TYPE_GROUP_WALLET_OPENED,
+                        marmotGroupEventId = marmotGroupEventId,
+                        marmotInnerEventId = marmotInnerEventId,
+                        senderPublicKey = senderPublicKey,
+                        isUserMessage = isUserMessage,
+                        chatRoomId = groupId,
+                        createdAt = createdAt,
+                        content = "The group opened a wallet on ${GroupWalletStatementEvent.chainName(wallet.chain)}"
+                    )
+                }
+
                 in GroupRelaySet.KINDS -> {
                     val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
                     if (!signed.verifies()) return null

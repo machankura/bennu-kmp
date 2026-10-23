@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -177,6 +178,13 @@ class BroadcastGroupSignedEventViewModel(
                         "This device doesn't hold that signed event"
                     )
 
+                // The group's wallet statement carries its xpub: on a relay it is
+                // every address and the whole balance, to anyone.
+                signedEvent.kind in GroupWalletStatementEvent.NEVER_BROADCAST ->
+                    BroadcastGroupSignedEventUIState.Error(
+                        "The group's wallet stays inside the group"
+                    )
+
                 else -> BroadcastGroupSignedEventUIState.Loaded(
                     localChatRoom = localChatRoom,
                     signedEvent = signedEvent,
@@ -322,6 +330,12 @@ class BroadcastGroupSignedEventViewModel(
             targets: List<NormalizedRelayUrl>,
             onOutcome: (NormalizedRelayUrl, RelayOutcome) -> Unit = { _, _ -> },
         ): Map<NormalizedRelayUrl, RelayOutcome> {
+            // The second line of the refusal the loader makes, for the callers that
+            // never pass through it -- "Broadcast all" among them.
+            require(signedEvent.kind !in GroupWalletStatementEvent.NEVER_BROADCAST) {
+                "kind ${signedEvent.kind} never leaves the group"
+            }
+
             val outcomes = mutableMapOf<NormalizedRelayUrl, RelayOutcome>()
 
             fun settle(relay: NormalizedRelayUrl, outcome: RelayOutcome) {
