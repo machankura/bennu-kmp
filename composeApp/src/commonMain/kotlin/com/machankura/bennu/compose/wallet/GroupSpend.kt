@@ -169,7 +169,7 @@ object GroupSpend {
         // 5. Change is change only if it derives.
         val outputs = psbt.outputs.mapIndexed { index, output ->
             val txOut = tx.txOut[index]
-            val ours = output.taprootDerivationPaths.values.filter { it.masterKeyFingerprint == account.fingerprint }
+            val ours = output.taprootDerivationPaths.values.filter { isOurs(it, account) }
             val change = if (ours.isEmpty()) {
                 null
             } else {
@@ -204,7 +204,7 @@ object GroupSpend {
     fun claimedChangeIndices(psbt: Psbt, account: GroupWalletDerivation.Account): Set<Long> =
         psbt.outputs
             .flatMap { it.taprootDerivationPaths.values }
-            .filter { it.masterKeyFingerprint == account.fingerprint }
+            .filter { isOurs(it, account) }
             .mapNotNull { path -> path.keyPath.path.takeIf { it.size == 2 && it[0] == GroupWalletDerivation.CHANGE }?.get(1) }
             .toSet()
 
@@ -219,7 +219,7 @@ object GroupSpend {
         paths: Map<fr.acinq.bitcoin.XonlyPublicKey, TaprootBip32DerivationPath>,
         account: GroupWalletDerivation.Account,
     ): GroupWalletDerivation.Derived? {
-        val (internalKey, path) = paths.entries.singleOrNull { it.value.masterKeyFingerprint == account.fingerprint }
+        val (internalKey, path) = paths.entries.singleOrNull { isOurs(it.value, account) }
             ?.toPair()
             ?: return null
         if (path.leaves.isNotEmpty()) return null
@@ -229,6 +229,18 @@ object GroupSpend {
 
         return GroupWalletDerivation.derive(account, change, index).takeIf { it.internalKey == internalKey }
     }
+
+    /**
+     * Whether [path] names [account] as its master key.
+     *
+     * Compared as an unsigned 32-bit value. bitcoin-kmp reads a taproot
+     * derivation's fingerprint back from a serialised PSBT as a *signed* int, so
+     * an account whose fingerprint has its top bit set -- half of them -- would
+     * write `3578966523` and read back `-716000773`, and every member but the
+     * proposer would refuse every spend from that wallet as not its own.
+     */
+    private fun isOurs(path: TaprootBip32DerivationPath, account: GroupWalletDerivation.Account): Boolean =
+        (path.masterKeyFingerprint and 0xFFFFFFFFL) == account.fingerprint
 
     /**
      * The PSBT a proposer sends: [tx] with every input's spent output and
