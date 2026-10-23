@@ -9,7 +9,7 @@ Read [group-chain-wallet.md](./group-chain-wallet.md) first, Phases 8 and 10 in
 particular. This plan is that note's third rollout gate, and it starts from the
 code as it stands at `96055da5`.
 
-**Phases 1-4 built; 5-7 not.** Written against `GroupSendScreen`, `GroupSendViewModel`,
+**Phases 1-5 built; 6 and 7 not.** Written against `GroupSendScreen`, `GroupSendViewModel`,
 `GroupSpendBuilder`, `GroupSpend` and `GroupWalletRollout` as they are at that
 commit.
 
@@ -320,21 +320,17 @@ regtest unless stated:
 
 ## Phase 5: what the other members see
 
-**Half a day, mostly reading.** The approval side has been built since Phase 8.
-This phase checks that each place a spend is described says the payment and
-not the total.
+**Half a day, mostly reading. Built: tests only, nothing needed fixing.** The
+approval side has been built since the wallet note's Phase 8. This phase
+checked that every place a spend is described reports the payment, not the
+payment plus change.
 
-| place | reads | expected with change |
-|---|---|---|
-| `FrostSigningScreen.WhatIsBeingSpent` | every output, `isChange` | payment row, change row labelled *back to the group as change*, fee |
-| `ProposedSpend.summarize` | the one payment's amount | *Send 40,000 sats to bcrt1…*, not the inputs' total |
-| `FrostSigningManager`'s completion and confirmation lines | `amountSent` | the payment only: `amountSent` already excludes change |
-| `GroupWalletScreen`'s spend rows | check | the payment, not payment plus change |
-
-Add one test per row whose behaviour is not already tested: build a spend with
-change through `GroupSpendBuilder.send`, check it, and assert the words. The
-`GroupWalletScreen` row is the one not yet read for this plan. If it shows
-anything but `amountSent`, fixing it belongs in this phase.
+| place | reads | with change, it says | tested by |
+|---|---|---|---|
+| `FrostSigningScreen.WhatIsBeingSpent` | every output and its `isChange` | a payment row, a change row labelled *back to the group as change*, the fee | `GroupSpendSigningJvmTest`: the other device's `checkedSpend` labels exactly the change output |
+| `ProposedSpend.summarize`, which the proposal list and the wallet screen's spend rows both use | the single payment's amount | *Send 30,000 sats to bcrt1…* | `ProposedSpendTest`, new |
+| `GroupWalletScreen`'s spend rows | `ProposedSpend.summarize(row.spend)` | the same as the row above | the same test: the plan had not read this row, and it turned out to reuse the summary, not compute its own amount |
+| the *signed* line (`TYPE_FROST_COMPLETE`) and the *confirmed* line (`TYPE_GROUP_TRANSACTION_CONFIRMED`) | `amountSent`, which excludes change | *sending 30000 sats* and *30000 sats sent* | `GroupSpendSigningJvmTest`'s end-to-end case, which now runs `recordConfirmed` and reads both lines off the other device's transcript |
 
 ---
 

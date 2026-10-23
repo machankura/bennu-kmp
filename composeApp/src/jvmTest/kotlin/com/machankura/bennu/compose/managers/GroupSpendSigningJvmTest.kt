@@ -3,6 +3,7 @@ package com.machankura.bennu.compose.managers
 import androidx.room3.Room
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.builder.getRoomDatabase
+import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
 import com.machankura.bennu.compose.database.model.DkgSession
@@ -50,6 +51,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 /**
@@ -441,5 +443,13 @@ class GroupSpendSigningJvmTest {
         )
         assertEquals(changeOutput.change, after.derivationOf(changeOutput.txOut.publicKeyScript))
         assertEquals(Satoshi(40_000) + built.change!!, after.confirmedBalance, "the second funding coin, and the change")
+
+        // The transcript says what left the group: the payment, never the change with it.
+        FrostSigningManager.recordConfirmed(other.db, session.id)
+        val lines = other.db.chatMessageDao().getChatMessagesByChatRoomId(roomId).map { it.chatMessage }
+        val signedLine = lines.single { it.messageType == ChatMessage.TYPE_FROST_COMPLETE && it.content.startsWith("The group signed a transaction") }
+        assertTrue(signedLine.content.startsWith("The group signed a transaction sending 30000 sats, with ${seen.fee.sat} sats in fees."), signedLine.content)
+        val confirmedLine = lines.single { it.messageType == ChatMessage.TYPE_GROUP_TRANSACTION_CONFIRMED }
+        assertEquals("The group's transaction confirmed: 30000 sats sent.", confirmedLine.content)
     }
 }
