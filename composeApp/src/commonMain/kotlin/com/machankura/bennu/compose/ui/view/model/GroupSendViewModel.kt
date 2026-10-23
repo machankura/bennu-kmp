@@ -15,12 +15,13 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
+import com.machankura.bennu.compose.text.SatsInput
+import com.machankura.bennu.compose.text.parseSats
 import com.machankura.bennu.compose.ui.view.state.GroupSendUIState
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
-import fr.acinq.bitcoin.Satoshi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -94,21 +95,35 @@ class GroupSendViewModel(
         }
     }
 
+    /** What the amount field says, read the one way everything that reads it does. */
+    fun amount(): SatsInput = parseSats(amountField.text)
+
     /**
      * The spend the form describes right now, or null while it is incomplete --
-     * no wallet state yet, no feerate, no amount.
+     * no wallet state yet, no feerate, no amount. An amount that is not one is
+     * not incomplete, and says so before the rest of the form is filled in.
      */
     fun preview(): GroupSpendBuilder.Result? {
         val state = groupSendUIState as? GroupSendUIState.Ready ?: return null
         val walletState = state.walletState ?: return null
+
+        val amount = if (sendEverything.value || !GroupWalletRollout.SEND_AN_AMOUNT) {
+            null
+        } else {
+            when (val input = amount()) {
+                SatsInput.Empty -> return null
+                is SatsInput.Sats -> input.amount
+                else -> return GroupSpendBuilder.Result.InvalidAmount(input)
+            }
+        }
+
         val feerate = feerateField.text.toString().trim().toLongOrNull()?.takeIf { it > 0 } ?: return null
         val address = addressField.text.toString().trim().takeIf { it.isNotEmpty() } ?: return null
 
-        val built = if (sendEverything.value || !GroupWalletRollout.SEND_AN_AMOUNT) {
+        val built = if (amount == null) {
             GroupSpendBuilder.sendAll(walletState, address, feerate, state.reserved)
         } else {
-            val amount = amountField.text.toString().filter { it.isDigit() }.toLongOrNull() ?: return null
-            GroupSpendBuilder.send(walletState, address, Satoshi(amount), feerate, state.reserved)
+            GroupSpendBuilder.send(walletState, address, amount, feerate, state.reserved)
         }
         return GroupSpendBuilder.capped(built, GroupWalletRollout.capFor(chain))
     }

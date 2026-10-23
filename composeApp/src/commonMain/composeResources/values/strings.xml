@@ -654,6 +654,9 @@
     <string name="the_group_has_nothing_confirmed_to_spend">The group has nothing confirmed to spend yet.</string>
     <string name="the_group_doesn_t_have_that_much_confirmed">The group doesn't have that much confirmed, after the fee.</string>
     <string name="that_is_too_little_to_send">That is too little to send: the network won't relay an output that small.</string>
+    <string name="sats_are_whole_numbers">Sats are whole numbers: there is nothing smaller than a sat to send.</string>
+    <string name="that_is_more_sats_than_there_will_ever_be">That is more sats than there will ever be.</string>
+    <string name="that_isn_t_an_amount_in_sats">That isn't an amount in sats.</string>
     <string name="couldn_t_ask_the_group_to_send">Couldn't ask the group to send.</string>
     <string name="sending_needs_a_share_and_a_node">Sending needs a share of the group's key, and a wallet of your own on this profile to see the group's coins with.</string>
     <string name="nothing_leaves_until_a_quorum_signs">Nothing leaves the wallet until a quorum of members has seen this spend and signed it.</string>

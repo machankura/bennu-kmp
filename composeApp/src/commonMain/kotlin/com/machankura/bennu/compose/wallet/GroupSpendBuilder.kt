@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.wallet
 
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.text.SatsInput
 import fr.acinq.bitcoin.Bitcoin
 import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.ByteVector64
@@ -36,6 +37,8 @@ object GroupSpendBuilder {
         data object NotHigher : Result
         /** More than [GroupWalletRollout.capFor] lets one spend send. */
         data class OverCap(val cap: Satoshi) : Result
+        /** The amount typed is not a number of sats; [input] says why. */
+        data class InvalidAmount(val input: SatsInput) : Result
     }
 
     /**

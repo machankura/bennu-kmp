@@ -10,6 +10,7 @@ import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
+import com.machankura.bennu.compose.text.SatsInput
 import com.machankura.bennu.compose.ui.view.state.GroupSendUIState
 import com.machankura.bennu.compose.wallet.GroupSpend
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
@@ -42,6 +43,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.time.Instant
@@ -135,6 +137,21 @@ class GroupSendViewModelJvmTest {
         runBlocking { withTimeout(5_000) { while (signing.proposed == null) delay(10) } }
         assertEquals(built.psbt, signing.proposed)
         assertIs<GroupSpend.Result.Ok>(GroupSpend.check(signing.proposed!!, account), "the other members would accept it")
+    }
+
+    @Test
+    fun `a decimal amount is refused, never sent ten times over`() {
+        val model = viewModel(GroupSendUIState.Ready(localChatRoom, wallet, walletState, reserved = emptySet()))
+        model.addressField.setTextAndPlaceCursorAtEnd("bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080")
+        model.feerateField.setTextAndPlaceCursorAtEnd("4")
+        model.amountField.setTextAndPlaceCursorAtEnd("21000.5")
+
+        assertEquals(SatsInput.NotWhole, model.amount())
+        val preview = model.preview()
+        assertNotEquals(Satoshi(210_005), (preview as? GroupSpendBuilder.Result.Built)?.amount)
+        if (GroupWalletRollout.SEND_AN_AMOUNT) {
+            assertEquals(GroupSpendBuilder.Result.InvalidAmount(SatsInput.NotWhole), preview)
+        }
     }
 
     @Test

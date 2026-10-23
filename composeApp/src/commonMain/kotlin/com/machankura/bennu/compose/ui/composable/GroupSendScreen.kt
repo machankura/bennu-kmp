@@ -56,6 +56,11 @@ import bennu.composeapp.generated.resources.the_group_has_nothing_confirmed_to_s
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
+import bennu.composeapp.generated.resources.sats_are_whole_numbers
+import bennu.composeapp.generated.resources.that_is_more_sats_than_there_will_ever_be
+import bennu.composeapp.generated.resources.that_isn_t_an_amount_in_sats
+import com.machankura.bennu.compose.text.GroupedSats
+import com.machankura.bennu.compose.text.SatsInput
 import com.machankura.bennu.compose.text.grouped
 import com.machankura.bennu.compose.ui.composable.navigation.routes.FrostSigningRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
@@ -188,6 +193,7 @@ fun GroupSendScreen(
                         OutlinedTextField(
                             modifier = Modifier.fillMaxWidth(),
                             state = groupSendViewModel.amountField,
+                            outputTransformation = GroupedSats,
                             lineLimits = TextFieldLineLimits.SingleLine,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             label = { Text(stringResource(Res.string.amount_in_sats)) },
@@ -269,6 +275,11 @@ private fun SendPreview(result: GroupSpendBuilder.Result, chain: Chain) {
                 GroupSpendBuilder.Result.NothingToSpend -> stringResource(Res.string.the_group_has_nothing_confirmed_to_spend)
                 GroupSpendBuilder.Result.NotEnough -> stringResource(Res.string.the_group_doesn_t_have_that_much_confirmed)
                 is GroupSpendBuilder.Result.OverCap -> stringResource(Res.string.while_the_wallet_is_new_at_most_s_sats, result.cap.grouped())
+                is GroupSpendBuilder.Result.InvalidAmount -> when (result.input) {
+                    SatsInput.NotWhole -> stringResource(Res.string.sats_are_whole_numbers)
+                    SatsInput.TooLarge -> stringResource(Res.string.that_is_more_sats_than_there_will_ever_be)
+                    else -> stringResource(Res.string.that_isn_t_an_amount_in_sats)
+                }
                 else -> stringResource(Res.string.that_is_too_little_to_send)
             },
             style = MaterialTheme.typography.bodyMedium,
