@@ -8,7 +8,6 @@ import bennu.composeapp.generated.resources.something_went_wrong
 import bennu.composeapp.generated.resources.add_chapter_to
 import bennu.composeapp.generated.resources.chapter_words_characters
 import bennu.composeapp.generated.resources.sent_a_private_message_to
-import bennu.composeapp.generated.resources.template_links
 import org.jetbrains.compose.resources.getString
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -64,15 +63,6 @@ class StringCatalogueJvmTest {
             "Ada sent a private message to Grace",
             getString(Res.string.sent_a_private_message_to, "Ada", "Grace"),
         )
-    }
-
-    @Test
-    fun `an ampersand entity comes back as an ampersand`() = runBlocking {
-        // `&` is the one character XML itself refuses in text, so it is the entity
-        // `&amp;` in the catalogue -- an escape the parser handles rather than the
-        // resources library, and the first the app has depended on. The failure
-        // mode is a card offering "Links &amp; text".
-        assertEquals("Links & text", getString(Res.string.template_links))
     }
 
     @Test

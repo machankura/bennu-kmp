@@ -25,7 +25,7 @@ import kotlin.test.Test
  *
  * The screen's one job beyond a text field is to tell a member, before a quorum
  * is asked, what the group would be signing or why it will not be asked. Both
- * are read live off the paste, so both are tested by typing: a schema reads back
+ * are read live off the paste, so both are tested by typing: a relay list reads back
  * as the signing screen would describe it, junk is named as junk, and a kind
  * with no section to land in is refused with the kinds that have one.
  */
@@ -34,18 +34,16 @@ class ProposeGroupEventScreenJvmTest {
 
     private val chatRoomId = "d4c3b2a1".repeat(8)
 
-    private val schema = """{"kind":31889,"created_at":1735689600,"tags":[["d","bitcoin.mov"],""" +
-        """["title","bitcoin.mov suggestion"],["name","bitcoin.mov"],""" +
-        """["description","Fields for a bitcoin.mov entry."],["visibility","public"],""" +
-        """["field","title","text","required","","Title","{}"]],"content":"Fields for a bitcoin.mov entry."}"""
+    private val relayList = """{"kind":10002,"created_at":1735689600,""" +
+        """"tags":[["r","wss://relay.one.example"],["r","wss://relay.two.example","read"]],"content":""}"""
 
     @Test
-    fun `a pasted schema is read back as the signing screen would say it`() = render(state()) {
-        onNodeWithText("Unsigned event").performTextInput(schema)
+    fun `a pasted relay list is read back as the signing screen would say it`() = render(state()) {
+        onNodeWithText("Unsigned event").performTextInput(relayList)
 
         onNodeWithText("What the group would sign").assertIsDisplayed()
-        onNodeWithText("Kind 31889 · Curated schema").assertIsDisplayed()
-        onNodeWithText("bitcoin.mov · public · 1 field").assertIsDisplayed()
+        onNodeWithText("Kind 10002 · General relay list").assertIsDisplayed()
+        onNodeWithText("relay.one.example, relay.two.example").assertIsDisplayed()
     }
 
     @Test
@@ -62,7 +60,7 @@ class ProposeGroupEventScreenJvmTest {
 
         onNodeWithText("Kind 30023 has nowhere to go on the group's screen.", substring = true)
             .assertIsDisplayed()
-        onNodeWithText("0, 1, 10002, 10006, 10007, 10050, 31889", substring = true).assertIsDisplayed()
+        onNodeWithText("0, 1, 10002, 10006, 10007, 10050", substring = true).assertIsDisplayed()
     }
 
     @Test

@@ -27,11 +27,6 @@ import com.machankura.bennu.compose.nostr.GroupRelayList
 import com.machankura.bennu.compose.nostr.GroupRelaySet
 import com.machankura.bennu.compose.nostr.Relays
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
-import com.machankura.bennu.compose.nostr.GroupCuratedSchema
-import com.machankura.bennu.compose.nostr.curated.CuratedEntryEvent
-import com.machankura.bennu.compose.nostr.curated.CuratedSchema
-import com.machankura.bennu.compose.nostr.curated.CuratedSchemaEvent
-import com.machankura.bennu.compose.nostr.curated.CuratedVisibility
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.ui.view.model.BroadcastGroupSignedEventViewModel.RelayOutcome
 import com.machankura.bennu.compose.ui.view.state.BroadcastGroupSignedEventUIState
@@ -51,7 +46,7 @@ import kotlin.time.Instant
  * **Where an event goes before anyone says otherwise.** The seeded list is what a
  * member who reads nothing and presses the button sends to, so it has to be the
  * group's own answer where the group has given one, has to leave out what the
- * group has blocked, and has to widen for the two kinds whose readers would not
+ * group has blocked, and has to widen for relay lists, whose readers would not
  * otherwise find them.
  *
  * **What each relay's answer becomes.** The pool answers once per relay in three
@@ -220,82 +215,17 @@ class BroadcastGroupSignedEventViewModelJvmTest {
     }
 
     @Test
-    fun `a curated schema also goes to the relays it names for its own replies`() {
-        val relayLists = agreed(GroupRelaySet.General to listOf(GroupRelay(one)))
-
-        val seeded = BroadcastGroupSignedEventViewModel.defaultRelaysFor(
-            relayLists = relayLists,
-            kind = CuratedSchemaEvent.KIND,
-            tags = arrayOf(
-                arrayOf("d", "films"),
-                arrayOf("relay", three.url),
-            ),
-            content = "Films worth translating.",
-        )
-
-        // The group's relay first, then the list's own -- a client reading
-        // suggestions on the list's relay finds the schema they answer.
-        assertEquals(listOf(one, three), seeded)
-    }
-
-    @Test
-    fun `an entry into a curated list goes to the list's relays, found by the coordinate it replies to`() {
-        val relayLists = agreed(GroupRelaySet.General to listOf(GroupRelay(one)))
-
-        val films = GroupCuratedSchema(
-            signedEvent = relaySignedEvent(GroupRelaySet.General).copy(kind = CuratedSchemaEvent.KIND),
-            schema = CuratedSchema(
-                identifier = "films",
-                title = "Film suggestion",
-                name = "Films worth translating",
-                description = "Films the group would subtitle.",
-                visibility = CuratedVisibility.Public,
-                relays = listOf(three.url),
-            ).normalized(),
-        )
-        val books = films.copy(schema = films.schema.copy(identifier = "books", relays = listOf(two.url)))
-
-        val seeded = BroadcastGroupSignedEventViewModel.defaultRelaysFor(
-            relayLists = relayLists,
-            kind = CuratedEntryEvent.CANONICAL_KIND,
-            tags = arrayOf(
-                arrayOf("d", "magic-money"),
-                arrayOf("title", "Magic Money"),
-                arrayOf("a", films.coordinate(), "", "root"),
-            ),
-            content = "",
-            schemas = listOf(books, films),
-        )
-
-        // The group's relay, then the relays of the list replied to -- and not
-        // the other list's: the NIP sends an entry where its own schema says.
-        assertEquals(listOf(one, three), seeded)
-
-        // An entry whose schema this device does not hold goes where the group
-        // publishes, since there is nothing else to go on.
-        assertEquals(
-            listOf(one),
-            BroadcastGroupSignedEventViewModel.defaultRelaysFor(
-                relayLists = relayLists,
-                kind = CuratedEntryEvent.CANONICAL_KIND,
-                tags = arrayOf(arrayOf("a", "31889:${"0".repeat(64)}:elsewhere", "", "root")),
-                schemas = listOf(books, films),
-            )
-        )
-    }
-
-    @Test
     fun `seeding happens once, so an emptied list stays empty`() {
         val viewModel = viewModel()
         val relayLists = agreed(GroupRelaySet.General to listOf(GroupRelay(one)))
         val event = signedEvent()
 
-        viewModel.seedRelays(relayLists, event.kind, event.tags, event.content)
-        viewModel.seedRelays(relayLists, event.kind, event.tags, event.content)
+        viewModel.seedRelays(relayLists, event.kind)
+        viewModel.seedRelays(relayLists, event.kind)
         assertEquals(listOf(one), viewModel.relays.toList())
 
         viewModel.removeRelay(one)
-        viewModel.seedRelays(relayLists, event.kind, event.tags, event.content)
+        viewModel.seedRelays(relayLists, event.kind)
         assertEquals(emptyList(), viewModel.relays.toList())
     }
 

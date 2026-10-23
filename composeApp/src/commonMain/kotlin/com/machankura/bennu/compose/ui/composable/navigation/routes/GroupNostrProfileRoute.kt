@@ -7,9 +7,9 @@ import kotlinx.serialization.Serializable
  *
  * The group's screen names the profile in a row; this is where it is read, with
  * the broadcast under it and, for a member holding a share of the key, the way
- * into the editor. One of the five screens the group's signed work is split
- * across -- see [GroupRelaysRoute], [GroupPostsRoute], [GroupCuratedSchemasRoute]
- * and [GroupCuratedEntriesRoute] -- each pushed from its row on the group's screen.
+ * into the editor. One of the three screens the group's signed work is split
+ * across -- see [GroupRelaysRoute] and [GroupPostsRoute] -- each pushed from its
+ * row on the group's screen.
  */
 @Serializable
 data class GroupNostrProfileRoute(

@@ -20,11 +20,7 @@ import com.machankura.bennu.compose.managers.GroupKeyStateManager
 import com.machankura.bennu.compose.managers.MarmotGroupCreation
 import com.machankura.bennu.compose.managers.SubgroupManager
 import com.machankura.bennu.compose.nostr.GroupNostrProfile
-import com.machankura.bennu.compose.nostr.GroupCuratedEntry
-import com.machankura.bennu.compose.nostr.GroupCuratedSchema
 import com.machankura.bennu.compose.nostr.GroupPost
-import com.machankura.bennu.compose.nostr.curated.CuratedEntryEvent
-import com.machankura.bennu.compose.nostr.curated.CuratedSchemaEvent
 import com.machankura.bennu.compose.nostr.GroupRelayList
 import com.machankura.bennu.compose.nostr.GroupRelaySet
 import com.machankura.bennu.compose.database.model.ChatMessage
@@ -188,31 +184,6 @@ class DatabaseChatRepository(
         )
     } catch (e: Throwable) {
         logger.e("Error reading the posts of $chatRoomId", e)
-        emptyList()
-    }
-
-    override suspend fun groupCuratedSchemas(chatRoomId: String): List<GroupCuratedSchema> = try {
-        GroupCuratedSchema.newestPerListAmong(
-            signedEvents = database.groupSignedEventDao()
-                .getByChatRoomIdAndKind(chatRoomId, CuratedSchemaEvent.KIND),
-            chatRoomId = chatRoomId,
-        )
-    } catch (e: Throwable) {
-        logger.e("Error reading the curated schemas of $chatRoomId", e)
-        emptyList()
-    }
-
-    override suspend fun groupCuratedEntries(chatRoomId: String): List<GroupCuratedEntry> = try {
-        // The schemas first, because an entry is read against the list it
-        // replies to and there is nothing to read one by without them.
-        GroupCuratedEntry.newestPerEntryAmong(
-            signedEvents = database.groupSignedEventDao()
-                .getByChatRoomIdAndKind(chatRoomId, CuratedEntryEvent.CANONICAL_KIND),
-            chatRoomId = chatRoomId,
-            schemas = groupCuratedSchemas(chatRoomId),
-        )
-    } catch (e: Throwable) {
-        logger.e("Error reading the curated entries of $chatRoomId", e)
         emptyList()
     }
 

@@ -6,8 +6,6 @@ import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.managers.SubgroupManager
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
-import com.machankura.bennu.compose.nostr.GroupCuratedEntry
-import com.machankura.bennu.compose.nostr.GroupCuratedSchema
 import com.machankura.bennu.compose.nostr.GroupNostrProfile
 import com.machankura.bennu.compose.nostr.GroupPost
 import com.machankura.bennu.compose.nostr.GroupRelayList
@@ -87,29 +85,6 @@ sealed interface ChatRoomDetailUIState {
          */
         val groupPosts: List<GroupPost> = emptyList(),
         /**
-         * The lists this group curates, as the schemas it signed for them, most
-         * recently signed first.
-         *
-         * Under the posts because a schema is the other thing a group publishes
-         * for strangers to answer: a post is the group speaking, a schema is the
-         * group asking -- for entries to a list it will then curate. The row
-         * counts them; they are read on `GroupCuratedSchemasScreen`. Empty in a
-         * group that curates nothing, which is every group until somebody
-         * proposes a schema.
-         */
-        val groupCuratedSchemas: List<GroupCuratedSchema> = emptyList(),
-        /**
-         * The entries this group has accepted into the lists it curates, most
-         * recently signed first.
-         *
-         * Under the schemas because they are what a schema is *for*: the schema
-         * asks, strangers suggest, and these are what the group decided to
-         * stand behind. The row counts them; they are read on
-         * `GroupCuratedEntriesScreen`. Empty in a group that has accepted
-         * nothing, which is every group until a quorum signs an entry.
-         */
-        val groupCuratedEntries: List<GroupCuratedEntry> = emptyList(),
-        /**
          * The wallet this group has opened on the app's network, or null for one
          * it has not. Under the identity block because it is not part of the
          * group's account of itself on nostr -- nobody outside the room reads it --
@@ -120,7 +95,7 @@ sealed interface ChatRoomDetailUIState {
         /**
          * Whether this device could sign an event for the group, which on this
          * screen gates the paste at the end of the identity block. Each of the
-         * five screens the rows open reads the same capability for its own gate.
+         * three screens the rows open reads the same capability for its own gate.
          *
          * The same capability [canAddSubgroup] wants, and wanted for the same
          * reason: proposing anything in the group's name is a signature by the

@@ -80,7 +80,6 @@ import bennu.composeapp.generated.resources.that_is_not_json
 import bennu.composeapp.generated.resources.the_content_is_not_a_profile
 import bennu.composeapp.generated.resources.the_group_signs_an_event_so_it_takes_a_quorum
 import bennu.composeapp.generated.resources.this_group_has_no_shared_key_to_sign_an_event
-import bennu.composeapp.generated.resources.this_schema_cannot_be_signed_as_it_is
 import bennu.composeapp.generated.resources.unsigned_event
 import bennu.composeapp.generated.resources.what_the_group_would_sign
 import org.jetbrains.compose.resources.stringResource
@@ -91,8 +90,8 @@ import org.jetbrains.compose.resources.stringResource
  * The typed editors each build one kind of statement; this takes any of the
  * kinds the group's screen can show, as JSON, the way another tool prints one.
  * Above the paste is what the group would be signing, read back the way the
- * signing screen will describe it, so a member sees "Curated schema · bitcoin.mov"
- * rather than a wall of brackets before deciding -- and sees why the group will
+ * signing screen will describe it, so a member sees "Post · gm" rather than a
+ * wall of brackets before deciding -- and sees why the group will
  * not be asked when the paste is something it could never show.
  *
  * The byline is the group's, as on the post composer and for the same reason:
@@ -364,48 +363,30 @@ private fun ProposalPreview(ready: GroupEventProposal.Ready) {
  * Why the group will not be asked, under the paste it is about.
  *
  * Named rather than silent: a button that does nothing for a paste it refuses is
- * indistinguishable from a missed tap. A schema's reasons are the same sentences
- * the schema editor uses, since they are the same checks.
+ * indistinguishable from a missed tap.
  */
 @Composable
 private fun RefusalNotice(refused: GroupEventProposal.Refused) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)
-    ) {
-        Text(
-            text = when (refused) {
-                GroupEventProposal.Refused.NotJson -> stringResource(Res.string.that_is_not_json)
-                GroupEventProposal.Refused.NotAnObject -> stringResource(Res.string.an_event_is_a_json_object)
-                GroupEventProposal.Refused.NoKind -> stringResource(Res.string.an_event_needs_a_kind)
-                is GroupEventProposal.Refused.KindNotAccepted -> stringResource(
-                    Res.string.kind_n_has_nowhere_to_go_on_this_screen,
-                    refused.kind.toString(),
-                    GroupEventProposal.ACCEPTED_KINDS.sorted().joinToString()
-                )
-                GroupEventProposal.Refused.TagsMalformed ->
-                    stringResource(Res.string.tags_must_be_a_list_of_lists_of_strings)
-                GroupEventProposal.Refused.ContentNotText -> stringResource(Res.string.content_must_be_text)
-                GroupEventProposal.Refused.ProfileUnreadable ->
-                    stringResource(Res.string.the_content_is_not_a_profile)
-                GroupEventProposal.Refused.PostBlank -> stringResource(Res.string.a_post_needs_something_to_say)
-                is GroupEventProposal.Refused.SchemaUnusable ->
-                    stringResource(Res.string.this_schema_cannot_be_signed_as_it_is)
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error
-        )
-
-        if (refused is GroupEventProposal.Refused.SchemaUnusable) {
-            refused.problems.forEach { problem ->
-                Text(
-                    text = problem.message(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-        }
-    }
+    Text(
+        text = when (refused) {
+            GroupEventProposal.Refused.NotJson -> stringResource(Res.string.that_is_not_json)
+            GroupEventProposal.Refused.NotAnObject -> stringResource(Res.string.an_event_is_a_json_object)
+            GroupEventProposal.Refused.NoKind -> stringResource(Res.string.an_event_needs_a_kind)
+            is GroupEventProposal.Refused.KindNotAccepted -> stringResource(
+                Res.string.kind_n_has_nowhere_to_go_on_this_screen,
+                refused.kind.toString(),
+                GroupEventProposal.ACCEPTED_KINDS.sorted().joinToString()
+            )
+            GroupEventProposal.Refused.TagsMalformed ->
+                stringResource(Res.string.tags_must_be_a_list_of_lists_of_strings)
+            GroupEventProposal.Refused.ContentNotText -> stringResource(Res.string.content_must_be_text)
+            GroupEventProposal.Refused.ProfileUnreadable ->
+                stringResource(Res.string.the_content_is_not_a_profile)
+            GroupEventProposal.Refused.PostBlank -> stringResource(Res.string.a_post_needs_something_to_say)
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error
+    )
 }
 
 @ConformancePreviews

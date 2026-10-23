@@ -24,10 +24,7 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
-import com.machankura.bennu.compose.nostr.GroupCuratedSchema
 import com.machankura.bennu.compose.nostr.GroupNostrProfile
-import com.machankura.bennu.compose.nostr.curated.CuratedEntryEvent
-import com.machankura.bennu.compose.nostr.curated.CuratedSchemaEvent
 import com.machankura.bennu.compose.nostr.GroupRelaySet
 import com.vitorpamplona.quartz.nipC7Chats.ChatEvent
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
@@ -474,25 +471,14 @@ data class ChatMessage(
         const val TYPE_GROUP_POST_SIGNED = "groupPostSigned"
 
         /**
-         * The group signed the schema of a list it curates.
-         *
-         * A system line like the other three, and it names the list rather than
-         * describing the schema: what a reader of the room needs to know is that
-         * the group now curates -- or has changed the form for -- a list called
-         * so-and-so, and the schema itself is on the group's screen where its
-         * fields can be read.
+         * Lines the curated-lists feature wrote: the group signing a list's schema,
+         * and an entry into one. The feature is gone and nothing writes either any
+         * more, but rows already in a transcript still carry them, and a type
+         * missing from [GROUP_IDENTITY_TYPES] renders as a chat bubble -- so they
+         * stay, as names only, to keep those rows system lines.
          */
-        const val TYPE_GROUP_SCHEMA_SIGNED = "groupSchemaSigned"
-
-        /**
-         * The group signed an entry into a list it curates.
-         *
-         * A system line like the schema's, and it names the entry and the list
-         * rather than the fields: what a reader of the room needs to know is
-         * that the list now stands behind a title, and the entry itself is on
-         * the queue screen where its fields can be read.
-         */
-        const val TYPE_GROUP_ENTRY_CURATED = "groupEntryCurated"
+        private const val TYPE_LEGACY_GROUP_SCHEMA_SIGNED = "groupSchemaSigned"
+        private const val TYPE_LEGACY_GROUP_ENTRY_CURATED = "groupEntryCurated"
 
         /**
          * The group opened a wallet.
@@ -515,8 +501,8 @@ data class ChatMessage(
             TYPE_GROUP_PROFILE_SIGNED,
             TYPE_GROUP_RELAYS_SIGNED,
             TYPE_GROUP_POST_SIGNED,
-            TYPE_GROUP_SCHEMA_SIGNED,
-            TYPE_GROUP_ENTRY_CURATED,
+            TYPE_LEGACY_GROUP_SCHEMA_SIGNED,
+            TYPE_LEGACY_GROUP_ENTRY_CURATED,
             TYPE_GROUP_WALLET_OPENED,
             TYPE_GROUP_TRANSACTION_CONFIRMED,
         )
@@ -1714,79 +1700,6 @@ data class ChatMessage(
                         chatRoomId = groupId,
                         createdAt = createdAt,
                         content = "The group signed its ${set.name.lowercase()} relay list"
-                    )
-                }
-
-                // The group defining a list it curates: the kind 31889 that
-                // suggestions from anyone reply to and only the group's own key can
-                // accept into the list.
-                //
-                // Verified and parsed, and null on either failing, the way the
-                // profile arm is. A rumor of this kind from a member is not the
-                // group curating anything, and a schema the room signed but that no
-                // client could act on -- no visibility, no fields -- is not worth a
-                // line saying it did. `GroupCuratedSchema` refuses the same event
-                // on the group's screen, so the transcript and the screen agree.
-                CuratedSchemaEvent.KIND -> {
-                    val curated = GroupCuratedSchema.of(
-                        signedEvent = GroupSignedEvent.fromEvent(event, chatRoomId = groupId),
-                        chatRoomId = groupId,
-                    ) ?: return null
-
-                    ChatMessage(
-                        giftWrapPayloadId = null,
-                        messageType = TYPE_GROUP_SCHEMA_SIGNED,
-                        marmotGroupEventId = marmotGroupEventId,
-                        marmotInnerEventId = marmotInnerEventId,
-                        senderPublicKey = senderPublicKey,
-                        isUserMessage = isUserMessage,
-                        chatRoomId = groupId,
-                        createdAt = createdAt,
-                        content = "The group signed the curated schema for " +
-                            curated.schema.displayName()
-                    )
-                }
-
-                // The group taking an entry into a list it curates: the kind
-                // 31890 that only its own key can publish, and the thing the
-                // queue screen marks a suggestion "curated" by once it is read
-                // back off a relay.
-                //
-                // Verified, for the reason the schema arm is: a rumor of this
-                // kind from a member is not the group curating anything. Named
-                // after the list where this device holds its schema -- looked
-                // up by the coordinate the entry replies to -- and after the
-                // entry alone where it does not, since the entry is what was
-                // signed either way.
-                CuratedEntryEvent.CANONICAL_KIND -> {
-                    val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
-                    if (!signed.verifies()) return null
-
-                    val entry = CuratedEntryEvent.headline(event)
-                    val title = entry.title.ifBlank { entry.identifier }.ifBlank { "an entry" }
-
-                    val list = runCatching {
-                        GroupCuratedSchema.newestPerListAmong(
-                            signedEvents = database.groupSignedEventDao()
-                                .getByChatRoomIdAndKind(groupId, CuratedSchemaEvent.KIND),
-                            chatRoomId = groupId,
-                        ).firstOrNull { it.isRepliedToBy(event.tags) }
-                    }.getOrNull()
-
-                    ChatMessage(
-                        giftWrapPayloadId = null,
-                        messageType = TYPE_GROUP_ENTRY_CURATED,
-                        marmotGroupEventId = marmotGroupEventId,
-                        marmotInnerEventId = marmotInnerEventId,
-                        senderPublicKey = senderPublicKey,
-                        isUserMessage = isUserMessage,
-                        chatRoomId = groupId,
-                        createdAt = createdAt,
-                        content = if (list != null) {
-                            "The group accepted $title into ${list.schema.displayName()}"
-                        } else {
-                            "The group accepted $title into a list it curates"
-                        }
                     )
                 }
 
