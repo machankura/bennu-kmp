@@ -553,6 +553,8 @@
     <string name="s_hasn_t_set_up_messaging_on_bennu_yet">%1$s hasn't set up messaging on Bennu yet. Try again later, or ask them to open Bennu.</string>
     <!-- The group's on-chain wallet. -->
     <string name="group_wallet">Group onchain wallet</string>
+    <!-- The group's on-chain wallet, named for its group: "Treasury onchain wallet". -->
+    <string name="s_onchain_wallet">%1$s onchain wallet</string>
     <string name="open_a_group_wallet">Open a group onchain wallet</string>
     <string name="not_opened_yet">Not opened yet</string>
     <string name="open_on_s">Open on %1$s</string>

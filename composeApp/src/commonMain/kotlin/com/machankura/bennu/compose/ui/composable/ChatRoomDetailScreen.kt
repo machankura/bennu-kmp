@@ -6,6 +6,7 @@ import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import bennu.composeapp.generated.resources.open_on_s
 import bennu.composeapp.generated.resources.not_opened_yet
 import bennu.composeapp.generated.resources.group_wallet
+import bennu.composeapp.generated.resources.s_onchain_wallet
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -461,7 +462,9 @@ fun ChatRoomDetailScreen(
                                 if (GroupWalletRollout.ENABLED) item {
                                     SignedWorkRow(
                                         icon = Icons.Default.AccountBalanceWallet,
-                                        headline = stringResource(Res.string.group_wallet),
+                                        headline = chatRoomDetailUIState.localChatRoom.chatRoom.subject
+                                            ?.let { stringResource(Res.string.s_onchain_wallet, it) }
+                                            ?: stringResource(Res.string.group_wallet),
                                         supporting = chatRoomDetailUIState.groupWallet?.let { wallet ->
                                             stringResource(
                                                 Res.string.open_on_s,
