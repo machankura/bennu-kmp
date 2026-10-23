@@ -31,12 +31,17 @@ build chose differently, this table says so.
 |---|---|
 | 0 | done, except the two spikes (see below) |
 | 1 | done: `IcebergDkg`, 11 tests, among them a byte-for-byte match against the library's dealer and a signature from every 2-of-4 and 3-of-7 quorum |
+| 2 | done, in the fork (`4bc973df`): the three signing methods suspend, `RemoteIcebergFundingSigner`, pings answered outside the channel loop. lightning-kmp's JVM suite, 985 tests, passes |
 
 | what the plan said | what it turned out to be |
 |---|---|
 | Phase 0's two spikes run against the testnet3 LSP | **not run.** Both need a channel that somebody pays into, and the regtest alternative means creating docker containers on a development machine that already runs other stacks. That should be somebody's deliberate act, not a side effect of a build. The signer's deadline is therefore a parameter, `RemoteIcebergFundingSigner.deadline`, and not a measured constant. Measuring it is the first thing to do with a funded testnet3 node |
 | the DKG goes in the bitcoin-kmp fork, beside `Iceberg.kt` | in the app, as `IcebergDkg` beside `GroupWalletDerivation`. It uses only `Iceberg`'s public API and SHA-256, so it needs nothing from inside the library, and putting it there would add a third nested fork branch to every bump. It moves down once it has been reviewed |
 | a complaint round is left out, so equivocation is caught but not blamed | a reveal that does not match its commitment *is* blamed, as `Fault.BadReveal`. Only committing to two values in front of two members goes unblamed, and the transcript signature still catches it |
+| every `FundingSigner` method suspends | only the three that sign. `verificationNonce` and `publishedNonceSession` stay synchronous, because one is called from `InteractiveTxSession`'s secondary constructor and fifty-one call sites build sessions that way. Round one is served from a pool the group fills ahead of time, so nothing there has to wait. An unprovisioned label throws `IcebergNonceNotProvisioned`, and the operator's node must not connect while its pool is short (Phase 8) |
+| `Peer` answers `Ping` in its own coroutine | in `Peer.send`, before the command is queued, whenever the ping arrives on the adopted connection. The receive loop goes through `send` too. A ping that arrives before the connection is adopted falls through to the old handler |
+| a channel that times out disconnects | the signer returns `IcebergSigningTimeout` and the channel treats it as any failed signature. Disconnecting is the operator node's response (Phase 8), not lightning-kmp's |
+| a test drops one answer in ten | a test with a group that never answers, and checks the retry gets a new label. The channel suite runs with random delays, and asserts after every test that no label was asked to sign two messages |
 | the kinds are reserved | in code: `GroupLightningEvents`, 30333-30349, with a test asserting the run is unbroken and touches no kind the app already dispatches on |
 | library phases land in the forks' `threshold` branches | on a new branch, `claude/group-lightning-wallet`, in `lightning-kmp-app` and in `experimental/lightning-kmp`. It is local and not pushed. The app's submodule pointer follows it, so a checkout of this branch needs those commits from the same machine until they are pushed |
 
