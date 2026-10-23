@@ -12,10 +12,12 @@ import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.bitcoin.PublicKey
 import fr.acinq.bitcoin.utils.Either
 import fr.acinq.lightning.CltvExpiryDelta
 import fr.acinq.lightning.Lightning.randomBytes32
 import fr.acinq.lightning.payment.Bolt11Invoice
+import fr.acinq.lightning.payment.OfferManager
 import fr.acinq.lightning.utils.msat
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -70,6 +72,7 @@ class GroupLightningReportsJvmTest {
             { configuration -> FakeGroupNode(configuration).also { nodes += it } },
             // The tests drive reporting themselves.
             handoverCheck = 10.minutes,
+            minimumPool = 0,
         )
         assertIs<GroupLightningNode.State.Running>(node.start())
         return all to node
@@ -175,5 +178,19 @@ class GroupLightningReportsJvmTest {
         assertNull(all[3].db.groupLightningRecordsDao().invoice(key, "elsewhere"), "an invoice paying another node")
         assertNull(all[3].db.groupLightningRecordsDao().invoice(key, "not-the-operator"), "an invoice from a member who is not the operator")
         assertNotNull(all[3].db.groupLightningRecordsDao().invoice(key, "good"))
+    }
+
+    @Test
+    fun `the node's offer reaches every member, and only the one its seed derives is kept`() = runBlocking<Unit> {
+        val (all, _) = running()
+        fixture.pump(all, setOf(GroupLightningEvents.SNAPSHOT))
+        val wallet = GroupLightningWalletManager.walletFor(all[3].db, fixture.roomId, fixture.chain)!!
+        val expected = GroupLightningReports.offerOf(wallet)
+        all.forEach { assertEquals(expected, GroupLightningReports.latest(it.db, key)!!.snapshot.offer, "device ${it.index}") }
+
+        val someoneElse = OfferManager.deterministicOffer(fixture.chain.chainHash, PrivateKey(randomBytes32()), PublicKey.fromHex(lsp), null, null, null).offer.encode()
+        val lying = WalletWire.Snapshot(key, 1, wallet.statement.nodeId, Clock.System.now().epochSeconds + 60, emptyList(), emptyList(), offer = someoneElse)
+        GroupLightningReports.process(all[3].db, all[3].room, snapshotEvent(all[1], lying))
+        assertNull(GroupLightningReports.latest(all[3].db, key)!!.snapshot.offer, "an offer that pays some other node is dropped")
     }
 }

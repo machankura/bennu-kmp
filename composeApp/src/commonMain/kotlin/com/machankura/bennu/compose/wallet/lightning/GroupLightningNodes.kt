@@ -35,6 +35,7 @@ class GroupLightningNodes(
     private val scope: CoroutineScope,
     private val peerFactory: suspend (GroupLightningNode.NodeConfiguration) -> GroupLightningNode.PeerHandle,
     private val chain: Chain = GroupLightningRollout.NETWORK,
+    private val minimumPool: Int = GroupLightningNode.MINIMUM_POOL,
 ) {
     private val logger = Logger.withTag("GroupLightningNodes")
     private val mutex = Mutex()
@@ -66,7 +67,7 @@ class GroupLightningNodes(
                     nodes.remove(key)
                     continue
                 }
-                val node = existing ?: GroupLightningNode(database, localChatRoom, userPublicKey, wallet, scope, peerFactory).also { nodes[key] = it }
+                val node = existing ?: GroupLightningNode(database, localChatRoom, userPublicKey, wallet, scope, peerFactory, minimumPool = minimumPool).also { nodes[key] = it }
                 val state = runCatching { node.start() }.onFailure { logger.e("Could not start the node for $key", it) }.getOrNull()
                 if (state is GroupLightningNode.State.Refused) logger.i("Not running the node for $key: ${state.reason}")
             }

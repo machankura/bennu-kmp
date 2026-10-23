@@ -24,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -126,6 +127,24 @@ class GroupIcebergTransport private constructor(
         GroupLightningWalletManager.queue(database, localChatRoom, userPublicKey, GroupLightningEvents.SIGNING_REQUEST, CommonJson.encodeToString(CoSigningWire.SigningRequest.serializer(), request))
         GroupLightningCoSigner.provision(database, localChatRoom, userPublicKey, wallet, upTo)
         reload()
+    }
+
+    /**
+     * Waits until round one is in hand for the next [counters] pool counters, reloading as batches land,
+     * for at most [timeout]. False when the group has not sent enough: a node that connected now could be
+     * asked to sign before it could.
+     */
+    suspend fun awaitPool(counters: Int, timeout: kotlin.time.Duration): Boolean {
+        if (counters <= 0) return true
+        val ready = { (nextCounter until nextCounter + counters).all { it in pool } }
+        return withTimeoutOrNull(timeout) {
+            while (true) {
+                reload()
+                if (ready()) return@withTimeoutOrNull true
+                delay(POLL)
+            }
+            @Suppress("UNREACHABLE_CODE") false
+        } ?: false
     }
 
     override fun contributions(label: ByteVector32): List<NonceContribution>? = countersByLabel[label]?.let { pool[it] }

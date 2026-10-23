@@ -29,7 +29,7 @@ build chose differently, this table says so.
 
 | phase | state |
 |---|---|
-| 0 | done, except the two spikes (see below) |
+| 0 | done, except the testnet3 spikes. The regtest run stands in for the second (a group node against an LSP); the first, how long the LSP waits for a signature, still needs testnet3 |
 | 1 | done: `IcebergDkg`, 11 tests, among them a byte-for-byte match against the library's dealer and a signature from every 2-of-4 and 3-of-7 quorum |
 | 2 | done, in the fork (`4bc973df`): the three signing methods suspend, `RemoteIcebergFundingSigner`, pings answered outside the channel loop. lightning-kmp's JVM suite, 985 tests, passes |
 | 3 | done: in the fork (`e15e31ba`), `withGroupBasepoints`, `GroupHeldOutputs` and `KeyManager.defaultFinalScriptPubKey`, 991 tests passing. In the app, `GroupLightningDerivation`, pinned, with a FROST quorum spending `to_remote` and `to_local` |
@@ -43,7 +43,7 @@ build chose differently, this table says so.
 | 12 | done: `GroupLightningAuthorisationEvent` (kind 30346, `pay`), budgets read from the signed authorisations, the node paying each once, its summary and transcript line, and the send screen (`GroupLightningSendScreen`). The co-signers now hold offered HTLCs under the statement's in-flight cap. Seven new tests |
 | 13 | done, except splicing out. `close` and `force-close` authorisations, the node acting on each once, the co-signers signing our own commitment only under a force-close authorisation and only after rebuilding it, and the channel menu on the wallet screen. Sweeps: the snapshot lists what closed channels left the group, any member proposes a sweep (`GroupSweep`, a new FROST subject), every member checks it against its own basepoints and the onchain wallet, and the watcher sends it. Five new tests: a force close and a two-input sweep both pass the script interpreter |
 | 14 | done: a room can have several Lightning wallets on a network, the highest-numbered current. A member who leaves is named on the wallet screen until a new wallet replaces it; the new key is made over the onchain key's holders who are still in the room; the old wallet keeps its operator and node until its channels are closed, in one decision for all of them; and removing a share holder says what it leaves. A five-device test re-keys after a removal |
-| 15 | the gates are in code and closed. `GroupLightningRollout.ENABLED` stays `false`: its own condition is a regtest end-to-end run, which has not been done (see Phase 0). Mainnet is refused by `GroupLightningRollout.allows`, whatever a screen offers. The ceremony screen names every participant who has not answered, with a word that their build may not know the new kinds |
+| 15 | the gates are in code and closed. `GroupLightningRollout.ENABLED` stays `false`. The JVM suite and the regtest run pass; what is left of its condition is Phase 0's testnet3 measurement of how long the LSP waits for a signature, and lifting it is a product decision either way. Mainnet is refused by `GroupLightningRollout.allows`, whatever a screen offers. The ceremony screen names every participant who has not answered, with a word that their build may not know the new kinds |
 
 | what the plan said | what it turned out to be |
 |---|---|
@@ -83,17 +83,17 @@ build chose differently, this table says so.
 | a co-signer whose database was restored collects high-water marks from `t` others | **not built.** The ledger is never pruned and a restored device starts with an empty one, so a restored co-signer could echo a label it answered before the restore. The echo rule still stops the label being signed under two messages unless `n-t+1` members echo the second, which needs the restored device and `n-2t+1` others to be wrong. It is listed under what is left |
 | the operator collects `t` shares | `2t-1`, the quorum the scheme wants online for round two; `aggregatePartialSignatures` degree-checks a set larger than `t` |
 | first find out whether `lightning-kmp-app/library` can host a second `PhoenixBusiness` | it does not need to. `GroupLightningNode` builds a lightning-kmp `Peer` itself, on Phoenix's SQLite channel and payment databases (`createSqliteChannelsDb`, `createSqlitePaymentsDb`), under file names prefixed `group-` so they never meet the identity's own |
-| the node does not connect while its pool is short | it provisions the pool as it starts, and the transport asks for more whenever fewer than a third of a window remain. It does not wait for the pool before connecting; a channel that needs a label the pool lacks fails by name (`IcebergNonceNotProvisioned`) |
+| the node does not connect while its pool is short | as written, after the regtest run showed why. It provisions the pool as it starts and waits, up to thirty seconds, until round one for `MINIMUM_POOL` counters is in hand (`GroupIcebergTransport.awaitPool`); otherwise it refuses to start and is tried again at the next refresh. The transport asks for more whenever fewer than a third of a window remain |
 | the start gate reads when the room last synced | the newest group event this device saved for the room (`MarmotGroupEventDao.newestSavedAt`), because the app keeps no sync time. A sync time taken from the live subscription's end-of-stored-events is the follow-up |
 | a foreground service keeps the node running on Android | **not built.** The node runs while the app does |
 | a signing timeout disconnects the node | not done: lightning-kmp treats the timeout as a failed signature, and the channel retries on its own schedule |
-| a test runs regtest end to end against the docker eclair | not run, for Phase 0's reason. The four node tests use a stand-in peer, and the co-signing test in Phase 9 signs real commitments built from channel parameters |
+| a test runs regtest end to end against the docker eclair | **run**, against eclair v0.14.4 as the LSP: see "The regtest run" below. It passes from a fresh network in about thirty seconds |
 | a snapshot is signed by the operator's nostr key | it is an ordinary inner event, so MLS already says who sent it. A member believes it only from the operator the group elected for the term it names (`GroupLightningOperatorManager.ofTerm`), about the node the statement names; an earlier term's snapshot is still filed, as the truth about that term |
 | a member compares the operator's balance with what the co-signers last signed | each member compares it with what *its own* device last signed for that channel: our balance in the last counterparty commitment its ledger holds. The figures can differ while a payment is in flight, because the snapshot reports the operator's own commitment and the ledger the counterparty's. The screen shows a mismatch, and nothing acts on it |
 | the snapshot carries the pool for handover | it carries the label *assignments*. The contributions are already in every member's database as nonce batches, so the next operator's transport loads the pool itself. A member files each assignment it has not seen, so the next operator signs a force close under the verification nonce this one published |
 | payments come from lightning-kmp's payments database | from `nodeParams.nodeEvents`, as they happen while the node runs, because the database has no query for all payments. Members keep every payment a snapshot carried, so a restart only loses what a stopped node would not have reported anyway |
 | the operator's node answers an invoice request as it arrives | it reads the room's unanswered requests each time it checks for a handover, because the inbound path has no handle on a running node. An invoice therefore takes up to `HANDOVER_CHECK`, ten seconds, plus the room's own delay. A request whose answer is lost is answered again by the next operator, since the answer is what marks it answered |
-| an optional Bolt12 offer, from `nodeParams.defaultOffer` | **not built.** An offer is long-lived and pays whichever node holds its key; a group whose operator changes needs every member to know the offer still reaches the group's node, and that is the same check as a Bolt11 invoice's, made once. It is a small follow-up once a node has run on testnet3 |
+| an optional Bolt12 offer, from `nodeParams.defaultOffer` | built, because the regtest run needed it. The snapshot carries the node's default offer, and a member keeps it only if it is the offer its own copy of the seed derives (`GroupLightningReports.offerOf`), so the check needs no operator to be trusted. The receive screen shows it beside the invoice request. The offer does not change when the operator does: every operator runs the same node |
 | each co-signer has a budget until the payment settles, fails or expires | an authorisation's budget lasts as long as the authorisation, and its *expiry* only closes it to new HTLCs (`CoSignerPolicy`'s `closed`). An HTLC that left before the expiry and settles after it still has to be explained, and dropping the budget at expiry would leave the co-signers refusing the commitment that settles it. A failed HTLC spends nothing, so the budget is still there; a second attempt needs nothing new from the group, only the node to try again |
 | the operator's node pays an authorisation once | once per payment hash, ever: a node that tried and failed does not try again by itself. The member who wants another attempt asks the group again, and the co-signers' budgets are what keep two attempts from both paying |
 | a fee cap per payment | the fee is not passed to lightning-kmp, whose `payInvoice` takes the trampoline fees from the LSP's wallet parameters. The cap is the co-signers': an HTLC worth more than the amount and the fee cap is over budget, so its commitment is never signed |
@@ -132,6 +132,53 @@ The rest is ordinary app work: an election, a handover, snapshots, and
 payments.
 
 ---
+
+## The regtest run
+
+`testing/regtest/` builds a network on one machine: bitcoind 31.1, electrs 0.11.1, an eclair
+v0.14.4 LSP and a second eclair, the payer, with a channel to the LSP. `GroupLightningRegtestJvmTest`
+then drives four devices through everything a group does with its wallet, against a real lightning-kmp
+node:
+
+```bash
+testing/regtest/regtest.sh up
+```
+
+```bash
+BENNU_REGTEST=1 ./gradlew :composeApp:jvmTest --tests '*GroupLightningRegtestJvmTest'
+```
+
+| step | what happens | result |
+|---|---|---|
+| open | the four make the onchain wallet, the Iceberg key, the Lightning wallet and its operator; the operator's device starts the node | the node connects with Phoenix's taproot channels |
+| receive | the payer pays the group's offer; the LSP proposes on-the-fly funding, the node opens the channel, every member checks and co-signs the first commitment | 100,000 sats received, 96,900 held after the LSP's 3,100 fee; every member's snapshot shows it, and the members who co-signed agree with the operator |
+| pay | a member proposes paying the payer's invoice, the group signs it, the node pays through the LSP's trampoline; the co-signers let the HTLC through against the authorisation | 20,000 sats arrive, with an 84-sat fee |
+| close | the group authorises a mutual close | the whole balance reaches the onchain wallet's first address |
+| sweep | a second payment opens a second channel; the group authorises a force close; the snapshot lists the delayed output; once 144 blocks pass a member proposes the sweep, the group signs it as a FROST script-path spend, and the watcher sends it | 96,624 sats reach the onchain wallet |
+
+What the run found, all fixed in the same commit:
+
+| found | why it mattered | fix |
+|---|---|---|
+| the node learned the chain's height only at the next block | lightning-kmp reads it from header notifications, and a shared Electrum client sends the next one at the next block. Until then the node could answer no invoice request and take no payment | `lightningKmpPeers` asks for the height as the node starts |
+| the node refused every on-the-fly channel | lightning-kmp's default liquidity policy caps the fee at 2,000 sats, and the statement's `maxLiquidityFeeSat`, which the group signs, was never handed to the node | the node's policy is the statement's |
+| a channel could ask for round one the pool did not hold yet | the transport reloads its pool every two seconds, and the first open came sooner | the node waits for a minimum pool before it connects |
+| a force close waited forever | lightning-kmp fetches feerates once, as Electrum connects, and a force close waits for them; on regtest there are none, and on a long-running node they go stale | the node asks for feerates every ten minutes, every thirty seconds while it has none, and takes a flat rate on regtest only |
+| public eclair cannot route a Bolt11 payment to a wallet | the invoice's route hint names the wallet by a peer-id short channel id, which ACINQ's LSP resolves and public eclair does not | the run's payer pays the group's Bolt12 offer, whose blinded path names the wallet; the offer is now part of the wallet (Phase 11's row above). The Bolt11 request and answer are still checked in the run |
+
+An eclair LSP for Phoenix's wallets needs settings its defaults leave off, all in
+`testing/regtest/lsp.conf`: `option_simple_taproot_phoenix` and `phoenix_zero_reserve` (the channel
+type includes both), `on_the_fly_funding` and `funding_fee_credit` with liquidity ads whose payment
+types include `from_future_htlc`, `peer-wake-up.enabled` (eclair delivers a wallet's messages and
+payments through it even when the wallet is connected), `min-private-funding-satoshis = 0` (an
+on-the-fly opener contributes nothing), `max-htlc-value-in-flight-percent = 100` (an on-the-fly
+channel is the size of the payment), and no `balance-thresholds` (or a channel the other side funded
+advertises a 1-msat maximum until its next update). `option_zeroconf` cannot be on for every peer, and
+does not need to be: eclair takes the wallet's early `channel_ready` when it is the only funder.
+
+What the run does not cover: the LSP's signing deadline (testnet3), more than one channel at a time,
+HTLC-transaction outputs (no HTLC was in flight at the force close), and the operator changing while a
+channel is open.
 
 ## What was asked, and what exists
 

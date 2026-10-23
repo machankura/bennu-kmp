@@ -76,6 +76,7 @@ class GroupLightningNodeJvmTest {
     private suspend fun node(device: GroupLightningFixture.Device) = GroupLightningNode(
         device.db, device.room, device.publicKey, GroupLightningWalletManager.walletFor(device.db, fixture.roomId, fixture.chain)!!, scope, factory,
         handoverCheck = 100.milliseconds,
+        minimumPool = 0,
     )
 
     @Test
@@ -131,8 +132,8 @@ class GroupLightningNodeJvmTest {
         val all = ready()
         elect(all, all[3])
         all.forEach { heardFromRoom(it) }
-        val operatorNodes = GroupLightningNodes(all[3].db, all[3].publicKey, scope, factory, fixture.chain)
-        val otherNodes = GroupLightningNodes(all[0].db, all[0].publicKey, scope, factory, fixture.chain)
+        val operatorNodes = GroupLightningNodes(all[3].db, all[3].publicKey, scope, factory, fixture.chain, minimumPool = 0)
+        val otherNodes = GroupLightningNodes(all[0].db, all[0].publicKey, scope, factory, fixture.chain, minimumPool = 0)
         operatorNodes.refresh()
         otherNodes.refresh()
         assertIs<GroupLightningNode.State.Running>(operatorNodes.nodeFor(fixture.roomId)?.state?.value)
@@ -140,5 +141,19 @@ class GroupLightningNodeJvmTest {
         operatorNodes.stop()
         assertTrue(peers.single().disconnected)
         assertTrue(1.minutes > 0.seconds)
+    }
+
+    @Test
+    fun `a node does not connect before the group has sent round one`() = runBlocking<Unit> {
+        val all = ready()
+        elect(all, all[1])
+        heardFromRoom(all[1])
+        // Nobody answers the provision request here, so the pool never fills.
+        val node = GroupLightningNode(
+            all[1].db, all[1].room, all[1].publicKey, GroupLightningWalletManager.walletFor(all[1].db, fixture.roomId, fixture.chain)!!, scope, factory,
+            minimumPool = 4, poolWait = 1.seconds,
+        )
+        assertIs<GroupLightningNode.State.Refused>(node.start())
+        assertTrue(peers.isEmpty(), "it never connected")
     }
 }

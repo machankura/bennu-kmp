@@ -14,7 +14,10 @@ import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.utils.RandomInstance
+import fr.acinq.bitcoin.ByteVector
+import fr.acinq.bitcoin.PublicKey
 import fr.acinq.lightning.payment.Bolt11Invoice
+import fr.acinq.lightning.payment.OfferManager
 import kotlin.time.Instant
 
 /**
@@ -59,7 +62,8 @@ object GroupLightningReports {
         // anybody else is nobody's.
         val operator = GroupLightningOperatorManager.ofTerm(database, localChatRoom.chatRoom.id, wallet.statement.chain, wallet.statement.wallet, snapshot.term)
         if (operator?.publicKey != innerEvent.pubKey) return logger.w("Snapshot ${innerEvent.id} is not from the operator of term ${snapshot.term}")
-        file(database, innerEvent.pubKey, snapshot)
+        // An offer is kept only if it is the one the group's node derives: the seed says which.
+        file(database, innerEvent.pubKey, snapshot.copy(offer = snapshot.offer?.takeIf { it == offerOf(wallet) }))
         // The round-one labels the operator handed out, so whoever operates next signs under them.
         val dao = database.icebergCoSigningDao()
         snapshot.assignments.forEach { (purpose, counter) ->
@@ -68,6 +72,16 @@ object GroupLightningReports {
                 runCatching { dao.insertAssignment(IcebergLabelAssignment(snapshot.wallet, counter, label, purpose)) }
             }
         }
+    }
+
+    /**
+     * The Bolt12 offer the group's node publishes, recomputed from the node seed the way lightning-kmp
+     * derives it ([OfferManager.deterministicOffer]); null on a device that does not hold the seed.
+     */
+    fun offerOf(wallet: GroupLightningWalletManager.Wallet): String? {
+        val seed = wallet.seed ?: return null
+        val nodeKey = GroupLightningCoSigner.keyManagerOf(ByteVector(seed.seed), wallet.statement.chain).nodeKeys.nodeKey.privateKey
+        return OfferManager.deterministicOffer(wallet.statement.chain.chainHash, nodeKey, PublicKey.fromHex(wallet.statement.lspNodeId), null, null, null).offer.encode()
     }
 
     private suspend fun file(database: BennuDatabase, sentBy: HexKey, snapshot: WalletWire.Snapshot) {

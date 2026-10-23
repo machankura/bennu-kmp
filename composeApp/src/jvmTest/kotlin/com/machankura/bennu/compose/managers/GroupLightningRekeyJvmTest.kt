@@ -90,8 +90,8 @@ class GroupLightningRekeyJvmTest {
         assertEquals(remaining[2].publicKey, GroupLightningOperatorManager.current(remaining[0].db, fixture.roomId, fixture.chain, 1)?.publicKey)
         val factory: suspend (GroupLightningNode.NodeConfiguration) -> GroupLightningNode.PeerHandle = { FakeGroupNode(it).also { node -> nodes += node } }
         remaining.forEach { heardFromRoom(it) }
-        val oldOperator = GroupLightningNodes(remaining[1].db, remaining[1].publicKey, scope, factory, fixture.chain)
-        val newOperator = GroupLightningNodes(remaining[2].db, remaining[2].publicKey, scope, factory, fixture.chain)
+        val oldOperator = GroupLightningNodes(remaining[1].db, remaining[1].publicKey, scope, factory, fixture.chain, minimumPool = 0)
+        val newOperator = GroupLightningNodes(remaining[2].db, remaining[2].publicKey, scope, factory, fixture.chain, minimumPool = 0)
         oldOperator.refresh()
         newOperator.refresh()
         assertIs<GroupLightningNode.State.Running>(oldOperator.nodeFor(fixture.roomId, 0)?.state?.value)

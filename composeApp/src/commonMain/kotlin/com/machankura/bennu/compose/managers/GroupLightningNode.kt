@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
 import com.machankura.bennu.compose.wallet.GroupChainClients
 import com.machankura.bennu.compose.wallet.lightning.GroupNodeKeyManager
 import com.machankura.bennu.compose.wallet.lightning.GroupSweep
@@ -22,9 +23,11 @@ import fr.acinq.lightning.MilliSatoshi
 import fr.acinq.lightning.NodeParams
 import fr.acinq.lightning.PaymentEvents
 import fr.acinq.lightning.WalletParams
+import fr.acinq.lightning.blockchain.Feerates
 import fr.acinq.lightning.blockchain.electrum.ElectrumWatcher
 import fr.acinq.lightning.blockchain.fee.FeeratePerByte
 import fr.acinq.lightning.blockchain.fee.FeeratePerKw
+import fr.acinq.lightning.blockchain.fee.OnChainFeerates
 import fr.acinq.lightning.channel.ChannelCommand
 import fr.acinq.lightning.channel.GroupHeldOutputs
 import fr.acinq.lightning.channel.states.ChannelStateWithCommitments
@@ -41,6 +44,8 @@ import fr.acinq.lightning.io.TcpSocket
 import fr.acinq.lightning.io.WrappedChannelCommand
 import fr.acinq.lightning.logging.LoggerFactory
 import fr.acinq.lightning.payment.Bolt11Invoice
+import fr.acinq.lightning.payment.LiquidityPolicy
+import fr.acinq.lightning.utils.msat
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -75,12 +80,22 @@ class GroupLightningNode(
     private val now: () -> kotlin.time.Instant = { Clock.System.now() },
     private val handoverCheck: Duration = HANDOVER_CHECK,
     private val reportEvery: Duration = REPORT_EVERY,
+    /** How many pool counters must hold round one before the node connects; 0 for a test with no co-signers. */
+    private val minimumPool: Int = MINIMUM_POOL,
+    private val poolWait: Duration = POOL_WAIT,
 ) {
     private val logger = Logger.withTag("GroupLightningNode")
     private val chain = wallet.statement.chain
 
     /** What a node needs to be built, gathered here so a [peerFactory] can build a real one or a fake. */
-    class NodeConfiguration(val keyManager: GroupNodeKeyManager, val chain: Chain, val lspNodeId: PublicKey, val transport: GroupIcebergTransport)
+    class NodeConfiguration(
+        val keyManager: GroupNodeKeyManager,
+        val chain: Chain,
+        val lspNodeId: PublicKey,
+        val transport: GroupIcebergTransport,
+        /** The most the group agreed to pay the LSP for the liquidity a payment needs: its statement's policy. */
+        val maxLiquidityFee: Satoshi = Satoshi(GroupLightningWalletStatementEvent.Policy.DEFAULT.maxLiquidityFeeSat),
+    )
 
     /** What this class needs of a running node. */
     interface PeerHandle {
@@ -104,6 +119,8 @@ class GroupLightningNode(
         suspend fun forceClose(channelId: String)
         /** The outputs closing channels pay to the group's basepoints, for the group to sweep. */
         fun heldOutputs(): List<GroupSweep.Input>
+        /** The node's reusable Bolt12 offer, through the LSP: every member recomputes it from the seed. */
+        fun offer(): String?
     }
 
     sealed class State {
@@ -137,6 +154,12 @@ class GroupLightningNode(
 
         val transport = GroupIcebergTransport.create(database, localChatRoom, userPublicKey, wallet, term, scope).also { it.start() }
         transport.provision(GroupLightningCoSigner.POOL_WINDOW)
+        // Round one is served synchronously from the pool, so the pool has to be there before the LSP can
+        // ask for anything: a channel that needs a label the pool lacks is aborted.
+        if (!transport.awaitPool(minimumPool, poolWait)) {
+            transport.stop()
+            return State.Refused("the group has not sent enough round one to sign with yet").also { _state.value = it }
+        }
         val onchain = GroupWalletManager.walletFor(database, roomId, chain, wallet.statement.onchainAccount)
             ?: return State.Refused("the onchain wallet it closes to is not open").also { _state.value = it }
         val keyManager = GroupNodeKeyManager(
@@ -147,7 +170,7 @@ class GroupLightningNode(
         )
         check(keyManager.nodeKeys.nodeKey.publicKey.toString() == wallet.statement.nodeId) { "the seed does not produce the statement's node" }
 
-        val handle = peerFactory(NodeConfiguration(keyManager, chain, PublicKey.fromHex(wallet.statement.lspNodeId), transport))
+        val handle = peerFactory(NodeConfiguration(keyManager, chain, PublicKey.fromHex(wallet.statement.lspNodeId), transport, Satoshi(wallet.statement.policy.maxLiquidityFeeSat)))
         this.transport = transport
         peer = handle
         _state.value = State.Running(term)
@@ -192,6 +215,7 @@ class GroupLightningNode(
             channels = current.first, payments = current.second.takeLast(REPORTED_PAYMENTS),
             assignments = transport?.assignments().orEmpty(),
             heldOutputs = current.third,
+            offer = handle.offer(),
         )
         GroupLightningReports.publishSnapshot(database, localChatRoom, userPublicKey, snapshot)
         lastReported = current
@@ -287,6 +311,15 @@ class GroupLightningNode(
         /** How long a signature may take the group. Phase 0 was to measure what the LSP tolerates; until it is, a minute. */
         val SIGNING_DEADLINE: Duration = 60.seconds
         val HANDOVER_CHECK: Duration = 10.seconds
+        /** Pool counters with round one in hand before the node connects: enough to open a channel and pay. */
+        const val MINIMUM_POOL = 8
+        /** How long a starting node waits for them before refusing; it is tried again at the next refresh. */
+        val POOL_WAIT: Duration = 30.seconds
+
+        val FEERATES_REFRESH: Duration = 10.minutes
+        val FEERATES_RETRY: Duration = 30.seconds
+        private val REGTEST_FEERATES = FeeratePerByte(Satoshi(2)).let { Feerates(it, it, it, it, it) }
+
         /** How stale a snapshot may grow while nothing changes. */
         val REPORT_EVERY: Duration = 5.minutes
         /** How many of the newest payments a snapshot carries; members keep every one they have seen. */
@@ -309,6 +342,17 @@ class GroupLightningNode(
                 features = base.features.copy(activated = base.features.activated + (Feature.SimpleTaprootChannels to FeatureSupport.Mandatory)),
                 zeroConfPeers = setOf(configuration.lspNodeId),
                 usePeerStorage = true,
+                // The group's own limit, not lightning-kmp's default of 2,000 sats: the statement it signed
+                // names what a channel opened on the fly may cost.
+                liquidityPolicy = MutableStateFlow(
+                    LiquidityPolicy.Auto(
+                        inboundLiquidityTarget = null,
+                        maxAbsoluteFee = configuration.maxLiquidityFee,
+                        maxRelativeFeeBasisPoints = 3_000,
+                        skipAbsoluteFeeCheck = false,
+                        maxAllowedFeeCredit = 0.msat,
+                    )
+                ),
             )
             val walletParams = walletParamsFor(configuration.chain)
             require(walletParams.trampolineNode.id == configuration.lspNodeId) { "the wallet's LSP is not the node it would connect to" }
@@ -316,6 +360,24 @@ class GroupLightningNode(
             val watcher = ElectrumWatcher(client, scope, loggerFactory)
             val databases = databasesFor(nodeParams.nodeId, configuration.chain)
             val peer = Peer(nodeParams, walletParams, client, watcher, databases, TcpSocket.Builder(), scope)
+            // The peer learns the chain's height only from header notifications, and a shared client that
+            // subscribed long ago sends the next one at the next block: until then the node can answer no
+            // invoice request and take no payment. So it is told the current height as it starts.
+            scope.launch {
+                runCatching { peer.currentTipFlow.value = client.startHeaderSubscription().blockHeight }
+            }
+            // lightning-kmp asks for feerates once, as Electrum connects, which suits a phone app that runs
+            // for minutes. The operator's node runs for days, and without feerates it cannot close a channel
+            // at all -- a force close waits for them, silently. So it asks again, often while it has none.
+            // Regtest has nothing to estimate from; there it takes a flat rate.
+            scope.launch {
+                while (isActive) {
+                    val feerates = runCatching { client.getFeerates() }.getOrNull()
+                        ?: REGTEST_FEERATES.takeIf { configuration.chain == Chain.Regtest }
+                    feerates?.let { peer.onChainFeeratesFlow.value = OnChainFeerates(it) }
+                    delay(if (feerates == null) FEERATES_RETRY else FEERATES_REFRESH)
+                }
+            }
             val payments = mutableListOf<WalletWire.PaymentView>()
             scope.launch {
                 nodeParams.nodeEvents.collect { event ->
@@ -376,6 +438,7 @@ class GroupLightningNode(
                         }
                     }
                 }.map(GroupSweep::inputOf).distinctBy { it.txid to it.index }
+                override fun offer(): String = nodeParams.defaultOffer(walletParams.trampolineNode.id).offer.encode()
                 override suspend fun forceClose(channelId: String) {
                     peer.send(WrappedChannelCommand(ByteVector32(channelId), ChannelCommand.Close.ForceClose))
                 }

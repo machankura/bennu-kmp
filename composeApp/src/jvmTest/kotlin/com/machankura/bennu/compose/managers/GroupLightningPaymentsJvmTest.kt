@@ -130,6 +130,7 @@ class GroupLightningPaymentsJvmTest {
             operator.db, operator.room, operator.publicKey, GroupLightningWalletManager.walletFor(operator.db, fixture.roomId, fixture.chain)!!, scope,
             { configuration -> FakeGroupNode(configuration).also { nodes += it } },
             handoverCheck = 10.minutes,
+            minimumPool = 0,
         )
         assertIs<GroupLightningNode.State.Running>(node.start())
         node.payAuthorised()
@@ -156,6 +157,7 @@ class GroupLightningPaymentsJvmTest {
             operator.db, operator.room, operator.publicKey, GroupLightningWalletManager.walletFor(operator.db, fixture.roomId, fixture.chain)!!, scope,
             { configuration -> FakeGroupNode(configuration).also { nodes += it } },
             handoverCheck = 10.minutes,
+            minimumPool = 0,
         )
         assertIs<GroupLightningNode.State.Running>(node.start())
         val one = "c1".repeat(32)

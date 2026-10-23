@@ -11,6 +11,7 @@ import fr.acinq.lightning.Features
 import fr.acinq.lightning.Lightning.randomBytes32
 import fr.acinq.lightning.MilliSatoshi
 import fr.acinq.lightning.payment.Bolt11Invoice
+import fr.acinq.lightning.payment.OfferManager
 
 /**
  * A stand-in for the group's lightning-kmp node: no LSP to connect to, channels and payments as a test
@@ -44,6 +45,8 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
     override suspend fun close(channelId: String, scriptPubKey: ByteVector) { closed += channelId to scriptPubKey }
     override suspend fun forceClose(channelId: String) { forceClosed += channelId }
     override fun heldOutputs(): List<GroupSweep.Input> = heldOutputs
+    override fun offer(): String =
+        OfferManager.deterministicOffer(configuration.chain.chainHash, configuration.keyManager.nodeKeys.nodeKey.privateKey, configuration.lspNodeId, null, null, null).offer.encode()
     override suspend fun hasPaid(paymentHash: String): Boolean = payments.any { !it.incoming && it.paymentHash == paymentHash }
     override suspend fun pay(bolt11: String, amountMsat: Long): WalletWire.PaymentView {
         paid += bolt11 to amountMsat

@@ -51,7 +51,7 @@ class GroupLightningReceiveViewModel(
                 ?: return@launch run { uiState = GroupLightningReceiveUIState.Error("Couldn't find the group") }
             val wallet = lightningRepository.lightningWallet(chatRoomId, chain)
             uiState = if (wallet == null || lightningRepository.operator(chatRoomId, chain, wallet.statement.wallet)?.publicKey == null) GroupLightningReceiveUIState.Unavailable
-            else GroupLightningReceiveUIState.Form(localChatRoom, wallet)
+            else GroupLightningReceiveUIState.Form(localChatRoom, wallet, lightningRepository.observeReport(chatRoomId, chain, wallet.statement.wallet).first()?.snapshot?.offer)
         }
     }
 
