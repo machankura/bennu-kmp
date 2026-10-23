@@ -31,6 +31,20 @@ build chose differently it did so these times:
 | `CLAUDE.md`'s literal count goes to 20 | 19, after Phase 5 took another |
 | 61 strings plus four already unused | 65 in all: the string catalogue test's two chapter strings went once it checked its escapes on `recovered_of_still_unreadable` instead |
 
+**Checked on the three emulators that found the bug**, upgraded in place from
+v26 with their data. The migration ran on each: v27, no document tables, and the
+raw-hex bubbles gone from Bob's and Charlie's `#Checkers`. Bob abandoned the
+stray whole-room ceremony `8199d186` from its screen and it ended on all three;
+its **Try again** led to the creation screen's Marmot-room refusal. Then
+Tapscript (`89d4c4d0`) ran to completion: Bob and Charlie each approved round
+one and came back to its screen with no start button on it -- the step where
+Charlie had opened the second ceremony -- and all three confirmed round two and
+hold the same key. No new ceremony, no `unsupported` line, and no chronicle
+request, page or line on any device. The NIP-17 `Checkers` group's **Shared
+key** handed over to its finished ceremony, and back returned to its details.
+Not exercised on a device: the certificate and key state after Tapscript, and
+starting a ceremony from `CreateSharedKeyScreen` in a group without a key.
+
 The headline: **a ceremony is started only from a screen that knows what it is
 for, and the screen that shows a ceremony can never start one.** Today
 `DkgRitualScreen` does three jobs (showing progress, asking for approvals, and

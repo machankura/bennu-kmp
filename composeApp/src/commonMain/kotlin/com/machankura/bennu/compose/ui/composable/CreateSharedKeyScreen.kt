@@ -39,6 +39,7 @@ import bennu.composeapp.generated.resources.couldn_t_start_the_key_ceremony
 import bennu.composeapp.generated.resources.everyone_has_to_be_online_at_the_same_time
 import bennu.composeapp.generated.resources.how_many_members_will_it_take_to_sign
 import bennu.composeapp.generated.resources.of
+import bennu.composeapp.generated.resources.shared_key
 import bennu.composeapp.generated.resources.shared_key_for
 import bennu.composeapp.generated.resources.start_key_ceremony
 import bennu.composeapp.generated.resources.the_group_can_hold_one_key_together_split_so
@@ -120,11 +121,14 @@ fun CreateSharedKeyScreen(
         topBar = {
             TopAppBar(
                 title = {
+                    // The room's name only once it is loaded; before that, and on a
+                    // refusal, the plain title rather than "Shared key for " and
+                    // nothing.
+                    val subject = (state as? CreateSharedKeyUIState.Loaded)?.localChatRoom?.chatRoom?.subject
                     Text(
-                        text = stringResource(
-                            Res.string.shared_key_for,
-                            (state as? CreateSharedKeyUIState.Loaded)?.localChatRoom?.chatRoom?.subject.orEmpty()
-                        ),
+                        text = subject
+                            ?.let { stringResource(Res.string.shared_key_for, it) }
+                            ?: stringResource(Res.string.shared_key),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
