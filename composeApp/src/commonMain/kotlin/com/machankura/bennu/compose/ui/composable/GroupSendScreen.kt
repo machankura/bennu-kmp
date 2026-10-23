@@ -57,6 +57,8 @@ import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
 import bennu.composeapp.generated.resources.sats_are_whole_numbers
+import bennu.composeapp.generated.resources.s_sats_left_over_go_to_the_fee
+import bennu.composeapp.generated.resources.too_many_spends_are_open_with_change
 import bennu.composeapp.generated.resources.that_is_more_sats_than_there_will_ever_be
 import bennu.composeapp.generated.resources.that_isn_t_an_amount_in_sats
 import com.machankura.bennu.compose.text.GroupedSats
@@ -208,12 +210,13 @@ fun GroupSendScreen(
                         label = { Text(stringResource(Res.string.feerate_in_sats_per_byte)) },
                     )
 
-                    if (state.walletState == null) {
-                        LoadingDataIndicator(fillScreen = false, text = stringResource(Res.string.finding_the_group_s_coins))
-                    }
-
+                    // Still finding change is still finding coins: neither is anything to correct.
                     val preview = groupSendViewModel.preview()
-                    preview?.let { SendPreview(it, chain) }
+                    if (state.walletState == null || preview == GroupSpendBuilder.Result.FindingChange) {
+                        LoadingDataIndicator(fillScreen = false, text = stringResource(Res.string.finding_the_group_s_coins))
+                    } else {
+                        preview?.let { SendPreview(it, chain) }
+                    }
 
                     Text(
                         text = stringResource(Res.string.nothing_leaves_until_a_quorum_signs),
@@ -266,6 +269,13 @@ private fun SendPreview(result: GroupSpendBuilder.Result, chain: Chain) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (result.absorbed.sat > 0) {
+                Text(
+                    text = stringResource(Res.string.s_sats_left_over_go_to_the_fee, result.absorbed.grouped()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
 
         else -> Text(
@@ -274,6 +284,7 @@ private fun SendPreview(result: GroupSpendBuilder.Result, chain: Chain) {
                     stringResource(Res.string.that_isn_t_an_address_on_s, GroupWalletStatementEvent.chainName(chain))
                 GroupSpendBuilder.Result.NothingToSpend -> stringResource(Res.string.the_group_has_nothing_confirmed_to_spend)
                 GroupSpendBuilder.Result.NotEnough -> stringResource(Res.string.the_group_doesn_t_have_that_much_confirmed)
+                GroupSpendBuilder.Result.TooManyOpen -> stringResource(Res.string.too_many_spends_are_open_with_change)
                 is GroupSpendBuilder.Result.OverCap -> stringResource(Res.string.while_the_wallet_is_new_at_most_s_sats, result.cap.grouped())
                 is GroupSpendBuilder.Result.InvalidAmount -> when (result.input) {
                     SatsInput.NotWhole -> stringResource(Res.string.sats_are_whole_numbers)

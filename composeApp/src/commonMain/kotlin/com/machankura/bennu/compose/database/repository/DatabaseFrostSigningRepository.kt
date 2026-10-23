@@ -21,6 +21,7 @@ import com.machankura.bennu.compose.database.model.intermdiate.FrostSignerTally
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.intermdiate.LocalFrostSigningSession
 import com.machankura.bennu.compose.managers.FrostSigningManager
+import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
 import com.machankura.bennu.compose.repository.FrostSigningRepository
@@ -158,6 +159,13 @@ class DatabaseFrostSigningRepository(
         FrostSigningManager.reservedOutPoints(database, chatRoomId)
     } catch (e: Throwable) {
         logger.e("Error reading the coins reserved in $chatRoomId", e)
+        emptySet()
+    }
+
+    override suspend fun reservedChangeIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long> = try {
+        FrostSigningManager.reservedChangeIndices(database, chatRoomId, account)
+    } catch (e: Throwable) {
+        logger.e("Error reading the change addresses reserved in $chatRoomId", e)
         emptySet()
     }
 

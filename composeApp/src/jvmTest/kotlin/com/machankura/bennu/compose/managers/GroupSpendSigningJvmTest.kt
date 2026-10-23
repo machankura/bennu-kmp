@@ -18,6 +18,9 @@ import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.text.ProposedSpend
+import com.machankura.bennu.compose.wallet.GroupSpendBuilder
+import com.machankura.bennu.compose.wallet.GroupWalletState
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
@@ -37,11 +40,13 @@ import fr.acinq.bitcoin.TxOut
 import fr.acinq.bitcoin.crypto.frost.Frost
 import fr.acinq.bitcoin.crypto.frost.KeyMaterial
 import fr.acinq.bitcoin.psbt.Psbt
+import fr.acinq.lightning.blockchain.electrum.WalletState
 import kotlinx.coroutines.runBlocking
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -352,9 +357,89 @@ class GroupSpendSigningJvmTest {
 
         val coins = setOf(OutPoint(funding, 0), OutPoint(funding, 1))
         assertEquals(coins, FrostSigningManager.reservedOutPoints(other.db, roomId))
+        assertEquals(setOf(0L), FrostSigningManager.reservedChangeIndices(other.db, roomId, account), "and its change address")
 
         // Abandoned however it was -- the stage is all the reservation reads.
         other.db.frostSigningSessionDao().upsert(other.session(session.id)!!.copy(stage = FrostSigningStage.FAILED))
         assertEquals(emptySet(), FrostSigningManager.reservedOutPoints(other.db, roomId), "a failed spend releases its coins")
+        assertEquals(emptySet(), FrostSigningManager.reservedChangeIndices(other.db, roomId, account), "and its change address")
+    }
+
+    /** The wallet as Electrum would report it holding [funding], with [changeWindow] change addresses watched and unused. */
+    private fun fundedState(changeWindow: Int = 3): GroupWalletState {
+        fun derived(branch: Long, index: Int) = GroupWalletDerivation.derive(account, branch, index.toLong())
+        val receive = listOf(first, second).mapIndexed { index, derivation ->
+            val meta = WalletState.AddressMeta.Derived(index)
+            derivation.address(chain) to WalletState.AddressState(
+                meta, alreadyUsed = true, utxos = listOf(WalletState.Utxo(funding.txid, index, 100, funding, meta)),
+            )
+        }.toMap()
+        val change = (0 until changeWindow).associate { index ->
+            derived(GroupWalletDerivation.CHANGE, index).address(chain) to
+                WalletState.AddressState(WalletState.AddressMeta.Derived(index), alreadyUsed = false, utxos = emptyList())
+        }
+        return GroupWalletState(account, WalletState(receive), WalletState(change), tipHeight = 110)
+    }
+
+    @Test
+    fun `an amount the form built is signed by the group, its change is the group's on every device, and it comes back`() = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        openWallet(proposer, other)
+
+        // A first spend is open and holds change index 0, so the form pays past it.
+        FrostSigningManager.proposeSpend(proposer.db, proposer.room, proposer.publicKey, psbt(), chain)
+        pump(proposer, other)
+        val heldChange = FrostSigningManager.reservedChangeIndices(proposer.db, roomId, account)
+        assertEquals(setOf(0L), heldChange)
+
+        // The second spends coins the first does not hold: a fresh funding of its own.
+        val more = Transaction(
+            2, listOf(TxIn(OutPoint(TxId(ByteVector32(ByteArray(32) { 0x43 })), 0), ByteVector.empty, 0xffffffffL)),
+            listOf(TxOut(Satoshi(80_000), first.pubkeyScript)), 0,
+        )
+        val wallet = fundedState().let { state ->
+            val meta = WalletState.AddressMeta.Derived(0)
+            val receive = state.receive.addresses + (first.address(chain) to WalletState.AddressState(
+                meta, alreadyUsed = true, utxos = listOf(WalletState.Utxo(more.txid, 0, 100, more, meta)),
+            ))
+            state.copy(receive = WalletState(receive))
+        }
+        val reserved = FrostSigningManager.reservedOutPoints(proposer.db, roomId)
+        val built = assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.send(wallet, ProposedSpend.addressOf(elsewhere, chain), Satoshi(30_000), 3, reserved, heldChange)
+        )
+
+        val session = FrostSigningManager.proposeSpend(proposer.db, proposer.room, proposer.publicKey, built.psbt, chain)
+        pump(proposer, other)
+        FrostSigningManager.approve(other.db, other.room, session.id)
+        pump(proposer, other)
+
+        // On the device that did not build it: the change derives, so it is change.
+        val seen = assertNotNull(FrostSigningManager.checkedSpend(other.db, session.id))
+        val changeOutput = seen.outputs.single { it.isChange }
+        assertEquals(1L, changeOutput.change!!.index, "past the index the open spend holds")
+        assertEquals(built.change, changeOutput.txOut.amount)
+        assertEquals(Satoshi(30_000), seen.amountSent)
+        assertEquals(setOf(0L, 1L), FrostSigningManager.reservedChangeIndices(other.db, roomId, account))
+
+        listOf(proposer, other).forEach { device ->
+            assertEquals(FrostSigningStage.COMPLETE, device.session(session.id)?.stage)
+            val signed = Transaction.read(assertNotNull(device.transaction(session.id)?.signedTransaction))
+            signed.correctlySpends(mapOf(OutPoint(more, 0) to more.txOut[0]), ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)
+        }
+
+        // Confirmed, the change is a coin the wallet counts, on the branch it watches.
+        val signed = Transaction.read(other.transaction(session.id)!!.signedTransaction!!)
+        val changeMeta = WalletState.AddressMeta.Derived(1)
+        val changeAddress = changeOutput.change!!.address(chain)
+        val after = wallet.copy(
+            receive = WalletState(wallet.receive.addresses - first.address(chain)),
+            change = WalletState(wallet.change.addresses + (changeAddress to WalletState.AddressState(
+                changeMeta, alreadyUsed = true, utxos = listOf(WalletState.Utxo(signed.txid, changeOutput.index, 111, signed, changeMeta)),
+            ))),
+        )
+        assertEquals(changeOutput.change, after.derivationOf(changeOutput.txOut.publicKeyScript))
+        assertEquals(Satoshi(40_000) + built.change!!, after.confirmedBalance, "the second funding coin, and the change")
     }
 }

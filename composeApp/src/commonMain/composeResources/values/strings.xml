@@ -657,6 +657,8 @@
     <string name="sats_are_whole_numbers">Sats are whole numbers: there is nothing smaller than a sat to send.</string>
     <string name="that_is_more_sats_than_there_will_ever_be">That is more sats than there will ever be.</string>
     <string name="that_isn_t_an_amount_in_sats">That isn't an amount in sats.</string>
+    <string name="s_sats_left_over_go_to_the_fee">%1$s sats left over are too few to come back as change, and go to the fee.</string>
+    <string name="too_many_spends_are_open_with_change">The group has too many spends with change waiting for signatures. Wait for one to settle, or send everything.</string>
     <string name="couldn_t_ask_the_group_to_send">Couldn't ask the group to send.</string>
     <string name="sending_needs_a_share_and_a_node">Sending needs a share of the group's key, and a wallet of your own on this profile to see the group's coins with.</string>
     <string name="nothing_leaves_until_a_quorum_signs">Nothing leaves the wallet until a quorum of members has seen this spend and signed it.</string>

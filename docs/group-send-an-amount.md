@@ -9,7 +9,7 @@ Read [group-chain-wallet.md](./group-chain-wallet.md) first, Phases 8 and 10 in
 particular. This plan is that note's third rollout gate, and it starts from the
 code as it stands at `96055da5`.
 
-**Phase 1 built; Phases 2-7 not.** Written against `GroupSendScreen`, `GroupSendViewModel`,
+**Phases 1 and 3 built; 2 and 4-7 not.** Written against `GroupSendScreen`, `GroupSendViewModel`,
 `GroupSpendBuilder`, `GroupSpend` and `GroupWalletRollout` as they are at that
 commit.
 
@@ -188,62 +188,71 @@ removed it (Phase 6).
 
 ## Phase 3: change goes to an address the group can find
 
-**One and a half days.** This fixes problems 3 and 4 above. It is the only phase
-that touches the builder's choices, so it is the one that needs the most tests.
+**One and a half days. Built.** This fixes problems 3 and 4 above, and the
+silent dust in 5. It is the only phase that changes what the builder chooses.
 
-- **Change indices are reserved like coins.** Next to
-  `FrostSigningManager.reservedOutPoints`, add `reservedChangeIndices(database,
-  chatRoomId): Set<Long>`. It decodes the PSBT of every `GroupTransaction` whose
-  session is not `FAILED`, and collects each output's change derivation. It
-  covers the same sessions as `reservedOutPoints`, for the same reason. Expose
-  it on `FrostSigningRepository`, and carry it on `GroupSendUIState.Ready` next
-  to `reserved`.
-- **`GroupWalletState.nextChangeIndex(reserved: Set<Long>)`** returns the first
-  change index that is unused and not reserved. `GroupSpendBuilder.send` takes
-  that set and calls this.
-- **Inside the watched window, or refused.** `CHANGE_LOOKAHEAD` is 3, and its
-  comment says *"change addresses are only ever chosen by a spend, one at a
-  time"*, which reservation makes untrue. The change wallet watches three
-  addresses past the first unused one. So a fifth open spend with change would
-  pay an address that Electrum is not watching. That is not a loss, because the
-  address derives, but the change would be missing from the balance until the
-  window moves. Two changes:
-  1. raise `CHANGE_LOOKAHEAD` to 10, the same as receive, since several members
-     can now each hold an open spend with change;
-  2. when the next free index is past the watched window, `send` returns a new
-     `Result.TooManyOpen`. The screen says to wait for an open spend to
-     settle, or to send everything.
+- **Change indices are reserved like coins.**
+  `FrostSigningManager.reservedChangeIndices(database, chatRoomId, account)`
+  sits next to `reservedOutPoints`, and both read one private `openSpends`:
+  the PSBT of every `GroupTransaction` whose session has not `FAILED`. The
+  indices come from `GroupSpend.claimedChangeIndices`, which reads each
+  output's claimed path under the account's fingerprint. It reads *claims*,
+  not checked derivations, because holding an index too many costs nothing.
+  The account is a parameter because the plan's `(database, chatRoomId)`
+  signature could not tell one account's change from another's. The value is
+  exposed on `FrostSigningRepository` and carried on `GroupSendUIState.Ready`
+  as `reservedChange`.
+- **`GroupWalletState.nextChangeIndex(reserved)`** is now a function. It
+  returns the lowest change index the wallet *watches* that is unused and not
+  reserved. The old `nextChangeIndex` property was the first unused index, and
+  `changeKnown` separates "no answer yet" from "all held".
+- **The window, checked.** The plan read `CHANGE_LOOKAHEAD` as "watched past
+  the first unused address". `ElectrumMiniWallet.maybeGenerateNext` actually
+  keeps `lastDerived ≥ firstUnused + lookAhead − 1`, so `lookAhead` counts the
+  first unused address itself: at 3, three change addresses in all. Rather than
+  depend on that arithmetic, `nextChangeIndex` chooses only among the addresses
+  the wallet has actually generated, which is the watched set by definition.
+  So change can never be sent to an address nobody is watching, whatever the
+  look-ahead is. `CHANGE_LOOKAHEAD` is raised to 10, so a group can have ten
+  spends with change open at once. Past that, `send` returns `TooManyOpen`,
+  and the preview says to wait for one to settle or to send everything.
+  Send-all never needs a change address, so it is never refused this way.
+- **Still finding is not nothing.** When there are no coins, the result is
+  `NothingToSpend` as before. When there are coins but no change address has
+  been answered for, the result is `FindingChange`, and the form shows the
+  *Finding the group's coins* indicator instead of an error.
+- **Dust change is shown.** `Result.Built.absorbed` is what the fee holds beyond
+  the fee rate. It is zero for `sendAll`, for a build with change, and for a
+  bump. When it is positive, the preview adds *"N sats left over are too few
+  to come back as change, and go to the fee."* This line was meant for Phase 4,
+  but the new result cases meant `SendPreview` had to change in this phase, so
+  it went in now.
 
-  Check the window against `ElectrumMiniWallet`'s generator before trusting
-  either number. The wallet note's comment says the look-ahead counts past the
-  first *unused* address, and this phase depends on that being right.
-- **The change branch not loaded yet is "still finding", not "nothing".** When
-  the change `WalletState` has no addresses yet, `send` returns a new
-  `Result.FindingChange`, and the form shows it with the same indicator as
-  `walletState == null` (*Finding the group's coins*), not as an error.
-- **Dust change shows up in the preview.** Add `absorbed: Satoshi` to
-  `Result.Built`: what the build added to the fee because the change would have
-  been dust. It is zero for `sendAll`, for a build with change, and for a bump.
+**Tests.** `GroupSpendBuilderTest` adds three:
+- with index 0 held, change goes to 1, and the built PSBT claims 1;
+- with every watched index held, the result is `TooManyOpen`, while send-all
+  still builds;
+- with no change branch yet, the result is `FindingChange`, while no coins is
+  still `NothingToSpend`.
 
-**Tests**, extending `GroupSpendBuilderTest`:
+The dust test now asserts that `absorbed` plus the fee at the fee rate is the
+fee. `GroupOnchainWalletJvmTest` asserts that the change window is
+`CHANGE_LOOKAHEAD` addresses, all subscribed, and that holding all of them
+leaves `null`.
 
-- with change index 0 reserved, `send` pays change to index 1, and `GroupSpend.check`
-  labels it change;
-- reserving every index in the watched window gives `TooManyOpen`;
-- an empty change branch gives `FindingChange`, not `NothingToSpend`;
-- the dust case's `absorbed` plus the fee at the rate equals its fee.
+**The end-to-end case the removed gate was waiting for** is in
+`GroupSpendSigningJvmTest`, not `GroupWalletSpendRoundTest` as planned: the
+round test has no database or manager, and this case needs both. One spend is
+left open, holding change index 0. Then `GroupSpendBuilder.send` builds a
+second spend from a fresh coin, and two devices sign it to `COMPLETE`. The
+test asserts:
+- the device that did not build it labels index 1 as change;
+- both devices' transactions pass `correctlySpends`;
+- once confirmed, the change coin counts in `confirmedBalance`, and
+  `derivationOf` finds it.
 
-And extending `GroupWalletSpendRoundTest` with **the end-to-end case the removed
-gate was waiting for**: two devices, an amount with change, signed to `COMPLETE`.
-Assert that the change output is labelled change on the device that did not
-propose it, and that once the change coin is in the wallet state it counts in
-`confirmedBalance`. That is the test version of "nobody reported a mislabelled
-change output", and with no test-network release before mainnet, it is the
-only version there is before the feature ships.
-
-`reservedChangeIndices` gets its own jvmTest next to whatever tests
-`reservedOutPoints`. A `FAILED` session releases its index, and a `COMPLETE`
-one keeps it until Electrum reports the address used.
+The same file's reservation test now also asserts that a failed session
+releases its change index.
 
 ---
 

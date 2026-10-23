@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.repository
 
 import com.machankura.bennu.compose.database.model.GroupTransaction
+import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.wallet.GroupSpend
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.OutPoint
@@ -246,6 +247,9 @@ interface FrostSigningRepository {
     /** The coins the room's open spends are already spending. */
     suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint>
 
+    /** The change indices under [account] the room's open spends already pay back to. */
+    suspend fun reservedChangeIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long>
+
     /** Every spend the room has proposed, newest first, as it moves from proposed to confirmed. */
     fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>>
 
@@ -326,6 +330,7 @@ interface FrostSigningRepository {
             override suspend fun checkedSpend(sessionId: String): GroupSpend.Checked? = null
 
             override suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint> = emptySet()
+            override suspend fun reservedChangeIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long> = emptySet()
 
             override fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>> = flowOf(emptyList())
 

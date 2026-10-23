@@ -46,9 +46,12 @@ class GroupSpendBuilderTest {
         )
     }
 
-    private fun state(vararg coins: Pair<String, WalletState.AddressState>): GroupWalletState {
-        val unusedChange = GroupWalletDerivation.derive(account, GroupWalletDerivation.CHANGE, 0)
-        val change = WalletState(mapOf(unusedChange.address(Chain.Regtest) to WalletState.AddressState(WalletState.AddressMeta.Derived(0), false, emptyList())))
+    /** [coins] on the receive branch, and [changeWindow] unused change addresses watched -- none, before Electrum has answered. */
+    private fun state(vararg coins: Pair<String, WalletState.AddressState>, changeWindow: Int = 1): GroupWalletState {
+        val change = WalletState((0 until changeWindow).associate { index ->
+            GroupWalletDerivation.derive(account, GroupWalletDerivation.CHANGE, index.toLong()).address(Chain.Regtest) to
+                WalletState.AddressState(WalletState.AddressMeta.Derived(index), false, emptyList())
+        })
         return GroupWalletState(account, WalletState(coins.toMap()), change, tipHeight = 110)
     }
 
@@ -92,14 +95,54 @@ class GroupSpendBuilderTest {
         assertEquals(GroupWalletDerivation.CHANGE, change.change!!.change)
         assertEquals(built.change, change.txOut.amount)
         assertEquals(Satoshi(30_000), spend.amountSent)
+        assertEquals(Satoshi(0), built.absorbed, "with change, the fee is the feerate's and nothing more")
+    }
+
+    @Test
+    fun `change goes past the addresses open spends already pay to`() {
+        val result = GroupSpendBuilder.send(
+            state(coin(0, 60_000), changeWindow = 3), destination, Satoshi(30_000), feerate, emptySet(), reservedChange = setOf(0L),
+        )
+        val built = assertIs<GroupSpendBuilder.Result.Built>(result)
+
+        assertEquals(1L, checked(result).outputs.single { it.isChange }.change!!.index)
+        assertEquals(setOf(1L), GroupSpend.claimedChangeIndices(built.psbt, account), "and the spend after it reads index 1 as held")
+    }
+
+    @Test
+    fun `with every watched change address held, a spend with change waits`() {
+        val wallet = state(coin(0, 60_000), changeWindow = 2)
+
+        assertIs<GroupSpendBuilder.Result.TooManyOpen>(
+            GroupSpendBuilder.send(wallet, destination, Satoshi(30_000), feerate, emptySet(), reservedChange = setOf(0L, 1L))
+        )
+        assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.sendAll(wallet, destination, feerate, emptySet()), "send-all has no change to place"
+        )
+    }
+
+    @Test
+    fun `before the change branch has answered, the builder is finding change rather than empty-handed`() {
+        val wallet = state(coin(0, 60_000), changeWindow = 0)
+
+        assertIs<GroupSpendBuilder.Result.FindingChange>(GroupSpendBuilder.send(wallet, destination, Satoshi(30_000), feerate, emptySet()))
+        assertIs<GroupSpendBuilder.Result.NothingToSpend>(
+            GroupSpendBuilder.send(state(changeWindow = 0), destination, Satoshi(30_000), feerate, emptySet()),
+            "no coins is no coins, whatever change is doing",
+        )
     }
 
     @Test
     fun `change that would be dust goes to fees instead`() {
-        val spend = checked(GroupSpendBuilder.send(state(coin(0, 30_800)), destination, Satoshi(30_000), feerate, emptySet()))
+        val result = GroupSpendBuilder.send(state(coin(0, 30_800)), destination, Satoshi(30_000), feerate, emptySet())
+        val spend = checked(result)
 
         assertTrue(spend.outputs.none { it.isChange })
         assertEquals(Satoshi(800), spend.fee)
+        val atTheFeerate = Satoshi(feerate * ((spend.weight + 3) / 4))
+        val absorbed = assertIs<GroupSpendBuilder.Result.Built>(result).absorbed
+        assertTrue(absorbed.sat > 0)
+        assertEquals(spend.fee, atTheFeerate + absorbed, "what the screen says went to the fee is all that did")
     }
 
     @Test

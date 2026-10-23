@@ -195,6 +195,20 @@ object GroupSpend {
     }
 
     /**
+     * The change indices under [account] that [psbt]'s outputs claim: what an
+     * open spend holds, so the next one pays its change somewhere else. Claims,
+     * not checked derivations -- a spend this device would refuse still keeps
+     * its index from being handed out twice, and holding one too many costs
+     * nothing.
+     */
+    fun claimedChangeIndices(psbt: Psbt, account: GroupWalletDerivation.Account): Set<Long> =
+        psbt.outputs
+            .flatMap { it.taprootDerivationPaths.values }
+            .filter { it.masterKeyFingerprint == account.fingerprint }
+            .mapNotNull { path -> path.keyPath.path.takeIf { it.size == 2 && it[0] == GroupWalletDerivation.CHANGE }?.get(1) }
+            .toSet()
+
+    /**
      * The one derivation under [account] a PSBT field names, or null when it names
      * none, several, or one this wallet will not walk.
      *

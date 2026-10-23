@@ -866,10 +866,30 @@ object FrostSigningManager {
      * the coins are still unspent as far as Electrum can say.
      */
     suspend fun reservedOutPoints(database: BennuDatabase, chatRoomId: String): Set<OutPoint> =
+        openSpends(database, chatRoomId)
+            .flatMap { psbt -> psbt.global.tx.txIn.map { it.outPoint } }
+            .toSet()
+
+    /**
+     * The change addresses a room's open spends pay back to, under [account],
+     * which a new spend should not pay to as well. Held by the same sessions as
+     * [reservedOutPoints], for the same reason: until a spend is on chain, its
+     * change address reads as unused, and the next spend would pick it again.
+     */
+    suspend fun reservedChangeIndices(
+        database: BennuDatabase,
+        chatRoomId: String,
+        account: GroupWalletDerivation.Account,
+    ): Set<Long> =
+        openSpends(database, chatRoomId)
+            .flatMap { GroupSpend.claimedChangeIndices(it, account) }
+            .toSet()
+
+    /** The PSBT of every spend in the room whose session has not failed. */
+    private suspend fun openSpends(database: BennuDatabase, chatRoomId: String): List<Psbt> =
         database.groupTransactionDao().getByChatRoomId(chatRoomId)
             .filter { database.frostSigningSessionDao().getSessionById(it.frostSigningSessionId)?.stage != FrostSigningStage.FAILED }
-            .flatMap { transaction -> GroupSpend.decode(transaction.psbt)?.global?.tx?.txIn?.map { it.outPoint }.orEmpty() }
-            .toSet()
+            .mapNotNull { GroupSpend.decode(it.psbt) }
 
     /**
      * A spend seen confirmed: recorded, and every other spend of the same coins

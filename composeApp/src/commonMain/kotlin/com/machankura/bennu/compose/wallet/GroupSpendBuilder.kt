@@ -28,9 +28,20 @@ object GroupSpendBuilder {
     val DUST: Satoshi = Satoshi(546)
 
     sealed interface Result {
-        data class Built(val psbt: Psbt, val amount: Satoshi, val fee: Satoshi, val change: Satoshi?) : Result
+        data class Built(
+            val psbt: Psbt,
+            val amount: Satoshi,
+            val fee: Satoshi,
+            val change: Satoshi?,
+            /** What [fee] holds beyond the feerate: change too small to send back, paid to the miner instead. */
+            val absorbed: Satoshi = Satoshi(0),
+        ) : Result
         data object NotAnAddress : Result
         data object NothingToSpend : Result
+        /** Electrum has not yet said which change addresses are used, so there is none to name. */
+        data object FindingChange : Result
+        /** Open spends already pay change to every change address the wallet watches. */
+        data object TooManyOpen : Result
         data object NotEnough : Result
         data object BelowDust : Result
         /** A bump has to pay more than the spend it replaces. */
@@ -65,7 +76,8 @@ object GroupSpendBuilder {
 
     /**
      * [amount] to [address], largest coins first, with what is left over paid
-     * back to the next change address -- or to fees, when it would be dust.
+     * back to the next change address no open spend holds -- or to fees, when
+     * it would be dust.
      */
     fun send(
         state: GroupWalletState,
@@ -73,13 +85,15 @@ object GroupSpendBuilder {
         amount: Satoshi,
         feeratePerVbyte: Long,
         reserved: Set<OutPoint>,
+        reservedChange: Set<Long> = emptySet(),
     ): Result {
         val script = scriptOf(state, address) ?: return Result.NotAnAddress
         if (amount < DUST) return Result.BelowDust
-        val changeIndex = state.nextChangeIndex ?: return Result.NothingToSpend
-        val change = GroupWalletDerivation.derive(state.account, GroupWalletDerivation.CHANGE, changeIndex)
-
         val coins = spendable(state, reserved).sortedByDescending { it.amount.sat }.ifEmpty { return Result.NothingToSpend }
+
+        if (!state.changeKnown) return Result.FindingChange
+        val changeIndex = state.nextChangeIndex(reservedChange) ?: return Result.TooManyOpen
+        val change = GroupWalletDerivation.derive(state.account, GroupWalletDerivation.CHANGE, changeIndex)
 
         val chosen = mutableListOf<GroupUtxo>()
         for (coin in coins) {
@@ -97,7 +111,10 @@ object GroupSpendBuilder {
             val withoutChange = feeOf(chosen, listOf(script), feeratePerVbyte)
             if (total - amount >= withoutChange) {
                 val tx = transaction(chosen, listOf(TxOut(amount, script)))
-                return Result.Built(psbtOf(state, tx, chosen, emptyMap()), amount, total - amount, change = null)
+                return Result.Built(
+                    psbtOf(state, tx, chosen, emptyMap()), amount, total - amount, change = null,
+                    absorbed = total - amount - withoutChange,
+                )
             }
         }
         return Result.NotEnough

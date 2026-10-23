@@ -87,8 +87,13 @@ class GroupOnchainWallet(
          */
         const val RECEIVE_LOOKAHEAD: UInt = 10u
 
-        /** Change addresses are only ever chosen by a spend, one at a time. */
-        const val CHANGE_LOOKAHEAD: UInt = 3u
+        /**
+         * Change addresses watched, counting the first unused one. Each open
+         * spend with change holds one until it confirms, and several members
+         * can each have one open, so this is how many such spends a group can
+         * have at once before the next is told to wait.
+         */
+        const val CHANGE_LOOKAHEAD: UInt = 10u
     }
 }
 
@@ -140,8 +145,22 @@ data class GroupWalletState(
      */
     val receiveAddress: String? get() = receive.firstUnusedDerivedAddress?.first
 
-    /** The change index a spend should pay back to, or null until Electrum has answered. */
-    val nextChangeIndex: Long? get() = change.firstUnusedDerivedAddress?.second?.index?.toLong()
+    /** Whether Electrum has answered for any change address yet: before it has, there is no next one to name. */
+    val changeKnown: Boolean get() = change.addresses.values.any { !it.alreadyUsed }
+
+    /**
+     * The change index a spend should pay back to: the lowest this wallet
+     * watches that is unused and not in [reserved] -- the indices open spends
+     * already pay to. Null when there is none: before Electrum has answered,
+     * or when open spends hold every one inside the watched window, past which
+     * change would land on an address nobody is watching.
+     */
+    fun nextChangeIndex(reserved: Set<Long> = emptySet()): Long? =
+        change.addresses.values
+            .filterNot { it.alreadyUsed }
+            .mapNotNull { it.meta.indexOrNull?.toLong() }
+            .filterNot { it in reserved }
+            .minOrNull()
 
     /** How many confirmations [utxo] has: 0 in the mempool, and 0 until the tip is known. */
     fun confirmations(utxo: GroupUtxo): Int {

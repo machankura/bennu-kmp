@@ -16,6 +16,8 @@ sealed interface GroupSendUIState {
         val walletState: GroupWalletState?,
         /** The coins open spends already hold, which a new one leaves alone. */
         val reserved: Set<OutPoint>,
+        /** The change indices open spends already pay back to, which a new one pays past. */
+        val reservedChange: Set<Long> = emptySet(),
     ): GroupSendUIState
 
     /** A room this device cannot propose from -- no wallet, no share, or no node. */

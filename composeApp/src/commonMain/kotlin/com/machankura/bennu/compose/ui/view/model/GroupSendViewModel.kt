@@ -78,6 +78,7 @@ class GroupSendViewModel(
                 wallet = wallet,
                 walletState = null,
                 reserved = frostSigningRepository.reservedOutPoints(chatRoomId),
+                reservedChange = frostSigningRepository.reservedChangeIndices(chatRoomId, wallet.account),
             )
             groupSendUIState = ready
 
@@ -123,7 +124,7 @@ class GroupSendViewModel(
         val built = if (amount == null) {
             GroupSpendBuilder.sendAll(walletState, address, feerate, state.reserved)
         } else {
-            GroupSpendBuilder.send(walletState, address, amount, feerate, state.reserved)
+            GroupSpendBuilder.send(walletState, address, amount, feerate, state.reserved, state.reservedChange)
         }
         return GroupSpendBuilder.capped(built, GroupWalletRollout.capFor(chain))
     }

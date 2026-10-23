@@ -124,10 +124,10 @@ class GroupOnchainWalletJvmTest {
         val electrum = FakeElectrum()
         val wallet = GroupOnchainWallet(account, electrum, scope)
 
-        eventually { wallet.state.first { it.nextChangeIndex == 0L } }
+        eventually { wallet.state.first { it.nextChangeIndex() == 0L } }
         eventually { electrum.pay(change(0).pubkeyScript, Satoshi(7_000), height = 0) }
 
-        val state = eventually { wallet.state.first { it.nextChangeIndex == 1L && it.receiveAddress != null } }
+        val state = eventually { wallet.state.first { it.nextChangeIndex() == 1L && it.receiveAddress != null } }
         assertEquals(Satoshi(7_000), state.pendingBalance, "in the mempool, so pending")
         assertEquals(Satoshi(0), state.confirmedBalance)
         assertEquals(receive(0).address(Chain.Regtest), state.receiveAddress, "a change address is never offered for receiving")
@@ -171,5 +171,20 @@ class GroupOnchainWalletJvmTest {
             eventually { wallet.state.first { it.receive.addresses.size == GroupOnchainWallet.RECEIVE_LOOKAHEAD.toInt() } }
         }
         assertTrue(FakeElectrum.scriptHash(receive(9).pubkeyScript) in electrum.subscribed)
+    }
+
+    @Test
+    fun `every change address an open spend can be given is one the wallet watches`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+        val lookAhead = GroupOnchainWallet.CHANGE_LOOKAHEAD.toLong()
+
+        val state = eventually { wallet.state.first { it.change.addresses.size == lookAhead.toInt() } }
+        assertTrue(FakeElectrum.scriptHash(change(lookAhead - 1).pubkeyScript) in electrum.subscribed)
+
+        // Each open spend holds the next; the one after the last has nowhere watched to go.
+        val held = (0 until lookAhead).toSet()
+        assertEquals(lookAhead - 1, state.nextChangeIndex(held - (lookAhead - 1)))
+        assertEquals(null, state.nextChangeIndex(held))
     }
 }
