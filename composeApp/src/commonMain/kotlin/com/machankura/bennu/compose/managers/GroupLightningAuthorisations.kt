@@ -111,6 +111,16 @@ object GroupLightningAuthorisations {
     suspend fun forceCloseAuthorised(database: BennuDatabase, chatRoomId: String, statement: GroupLightningWalletStatementEvent.Statement, channelId: ByteVector32): Boolean =
         channelActions(database, chatRoomId, statement).any { it.action == GroupLightningAuthorisationEvent.FORCE_CLOSE && it.channelId == channelId.toHex() }
 
+    /** Proposes closing every one of [channelIds] of [wallet] to the onchain wallet, as one signing session. */
+    suspend fun proposeCloseAll(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelIds: List<String>): FrostSigningSession {
+        require(channelIds.isNotEmpty()) { "There are no channels to close" }
+        val expires = (Clock.System.now() + CHANNEL_ACTION_LIFETIME).epochSeconds
+        val templates = channelIds.map { channelId ->
+            GroupLightningAuthorisationEvent.template(GroupLightningAuthorisationEvent.ChannelAction(GroupLightningAuthorisationEvent.CLOSE, wallet.statement.chain, wallet.statement.wallet, channelId, expires))
+        }
+        return FrostSigningManager.proposeSigningBatch(database, localChatRoom, userPublicKey, templates)
+    }
+
     /** Proposes that the operator's node close [channelId] -- mutually, or by force when [force]. */
     suspend fun proposeChannelAction(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession {
         val action = GroupLightningAuthorisationEvent.ChannelAction(

@@ -99,6 +99,9 @@ class GroupLightningWalletViewModelJvmTest {
         val report: GroupLightningReports.Report? = null,
         val payments: List<GroupLightningPaymentRow> = emptyList(),
         val invoice: GroupLightningInvoiceRow? = null,
+        val departedMembers: List<HexKey> = emptyList(),
+        val earlier: List<GroupLightningWalletManager.Wallet> = emptyList(),
+        val unusedKey: Boolean = false,
     ) : GroupLightningRepository {
         val requests = mutableListOf<Pair<Long?, String>>()
         override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> = flowOf(running)
@@ -112,18 +115,22 @@ class GroupLightningWalletViewModelJvmTest {
         override suspend fun approveCeremony(localChatRoom: LocalChatRoom, sessionId: String, step: IcebergApprovalStep, nostrPrivateKey: ByteArray) = Unit
         override suspend fun completedCeremony(chatRoomId: String): IcebergKeySession? = completed
         override suspend fun lightningWallet(chatRoomId: String, chain: Chain): GroupLightningWalletManager.Wallet? = wallet
-        override suspend fun operator(chatRoomId: String, chain: Chain): GroupLightningOperatorManager.Operator? = operator
+        override suspend fun operator(chatRoomId: String, chain: Chain, wallet: Long): GroupLightningOperatorManager.Operator? = operator
         override fun lspNodeId(chain: Chain): HexKey? = "02" + "44".repeat(32)
         override suspend fun proposeWallet(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, chain: Chain): FrostSigningSession = error("unused")
-        override suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession = error("unused")
-        override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession = error("unused")
-        override fun observeReport(chatRoomId: String, chain: Chain): Flow<GroupLightningReports.Report?> = flowOf(report)
-        override fun observePayments(chatRoomId: String, chain: Chain): Flow<List<GroupLightningPaymentRow>> = flowOf(payments)
+        override suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long): FrostSigningSession = error("unused")
+        override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long): FrostSigningSession = error("unused")
+        override fun observeReport(chatRoomId: String, chain: Chain, wallet: Long): Flow<GroupLightningReports.Report?> = flowOf(report)
+        override fun observePayments(chatRoomId: String, chain: Chain, wallet: Long): Flow<List<GroupLightningPaymentRow>> = flowOf(payments)
         override suspend fun requestInvoice(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, amountMsat: Long?, description: String): String =
             "r1".also { requests += amountMsat to description }
-        override fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?> = flowOf(invoice?.takeIf { it.requestId == requestId })
+        override fun observeInvoice(chatRoomId: String, chain: Chain, wallet: Long, requestId: String): Flow<GroupLightningInvoiceRow?> = flowOf(invoice?.takeIf { it.requestId == requestId })
         override suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession = error("unused")
         override suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession = error("unused")
+        override suspend fun earlierWallets(chatRoomId: String, chain: Chain): List<GroupLightningWalletManager.Wallet> = earlier
+        override suspend fun departed(wallet: GroupLightningWalletManager.Wallet): List<HexKey> = departedMembers
+        override suspend fun hasUnusedKey(chatRoomId: String, chain: Chain): Boolean = unusedKey
+        override suspend fun proposeCloseAll(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelIds: List<String>): FrostSigningSession = error("unused")
         override suspend fun unswept(chatRoomId: String, report: GroupLightningReports.Report?): List<GroupSweep.Input> = report?.snapshot?.heldOutputs.orEmpty()
         override suspend fun proposeSweep(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, inputs: List<GroupSweep.Input>): FrostSigningSession = error("unused")
     }
@@ -239,5 +246,17 @@ class GroupLightningWalletViewModelJvmTest {
         viewModel.invoiceField.edit { replace(0, length, invoice(Chain.Mainnet, 1_000)) }
         val problem = (viewModel.preview()!!.exceptionOrNull() as GroupLightningAuthorisations.ProblemException).problem
         assertEquals(GroupLightningAuthorisations.Problem.OtherNetwork, problem)
+    }
+
+    @Test
+    fun `after a member leaves, the wallet says so, and lists the wallet a re-key left behind`() {
+        val earlier = wallet.copy(statement = wallet.statement.copy(wallet = 0))
+        val current = wallet.copy(statement = wallet.statement.copy(wallet = 1))
+        val state = assertIs<GroupLightningWalletUIState.Opened>(
+            settled(Lightning(completed = key, wallet = current, departedMembers = listOf("d".repeat(64)), earlier = listOf(earlier), unusedKey = true))
+        )
+        assertEquals(listOf("d".repeat(64)), state.departed)
+        assertEquals(listOf(0L), state.earlier.map { it.wallet.statement.wallet })
+        assertTrue(!state.canOpenNew, "a profile with no private key to send the seed with cannot open the new wallet")
     }
 }

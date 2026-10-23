@@ -10,6 +10,7 @@ import com.machankura.bennu.compose.database.model.DkgSession
 import com.machankura.bennu.compose.database.model.IcebergKeySession
 import com.machankura.bennu.compose.database.model.MarmotInnerEvent
 import com.machankura.bennu.compose.database.model.NostrEvent
+import com.machankura.bennu.compose.database.model.Participant
 import com.machankura.bennu.compose.database.model.Profile
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.DkgRitualStage
@@ -95,6 +96,8 @@ class IcebergCeremonyJvmTest {
         }
         val chatRoom = ChatRoom(id = roomId, userPublicKey = members[index], subject = "Treasury", description = SharedKeyDerivation.describe("Treasury."), mlsGroupState = "00")
         db.chatRoomDao().upsert(chatRoom)
+        // Everyone is in the room: a ceremony is over the onchain key's holders who still are.
+        db.participantDao().upsert(members.map { Participant(participantPublicKey = it, chatRoomId = roomId, relayHint = null) })
         db.dkgSessionDao().upsert(
             DkgSession(
                 id = onchainCeremonyId, chatRoomId = roomId, coordinatorPublicKey = members.first(), userPublicKey = members[index],

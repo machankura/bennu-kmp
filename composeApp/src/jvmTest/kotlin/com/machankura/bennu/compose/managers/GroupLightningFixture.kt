@@ -9,6 +9,7 @@ import com.machankura.bennu.compose.database.model.DkgSession
 import com.machankura.bennu.compose.database.model.IcebergKeySession
 import com.machankura.bennu.compose.database.model.MarmotInnerEvent
 import com.machankura.bennu.compose.database.model.NostrEvent
+import com.machankura.bennu.compose.database.model.Participant
 import com.machankura.bennu.compose.database.model.Profile
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.DkgRitualStage
@@ -62,6 +63,11 @@ class GroupLightningFixture(val n: Int = 4, val frostThreshold: Int = 3, val cha
 
     fun close() = devices.forEach { it.db.close() }
 
+    /** [member] leaves the room on every device in [on], as an applied removal commit leaves it. */
+    suspend fun remove(member: HexKey, on: List<Device>) = on.forEach { d ->
+        d.db.participantDao().delete(d.db.participantDao().findParticipantsByChatRoomId(roomId).filter { it.participantPublicKey == member })
+    }
+
     suspend fun device(index: Int, holders: List<HexKey> = members): Device {
         val db = getRoomDatabase(Room.inMemoryDatabaseBuilder<BennuDatabase>())
         members.forEach { member ->
@@ -71,6 +77,7 @@ class GroupLightningFixture(val n: Int = 4, val frostThreshold: Int = 3, val cha
         }
         val chatRoom = ChatRoom(id = roomId, userPublicKey = members[index], subject = "Treasury", description = SharedKeyDerivation.describe("Treasury."), mlsGroupState = "00")
         db.chatRoomDao().upsert(chatRoom)
+        db.participantDao().upsert(members.map { Participant(participantPublicKey = it, chatRoomId = roomId, relayHint = null) })
         db.dkgSessionDao().upsert(
             DkgSession(
                 id = onchainCeremonyId, chatRoomId = roomId, coordinatorPublicKey = members.first(), userPublicKey = members[index],

@@ -53,9 +53,11 @@ import bennu.composeapp.generated.resources.at_most_s_sats_in_flight
 import bennu.composeapp.generated.resources.balance
 import bennu.composeapp.generated.resources.channel_actions
 import bennu.composeapp.generated.resources.channels
+import bennu.composeapp.generated.resources.close_its_channels
 import bennu.composeapp.generated.resources.close_to_the_onchain_wallet
 import bennu.composeapp.generated.resources.couldn_t_propose_this
 import bennu.composeapp.generated.resources.couldn_t_send_s_sats
+import bennu.composeapp.generated.resources.earlier_wallet_s
 import bennu.composeapp.generated.resources.force_close
 import bennu.composeapp.generated.resources.group_wallet_on_s
 import bennu.composeapp.generated.resources.lightning_wallet
@@ -64,8 +66,10 @@ import bennu.composeapp.generated.resources.make_a_key
 import bennu.composeapp.generated.resources.matches_what_your_device_signed
 import bennu.composeapp.generated.resources.no_payments_yet
 import bennu.composeapp.generated.resources.nobody_runs_this_wallet
+import bennu.composeapp.generated.resources.nobody_runs_this_wallet_s_node
 import bennu.composeapp.generated.resources.node_s
 import bennu.composeapp.generated.resources.open_a_lightning_wallet
+import bennu.composeapp.generated.resources.open_a_new_lightning_wallet
 import bennu.composeapp.generated.resources.open_an_onchain_wallet_on_s_first
 import bennu.composeapp.generated.resources.opening_a_lightning_wallet_asks
 import bennu.composeapp.generated.resources.payments
@@ -75,8 +79,10 @@ import bennu.composeapp.generated.resources.reported_by_the_operator_in_term_s
 import bennu.composeapp.generated.resources.run_by_s_term_s
 import bennu.composeapp.generated.resources.run_this_wallet_on_my_device
 import bennu.composeapp.generated.resources.s_of_s_sats_are_the_group_s
+import bennu.composeapp.generated.resources.s_people_who_left_still_hold_a_share
 import bennu.composeapp.generated.resources.s_sats
 import bennu.composeapp.generated.resources.s_sats_can_be_received
+import bennu.composeapp.generated.resources.s_sats_in_s_channels
 import bennu.composeapp.generated.resources.s_sats_wait_in_closed_channels
 import bennu.composeapp.generated.resources.see_the_key_ceremony
 import bennu.composeapp.generated.resources.send
@@ -84,6 +90,7 @@ import bennu.composeapp.generated.resources.sent_s_sats_with_a_fee_of_s_sats
 import bennu.composeapp.generated.resources.signers_needed_s_of_s
 import bennu.composeapp.generated.resources.step_down
 import bennu.composeapp.generated.resources.sweep_into_the_onchain_wallet
+import bennu.composeapp.generated.resources.sweep_s_sats
 import bennu.composeapp.generated.resources.the_group_is_making_its_lightning_wallet_key
 import bennu.composeapp.generated.resources.the_operator_hasn_t_reported_the_wallet_yet
 import bennu.composeapp.generated.resources.the_operator_s_device_runs_the_node
@@ -225,6 +232,12 @@ fun GroupLightningWalletScreen(
                     onSend = { onNavigateToRoute(GroupLightningSendRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
                     onClose = { channelId, force -> viewModel.close(channelId, force, onSession = toSession, onFailure = { notify(couldNotPropose) }) },
                     onSweep = { viewModel.sweep(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
+                    onRekey = {
+                        if (state.canOpenNew) viewModel.openWallet(onSession = toSession, onFailure = { notify(couldNotPropose) }) else toCeremony(null)
+                    },
+                    onCloseEarlier = { viewModel.closeEarlier(it, onSession = toSession, onFailure = { notify(couldNotPropose) }) },
+                    onSweepEarlier = { viewModel.sweepEarlier(it, onSession = toSession, onFailure = { notify(couldNotPropose) }) },
+                    onRunEarlier = { viewModel.nominateSelf(onSession = toSession, onFailure = { notify(couldNotPropose) }, wallet = it.wallet.statement.wallet) },
                     isPending = viewModel.isActionPending.value,
                     onNominate = { viewModel.nominateSelf(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
                     onStepDown = { viewModel.stepDown(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
@@ -235,7 +248,12 @@ fun GroupLightningWalletScreen(
 }
 
 @Composable
-private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, onSend: () -> Unit, onClose: (channelId: String, force: Boolean) -> Unit, onSweep: () -> Unit, isPending: Boolean, onNominate: () -> Unit, onStepDown: () -> Unit) {
+private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, onSend: () -> Unit, onClose: (channelId: String, force: Boolean) -> Unit, onSweep: () -> Unit,
+    onRekey: () -> Unit,
+    onCloseEarlier: (GroupLightningWalletUIState.Earlier) -> Unit,
+    onSweepEarlier: (GroupLightningWalletUIState.Earlier) -> Unit,
+    onRunEarlier: (GroupLightningWalletUIState.Earlier) -> Unit,
+    isPending: Boolean, onNominate: () -> Unit, onStepDown: () -> Unit) {
     val statement = state.wallet.statement
     val operatorName = state.operator?.publicKey?.let { key ->
         if (state.isOperator) stringResource(Res.string.you)
@@ -245,6 +263,19 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
         modifier = modifier.readableContent().fillMaxSize().padding(MaterialTheme.spacing.screenMargin),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
     ) {
+        // A member left: until a new wallet replaces this one, they can still grief it with the seed.
+        if (state.departed.isNotEmpty()) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(MaterialTheme.spacing.containerPadding), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+                        Text(stringResource(Res.string.s_people_who_left_still_hold_a_share, state.departed.size.toString()), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                        Button(onClick = onRekey, enabled = !isPending) {
+                            Text(stringResource(if (state.canOpenNew) Res.string.open_a_new_lightning_wallet else Res.string.make_a_key))
+                        }
+                    }
+                }
+            }
+        }
         item { Balance(state.report, onReceive = onReceive.takeIf { state.operator?.publicKey != null }, onSend = onSend.takeIf { state.operator?.publicKey != null }) }
         if (state.unswept.isNotEmpty()) {
             item {
@@ -282,6 +313,16 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
                     }
                 }
             }
+        }
+        items(state.earlier, key = { "earlier:${it.wallet.statement.wallet}" }) { earlier ->
+            EarlierWallet(
+                earlier = earlier,
+                canRun = earlier.operator?.publicKey == null && state.localChatRoom.chatRoom.userPublicKey.lowercase() in earlier.wallet.statement.participants,
+                isPending = isPending,
+                onClose = { onCloseEarlier(earlier) },
+                onSweep = { onSweepEarlier(earlier) },
+                onRun = { onRunEarlier(earlier) },
+            )
         }
         item {
             ListItem(
@@ -395,3 +436,27 @@ private fun PaymentRow(payment: GroupLightningPaymentRow) {
         supportingContent = payment.description?.let { { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } },
     )
 }
+
+/** A wallet a re-key left behind: what is still in it, and the two ways it reaches the onchain wallet. */
+@Composable
+private fun EarlierWallet(earlier: GroupLightningWalletUIState.Earlier, canRun: Boolean, isPending: Boolean, onClose: () -> Unit, onSweep: () -> Unit, onRun: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(MaterialTheme.spacing.containerPadding), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+            Text(stringResource(Res.string.earlier_wallet_s, earlier.wallet.statement.wallet.toString()), style = MaterialTheme.typography.titleSmall)
+            earlier.report?.let { report ->
+                Text(stringResource(Res.string.s_sats_in_s_channels, Satoshi(report.snapshot.spendableMsat / 1000).grouped(), report.checks.size.toString()), style = MaterialTheme.typography.bodyMedium)
+            }
+            if (earlier.operator?.publicKey == null && earlier.openChannels.isNotEmpty()) {
+                Text(stringResource(Res.string.nobody_runs_this_wallet_s_node), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)) {
+                if (earlier.openChannels.isNotEmpty()) OutlinedButton(onClick = onClose, enabled = !isPending) { Text(stringResource(Res.string.close_its_channels)) }
+                if (earlier.unswept.isNotEmpty()) {
+                    OutlinedButton(onClick = onSweep, enabled = !isPending) { Text(stringResource(Res.string.sweep_s_sats, Satoshi(earlier.unswept.sumOf { it.amountSat }).grouped())) }
+                }
+            }
+            if (canRun) OutlinedButton(onClick = onRun, enabled = !isPending) { Text(stringResource(Res.string.run_this_wallet_on_my_device)) }
+        }
+    }
+}
+

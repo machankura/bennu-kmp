@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.database.repository
 
 import fr.acinq.bitcoin.Chain
+import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.managers.GroupWalletManager
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
@@ -186,6 +187,9 @@ class DatabaseChatRepository(
         logger.e("Error reading the posts of $chatRoomId", e)
         emptyList()
     }
+
+    override suspend fun lightningParticipants(chatRoomId: String, chain: Chain): Set<HexKey> =
+        runCatching { GroupLightningWalletManager.current(database, chatRoomId, chain)?.statement?.participants?.toSet() }.getOrNull().orEmpty()
 
     override suspend fun groupWallet(chatRoomId: String, chain: Chain): GroupWallet? = try {
         GroupWalletManager.walletFor(database, chatRoomId, chain)

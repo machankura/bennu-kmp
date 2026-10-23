@@ -114,6 +114,12 @@ interface ChatRepository {
     suspend fun groupWallet(chatRoomId: String, chain: Chain): GroupWallet?
 
     /**
+     * Who holds a share of the key of the Lightning wallet this group uses on [chain], and its node's
+     * seed: the people a removal leaves able to grief it until a new wallet replaces it (Phase 14).
+     */
+    suspend fun lightningParticipants(chatRoomId: String, chain: Chain): Set<HexKey> = emptySet()
+
+    /**
      * The account this group *would* open on [chain], whether or not it has, or
      * null for a room with no key: what a statement proposing the wallet carries.
      */

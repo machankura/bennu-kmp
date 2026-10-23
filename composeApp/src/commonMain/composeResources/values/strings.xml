@@ -134,6 +134,7 @@
     <string name="group_disbanded">This group was disbanded. Nothing more can be sent into it, and nobody can rejoin.</string>
     <string name="disband_group_explainer">Ends the group for everyone. Nobody can rejoin; a new conversation is a new group.</string>
     <string name="member_removal_requested">Removal sent; it takes effect once a relay accepts it</string>
+    <string name="member_removal_requested_lightning">Removal sent; it takes effect once a relay accepts it. They still hold a share of the Lightning wallet's key and its node's seed until the group opens a new Lightning wallet without them.</string>
     <string name="library">Library</string>
     <string name="lightning_invoice">Lightning invoice</string>
     <string name="live">LIVE</string>
@@ -766,4 +767,11 @@
     <string name="s_sats_wait_in_closed_channels">%1$s sats wait in closed channels</string>
     <string name="a_closed_channel_s_outputs_go_to_the_onchain_wallet">They are the group's alone, under its own keys. Sweeping asks the group to sign moving them to the onchain wallet; the sweep is sent once the channel's delay is over.</string>
     <string name="sweep_into_the_onchain_wallet">Sweep into the onchain wallet</string>
+    <string name="s_people_who_left_still_hold_a_share">%1$s people who have left the group still hold a share of this wallet's key and its node's seed. Make a new Lightning wallet without them, then close this one's channels.</string>
+    <string name="open_a_new_lightning_wallet">Open a new Lightning wallet</string>
+    <string name="earlier_wallet_s">Earlier wallet %1$s</string>
+    <string name="s_sats_in_s_channels">%1$s sats in %2$s channels</string>
+    <string name="close_its_channels">Close its channels</string>
+    <string name="sweep_s_sats">Sweep %1$s sats</string>
+    <string name="nobody_runs_this_wallet_s_node">Nobody runs its node, and its channels close only through it.</string>
 </resources>

@@ -170,10 +170,12 @@ class GroupLightningPaymentsJvmTest {
         assertEquals(listOf(two), nodes.single().forceClosed)
 
         val actions = GroupLightningAuthorisations.channelActions(all[0].db, fixture.roomId, wallet.statement)
-        assertEquals(listOf(GroupLightningAuthorisationEvent.CLOSE, GroupLightningAuthorisationEvent.FORCE_CLOSE), actions.map { it.action })
-        val summary = ProposedEvent.summarize(Event("", "", 0, GroupLightningAuthorisationEvent.KIND, GroupLightningAuthorisationEvent.template(actions[1]).tags, "", ""))
+        // Both signed in the same second, so in no particular order.
+        assertEquals(mapOf(one to GroupLightningAuthorisationEvent.CLOSE, two to GroupLightningAuthorisationEvent.FORCE_CLOSE), actions.associate { it.channelId to it.action })
+        val forced = actions.single { it.action == GroupLightningAuthorisationEvent.FORCE_CLOSE }
+        val summary = ProposedEvent.summarize(Event("", "", 0, GroupLightningAuthorisationEvent.KIND, GroupLightningAuthorisationEvent.template(forced).tags, "", ""))
         assertEquals("Force-close a Lightning channel", summary.label)
         assertTrue(GroupLightningAuthorisations.channelActions(all[0].db, fixture.roomId, wallet.statement, Clock.System.now() + 4.days).isEmpty(), "both have expired")
-        assertNull(GroupLightningAuthorisationEvent.read(GroupLightningAuthorisationEvent.template(actions[0]).tags), "a close is not a payment")
+        assertNull(GroupLightningAuthorisationEvent.read(GroupLightningAuthorisationEvent.template(forced).tags), "a close is not a payment")
     }
 }

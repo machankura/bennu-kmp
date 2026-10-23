@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.ui.view.state
 
 import com.machankura.bennu.compose.database.model.IcebergKeySession
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
@@ -38,5 +39,21 @@ sealed class GroupLightningWalletUIState {
         val payments: List<GroupLightningPaymentRow> = emptyList(),
         /** What closed channels left the group that no sweep spends yet. */
         val unswept: List<GroupSweep.Input> = emptyList(),
+        /** Participants who have left the room, and still hold a share of the key and the node's seed. */
+        val departed: List<HexKey> = emptyList(),
+        /** Whether a new wallet can be opened now: a key no wallet uses, and this device can propose. */
+        val canOpenNew: Boolean = false,
+        /** The wallets a re-key left behind, whose channels are still to be closed and swept. */
+        val earlier: List<Earlier> = emptyList(),
     ) : GroupLightningWalletUIState()
+
+    /** A wallet a re-key left behind, with what its operator last said of it. */
+    data class Earlier(
+        val wallet: GroupLightningWalletManager.Wallet,
+        val operator: GroupLightningOperatorManager.Operator?,
+        val report: GroupLightningReports.Report?,
+        val unswept: List<GroupSweep.Input>,
+    ) {
+        val openChannels: List<String> get() = report?.checks?.map { it.channel.channelId }.orEmpty()
+    }
 }

@@ -50,7 +50,7 @@ class GroupLightningReceiveViewModel(
             val localChatRoom = chatRepository.getChatRoomByIdentifier(chatRoomId)
                 ?: return@launch run { uiState = GroupLightningReceiveUIState.Error("Couldn't find the group") }
             val wallet = lightningRepository.lightningWallet(chatRoomId, chain)
-            uiState = if (wallet == null || lightningRepository.operator(chatRoomId, chain)?.publicKey == null) GroupLightningReceiveUIState.Unavailable
+            uiState = if (wallet == null || lightningRepository.operator(chatRoomId, chain, wallet.statement.wallet)?.publicKey == null) GroupLightningReceiveUIState.Unavailable
             else GroupLightningReceiveUIState.Form(localChatRoom, wallet)
         }
     }
@@ -74,7 +74,7 @@ class GroupLightningReceiveViewModel(
             isActionPending.value = false
             if (requestId == null) return@launch withContext(Dispatchers.Main) { onFailure() }
             uiState = GroupLightningReceiveUIState.Waiting(requestId)
-            val invoice = lightningRepository.observeInvoice(chatRoomId, chain, requestId).filterNotNull().first()
+            val invoice = lightningRepository.observeInvoice(chatRoomId, chain, form.wallet.statement.wallet, requestId).filterNotNull().first()
             uiState = GroupLightningReceiveUIState.Invoice(invoice.bolt11)
         }
     }

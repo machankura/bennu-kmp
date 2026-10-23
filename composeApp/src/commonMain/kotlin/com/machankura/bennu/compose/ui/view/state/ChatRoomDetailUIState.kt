@@ -98,6 +98,8 @@ sealed interface ChatRoomDetailUIState {
          * Lightning wallet is not offered on this build (`GroupLightningRollout`).
          */
         val testNetworkWallet: GroupWallet? = null,
+        /** Who holds a share of the group's Lightning wallet key, so removing one of them can say what it leaves. */
+        val lightningParticipants: Set<HexKey> = emptySet(),
         /**
          * Whether this device could sign an event for the group, which on this
          * screen gates the paste at the end of the identity block. Each of the

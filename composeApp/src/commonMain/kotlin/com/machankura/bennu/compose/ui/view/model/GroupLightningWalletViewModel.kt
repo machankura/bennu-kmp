@@ -60,19 +60,30 @@ class GroupLightningWalletViewModel(
                     val key = lightningRepository.completedCeremony(chatRoomId)
                     when {
                         wallet != null -> {
-                            val operator = lightningRepository.operator(chatRoomId, chain)
+                            val operator = lightningRepository.operator(chatRoomId, chain, wallet.statement.wallet)
                             GroupLightningWalletUIState.Opened(
                                 localChatRoom = localChatRoom,
                                 wallet = wallet,
                                 operator = operator,
                                 isParticipant = activeUserPublicKey.lowercase() in wallet.statement.participants && wallet.ceremony?.share != null,
                                 isOperator = operator?.publicKey == activeUserPublicKey,
+                                departed = lightningRepository.departed(wallet),
+                                canOpenNew = lightningRepository.hasUnusedKey(chatRoomId, chain) && canPropose(),
+                                earlier = lightningRepository.earlierWallets(chatRoomId, chain).map { earlier ->
+                                    val report = lightningRepository.observeReport(chatRoomId, chain, earlier.statement.wallet).first()
+                                    GroupLightningWalletUIState.Earlier(
+                                        wallet = earlier,
+                                        operator = lightningRepository.operator(chatRoomId, chain, earlier.statement.wallet),
+                                        report = report,
+                                        unswept = lightningRepository.unswept(chatRoomId, report),
+                                    )
+                                },
                             )
                         }
                         key != null -> GroupLightningWalletUIState.NotOpened(
                             localChatRoom = localChatRoom,
                             key = key,
-                            canPropose = lightningRepository.lspNodeId(chain) != null && activeIdentityStateFlow.value?.nostrPrivateKey != null,
+                            canPropose = canPropose(),
                         )
                         else -> {
                             val running = lightningRepository.observeCeremonies(chatRoomId).first().firstOrNull { it.stage != IcebergRitualStage.FAILED }
@@ -85,13 +96,17 @@ class GroupLightningWalletViewModel(
         }
     }
 
+    /** Whether this device can propose a wallet statement: an LSP to name, and a key to send the seed with. */
+    private fun canPropose(): Boolean = lightningRepository.lspNodeId(chain) != null && activeIdentityStateFlow.value?.nostrPrivateKey != null
+
     private var watching: Job? = null
 
     /** Keeps an opened wallet's snapshot and payments current as the operator's reports arrive. */
     private fun watchReports() {
         watching?.cancel()
         watching = viewModelScope.launch(Dispatchers.IO) {
-            combine(lightningRepository.observeReport(chatRoomId, chain), lightningRepository.observePayments(chatRoomId, chain)) { report, payments -> report to payments }
+            val wallet = (uiState as? GroupLightningWalletUIState.Opened)?.wallet?.statement?.wallet ?: return@launch
+            combine(lightningRepository.observeReport(chatRoomId, chain, wallet), lightningRepository.observePayments(chatRoomId, chain, wallet)) { report, payments -> report to payments }
                 .collect { (report, payments) ->
                     val unswept = lightningRepository.unswept(chatRoomId, report)
                     (uiState as? GroupLightningWalletUIState.Opened)?.let { uiState = it.copy(report = report, payments = payments, unswept = unswept) }
@@ -101,19 +116,37 @@ class GroupLightningWalletViewModel(
 
     /** Proposes the wallet's statement; the wallet exists once a quorum signs, on the session it returns. */
     fun openWallet(onSession: (sessionId: String) -> Unit, onFailure: () -> Unit) {
-        val state = uiState as? GroupLightningWalletUIState.NotOpened ?: return
+        // The first wallet, or the one a re-key opens beside the current one under a new key.
+        val localChatRoom = (uiState as? GroupLightningWalletUIState.NotOpened)?.localChatRoom
+            ?: (uiState as? GroupLightningWalletUIState.Opened)?.takeIf { it.canOpenNew }?.localChatRoom
+            ?: return
         val privateKey = activeIdentityStateFlow.value?.nostrPrivateKey?.value?.toByteArray() ?: return onFailure()
-        act(onSession, onFailure) { lightningRepository.proposeWallet(state.localChatRoom, activeUserPublicKey, privateKey, chain) }
+        act(onSession, onFailure) { lightningRepository.proposeWallet(localChatRoom, activeUserPublicKey, privateKey, chain) }
     }
 
-    fun nominateSelf(onSession: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+    /** Nominates this device to run [wallet]'s node: the current wallet's when null. */
+    fun nominateSelf(onSession: (sessionId: String) -> Unit, onFailure: () -> Unit, wallet: Long? = null) {
         val state = uiState as? GroupLightningWalletUIState.Opened ?: return
-        act(onSession, onFailure) { lightningRepository.nominateSelf(state.localChatRoom, activeUserPublicKey, chain) }
+        act(onSession, onFailure) { lightningRepository.nominateSelf(state.localChatRoom, activeUserPublicKey, chain, wallet ?: state.wallet.statement.wallet) }
     }
 
     fun stepDown(onSession: (sessionId: String) -> Unit, onFailure: () -> Unit) {
         val state = uiState as? GroupLightningWalletUIState.Opened ?: return
-        act(onSession, onFailure) { lightningRepository.stepDown(state.localChatRoom, activeUserPublicKey, chain) }
+        act(onSession, onFailure) { lightningRepository.stepDown(state.localChatRoom, activeUserPublicKey, chain, state.wallet.statement.wallet) }
+    }
+
+    /** Proposes closing every channel an earlier wallet still has, so its money reaches the onchain wallet. */
+    fun closeEarlier(earlier: GroupLightningWalletUIState.Earlier, onSession: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+        val state = uiState as? GroupLightningWalletUIState.Opened ?: return
+        if (earlier.openChannels.isEmpty()) return
+        act(onSession, onFailure) { lightningRepository.proposeCloseAll(state.localChatRoom, activeUserPublicKey, earlier.wallet, earlier.openChannels) }
+    }
+
+    /** Proposes sweeping what an earlier wallet's closed channels left the group. */
+    fun sweepEarlier(earlier: GroupLightningWalletUIState.Earlier, onSession: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+        val state = uiState as? GroupLightningWalletUIState.Opened ?: return
+        if (earlier.unswept.isEmpty()) return
+        act(onSession, onFailure) { lightningRepository.proposeSweep(state.localChatRoom, activeUserPublicKey, earlier.wallet, earlier.unswept) }
     }
 
     /** Proposes closing [channelId] to the onchain wallet, or by force when the LSP is gone. */

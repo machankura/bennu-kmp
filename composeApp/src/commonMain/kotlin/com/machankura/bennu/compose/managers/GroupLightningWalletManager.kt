@@ -60,6 +60,38 @@ object GroupLightningWalletManager {
     fun nodeIdOf(seed: ByteVector, chain: Chain): PublicKey =
         DeterministicWallet.generate(seed).derivePrivateKey(LocalKeyManager.nodeKeyBasePath(chain)).publicKey
 
+    /**
+     * Every Lightning wallet [chatRoomId] has opened on [chain] that this device believes, the newest
+     * statement for each wallet number, lowest number first. The last is the current one; the others are
+     * wallets a re-key left behind, whose channels are still to be closed (Phase 14).
+     */
+    suspend fun wallets(database: BennuDatabase, chatRoomId: String, chain: Chain): List<Wallet> =
+        database.groupSignedEventDao().getByChatRoomIdAndKind(chatRoomId, GroupLightningWalletStatementEvent.KIND)
+            .sortedWith(compareByDescending<GroupSignedEvent> { it.createdAt }.thenBy { it.id })
+            .mapNotNull { verify(database, chatRoomId, it)?.takeIf { wallet -> wallet.statement.chain == chain } }
+            .distinctBy { it.statement.wallet }
+            .sortedBy { it.statement.wallet }
+
+    /** The wallet a room uses on [chain] now: the highest-numbered one it has opened, or null. */
+    suspend fun current(database: BennuDatabase, chatRoomId: String, chain: Chain): Wallet? = wallets(database, chatRoomId, chain).lastOrNull()
+
+    /** The participants of [wallet] who are no longer in its room: each still holds a share and the seed. */
+    suspend fun departed(database: BennuDatabase, wallet: Wallet): List<HexKey> {
+        val inRoom = database.participantDao().findParticipantsByChatRoomId(wallet.signedEvent.chatRoomId).filter { it.deletedAt == null }.map { it.participantPublicKey.lowercase() }.toSet()
+        return wallet.statement.participants.filter { it !in inRoom }
+    }
+
+    /**
+     * A completed Iceberg key in [chatRoomId] that this device holds a share of and that no wallet the
+     * room opened uses yet: what a new wallet -- the first, or the one a re-key makes -- is opened under.
+     */
+    suspend fun unusedKey(database: BennuDatabase, chatRoomId: String, chain: Chain): IcebergKeySession? {
+        val used = database.groupSignedEventDao().getByChatRoomIdAndKind(chatRoomId, GroupLightningWalletStatementEvent.KIND)
+            .mapNotNull { GroupLightningWalletStatementEvent.read(it.tags)?.ceremonyId }.toSet()
+        return database.icebergKeySessionDao().getSessionsForChatRoom(chatRoomId)
+            .firstOrNull { it.stage == IcebergRitualStage.COMPLETE && it.share != null && it.id !in used }
+    }
+
     /** The newest statement for [chain] and [wallet] in [chatRoomId] that this device believes, or null. */
     suspend fun walletFor(database: BennuDatabase, chatRoomId: String, chain: Chain, wallet: Long = 0L): Wallet? =
         database.groupSignedEventDao().getByChatRoomIdAndKind(chatRoomId, GroupLightningWalletStatementEvent.KIND)
@@ -82,9 +114,11 @@ object GroupLightningWalletManager {
             logger.w("Lightning wallet ${signed.id} closes to an onchain wallet this room has not opened")
             return null
         }
+        // D1 as Phase 14 narrows it: every participant holds the onchain key. A wallet made after a member
+        // left names fewer of them; the one before still names everyone, and both stay believable.
         FrostSigningManager.completedKey(database, chatRoomId)?.participantPublicKeySet()?.let { holders ->
-            if (holders.map { it.lowercase() }.sorted() != statement.participants) {
-                logger.w("Lightning wallet ${signed.id} names participants who are not the onchain key's holders")
+            if (!holders.map { it.lowercase() }.containsAll(statement.participants)) {
+                logger.w("Lightning wallet ${signed.id} names participants who do not hold the onchain key")
                 return null
             }
         }
@@ -119,14 +153,16 @@ object GroupLightningWalletManager {
         nostrPrivateKey: ByteArray,
         chain: Chain,
         lspNodeId: HexKey,
-        wallet: Long = 0L,
+        wallet: Long? = null,
         onchainAccount: Long = 0L,
         policy: GroupLightningWalletStatementEvent.Policy = GroupLightningWalletStatementEvent.Policy.DEFAULT,
     ): FrostSigningSession {
         require(GroupLightningRollout.allows(chain)) { "A Lightning wallet cannot be opened on ${chain.name}" }
         val roomId = localChatRoom.chatRoom.id
-        val ceremony = IcebergRitualManager.completedKey(database, roomId)
-            ?: throw IllegalStateException("This group has no Lightning wallet key yet")
+        val ceremony = unusedKey(database, roomId, chain)
+            ?: throw IllegalStateException("This group has no Lightning wallet key that no wallet uses yet")
+        // The next number: a re-key opens a new wallet beside the old one, whose channels still need closing.
+        val wallet = wallet ?: ((wallets(database, roomId, chain).maxOfOrNull { it.statement.wallet } ?: -1L) + 1)
         requireNotNull(GroupWalletManager.walletFor(database, roomId, chain, onchainAccount)) {
             "Open a group onchain wallet on ${chain.name} first: it is where the Lightning wallet closes to"
         }

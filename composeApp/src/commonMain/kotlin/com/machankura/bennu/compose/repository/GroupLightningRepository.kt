@@ -46,37 +46,49 @@ interface GroupLightningRepository {
     /** The newest completed Lightning wallet key this device holds a share of, or null. */
     suspend fun completedCeremony(chatRoomId: String): IcebergKeySession?
 
-    /** The wallet the room agreed on [chain], as this device can check it, or null. */
+    /** The wallet the room uses on [chain] now -- the highest-numbered it agreed -- as this device can check it, or null. */
     suspend fun lightningWallet(chatRoomId: String, chain: Chain): GroupLightningWalletManager.Wallet?
 
-    suspend fun operator(chatRoomId: String, chain: Chain): GroupLightningOperatorManager.Operator?
+    /** The wallets a re-key left behind on [chain], lowest number first: their channels are still to close. */
+    suspend fun earlierWallets(chatRoomId: String, chain: Chain): List<GroupLightningWalletManager.Wallet>
+
+    /** The participants of [wallet] who have left its room, and still hold a share of its key and its seed. */
+    suspend fun departed(wallet: GroupLightningWalletManager.Wallet): List<HexKey>
+
+    /** Whether the room has a completed Lightning wallet key no wallet uses yet, for a new wallet to open under. */
+    suspend fun hasUnusedKey(chatRoomId: String, chain: Chain): Boolean
+
+    suspend fun operator(chatRoomId: String, chain: Chain, wallet: Long): GroupLightningOperatorManager.Operator?
 
     /** The LSP a Lightning wallet on [chain] opens channels with, or null for a network with none. */
     fun lspNodeId(chain: Chain): HexKey?
 
     suspend fun proposeWallet(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, chain: Chain): FrostSigningSession
 
-    suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession
+    suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long): FrostSigningSession
 
-    suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession
+    suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long): FrostSigningSession
 
     /** The operator's newest snapshot of the wallet on [chain], each channel checked against this device's ledger. */
-    fun observeReport(chatRoomId: String, chain: Chain): Flow<GroupLightningReports.Report?>
+    fun observeReport(chatRoomId: String, chain: Chain, wallet: Long): Flow<GroupLightningReports.Report?>
 
     /** Every payment any snapshot has reported, newest first. */
-    fun observePayments(chatRoomId: String, chain: Chain): Flow<List<GroupLightningPaymentRow>>
+    fun observePayments(chatRoomId: String, chain: Chain, wallet: Long): Flow<List<GroupLightningPaymentRow>>
 
     /** Asks the operator's node for an invoice; returns the request id its answer will carry. */
     suspend fun requestInvoice(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, amountMsat: Long?, description: String): String
 
     /** The operator's invoice for [requestId], once it has arrived and been checked. */
-    fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?>
+    fun observeInvoice(chatRoomId: String, chain: Chain, wallet: Long, requestId: String): Flow<GroupLightningInvoiceRow?>
 
     /** Proposes [pay] to the group; the operator's node pays it once a quorum signs. */
     suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession
 
     /** Proposes closing [channelId] to the onchain wallet, or force-closing it when [force]. */
     suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession
+
+    /** Proposes closing every one of [channelIds] to the onchain wallet, in one signing session. */
+    suspend fun proposeCloseAll(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelIds: List<String>): FrostSigningSession
 
     /** What closed channels left the group that no sweep spends yet, from [report]. */
     suspend fun unswept(chatRoomId: String, report: GroupLightningReports.Report?): List<GroupSweep.Input>

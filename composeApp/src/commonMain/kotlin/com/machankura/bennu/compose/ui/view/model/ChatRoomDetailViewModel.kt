@@ -102,6 +102,7 @@ class ChatRoomDetailViewModel(
                     testNetworkWallet = if (GroupLightningRollout.ENABLED && GroupLightningRollout.NETWORK != NodeParamsManager.chain) {
                         chatRepository.groupWallet(chatRoomId, GroupLightningRollout.NETWORK)
                     } else null,
+                    lightningParticipants = if (GroupLightningRollout.ENABLED) chatRepository.lightningParticipants(chatRoomId, GroupLightningRollout.NETWORK) else emptySet(),
                     canEditNostrProfile = canSign,
                     canAddSubgroup = canSign,
                     canGovern = canGovern,

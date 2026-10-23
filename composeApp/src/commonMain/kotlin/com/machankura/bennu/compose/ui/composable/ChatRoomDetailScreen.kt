@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.ui.composable
 
 import androidx.compose.material.icons.filled.Bolt
 import bennu.composeapp.generated.resources.lightning_wallet
+import bennu.composeapp.generated.resources.member_removal_requested_lightning
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningWalletRoute
 import bennu.composeapp.generated.resources.group_wallet_on_s
 import fr.acinq.phoenix.managers.NodeParamsManager
@@ -199,6 +200,7 @@ fun ChatRoomDetailScreen(
     // composable, and a lambda passed to onClick is not.
     val notify = rememberNotifier(rememberCoroutineScope())
     val removalRequested = stringResource(Res.string.member_removal_requested)
+    val removalLeavesLightningShare = stringResource(Res.string.member_removal_requested_lightning)
 
     ScreenStateTransition(chatRoomDetailViewModel.chatRoomDetailUIState) { uiState ->
     when (val chatRoomDetailUIState = uiState) {
@@ -791,7 +793,12 @@ fun ChatRoomDetailScreen(
                                                         chatRoomDetailViewModel.removeMember(
                                                             localChatRoom = chatRoomDetailUIState.localChatRoom,
                                                             memberPublicKey = memberPublicKey,
-                                                        ) { failure -> notify(failure ?: removalRequested) }
+                                                        ) { failure ->
+                                                            // They keep a share of the Lightning wallet's key and its seed: say so,
+                                                            // since only a new wallet takes it from them (Phase 14).
+                                                            val holdsShare = memberPublicKey.lowercase() in chatRoomDetailUIState.lightningParticipants
+                                                            notify(failure ?: if (holdsShare) removalLeavesLightningShare else removalRequested)
+                                                        }
                                                     }
                                                 ) {
                                                     Icon(

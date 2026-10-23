@@ -31,10 +31,19 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
     override suspend fun completedCeremony(chatRoomId: String): IcebergKeySession? = IcebergRitualManager.completedKey(database, chatRoomId)
 
     override suspend fun lightningWallet(chatRoomId: String, chain: Chain): GroupLightningWalletManager.Wallet? =
-        GroupLightningWalletManager.walletFor(database, chatRoomId, chain)
+        GroupLightningWalletManager.current(database, chatRoomId, chain)
 
-    override suspend fun operator(chatRoomId: String, chain: Chain): GroupLightningOperatorManager.Operator? =
-        GroupLightningOperatorManager.current(database, chatRoomId, chain)
+    override suspend fun earlierWallets(chatRoomId: String, chain: Chain): List<GroupLightningWalletManager.Wallet> =
+        GroupLightningWalletManager.wallets(database, chatRoomId, chain).dropLast(1)
+
+    override suspend fun departed(wallet: GroupLightningWalletManager.Wallet): List<HexKey> =
+        GroupLightningWalletManager.departed(database, wallet)
+
+    override suspend fun hasUnusedKey(chatRoomId: String, chain: Chain): Boolean =
+        GroupLightningWalletManager.unusedKey(database, chatRoomId, chain) != null
+
+    override suspend fun operator(chatRoomId: String, chain: Chain, wallet: Long): GroupLightningOperatorManager.Operator? =
+        GroupLightningOperatorManager.current(database, chatRoomId, chain, wallet)
 
     override fun lspNodeId(chain: Chain): HexKey? =
         runCatching { LSP.from(chain).walletParams.trampolineNode.id.toString() }.getOrNull()
@@ -42,31 +51,34 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
     override suspend fun proposeWallet(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, chain: Chain): FrostSigningSession =
         GroupLightningWalletManager.proposeWallet(database, localChatRoom, userPublicKey, nostrPrivateKey, chain, requireNotNull(lspNodeId(chain)) { "No LSP is known for ${chain.name}" })
 
-    override suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession =
-        GroupLightningOperatorManager.nominateSelf(database, localChatRoom, userPublicKey, chain)
+    override suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long): FrostSigningSession =
+        GroupLightningOperatorManager.nominateSelf(database, localChatRoom, userPublicKey, chain, wallet)
 
-    override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession =
-        GroupLightningOperatorManager.stepDown(database, localChatRoom, userPublicKey, chain)
+    override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long): FrostSigningSession =
+        GroupLightningOperatorManager.stepDown(database, localChatRoom, userPublicKey, chain, wallet)
 
-    override fun observeReport(chatRoomId: String, chain: Chain): Flow<GroupLightningReports.Report?> {
-        val key = GroupLightningCoSigner.walletKey(chatRoomId, chain, 0L)
+    override fun observeReport(chatRoomId: String, chain: Chain, wallet: Long): Flow<GroupLightningReports.Report?> {
+        val key = GroupLightningCoSigner.walletKey(chatRoomId, chain, wallet)
         return database.groupLightningRecordsDao().observeSnapshot(key).map { GroupLightningReports.latest(database, key) }
     }
 
-    override fun observePayments(chatRoomId: String, chain: Chain): Flow<List<GroupLightningPaymentRow>> =
-        database.groupLightningRecordsDao().observePayments(GroupLightningCoSigner.walletKey(chatRoomId, chain, 0L))
+    override fun observePayments(chatRoomId: String, chain: Chain, wallet: Long): Flow<List<GroupLightningPaymentRow>> =
+        database.groupLightningRecordsDao().observePayments(GroupLightningCoSigner.walletKey(chatRoomId, chain, wallet))
 
     override suspend fun requestInvoice(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, amountMsat: Long?, description: String): String =
         GroupLightningReports.requestInvoice(database, localChatRoom, userPublicKey, wallet, amountMsat, description)
 
-    override fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?> =
-        database.groupLightningRecordsDao().observeInvoice(GroupLightningCoSigner.walletKey(chatRoomId, chain, 0L), requestId)
+    override fun observeInvoice(chatRoomId: String, chain: Chain, wallet: Long, requestId: String): Flow<GroupLightningInvoiceRow?> =
+        database.groupLightningRecordsDao().observeInvoice(GroupLightningCoSigner.walletKey(chatRoomId, chain, wallet), requestId)
 
     override suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession =
         GroupLightningAuthorisations.propose(database, localChatRoom, userPublicKey, pay)
 
     override suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession =
         GroupLightningAuthorisations.proposeChannelAction(database, localChatRoom, userPublicKey, wallet, channelId, force)
+
+    override suspend fun proposeCloseAll(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelIds: List<String>): FrostSigningSession =
+        GroupLightningAuthorisations.proposeCloseAll(database, localChatRoom, userPublicKey, wallet, channelIds)
 
     override suspend fun unswept(chatRoomId: String, report: GroupLightningReports.Report?): List<GroupSweep.Input> =
         GroupLightningSweeps.unswept(database, chatRoomId, report)
@@ -87,10 +99,10 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
         IcebergRitualManager.pendingApproval(database, session)
 
     override suspend fun ceremonyThresholds(chatRoomId: String): List<Int> =
-        FrostSigningManager.completedKey(database, chatRoomId)?.let(IcebergRitualManager::thresholdsFor).orEmpty()
+        IcebergRitualManager.thresholds(database, chatRoomId)
 
     override suspend fun keyHolderCount(chatRoomId: String): Int =
-        FrostSigningManager.completedKey(database, chatRoomId)?.participantPublicKeySet()?.size ?: 0
+        FrostSigningManager.completedKey(database, chatRoomId)?.let { IcebergRitualManager.holdersInRoom(database, chatRoomId, it).size } ?: 0
 
     override suspend fun hasOnchainWallet(chatRoomId: String, chain: Chain): Boolean =
         GroupWalletManager.walletFor(database, chatRoomId, chain) != null

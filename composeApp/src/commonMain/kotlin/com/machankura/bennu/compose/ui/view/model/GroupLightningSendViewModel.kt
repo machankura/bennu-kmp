@@ -53,7 +53,7 @@ class GroupLightningSendViewModel(
             val localChatRoom = chatRepository.getChatRoomByIdentifier(chatRoomId)
                 ?: return@launch run { uiState = GroupLightningSendUIState.Error("Couldn't find the group") }
             val wallet = lightningRepository.lightningWallet(chatRoomId, chain)
-            uiState = if (wallet == null || lightningRepository.operator(chatRoomId, chain)?.publicKey == null) GroupLightningSendUIState.Unavailable
+            uiState = if (wallet == null || lightningRepository.operator(chatRoomId, chain, wallet.statement.wallet)?.publicKey == null) GroupLightningSendUIState.Unavailable
             else GroupLightningSendUIState.Form(localChatRoom, wallet)
         }
     }

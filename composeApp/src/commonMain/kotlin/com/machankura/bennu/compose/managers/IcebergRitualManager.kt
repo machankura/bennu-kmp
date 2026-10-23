@@ -87,6 +87,26 @@ object IcebergRitualManager {
     fun thresholdsFor(onchainKey: DkgSession): List<Int> =
         onchainKey.participantPublicKeySet()?.let { IcebergDkg.deployableThresholds(it.size) }.orEmpty()
 
+    /** The thresholds a ceremony in [chatRoomId] could use now, over [holdersInRoom]; empty if none. */
+    suspend fun thresholds(database: BennuDatabase, chatRoomId: String): List<Int> {
+        val onchainKey = FrostSigningManager.completedKey(database, chatRoomId) ?: return emptyList()
+        return IcebergDkg.deployableThresholds(holdersInRoom(database, chatRoomId, onchainKey).size)
+    }
+
+    /**
+     * Who a ceremony in [chatRoomId] is over (decision D1, as Phase 14 narrows it): the holders of the
+     * onchain key [onchainKey] who are still in the room, as this device's MLS state has it. A member
+     * who was removed keeps their onchain share, but a new Lightning wallet is made without them.
+     *
+     * The removal commit is an earlier epoch than any proposal sent after it, so a device reading a
+     * proposal has already applied it, and every device computes the same set.
+     */
+    suspend fun holdersInRoom(database: BennuDatabase, chatRoomId: String, onchainKey: DkgSession): Set<HexKey> {
+        val holders = onchainKey.participantPublicKeySet()?.map { it.lowercase() }?.toSet().orEmpty()
+        val inRoom = database.participantDao().findParticipantsByChatRoomId(chatRoomId).filter { it.deletedAt == null }.map { it.participantPublicKey.lowercase() }.toSet()
+        return holders intersect inRoom
+    }
+
     /** A participant's nostr key as the compressed point [IcebergDkg.Params] orders and binds. */
     private fun asPoint(nostrKey: HexKey): PublicKey = PublicKey(ByteVector("02$nostrKey"))
 
@@ -123,8 +143,8 @@ object IcebergRitualManager {
         requireNotNull(GroupWalletManager.walletFor(database, roomId, chain)) {
             "Open a group onchain wallet on ${chain.name} before a Lightning wallet: it is where the Lightning wallet closes to"
         }
-        val members = requireNotNull(onchainKey.participantPublicKeySet()) { "The onchain key does not record who holds it" }
-        require(userPublicKey in members) { "This device does not hold the onchain key" }
+        val members = holdersInRoom(database, roomId, onchainKey)
+        require(userPublicKey.lowercase() in members) { "This device does not hold the onchain key" }
         require(IcebergDkg.isDeployable(members.size, threshold)) { "$threshold-of-${members.size} is not a deployable Iceberg group" }
 
         val session = IcebergKeySession(
@@ -194,9 +214,9 @@ object IcebergRitualManager {
             return null
         }
         // D1, checked rather than trusted: the people the proposal names must be exactly the people
-        // who hold the onchain key it names, as this device's own record of that ceremony says.
+        // who hold the onchain key it names and are still in the room, as this device's own records say.
         val onchainKey = onchainId?.let { database.dkgSessionDao().getSessionById(it) }
-        if (onchainKey?.participantPublicKeySet()?.map { it.lowercase() }?.toSet() != members) {
+        if (onchainKey == null || holdersInRoom(database, localChatRoom.chatRoom.id, onchainKey) != members) {
             logger.w("Iceberg proposal $sessionId names people who are not the holders of onchain key $onchainId; dropping")
             return null
         }
