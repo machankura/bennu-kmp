@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.group_wallet_on_s
+import fr.acinq.phoenix.managers.NodeParamsManager
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
@@ -477,6 +480,29 @@ fun ChatRoomDetailScreen(
                                                     activeUserPublicKey = activeUserPublicKey,
                                                     chatRoomId = chatRoomId,
                                                     relayHint = relayHint
+                                                )
+                                            )
+                                        }
+                                    )
+                                }
+
+                                // The same wallet on the network the Lightning wallet is
+                                // tried on, which it closes to: a Lightning wallet cannot
+                                // be opened without one there (docs/group-lightning-wallet.md).
+                                if (GroupWalletRollout.ENABLED && GroupLightningRollout.ENABLED && GroupLightningRollout.NETWORK != NodeParamsManager.chain) item {
+                                    val network = GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK)
+                                    SignedWorkRow(
+                                        icon = Icons.Default.AccountBalanceWallet,
+                                        headline = stringResource(Res.string.group_wallet_on_s, network),
+                                        supporting = chatRoomDetailUIState.testNetworkWallet?.let { stringResource(Res.string.open_on_s, network) }
+                                            ?: stringResource(Res.string.not_opened_yet),
+                                        onOpen = {
+                                            onNavigateToRoute.invoke(
+                                                GroupWalletRoute(
+                                                    activeUserPublicKey = activeUserPublicKey,
+                                                    chatRoomId = chatRoomId,
+                                                    relayHint = relayHint,
+                                                    chain = network
                                                 )
                                             )
                                         }

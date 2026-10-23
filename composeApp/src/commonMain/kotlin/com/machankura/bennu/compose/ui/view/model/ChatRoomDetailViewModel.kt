@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import fr.acinq.phoenix.managers.NodeParamsManager
 import com.machankura.bennu.compose.nostr.MarmotProfile
 import androidx.compose.runtime.MutableState
@@ -98,6 +99,9 @@ class ChatRoomDetailViewModel(
                     groupRelayLists = chatRepository.groupRelayLists(chatRoomId),
                     groupPosts = chatRepository.groupPosts(chatRoomId),
                     groupWallet = chatRepository.groupWallet(chatRoomId, NodeParamsManager.chain),
+                    testNetworkWallet = if (GroupLightningRollout.ENABLED && GroupLightningRollout.NETWORK != NodeParamsManager.chain) {
+                        chatRepository.groupWallet(chatRoomId, GroupLightningRollout.NETWORK)
+                    } else null,
                     canEditNostrProfile = canSign,
                     canAddSubgroup = canSign,
                     canGovern = canGovern,

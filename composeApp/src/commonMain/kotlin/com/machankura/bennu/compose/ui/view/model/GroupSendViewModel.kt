@@ -88,7 +88,7 @@ class GroupSendViewModel(
             )
             groupSendUIState = ready
 
-            wallets.suggestedFeeratePerVbyte()?.let { suggested ->
+            wallets.suggestedFeeratePerVbyte(chain)?.let { suggested ->
                 withContext(Dispatchers.Main) {
                     if (feerateField.text.isEmpty()) feerateField.setTextAndPlaceCursorAtEnd(suggested.toString())
                 }

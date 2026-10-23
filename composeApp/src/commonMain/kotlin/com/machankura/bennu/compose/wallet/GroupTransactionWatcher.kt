@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.managers.FrostSigningManager
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import fr.acinq.bitcoin.Transaction
 import fr.acinq.lightning.blockchain.electrum.IElectrumClient
 import kotlinx.coroutines.CancellationException
@@ -37,10 +38,18 @@ import kotlin.time.Instant
  */
 class GroupTransactionWatcher(
     private val database: BennuDatabase,
-    private val electrum: IElectrumClient,
+    private val clients: GroupChainClients,
     private val scope: CoroutineScope,
     private val now: () -> Instant = { Clock.System.now() },
 ) {
+    /** Every network on [electrum]: what the tests construct. */
+    constructor(database: BennuDatabase, electrum: IElectrumClient, scope: CoroutineScope, now: () -> Instant = { Clock.System.now() }) :
+        this(database, GroupChainClients.single(electrum), scope, now)
+
+    /** The client for [transaction]'s own network, which a statement named and the row kept. */
+    private suspend fun electrumFor(transaction: GroupTransaction): IElectrumClient? =
+        GroupWalletStatementEvent.chainNamed(transaction.chain)?.let { clients.clientFor(it) }
+
     private val logger = Logger.withTag("GroupTransactionWatcher")
     private var job: Job? = null
 
@@ -79,6 +88,7 @@ class GroupTransactionWatcher(
     suspend fun broadcastAgain(sessionId: String): Boolean {
         val transaction = database.groupTransactionDao().getBySessionId(sessionId) ?: return false
         val signed = transaction.signedTransaction?.let { Transaction.read(it) } ?: return false
+        val electrum = electrumFor(transaction) ?: return false
         electrum.broadcastTransaction(signed)
         database.groupTransactionDao().upsert(transaction.copy(broadcastAt = now()))
         return true
@@ -91,6 +101,7 @@ class GroupTransactionWatcher(
         val transaction = database.groupTransactionDao().getBySessionId(listed.frostSigningSessionId) ?: return
         if (transaction.confirmedAt != null || transaction.replacedByTxid != null) return
         val signed = Transaction.read(transaction.signedTransaction ?: return)
+        val electrum = electrumFor(transaction) ?: return
         var row = transaction
 
         val due = row.broadcastAt?.let { now() - it >= REBROADCAST_AFTER } ?: true

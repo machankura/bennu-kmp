@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.composable.navigation
 
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.wallet.GroupChainClients
 import com.machankura.bennu.compose.ui.composable.GroupSendScreen
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupSendRoute
 import androidx.compose.foundation.layout.fillMaxSize
@@ -266,8 +268,17 @@ fun BennuNavHost(
     // of profile is a restart and a wallet left subscribing on the last one's
     // connection is a wallet nobody can see.
     val activeIdentityForWallets by sovereignWalletViewModel.activeIdentity.collectAsState()
-    val groupOnchainWallets = remember(activeIdentityForWallets?.business) {
-        activeIdentityForWallets?.business?.let { GroupOnchainWallets(it.electrumClient, applicationIOScope) }
+    // One Electrum connection per network: the node's own for its network, and one of
+    // their own for any other a group keeps a wallet on (testnet3, while a Lightning
+    // wallet is tried there). Shared by the wallets and the watcher below.
+    val groupChainClients = remember(activeIdentityForWallets?.business) {
+        activeIdentityForWallets?.business?.let { GroupChainClients.forNode(NodeParamsManager.chain, it.electrumClient, applicationIOScope, it.loggerFactory) }
+    }
+    DisposableEffect(groupChainClients) {
+        onDispose { groupChainClients?.let { clients -> applicationIOScope.launch { clients.stop() } } }
+    }
+    val groupOnchainWallets = remember(groupChainClients) {
+        groupChainClients?.let { GroupOnchainWallets(it, applicationIOScope) }
     }
     DisposableEffect(groupOnchainWallets) {
         onDispose { groupOnchainWallets?.let { wallets -> applicationIOScope.launch { wallets.stop() } } }
@@ -276,9 +287,9 @@ fun BennuNavHost(
     // Sends the group's signed spends to the network from this device too, and
     // follows them to a confirmation -- whether or not anybody opens the wallet.
     // Same lifetime as the wallets: the identity's node, and nothing longer.
-    val groupTransactionWatcher = remember(activeIdentityForWallets?.business) {
-        activeIdentityForWallets?.business?.let {
-            GroupTransactionWatcher(auxDatabaseManager.auxDatabase, it.electrumClient, applicationIOScope).also { watcher -> watcher.start() }
+    val groupTransactionWatcher = remember(groupChainClients) {
+        groupChainClients?.let {
+            GroupTransactionWatcher(auxDatabaseManager.auxDatabase, it, applicationIOScope).also { watcher -> watcher.start() }
         }
     }
     DisposableEffect(groupTransactionWatcher) {
@@ -1239,7 +1250,7 @@ fun BennuNavHost(
                 GroupWalletScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     chatRoomId = route.chatRoomId,
-                    chain = NodeParamsManager.chain,
+                    chain = route.chain?.let(GroupWalletStatementEvent::chainNamed) ?: NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
                     wallets = groupOnchainWallets,
@@ -1257,7 +1268,7 @@ fun BennuNavHost(
 
                 GroupWalletAddressesScreen(
                     chatRoomId = route.chatRoomId,
-                    chain = NodeParamsManager.chain,
+                    chain = route.chain?.let(GroupWalletStatementEvent::chainNamed) ?: NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
                     wallets = groupOnchainWallets,
                     onNavigateBack = {
@@ -1271,7 +1282,7 @@ fun BennuNavHost(
                 GroupSendScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     chatRoomId = route.chatRoomId,
-                    chain = NodeParamsManager.chain,
+                    chain = route.chain?.let(GroupWalletStatementEvent::chainNamed) ?: NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
                     wallets = groupOnchainWallets,

@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import androidx.compose.foundation.layout.Row
 import com.machankura.bennu.compose.text.ProposedSpend
 import com.machankura.bennu.compose.ui.view.state.SpendRow
@@ -240,7 +241,8 @@ fun GroupWalletScreen(
                                     GroupSendRoute(
                                         activeUserPublicKey = activeUserPublicKey,
                                         chatRoomId = chatRoomId,
-                                        relayHint = null
+                                        relayHint = null,
+                                        chain = GroupWalletStatementEvent.chainName(chain)
                                     )
                                 )
                             }
@@ -249,7 +251,8 @@ fun GroupWalletScreen(
                             onNavigateToRoute(
                                 GroupWalletAddressesRoute(
                                     activeUserPublicKey = activeUserPublicKey,
-                                    chatRoomId = chatRoomId
+                                    chatRoomId = chatRoomId,
+                                    chain = GroupWalletStatementEvent.chainName(chain)
                                 )
                             )
                         },

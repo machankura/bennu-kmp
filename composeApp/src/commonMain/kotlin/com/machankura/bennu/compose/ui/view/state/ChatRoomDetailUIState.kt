@@ -93,6 +93,12 @@ sealed interface ChatRoomDetailUIState {
          */
         val groupWallet: GroupWallet? = null,
         /**
+         * The wallet this group has opened on the Lightning wallet's test network, which is not the app's
+         * own network while the Lightning wallet is tried there. Null when it has not, or when the
+         * Lightning wallet is not offered on this build (`GroupLightningRollout`).
+         */
+        val testNetworkWallet: GroupWallet? = null,
+        /**
          * Whether this device could sign an event for the group, which on this
          * screen gates the paste at the end of the identity block. Each of the
          * three screens the rows open reads the same capability for its own gate.

@@ -7,5 +7,7 @@ import kotlinx.serialization.Serializable
 data class GroupSendRoute(
     val activeUserPublicKey: String,
     val chatRoomId: String,
-    val relayHint: String?
+    val relayHint: String?,
+    /** The wallet's network, as `GroupWalletStatementEvent.chainName` spells it; null for the node's own. */
+    val chain: String? = null,
 ): Route()

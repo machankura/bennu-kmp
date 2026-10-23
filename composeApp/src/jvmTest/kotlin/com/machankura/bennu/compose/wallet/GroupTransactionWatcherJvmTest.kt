@@ -100,7 +100,7 @@ class GroupTransactionWatcherJvmTest {
         db.chatRoomDao().upsert(ChatRoom(id = room, userPublicKey = user, subject = null, description = null, mlsGroupState = "00"))
     }
 
-    private suspend fun spend(id: String, tx: Transaction, stage: FrostSigningStage, signed: Boolean) {
+    private suspend fun spend(id: String, tx: Transaction, stage: FrostSigningStage, signed: Boolean, chain: String = "regtest") {
         db.frostSigningSessionDao().upsert(
             FrostSigningSession(
                 id = id, chatRoomId = room, coordinatorPublicKey = user, userPublicKey = user, dkgSessionId = "dkg",
@@ -109,11 +109,36 @@ class GroupTransactionWatcherJvmTest {
         )
         db.groupTransactionDao().insertIfAbsent(
             GroupTransaction(
-                frostSigningSessionId = id, chatRoomId = room, chain = "regtest", account = 0,
+                frostSigningSessionId = id, chatRoomId = room, chain = chain, account = 0,
                 psbt = GroupSpend.encode(Psbt(tx)), txid = tx.txid.toString(),
                 signedTransaction = if (signed) Hex.encode(Transaction.write(tx)) else null,
             )
         )
+    }
+
+    @Test
+    fun `each spend goes out on its own network's connection`() = runBlocking {
+        // A group with wallets on two networks: the node's, and the test network a Lightning wallet is
+        // tried on. Each signed spend must reach the network it spends on, and only that one.
+        seed()
+        val testnet = FakeElectrum()
+        val clients = GroupChainClients(fr.acinq.bitcoin.Chain.Regtest, electrum) { GroupChainClients.Connection(testnet) {} }
+        val watcher = GroupTransactionWatcher(db, clients, CoroutineScope(Dispatchers.Default), now = { clock })
+        val onNode = spending(coin, pay = 9_000)
+        val onTestnet = spending(OutPoint(TxId(ByteVector32(ByteArray(32) { 4 })), 0), pay = 8_000)
+        spend("a", onNode, FrostSigningStage.COMPLETE, signed = true)
+        spend("b", onTestnet, FrostSigningStage.COMPLETE, signed = true, chain = "testnet3")
+        watcher.pass()
+        assertEquals(listOf(onNode.txid), electrum.broadcasts)
+        assertEquals(listOf(onTestnet.txid), testnet.broadcasts)
+    }
+
+    @Test
+    fun `a spend on a network nobody named is left alone`() = runBlocking {
+        seed()
+        spend("a", spending(coin, pay = 9_000), FrostSigningStage.COMPLETE, signed = true, chain = "litecoin")
+        watcher.pass()
+        assertTrue(electrum.broadcasts.isEmpty())
     }
 
     @Test
