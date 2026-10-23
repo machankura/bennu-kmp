@@ -13,9 +13,29 @@ the certificate allows.**
 Read [subgroups.md](./subgroups.md) and
 [group-wallet-guardians.md](./group-wallet-guardians.md) first. This builds on the
 certificate from the first and the guardian keys from the second, and it reverses
-one section of the second — [*why it is still the child's choice*](./group-wallet-guardians.md#what-this-reverses-and-why-it-is-still-the-childs-choice).
+one section of the second — [*whose choice it is*](./group-wallet-guardians.md#what-this-reverses-and-whose-choice-it-is).
 
-**Not built.** Written against the code as it stood at `b4002804`, schema v28.
+**Built**, phases 1-9, one commit each, written against the code as it stood at
+`b4002804`, schema v28; the build is schema v29. `SubgroupWalletPolicy`,
+`SubgroupBirthCertificateEvent.parseWalletPolicy`, `SubgroupManager.walletPolicyOf`,
+`refuseCertificate` and `refuseKeyState` are the entry points. The phases below
+are kept as written, line references included, which have since moved; where the
+build chose differently the table says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 2: a migration test like the other bumps have | none. The manual migrations have tests; the nullable auto-migrations, 24→25, 25→26 and 27→28, have none, and 28→29 is one of them. The in-memory databases every jvmTest opens run at v29 |
+| Phase 2: `proposeRitual` takes the policy | it also checks it first. A policy on a ceremony with no parent is refused before the running-ceremony lookup, which would otherwise hand back an existing ceremony for a question that should never have been asked |
+| Phase 3: the picker reads the parent's policy | through `ChatRepository.walletPolicyOf` and `guardiansOf`, both new; the picker's view models talk to repositories, not managers. The policy refusals come before the key-package wait in `refusal()`, since they do not depend on it |
+| Phase 3: a test that `confirm` passes the policy to `proposeRitual` | not written. `confirm` needs an `Identity` with a private key and settled key packages, and the tests cover the state it passes instead |
+| Phase 4: `DkgRitualViewModel` passes `session.walletPolicy` | `proposeBirthCertificate` reads it off the ceremony it is already handed. A caller naming the policy would be a caller choosing what the parent signs, for the reason the key is read off the ceremony too |
+| Phase 5: the child-signer check sits beside the certificate check | it is `SubgroupManager.refuseKeyState`, called from there and from `proposeSubgroupKeyState`, so the proposer refuses what every other child signer would |
+| Phase 6: `account` is null under a guarded policy | `NotOpened.offersPlain`. A null `account` already meant "a room with no key" and hides the way in altogether, so the guarded button would have gone with it |
+| Phase 6: `GroupWalletManager.walletPolicyFor` | arrived in Phase 7, where `walletFor` needed it. The wallet screen reads `ChatRepository.walletPolicyOf`, the same `SubgroupManager.walletPolicyOf` underneath |
+| Phase 7: `GuardianManager.guardedFrom` | `GuardianManager.verify`, the function that believes a forwarded statement |
+| Phase 8: *guarded* or *unguarded* added to the supporting line | a second line under it, on the subgroup rows and on the parent row. An undecided certificate shows nothing |
+
+Still to do by hand: the three-emulator run in Phase 9.
 
 ---
 
@@ -561,7 +581,7 @@ Small, and the reason the parent's members can see what they decided:
 ## Phase 9 — docs, and checking it on the emulators
 
 - [group-wallet-guardians.md](./group-wallet-guardians.md): rewrite *What this
-  reverses, and why it is still the child's choice* — the parent now decides, the
+  reverses, and why it is still the child's choice*, now *whose choice it is* — the parent now decides, the
   child agrees by joining, and the paragraph saying "the parent cannot impose
   this" keeps its cryptographic half and loses its policy half. Its *What this
   does not do* gains a pointer here.

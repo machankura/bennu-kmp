@@ -53,10 +53,10 @@ Phases 4 and 5 first, and its own table of where the build chose differently
 before the code.
 The group-wallet-guardians note is a phased plan that has been built; it assumes the subgroups and group-chain-wallet notes, and changes one sentence in
 each.
-The subgroup-wallet-policy note is a phased plan that has not been built. It
-reads as the guardians note's *why it is still the child's choice* reversed: read
+The subgroup-wallet-policy note is a phased plan that has been built. It
+reads as the guardians note's *whose choice it is* reversed: read
 that section, then this note's Phase 0, whose five decisions shape every phase
-after it.
+after it, and its table of where the build chose differently before the code.
 The Material Design note is a phased plan that has not been built, and is the
 only one about what the app looks like rather than what it does; read the
 jvm-target note first if you want to know why its adaptive-layout phase exists.

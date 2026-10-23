@@ -164,6 +164,7 @@ tags:
   ["subgroup_key", <the child's threshold key, 33-byte hex>]
   ["frost_path",   "m/9420/0/0"]
   ["name",         <the subgroup's name, as the coordinator typed it>]
+  ["wallet",       "guarded" | "unguarded"]          since subgroup-wallet-policy.md; absent before
   ["p",            <each of the child's admins>]
 ```
 
@@ -799,6 +800,12 @@ invitee's `acceptProposal` re-checks it against `quorumRange` and drops a
 proposal outside it, and the `HOST_KEY` gate is where each of them agrees to the
 `t`-of-`n` they can now see. Joining is the agreement; the coordinator only
 writes down what is being joined.
+
+The subgroup's wallet policy, *guarded* or *unguarded*, is the second value the
+coordinator picks for other people, and it is agreed to the same way: it rides on
+the proposal, the join gate shows it, the parent's quorum signs it into the
+certificate, and the child's quorum refuses a key state whose certificate says
+otherwise. See [subgroup-wallet-policy.md](./subgroup-wallet-policy.md).
 
 Confirm stays disabled below two selections, and below a threshold outside the
 range, with the reason stated rather than left to be guessed.
