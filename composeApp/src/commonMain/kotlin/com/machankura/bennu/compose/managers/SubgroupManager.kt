@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -272,6 +273,31 @@ object SubgroupManager {
             ?.let { Event.fromJsonOrNull(it) }
             ?: return emptyList()
         return SubgroupBirthCertificateEvent.parseGuardians(certificate.tags)
+    }
+
+    /**
+     * What [chatRoomId]'s own certificate says of its wallet --
+     * `docs/subgroup-wallet-policy.md` -- or null for a room with no certificate:
+     * a root group, or a member who holds no key state for it.
+     *
+     * Off the verified key state, like [guardiansOf]. A state whose certificate
+     * carries a policy that does not read is dropped before it is stored, so a
+     * certificate held here always reads; if one somehow does not, it is logged
+     * and read as none rather than guessed at.
+     *
+     * The one reader the picker, every parent signer and the wallet screen share,
+     * so the three cannot disagree about what a group is.
+     */
+    suspend fun walletPolicyOf(database: BennuDatabase, chatRoomId: String): WalletPolicyReading? {
+        val certificate = database.groupKeyStateDao().getByChatRoomId(chatRoomId)
+            ?.birthCertificateJson
+            ?.let { Event.fromJsonOrNull(it) }
+            ?: return null
+        return SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags)
+            ?: run {
+                logger.w("$chatRoomId's certificate carries a wallet policy that does not read")
+                null
+            }
     }
 
     /**

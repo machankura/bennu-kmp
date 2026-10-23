@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.database.repository
 
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import fr.acinq.bitcoin.Chain
 import com.machankura.bennu.compose.managers.GroupWalletManager
 import com.machankura.bennu.compose.managers.GuardianManager
@@ -141,6 +143,23 @@ class DatabaseChatRepository(
         SubgroupManager.parentOf(database, chatRoomId)
     } catch (e: Throwable) {
         logger.e("Error reading the parent of $chatRoomId", e)
+        null
+    }
+
+    override suspend fun walletPolicyOf(chatRoomId: String): WalletPolicyReading? = try {
+        SubgroupManager.walletPolicyOf(database, chatRoomId)
+    } catch (e: Throwable) {
+        logger.e("Error reading the wallet policy of $chatRoomId", e)
+        null
+    }
+
+    // Null on a failure, which reads as keys this build cannot read: the picker
+    // then refuses a guarded subgroup rather than promising a grant it could not
+    // check.
+    override suspend fun guardiansOf(chatRoomId: String): List<GuardianDerivation.Guardian>? = try {
+        SubgroupManager.guardiansOf(database, chatRoomId)
+    } catch (e: Throwable) {
+        logger.e("Error reading the guardians of $chatRoomId", e)
         null
     }
 

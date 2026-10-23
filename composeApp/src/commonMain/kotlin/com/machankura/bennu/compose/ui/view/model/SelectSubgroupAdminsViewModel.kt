@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.ui.view.state.canGuard
+import com.machankura.bennu.compose.ui.view.state.onlyGuarded
+import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
+import com.machankura.bennu.compose.nostr.subgroup.isDecided
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -28,9 +33,12 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
 import com.machankura.bennu.compose.ui.view.state.SelectSubgroupAdminsUIState
 
 /**
- * Who runs a subgroup, what it is called, and on what quorum.
+ * Who runs a subgroup, what it is called, on what quorum, and whether its wallet
+ * is guarded.
  *
- * All three are settled here and nowhere else. The name and the admin set are
+ * All four are settled here and nowhere else. The wallet policy rides the
+ * proposal like the threshold and is signed into the birth certificate by the
+ * parent's quorum -- `docs/subgroup-wallet-policy.md`. The name and the admin set are
  * carried into the birth certificate, so they are what the parent's admins will
  * be asked to approve; the threshold cannot move afterwards at all, because
  * ChillDKG hashes it and the host keys into the session identity, so `t` is fixed
@@ -81,6 +89,14 @@ class SelectSubgroupAdminsViewModel(
 
     val threshold: MutableState<Int> = mutableStateOf(ChatRoomType.MINIMUM_QUORUM)
 
+    /**
+     * What the subgroup's wallet is to be -- `docs/subgroup-wallet-policy.md`.
+     * Guarded unless the coordinator says otherwise, and only ever guarded under a
+     * parent that is guarded itself: [setWalletPolicy] will not move it, so the
+     * state never holds a choice the screen shows as disabled.
+     */
+    val walletPolicy: MutableState<SubgroupWalletPolicy> = mutableStateOf(SubgroupWalletPolicy.GUARDED)
+
     /** Whether [retrying] has been read into the form, which happens once. */
     private var prefilled = false
 
@@ -98,10 +114,23 @@ class SelectSubgroupAdminsViewModel(
                 .distinctBy { it.participant.participantPublicKey }
                 .filterNot { it.participant.participantPublicKey == activeUserPublicKey }
 
+            // The parent's own wallet policy and guardians, read once: whether it
+            // may make an unguarded child at all, and whether it can grant a
+            // guarded one anything.
+            val parentPolicy = chatRepository.walletPolicyOf(parentChatRoomId)
+            val parentGuardians = chatRepository.guardiansOf(parentChatRoomId)
+
             uiState = SelectSubgroupAdminsUIState.Loaded(
                 parentRoom = parentRoom,
                 candidates = candidates,
+                parentPolicy = parentPolicy,
+                parentGuardians = parentGuardians,
             )
+
+            // A parent that cannot grant keys can only make an unguarded child,
+            // and one that is guarded can only make a guarded one.
+            if (parentGuardians == null) walletPolicy.value = SubgroupWalletPolicy.UNGUARDED
+            if (parentPolicy.isDecided(SubgroupWalletPolicy.GUARDED)) walletPolicy.value = SubgroupWalletPolicy.GUARDED
 
             // Before the key-package lookup, so anybody who can no longer be
             // welcomed is unpicked by the same rule as a fresh pick would be.
@@ -137,6 +166,11 @@ class SelectSubgroupAdminsViewModel(
         )
 
         threshold.value = failed.threshold.coerceIn(quorumRange())
+
+        // Through the setter, so a policy the parent no longer allows -- the
+        // failed ceremony can predate the parent's own certificate -- is pulled
+        // back the way the threshold is pulled into its range.
+        failed.subgroupWalletPolicy?.let(::setWalletPolicy)
     }
 
     /**
@@ -188,6 +222,20 @@ class SelectSubgroupAdminsViewModel(
         name.value = value
     }
 
+    /**
+     * Chooses the subgroup's wallet policy. *Unguarded* under a guarded parent is
+     * ignored -- D4 -- and so is *guarded* under a parent that cannot grant keys.
+     */
+    fun setWalletPolicy(value: SubgroupWalletPolicy) {
+        if (isActionPending.value) return
+
+        val loaded = uiState as? SelectSubgroupAdminsUIState.Loaded ?: return
+        if (value == SubgroupWalletPolicy.UNGUARDED && loaded.onlyGuarded) return
+        if (value == SubgroupWalletPolicy.GUARDED && !loaded.canGuard) return
+
+        walletPolicy.value = value
+    }
+
     /** The subgroup's admins: everyone ticked, plus the coordinator. */
     fun adminCount(): Int = selectedPublicKeys.size + 1
 
@@ -210,6 +258,18 @@ class SelectSubgroupAdminsViewModel(
         val loaded = uiState as? SelectSubgroupAdminsUIState.Loaded ?: return "Still loading"
 
         if (name.value.isBlank()) return "Give the subgroup a name."
+
+        // The policy before the admins and before the key-package lookup, which it
+        // does not wait on: an answer here sends the coordinator back
+        // to a choice, not to a person. Checked again on confirm, so a state that
+        // got past the screen is stopped before a ceremony is proposed.
+        if (walletPolicy.value == SubgroupWalletPolicy.UNGUARDED && loaded.onlyGuarded) {
+            return "This group is guarded, so its subgroups are too."
+        }
+        if (walletPolicy.value == SubgroupWalletPolicy.GUARDED && !loaded.canGuard) {
+            return "This group's own guardian keys can't be read, so it can't guard a subgroup."
+        }
+
 
         if (loaded.isResolvingKeyPackages) return "Checking who can be added…"
 
@@ -283,7 +343,11 @@ class SelectSubgroupAdminsViewModel(
                 // coordinator is added by `proposeRitual`: opening a ceremony is
                 // being in it, and is not theirs to tick.
                 participantPublicKeys = selectedPublicKeys.toSet(),
-                subject = name.value.trim()
+                subject = name.value.trim(),
+                // Carried on the proposal so every admin is told at the join gate,
+                // and on the session so whoever proposes the certificate proposes
+                // it under the same one.
+                walletPolicy = walletPolicy.value
             )
 
             isActionPending.value = false

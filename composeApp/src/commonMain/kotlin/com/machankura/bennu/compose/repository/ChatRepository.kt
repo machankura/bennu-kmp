@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.repository
 
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import fr.acinq.bitcoin.Chain
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.managers.GroupWalletManager
@@ -87,6 +89,19 @@ interface ChatRepository {
      * state and gets null here even when the room really is a subgroup.
      */
     suspend fun parentOf(chatRoomId: String): HexKey?
+
+    /**
+     * What this room's own birth certificate says of its wallet, or null for a
+     * room with none. See `SubgroupManager.walletPolicyOf`.
+     */
+    suspend fun walletPolicyOf(chatRoomId: String): WalletPolicyReading?
+
+    /**
+     * The guardian keys this room's own certificate grants it, nearest first --
+     * empty for a room with none, null when they do not read. See
+     * `SubgroupManager.guardiansOf`.
+     */
+    suspend fun guardiansOf(chatRoomId: String): List<GuardianDerivation.Guardian>?
 
     /**
      * The kind:0 this group signed about itself, or null while it has signed
@@ -386,6 +401,10 @@ interface ChatRepository {
                 emptyList()
 
             override suspend fun parentOf(chatRoomId: String): HexKey? = null
+
+            override suspend fun walletPolicyOf(chatRoomId: String): WalletPolicyReading? = null
+
+            override suspend fun guardiansOf(chatRoomId: String): List<GuardianDerivation.Guardian>? = emptyList()
 
             override suspend fun groupNostrProfile(chatRoomId: String): GroupNostrProfile? = null
 
