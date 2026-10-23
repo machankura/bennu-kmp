@@ -7,7 +7,10 @@ import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
 import com.machankura.bennu.compose.managers.FrostSigningManager
 import com.machankura.bennu.compose.database.model.FrostSigningSession
+import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
+import com.machankura.bennu.compose.managers.GroupLightningCoSigner
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
+import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.managers.GroupWalletManager
 import fr.acinq.phoenixd.conf.LSP
@@ -17,6 +20,7 @@ import com.machankura.bennu.compose.repository.GroupLightningRepository
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 class DatabaseGroupLightningRepository(private val database: BennuDatabase) : GroupLightningRepository {
     override suspend fun completedCeremony(chatRoomId: String): IcebergKeySession? = IcebergRitualManager.completedKey(database, chatRoomId)
@@ -38,6 +42,14 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
 
     override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession =
         GroupLightningOperatorManager.stepDown(database, localChatRoom, userPublicKey, chain)
+
+    override fun observeReport(chatRoomId: String, chain: Chain): Flow<GroupLightningReports.Report?> {
+        val key = GroupLightningCoSigner.walletKey(chatRoomId, chain, 0L)
+        return database.groupLightningRecordsDao().observeSnapshot(key).map { GroupLightningReports.latest(database, key) }
+    }
+
+    override fun observePayments(chatRoomId: String, chain: Chain): Flow<List<GroupLightningPaymentRow>> =
+        database.groupLightningRecordsDao().observePayments(GroupLightningCoSigner.walletKey(chatRoomId, chain, 0L))
 
     override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> =
         database.icebergKeySessionDao().observeSessionById(sessionId)

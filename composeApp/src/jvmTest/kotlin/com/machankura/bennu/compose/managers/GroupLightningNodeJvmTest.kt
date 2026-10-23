@@ -43,19 +43,11 @@ class GroupLightningNodeJvmTest {
         fixture.close()
     }
 
-    private class FakePeer : GroupLightningNode.PeerHandle {
-        var connected = false
-        var disconnected = false
-        override suspend fun connect(): Boolean { connected = true; return true }
-        override fun disconnect() { disconnected = true }
-        override fun commitmentNumbers(): Map<String, Long> = mapOf("ab".repeat(32) to 7L)
-    }
-
     private var configurations = mutableListOf<GroupLightningNode.NodeConfiguration>()
-    private val peers = mutableListOf<FakePeer>()
+    private val peers = mutableListOf<FakeGroupNode>()
     private val factory: suspend (GroupLightningNode.NodeConfiguration) -> GroupLightningNode.PeerHandle = { configuration ->
         configurations += configuration
-        FakePeer().also { peers += it }
+        FakeGroupNode(configuration).also { peers += it }
     }
 
     private suspend fun ready(): List<GroupLightningFixture.Device> {

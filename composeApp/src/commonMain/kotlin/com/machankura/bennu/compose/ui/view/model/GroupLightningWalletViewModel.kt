@@ -19,7 +19,9 @@ import com.machankura.bennu.compose.ui.view.state.GroupLightningWalletUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,6 +81,20 @@ class GroupLightningWalletViewModel(
                     }
                 }
             }
+            if (uiState is GroupLightningWalletUIState.Opened) watchReports()
+        }
+    }
+
+    private var watching: Job? = null
+
+    /** Keeps an opened wallet's snapshot and payments current as the operator's reports arrive. */
+    private fun watchReports() {
+        watching?.cancel()
+        watching = viewModelScope.launch(Dispatchers.IO) {
+            combine(lightningRepository.observeReport(chatRoomId, chain), lightningRepository.observePayments(chatRoomId, chain)) { report, payments -> report to payments }
+                .collect { (report, payments) ->
+                    (uiState as? GroupLightningWalletUIState.Opened)?.let { uiState = it.copy(report = report, payments = payments) }
+                }
         }
     }
 

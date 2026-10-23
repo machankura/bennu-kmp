@@ -102,6 +102,7 @@ class GroupLightningFixture(val n: Int = 4, val frostThreshold: Int = 3, val cha
             in FrostSigningEvents.ALL -> FrostSigningManager.processSigningPayload(to.db, to.room, event, to.publicKey)
             in GroupLightningEvents.CEREMONY -> IcebergRitualManager.processCeremonyPayload(to.db, to.room, event, to.publicKey, to.privateKey)
             GroupLightningEvents.NODE_SEED -> GroupLightningWalletManager.receiveSeed(to.db, to.room, event, to.publicKey, to.privateKey)
+            GroupLightningEvents.SNAPSHOT, GroupLightningEvents.INVOICE -> GroupLightningReports.process(to.db, to.room, event)
         }
     }
 

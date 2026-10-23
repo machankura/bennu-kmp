@@ -2,7 +2,9 @@ package com.machankura.bennu.compose.repository
 
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.IcebergKeySession
+import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
+import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
@@ -54,4 +56,10 @@ interface GroupLightningRepository {
     suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession
 
     suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession
+
+    /** The operator's newest snapshot of the wallet on [chain], each channel checked against this device's ledger. */
+    fun observeReport(chatRoomId: String, chain: Chain): Flow<GroupLightningReports.Report?>
+
+    /** Every payment any snapshot has reported, newest first. */
+    fun observePayments(chatRoomId: String, chain: Chain): Flow<List<GroupLightningPaymentRow>>
 }

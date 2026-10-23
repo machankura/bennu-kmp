@@ -724,4 +724,17 @@
     <string name="step_down">Step down</string>
     <string name="couldn_t_propose_this">Couldn't propose this to the group.</string>
     <string name="the_group_is_making_its_lightning_wallet_key">The group is making a key for its Lightning wallet.</string>
+    <string name="reported_by_the_operator_in_term_s">Reported by the operator in term %1$s. Your device checks each channel against the last commitment it signed.</string>
+    <string name="s_sats_can_be_received">%1$s sats can be received</string>
+    <string name="the_operator_hasn_t_reported_the_wallet_yet">The operator hasn't reported the wallet yet.</string>
+    <string name="channels">Channels</string>
+    <string name="s_of_s_sats_are_the_group_s">%1$s of %2$s sats are the group's</string>
+    <string name="matches_what_your_device_signed">Matches what your device signed</string>
+    <string name="your_device_signed_for_s_sats">Your device signed for %1$s sats, not what the operator reports</string>
+    <string name="your_device_hasn_t_signed_for_this_channel">Your device hasn't signed for this channel</string>
+    <string name="payments">Payments</string>
+    <string name="no_payments_yet">No payments yet.</string>
+    <string name="received_s_sats">Received %1$s sats</string>
+    <string name="sent_s_sats_with_a_fee_of_s_sats">Sent %1$s sats, with a fee of %2$s sats</string>
+    <string name="couldn_t_send_s_sats">Couldn't send %1$s sats</string>
 </resources>

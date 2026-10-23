@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.database
 
+import com.machankura.bennu.compose.database.model.GroupLightningSnapshotRow
+import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
+import com.machankura.bennu.compose.database.model.GroupLightningInvoiceRow
+import com.machankura.bennu.compose.database.dao.GroupLightningRecordsDao
 import com.machankura.bennu.compose.database.model.IcebergShareRow
 import com.machankura.bennu.compose.database.model.IcebergNonceRow
 import com.machankura.bennu.compose.database.model.IcebergLabelLedger
@@ -161,7 +165,10 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         GiftWrapSeal::class,
         GiftWrapPayload::class,
         GroupKeyState::class,
+        GroupLightningInvoiceRow::class,
+        GroupLightningPaymentRow::class,
         GroupLightningSeed::class,
+        GroupLightningSnapshotRow::class,
         GroupSignedEvent::class,
         GroupTransaction::class,
         IcebergBudgetSpend::class,
@@ -213,7 +220,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 29,
+    version = 30,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -411,6 +418,9 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // v29 is the co-signing protocol (docs/group-lightning-wallet.md, Phase 9): seven new
         // tables, from the round-one pool to the per-channel ledger. Nothing existing changes.
         AutoMigration(from = 28, to = 29),
+        // v30 is what members keep of the operator's reports (docs/group-lightning-wallet.md,
+        // Phases 10 and 11): the newest snapshot, the payments, the invoices. Three new tables.
+        AutoMigration(from = 29, to = 30),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)
@@ -488,6 +498,8 @@ abstract class BennuDatabase: RoomDatabase() {
     abstract fun groupLightningSeedDao(): GroupLightningSeedDao
 
     abstract fun icebergCoSigningDao(): IcebergCoSigningDao
+
+    abstract fun groupLightningRecordsDao(): GroupLightningRecordsDao
 
     abstract fun marmotCommitResultDao(): MarmotCommitResultDao
 

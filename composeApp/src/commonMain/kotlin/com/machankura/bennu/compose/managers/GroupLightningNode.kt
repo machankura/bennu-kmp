@@ -5,21 +5,33 @@ import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.wallet.GroupChainClients
 import com.machankura.bennu.compose.wallet.lightning.GroupNodeKeyManager
+import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.PublicKey
+import fr.acinq.bitcoin.utils.Either
 import fr.acinq.lightning.Feature
 import fr.acinq.lightning.FeatureSupport
+import fr.acinq.lightning.Lightning
+import fr.acinq.lightning.MilliSatoshi
 import fr.acinq.lightning.NodeParams
+import fr.acinq.lightning.PaymentEvents
 import fr.acinq.lightning.WalletParams
 import fr.acinq.lightning.blockchain.electrum.ElectrumWatcher
 import fr.acinq.lightning.channel.states.ChannelStateWithCommitments
 import fr.acinq.lightning.crypto.RemoteIcebergFundingSigner
 import fr.acinq.lightning.db.Databases
+import fr.acinq.lightning.db.LightningIncomingPayment
+import fr.acinq.lightning.db.LightningOutgoingPayment
+import fr.acinq.lightning.db.WalletPayment
 import fr.acinq.lightning.io.Peer
 import fr.acinq.lightning.io.TcpSocket
 import fr.acinq.lightning.logging.LoggerFactory
+import kotlin.time.Clock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -27,9 +39,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * The group's Lightning node, on the operator's device (`docs/group-lightning-wallet.md`, Phase 8).
@@ -52,6 +61,7 @@ class GroupLightningNode(
     private val peerFactory: suspend (NodeConfiguration) -> PeerHandle,
     private val now: () -> kotlin.time.Instant = { Clock.System.now() },
     private val handoverCheck: Duration = HANDOVER_CHECK,
+    private val reportEvery: Duration = REPORT_EVERY,
 ) {
     private val logger = Logger.withTag("GroupLightningNode")
     private val chain = wallet.statement.chain
@@ -65,6 +75,12 @@ class GroupLightningNode(
         fun disconnect()
         /** Each channel's local commitment number, by channel id: what the stopped message reports. */
         fun commitmentNumbers(): Map<String, Long>
+        /** The node's channels, as a snapshot reports them. */
+        fun channels(): List<WalletWire.ChannelView>
+        /** The payments the node has made or received while running, oldest first. */
+        fun payments(): List<WalletWire.PaymentView>
+        /** A Bolt11 invoice paying the node, for [amountMsat] or any amount. */
+        suspend fun createInvoice(amountMsat: Long?, description: String): String
     }
 
     sealed class State {
@@ -79,6 +95,8 @@ class GroupLightningNode(
     private var peer: PeerHandle? = null
     private var transport: GroupIcebergTransport? = null
     private var watching: Job? = null
+    private var lastReported: Pair<List<WalletWire.ChannelView>, List<WalletWire.PaymentView>>? = null
+    private var lastReportedAt: kotlin.time.Instant? = null
 
     /** Starts the node if this device may run it now; otherwise says why not. */
     suspend fun start(): State {
@@ -111,6 +129,8 @@ class GroupLightningNode(
         peer = handle
         _state.value = State.Running(term)
         handle.connect()
+        lastReported = null
+        report(term, force = true)
         watchForHandover(term)
         logger.i("The group's node ${wallet.statement.nodeId.take(16)} is running, term $term")
         return _state.value
@@ -135,6 +155,34 @@ class GroupLightningNode(
         logger.i("The group's node stopped at the end of term ${running.term}")
     }
 
+    private val walletKey get() = GroupLightningCoSigner.walletKey(localChatRoom.chatRoom.id, chain, wallet.statement.wallet)
+
+    /** Sends the room a snapshot when the channels or payments have changed, or when the last is [reportEvery] old. */
+    internal suspend fun report(term: Long, force: Boolean = false) {
+        val handle = peer ?: return
+        val now = now()
+        val current = handle.channels() to handle.payments()
+        val due = force || current != lastReported || lastReportedAt.let { it == null || now - it >= reportEvery }
+        if (!due) return
+        val snapshot = WalletWire.Snapshot(
+            wallet = walletKey, term = term, nodeId = wallet.statement.nodeId, sentAt = now.epochSeconds,
+            channels = current.first, payments = current.second.takeLast(REPORTED_PAYMENTS),
+            assignments = transport?.assignments().orEmpty(),
+        )
+        GroupLightningReports.publishSnapshot(database, localChatRoom, userPublicKey, snapshot)
+        lastReported = current
+        lastReportedAt = now
+    }
+
+    /** Makes an invoice for every request in the room that has none yet. */
+    internal suspend fun answerInvoiceRequests() {
+        val handle = peer ?: return
+        GroupLightningReports.unanswered(database, localChatRoom.chatRoom.id, walletKey).forEach { request ->
+            val bolt11 = handle.createInvoice(request.amountMsat, request.description)
+            GroupLightningReports.answer(database, localChatRoom, userPublicKey, request, bolt11)
+        }
+    }
+
     /** Stops the node as soon as the room's newest operator statement names a later term. */
     private fun watchForHandover(term: Long) {
         watching?.cancel()
@@ -147,14 +195,32 @@ class GroupLightningNode(
                     halt()
                     return@launch
                 }
+                runCatching { report(term) }.onFailure { logger.e("Could not report the wallet to the room", it) }
+                runCatching { answerInvoiceRequests() }.onFailure { logger.e("Could not answer an invoice request", it) }
             }
         }
     }
 
     companion object {
+        /** A lightning-kmp payment as the room hears of it. */
+        internal fun paymentView(payment: WalletPayment, incoming: Boolean) = WalletWire.PaymentView(
+            id = payment.id.toString(),
+            incoming = incoming,
+            amountMsat = payment.amount.msat,
+            feesMsat = payment.fees.msat,
+            paymentHash = (payment as? LightningIncomingPayment)?.paymentHash?.toHex() ?: (payment as? LightningOutgoingPayment)?.paymentHash?.toHex(),
+            description = ((payment as? LightningOutgoingPayment)?.details as? LightningOutgoingPayment.Details.Normal)?.paymentRequest?.description,
+            completedAt = payment.completedAt,
+            succeeded = payment.succeededAt != null,
+        )
+
         /** How long a signature may take the group. Phase 0 was to measure what the LSP tolerates; until it is, a minute. */
         val SIGNING_DEADLINE: Duration = 60.seconds
         val HANDOVER_CHECK: Duration = 10.seconds
+        /** How stale a snapshot may grow while nothing changes. */
+        val REPORT_EVERY: Duration = 5.minutes
+        /** How many of the newest payments a snapshot carries; members keep every one they have seen. */
+        const val REPORTED_PAYMENTS = 50
 
         /**
          * Builds real lightning-kmp nodes: simple taproot channels only, peer storage on, zero-conf with the
@@ -179,12 +245,39 @@ class GroupLightningNode(
             val client = clients.clientFor(configuration.chain)
             val watcher = ElectrumWatcher(client, scope, loggerFactory)
             val peer = Peer(nodeParams, walletParams, client, watcher, databasesFor(nodeParams.nodeId, configuration.chain), TcpSocket.Builder(), scope)
+            val payments = mutableListOf<WalletWire.PaymentView>()
+            scope.launch {
+                nodeParams.nodeEvents.collect { event ->
+                    when (event) {
+                        is PaymentEvents.PaymentReceived -> payments += paymentView(event.payment, incoming = true)
+                        is PaymentEvents.PaymentSent -> payments += paymentView(event.payment, incoming = false)
+                        else -> {}
+                    }
+                }
+            }
             object : PeerHandle {
                 override suspend fun connect(): Boolean = peer.connect(connectTimeout = 10.seconds, handshakeTimeout = 10.seconds)
                 override fun disconnect() = peer.disconnect()
                 override fun commitmentNumbers(): Map<String, Long> = peer.channelsFlow.value.mapNotNull { (id, state) ->
                     (state as? ChannelStateWithCommitments)?.let { id.toHex() to it.commitments.localCommitIndex }
                 }.toMap()
+                override fun channels(): List<WalletWire.ChannelView> = peer.channelsFlow.value.mapNotNull { (id, state) ->
+                    (state as? ChannelStateWithCommitments)?.commitments?.latest?.let { latest ->
+                        WalletWire.ChannelView(
+                            channelId = id.toHex(),
+                            state = state::class.simpleName ?: "",
+                            capacitySat = latest.fundingAmount.sat,
+                            oursMsat = latest.localCommit.spec.toLocal.msat,
+                            theirsMsat = latest.localCommit.spec.toRemote.msat,
+                            fundingTxId = latest.fundingTxId.toString(),
+                            fundingIndex = latest.fundingInput.index,
+                            commitIndex = latest.localCommit.index,
+                        )
+                    }
+                }.sortedBy { it.channelId }
+                override fun payments(): List<WalletWire.PaymentView> = payments.toList()
+                override suspend fun createInvoice(amountMsat: Long?, description: String): String =
+                    peer.createInvoice(Lightning.randomBytes32(), amountMsat?.let(::MilliSatoshi), Either.Left(description)).write()
             }
         }
     }

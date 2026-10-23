@@ -85,7 +85,7 @@ object GroupLightningCoSigner {
         val floorMsat: Long,
     )
 
-    private fun store(l: CoSignerPolicy.Ledger) = CommonJson.encodeToString(
+    internal fun store(l: CoSignerPolicy.Ledger) = CommonJson.encodeToString(
         StoredLedger.serializer(),
         StoredLedger(l.commitIndex, l.commitTxId, l.oursMsat, l.offered.entries.associate { (id, h) -> id.toString() to listOf(h.paymentHash, h.amountMsat.toString()) }, l.incoming.entries.associate { (id, a) -> id.toString() to a }, l.floorMsat),
     )
@@ -94,8 +94,15 @@ object GroupLightningCoSigner {
         CoSignerPolicy.Ledger(s.commitIndex, s.commitTxId, s.oursMsat, s.offered.entries.associate { (id, v) -> id.toLong() to CoSignerPolicy.OfferedHtlc(v[0], v[1].toLong()) }, s.incoming.entries.associate { (id, a) -> id.toLong() to a }, s.floorMsat)
     }
 
+    /**
+     * What the last counterparty commitment this device signed for [channelId] left the group, HTLCs it
+     * offered excluded, or null when this device has signed none for that channel.
+     */
+    suspend fun signedOursMsat(database: BennuDatabase, walletKey: String, channelId: String): Long? =
+        database.icebergCoSigningDao().channelLedger(walletKey, channelId)?.let { load(it.ledger).oursMsat }
+
     /** The wallet a message for [walletKey] is about, if this device believes it. */
-    private suspend fun walletOf(database: BennuDatabase, chatRoomId: String, walletKey: String): GroupLightningWalletManager.Wallet? {
+    internal suspend fun walletOf(database: BennuDatabase, chatRoomId: String, walletKey: String): GroupLightningWalletManager.Wallet? {
         val parts = walletKey.split(":")
         if (parts.size != 3 || parts[0] != chatRoomId) return null
         val chain = GroupWalletStatementEvent.chainNamed(parts[1]) ?: return null

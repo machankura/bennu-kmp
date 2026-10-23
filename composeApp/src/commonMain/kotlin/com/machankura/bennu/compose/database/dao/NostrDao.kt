@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.database.dao
 
 import com.machankura.bennu.compose.managers.GroupLightningCoSigner
+import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.managers.IcebergRitualManager
@@ -1617,6 +1618,15 @@ abstract class NostrDao(
                                 innerEvent = innerEvent,
                                 userPublicKey = activeKeyPair.pubKey.toHex(),
                                 nostrPrivateKey = activeKeyPair.privKey!!
+                            )
+
+                        // What the operator says about the Lightning wallet, and the
+                        // invoices it makes for members who ask.
+                        innerEvent.kind == GroupLightningEvents.SNAPSHOT || innerEvent.kind == GroupLightningEvents.INVOICE ->
+                            GroupLightningReports.process(
+                                database = database,
+                                localChatRoom = localChatRoom,
+                                innerEvent = innerEvent,
                             )
 
                         // The group Lightning wallet's key ceremony. Marmot only:

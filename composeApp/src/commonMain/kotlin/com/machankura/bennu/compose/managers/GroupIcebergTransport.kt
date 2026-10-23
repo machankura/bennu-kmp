@@ -73,6 +73,9 @@ class GroupIcebergTransport private constructor(
     /** The highest counter whose label has been handed out, for the snapshot and for provisioning. */
     val highestAssigned: Long get() = nextCounter - 1
 
+    /** Every need given a label so far, by purpose: what a snapshot hands the next operator. */
+    fun assignments(): Map<String, Long> = assignments.toMap()
+
     private fun label(counter: Long): ByteVector32 = labelsByCounter.getOrPut(counter) {
         GroupLightningCoSigner.poolLabel(wallet.statement.icebergKey, counter).also { countersByLabel[it] = counter }
     }

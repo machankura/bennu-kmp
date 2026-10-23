@@ -38,12 +38,19 @@ object GroupLightningOperatorManager {
 
     /** The operator of [chain]'s wallet [wallet] in [chatRoomId], or null when none has been elected. */
     suspend fun current(database: BennuDatabase, chatRoomId: String, chain: Chain, wallet: Long = 0L): Operator? =
+        terms(database, chatRoomId, chain, wallet).firstOrNull()
+
+    /** The operator the group elected for [term], or null when it elected nobody for it. */
+    suspend fun ofTerm(database: BennuDatabase, chatRoomId: String, chain: Chain, wallet: Long, term: Long): Operator? =
+        terms(database, chatRoomId, chain, wallet).firstOrNull { it.term == term }
+
+    /** Every term's statement, newest first; of two for one term, the lower event id wins, as in [current]. */
+    private suspend fun terms(database: BennuDatabase, chatRoomId: String, chain: Chain, wallet: Long): List<Operator> =
         database.groupSignedEventDao().getByChatRoomIdAndKind(chatRoomId, GroupLightningOperatorStatementEvent.KIND)
             .filter { it.verifies() }
             .mapNotNull { signed -> GroupLightningOperatorStatementEvent.read(signed.tags)?.let { Operator(it, signed) } }
             .filter { it.statement.chain == chain && it.statement.wallet == wallet }
             .sortedWith(compareByDescending<Operator> { it.term }.thenBy { it.signedEvent.id })
-            .firstOrNull()
 
     /**
      * Proposes [userPublicKey] as the operator, for the term after the current one. A member can only

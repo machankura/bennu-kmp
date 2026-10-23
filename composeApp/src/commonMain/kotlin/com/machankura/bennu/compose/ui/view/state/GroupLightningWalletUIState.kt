@@ -2,7 +2,9 @@ package com.machankura.bennu.compose.ui.view.state
 
 import com.machankura.bennu.compose.database.model.IcebergKeySession
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
+import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 
 /**
@@ -30,5 +32,8 @@ sealed class GroupLightningWalletUIState {
         /** Whether this device holds a share of the key, and so can be elected and can co-sign. */
         val isParticipant: Boolean,
         val isOperator: Boolean,
+        /** The operator's newest snapshot, or null before the first arrives. */
+        val report: GroupLightningReports.Report? = null,
+        val payments: List<GroupLightningPaymentRow> = emptyList(),
     ) : GroupLightningWalletUIState()
 }

@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.ui.view.model
 
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.FrostSigningSession
+import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.database.model.IcebergKeySession
 import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
@@ -10,17 +11,26 @@ import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
 import com.machankura.bennu.compose.database.model.types.IcebergRitualStage
 import com.machankura.bennu.compose.managers.GroupLightningDerivation
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
+import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.GroupLightningRepository
 import com.machankura.bennu.compose.ui.view.state.GroupLightningWalletUIState
+import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.secp256k1.Hex
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -32,13 +42,6 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertTrue
-import kotlin.time.Instant
 
 /** Which of its states the Lightning wallet screen puts a room in, on the way from nothing to an elected operator. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -80,6 +83,8 @@ class GroupLightningWalletViewModelJvmTest {
         val wallet: GroupLightningWalletManager.Wallet? = null,
         val operator: GroupLightningOperatorManager.Operator? = null,
         val thresholds: List<Int> = listOf(2),
+        val report: GroupLightningReports.Report? = null,
+        val payments: List<GroupLightningPaymentRow> = emptyList(),
     ) : GroupLightningRepository {
         override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> = flowOf(running)
         override fun observeCeremonies(chatRoomId: String): Flow<List<IcebergKeySession>> = flowOf(listOfNotNull(running))
@@ -97,6 +102,8 @@ class GroupLightningWalletViewModelJvmTest {
         override suspend fun proposeWallet(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, chain: Chain): FrostSigningSession = error("unused")
         override suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession = error("unused")
         override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession = error("unused")
+        override fun observeReport(chatRoomId: String, chain: Chain): Flow<GroupLightningReports.Report?> = flowOf(report)
+        override fun observePayments(chatRoomId: String, chain: Chain): Flow<List<GroupLightningPaymentRow>> = flowOf(payments)
     }
 
     private val chat = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
@@ -142,5 +149,24 @@ class GroupLightningWalletViewModelJvmTest {
         assertTrue(mine.isOperator)
         val theirs = assertIs<GroupLightningWalletUIState.Opened>(settled(Lightning(completed = key, wallet = wallet, operator = operator("b".repeat(64)))))
         assertTrue(!theirs.isOperator)
+    }
+
+    @Test
+    fun `an open wallet shows the operator's report and the payments it has heard of`() {
+        val channel = WalletWire.ChannelView("cc".repeat(32), "Normal", 1_000_000, 400_000_000, 600_000_000, "dd".repeat(32), 0, 3)
+        val snapshot = WalletWire.Snapshot("w", 4, wallet.statement.nodeId, 100, listOf(channel), emptyList())
+        val report = GroupLightningReports.Report(snapshot, listOf(GroupLightningReports.ChannelCheck(channel, 400_000_000)))
+        val payment = GroupLightningPaymentRow("w", "p", incoming = true, amountMsat = 21_000, feesMsat = 0, paymentHash = null, description = "lunch", completedAt = null, succeeded = true)
+        val viewModel = GroupLightningWalletViewModel(me, chatRoomId, Chain.Testnet3, GroupLightningWalletUIState.Loading, MutableStateFlow(null), chat, Lightning(completed = key, wallet = wallet, report = report, payments = listOf(payment)))
+        viewModel.initiate()
+        val state = runBlocking {
+            withTimeout(5_000) {
+                while ((viewModel.uiState as? GroupLightningWalletUIState.Opened)?.report == null) delay(10)
+                viewModel.uiState as GroupLightningWalletUIState.Opened
+            }
+        }
+        assertEquals(400_000_000, state.report!!.snapshot.spendableMsat)
+        assertEquals(true, state.report!!.checks.single().agrees)
+        assertEquals(listOf(payment), state.payments)
     }
 }

@@ -8,12 +8,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMade
+import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,27 +39,44 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import bennu.composeapp.generated.resources.Res
 import bennu.composeapp.generated.resources.a_lightning_wallet_needs_four_signers
 import bennu.composeapp.generated.resources.at_most_s_sats_in_flight
+import bennu.composeapp.generated.resources.balance
+import bennu.composeapp.generated.resources.channels
 import bennu.composeapp.generated.resources.couldn_t_propose_this
+import bennu.composeapp.generated.resources.couldn_t_send_s_sats
 import bennu.composeapp.generated.resources.group_wallet_on_s
 import bennu.composeapp.generated.resources.lightning_wallet
 import bennu.composeapp.generated.resources.lsp_s
 import bennu.composeapp.generated.resources.make_a_key
-import bennu.composeapp.generated.resources.node_s
+import bennu.composeapp.generated.resources.matches_what_your_device_signed
+import bennu.composeapp.generated.resources.no_payments_yet
 import bennu.composeapp.generated.resources.nobody_runs_this_wallet
+import bennu.composeapp.generated.resources.node_s
 import bennu.composeapp.generated.resources.open_a_lightning_wallet
 import bennu.composeapp.generated.resources.open_an_onchain_wallet_on_s_first
 import bennu.composeapp.generated.resources.opening_a_lightning_wallet_asks
+import bennu.composeapp.generated.resources.payments
+import bennu.composeapp.generated.resources.received_s_sats
+import bennu.composeapp.generated.resources.reported_by_the_operator_in_term_s
 import bennu.composeapp.generated.resources.run_by_s_term_s
 import bennu.composeapp.generated.resources.run_this_wallet_on_my_device
+import bennu.composeapp.generated.resources.s_of_s_sats_are_the_group_s
+import bennu.composeapp.generated.resources.s_sats
+import bennu.composeapp.generated.resources.s_sats_can_be_received
 import bennu.composeapp.generated.resources.see_the_key_ceremony
+import bennu.composeapp.generated.resources.sent_s_sats_with_a_fee_of_s_sats
 import bennu.composeapp.generated.resources.signers_needed_s_of_s
 import bennu.composeapp.generated.resources.step_down
 import bennu.composeapp.generated.resources.the_group_is_making_its_lightning_wallet_key
+import bennu.composeapp.generated.resources.the_operator_hasn_t_reported_the_wallet_yet
 import bennu.composeapp.generated.resources.the_operator_s_device_runs_the_node
 import bennu.composeapp.generated.resources.this_group_has_no_lightning_wallet_key_yet
 import bennu.composeapp.generated.resources.you
+import bennu.composeapp.generated.resources.your_device_hasn_t_signed_for_this_channel
+import bennu.composeapp.generated.resources.your_device_signed_for_s_sats
 import bennu.composeapp.generated.resources.your_share_of_this_key_is_stored_unencrypted
+import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.identity.Identity
+import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.GroupLightningRepository
@@ -78,12 +99,14 @@ import com.machankura.bennu.compose.ui.view.model.GroupLightningWalletViewModel
 import com.machankura.bennu.compose.ui.view.state.GroupLightningWalletUIState
 import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import fr.acinq.bitcoin.Satoshi
 import kotlinx.coroutines.flow.StateFlow
 import org.jetbrains.compose.resources.stringResource
 
 /**
  * The group's Lightning wallet: what it needs before it can exist, the statement that opened it, and
- * who runs its node. Balance, channels and payments are the operator's snapshot (Phase 10).
+ * who runs its node. Balance, channels and payments are the operator's snapshot
+ * (Phase 10), each channel checked against what this device last co-signed.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -198,6 +221,16 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
         modifier = modifier.readableContent().fillMaxSize().padding(MaterialTheme.spacing.screenMargin),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
     ) {
+        item { Balance(state.report) }
+        state.report?.takeIf { it.checks.isNotEmpty() }?.let { report ->
+            item { Text(stringResource(Res.string.channels), style = MaterialTheme.typography.titleSmall) }
+            items(report.checks, key = { it.channel.channelId }) { ChannelRow(it) }
+        }
+        item { Text(stringResource(Res.string.payments), style = MaterialTheme.typography.titleSmall) }
+        if (state.payments.isEmpty()) {
+            item { Text(stringResource(Res.string.no_payments_yet), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        items(state.payments, key = { it.id }) { PaymentRow(it) }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(MaterialTheme.spacing.containerPadding), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
@@ -219,7 +252,7 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
             ListItem(
                 leadingContent = { Icon(Icons.Default.Key, contentDescription = Decorative) },
                 headlineContent = { Text(stringResource(Res.string.signers_needed_s_of_s, statement.threshold.toString(), statement.participants.size.toString())) },
-                supportingContent = { Text(stringResource(Res.string.at_most_s_sats_in_flight, fr.acinq.bitcoin.Satoshi(statement.policy.inFlightCapSat).grouped())) },
+                supportingContent = { Text(stringResource(Res.string.at_most_s_sats_in_flight, Satoshi(statement.policy.inFlightCapSat).grouped())) },
             )
         }
         item {
@@ -230,4 +263,65 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
             )
         }
     }
+}
+
+/** The operator's figure for what the group can spend and receive, or a word that there is none yet. */
+@Composable
+private fun Balance(report: GroupLightningReports.Report?) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(MaterialTheme.spacing.containerPadding), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+            Text(stringResource(Res.string.balance), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (report == null) {
+                Text(stringResource(Res.string.the_operator_hasn_t_reported_the_wallet_yet), style = MaterialTheme.typography.bodyLarge)
+            } else {
+                Text(stringResource(Res.string.s_sats, Satoshi(report.snapshot.spendableMsat / 1000).grouped()), style = MaterialTheme.typography.headlineMedium)
+                Text(stringResource(Res.string.s_sats_can_be_received, Satoshi(report.snapshot.inboundMsat / 1000).grouped()), style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(Res.string.reported_by_the_operator_in_term_s, report.snapshot.term.toString()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/** One channel, and whether the operator's figure for it is the one this device co-signed. */
+@Composable
+private fun ChannelRow(check: GroupLightningReports.ChannelCheck) {
+    val channel = check.channel
+    ListItem(
+        leadingContent = {
+            Icon(
+                imageVector = if (check.agrees == false) Icons.Default.Warning else Icons.Default.Bolt,
+                contentDescription = if (check.agrees == false) stringResource(Res.string.your_device_signed_for_s_sats, Satoshi(check.signedOursMsat!! / 1000).grouped()) else Decorative,
+                tint = if (check.agrees == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        headlineContent = { Text(stringResource(Res.string.s_of_s_sats_are_the_group_s, Satoshi(channel.oursMsat / 1000).grouped(), Satoshi(channel.capacitySat).grouped())) },
+        supportingContent = {
+            Text(
+                when (check.agrees) {
+                    true -> stringResource(Res.string.matches_what_your_device_signed)
+                    false -> stringResource(Res.string.your_device_signed_for_s_sats, Satoshi(check.signedOursMsat!! / 1000).grouped())
+                    null -> stringResource(Res.string.your_device_hasn_t_signed_for_this_channel)
+                },
+                color = if (check.agrees == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+    )
+}
+
+@Composable
+private fun PaymentRow(payment: GroupLightningPaymentRow) {
+    val amount = Satoshi(payment.amountMsat / 1000).grouped()
+    ListItem(
+        leadingContent = { Icon(if (payment.incoming) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade, contentDescription = Decorative) },
+        headlineContent = {
+            Text(
+                when {
+                    payment.incoming -> stringResource(Res.string.received_s_sats, amount)
+                    payment.succeeded -> stringResource(Res.string.sent_s_sats_with_a_fee_of_s_sats, amount, Satoshi(payment.feesMsat / 1000).grouped())
+                    else -> stringResource(Res.string.couldn_t_send_s_sats, amount)
+                }
+            )
+        },
+        supportingContent = payment.description?.let { { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } },
+    )
 }
