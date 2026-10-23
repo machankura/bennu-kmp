@@ -11,6 +11,7 @@ import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
 import com.machankura.bennu.compose.ui.view.state.GroupWalletUIState
 import com.machankura.bennu.compose.ui.view.state.SpendStatus
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import com.machankura.bennu.compose.database.model.types.FrostSigningStage
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
@@ -192,16 +193,18 @@ class GroupWalletViewModelJvmTest {
     }
 
     @Test
-    fun `a subgroup is offered a guarded wallet on a test network, and not yet on mainnet`() {
+    fun `a subgroup is offered a guarded wallet on a test network and on mainnet`() {
         val regtest = assertIs<GroupWalletUIState.NotOpened>(
             viewModel(guardedRepository(Chain.Regtest), chain = Chain.Regtest).apply { initiate() }.settled()
         )
         assertEquals(guardians, regtest.guarded?.account?.guardians)
 
+        // Mainnet follows GroupWalletRollout.GUARDIANS_ON_MAINNET, which is on.
         val mainnet = assertIs<GroupWalletUIState.NotOpened>(
             viewModel(guardedRepository(Chain.Mainnet)).apply { initiate() }.settled()
         )
-        assertNull(mainnet.guarded, "behind GroupWalletRollout.GUARDIANS_ON_MAINNET")
+        assertEquals(GroupWalletRollout.GUARDIANS_ON_MAINNET, mainnet.guarded != null)
+        assertEquals(guardians, mainnet.guarded?.account?.guardians)
     }
 
     @Test

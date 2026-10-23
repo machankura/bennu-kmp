@@ -28,9 +28,13 @@ below are kept as written; where the build chose differently the table says so.
 | a spend that lost its coins to the other side is never settled -- this note's own *What this does not do*, as first written | settled. `GroupTransactionWatcher` asks the chain, for a signed spend Electrum has not heard of, whether each coin is still unspent at its address and, if not, which transaction in that address's history took it; once that transaction is confirmed, `FrostSigningManager.recordReplaced` marks the spend replaced and settles every other spend of the coin, as `recordConfirmed` does for the room's own. A conflict still in the mempool settles nothing |
 | nothing outside the plan | a bug older than it: bitcoin-kmp reads a taproot derivation's fingerprint back from a PSBT as a signed int, so for half of all accounts every member but the proposer refused every spend as not the wallet's own. Fixed on its own, in `fix(wallet): read a PSBT's key fingerprint as unsigned`, because it reaches every plain wallet too |
 
-Still to do by hand, and the condition the mainnet gate lifts on: a guardian
-spend made on signet by a real three-level hierarchy, every member's device
-watching, and the grandchild's transcript naming the root.
+**The mainnet gate is open.** It was to lift on a guardian spend made on signet
+by a real three-level hierarchy, every member's device watching, and the
+grandchild's transcript naming the root; it was lifted by decision before that
+run. The run is still worth making, and the mixed-version risk below is still
+open: a group whose members are not all on a build that reads guarded statements
+should not open one. Guardian spends on mainnet are held to the same per-spend
+cap as every other spend, `GroupWalletRollout.MAINNET_CAP`.
 
 The headline: **the parent puts a guardian key for the child into the child's
 birth certificate, beside the keys its own ancestors gave it, each derived one
@@ -276,7 +280,8 @@ Three rules, each closing a way to lose coins:
 What an old client can still do is see no wallet and open a plain one. Rule 1
 keeps every new client on the guarded addresses, but the old client then hands
 out plain ones that new clients do not watch. That is a mixed-version risk, and
-it is why the guarded wallet ships behind a gate that stays shut on mainnet.
+it is why the guarded wallet first shipped behind a gate shut on mainnet -- since
+opened, so the risk is now the group's to manage.
 
 ### The rule from the wallet note, restated
 
