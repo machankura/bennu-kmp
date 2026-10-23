@@ -619,6 +619,14 @@
     <string name="the_groups_above_this_one_have_agreed_to_guard_it">The groups above this one have agreed to guard its wallet. In a guarded wallet each of them can spend any coin once it has %1$d confirmations, without this group agreeing.</string>
     <string name="open_a_guarded_wallet">Open a guarded wallet</string>
     <string name="open_without_guardians">Open without guardians</string>
+    <string name="guarded_wallets">Guarded wallets</string>
+    <string name="wallets_of_groups_below_this_one">Wallets of groups below this one. This group can spend a coin in them once it has %1$d confirmations.</string>
+    <string name="s_sats_within_this_group_s_reach">%1$s sats within this group's reach</string>
+    <string name="tell_the_groups_above">Tell the groups above</string>
+    <string name="not_yet_shared_with_the_groups_above">Not yet shared with the groups above that you're in</string>
+    <string name="share">Share</string>
+    <string name="shared_with_the_groups_above">Shared with the groups above</string>
+    <string name="couldn_t_share_the_wallet">Couldn't share the wallet</string>
     <string name="guarded_the_groups_above_this_one_can_spend">Guarded: the groups above this one can spend any coin here once it has %1$d confirmations.</string>
     <string name="balance">Balance</string>
     <string name="s_sats">%1$s sats</string>

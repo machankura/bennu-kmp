@@ -3,6 +3,7 @@ package com.machankura.bennu.compose.repository
 import fr.acinq.bitcoin.Chain
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.managers.GroupWalletManager
+import com.machankura.bennu.compose.managers.GuardianManager
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.GiftWrapPayload
@@ -126,6 +127,15 @@ interface ChatRepository {
      * certificate grants it none.
      */
     suspend fun groupWalletGuardedOpening(chatRoomId: String, chain: Chain): GroupWalletManager.GuardedOpening?
+
+    /** The guarded wallets of groups below this one that it has been told about and can sign for. */
+    suspend fun guardedWallets(chatRoomId: String): List<GuardianManager.GuardedWallet>
+
+    /** The guarded statements this device can carry from this group to the groups above it, with where to. */
+    suspend fun shareableGuardedWallets(chatRoomId: String, chain: Chain): List<GuardianManager.Shareable>
+
+    /** Tells the groups in [shareable] about its statement, as [userPublicKey]. Returns how many were told. */
+    suspend fun shareGuardedWallet(shareable: GuardianManager.Shareable, userPublicKey: HexKey): Int
 
     /**
      * The kind:1s this group signed, newest first.
@@ -390,6 +400,18 @@ interface ChatRepository {
                 chatRoomId: String,
                 chain: Chain
             ): GroupWalletManager.GuardedOpening? = null
+
+            override suspend fun guardedWallets(chatRoomId: String): List<GuardianManager.GuardedWallet> = emptyList()
+
+            override suspend fun shareableGuardedWallets(
+                chatRoomId: String,
+                chain: Chain
+            ): List<GuardianManager.Shareable> = emptyList()
+
+            override suspend fun shareGuardedWallet(
+                shareable: GuardianManager.Shareable,
+                userPublicKey: HexKey
+            ): Int = 0
 
             override suspend fun groupPosts(chatRoomId: String): List<GroupPost> = emptyList()
 

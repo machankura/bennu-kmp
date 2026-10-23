@@ -29,6 +29,17 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.time.Instant
+import com.machankura.bennu.compose.database.model.GroupSignedEvent
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.nostr.wallet.GuardedWalletNoticeEvent
+import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
+import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
+import fr.acinq.bitcoin.ByteVector
+import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.crypto.frost.IndividualNonce
+import fr.acinq.bitcoin.crypto.frost.SecretNonce
+import fr.acinq.bitcoin.crypto.frost.Session
+import kotlin.test.assertTrue
 
 /**
  * A group's guardian keys through the real signing manager, between two of its
@@ -186,5 +197,161 @@ class GuardianSigningJvmTest {
         pump(proposer, other)
 
         assertNull(other.session(session.id), "refused at acceptance, so nothing of the member's is ever published for it")
+    }
+
+    // ---- Telling an ancestor about a guarded wallet -----------------------
+
+    /** The child as a group of its own, so its room can sign its statement. */
+    private val childMaterial: KeyMaterial = Frost.trustedDealerKeygen(
+        thresholdSecretKey = PrivateKey(ByteVector32("c41d".padEnd(62, '0') + "b2")),
+        nParticipants = participants,
+        threshold = threshold,
+    )
+    private val guardedChildKey = childMaterial.thresholdPublicKey.value.toHex()
+    private val guardedChildRoomId = SharedKeyDerivation.marmotGroupId(guardedChildKey)
+
+    /** [material]'s room signing [id], as a quorum of its trusted-dealer shares. */
+    private fun roomSignature(material: KeyMaterial, id: String): String {
+        val cache = SharedKeyDerivation.derive(material.thresholdPublicKey.value.toHex()).cache
+        val message = ByteVector(id.hexToByteArray())
+        val signerIds = listOf(0, 1)
+        val nonces = signerIds.map { signerId ->
+            SecretNonce.generate(
+                sessionRandom = ByteVector32("b".repeat(63) + "${signerId + 1}"),
+                secretShare = material.secretShares[signerId],
+                publicShare = material.publicShares[signerId],
+                tweakedThresholdPublicKey = cache.tweakedPublicKey,
+                message = message,
+                extraInput = null,
+            )
+        }
+        val session = Session.create(
+            aggregatedNonce = IndividualNonce.aggregate(nonces.map { it.second }).right!!,
+            signerIds = signerIds.map { it.toUInt() },
+            signerPublicShares = signerIds.map { material.publicShares[it] },
+            nParticipants = participants,
+            threshold = threshold,
+            tweakCache = cache,
+            message = message,
+        )
+        val partials = signerIds.mapIndexed { position, signerId ->
+            session.sign(nonces[position].first, material.secretShares[signerId], signerId.toUInt()).right!!
+        }
+        return session.aggregateSigs(partials).right!!.toByteArray().toHex()
+    }
+
+    private fun signedBy(material: KeyMaterial, kind: Int, tags: Array<Array<String>>, content: String, createdAt: Long = 1_700_000_000): Event {
+        val author = SharedKeyDerivation.marmotGroupId(material.thresholdPublicKey.value.toHex())
+        val id = EventHasher.hashId(author, createdAt, kind, tags, content)
+        return Event(id, author, createdAt, kind, tags, content, roomSignature(material, id))
+    }
+
+    /** The ancestor certifies the child with [guardians], and the child signs a guarded statement under them. */
+    private fun guardedStatement(
+        guardians: List<GuardianDerivation.Guardian> = GuardianDerivation.grant(thresholdPublicKey, roomId, emptyList(), guardedChildRoomId),
+        createdAt: Long = 1_700_000_000,
+    ): Event {
+        val certificate = signedBy(
+            keyMaterial, SubgroupBirthCertificateEvent.KIND,
+            SubgroupBirthCertificateEvent.assembleTags(
+                subgroupChatRoomId = guardedChildRoomId, parentChatRoomId = roomId, thresholdPublicKey = guardedChildKey,
+                adminPublicKeys = members, name = "Translation team", guardians = guardians,
+            ),
+            guardedChildRoomId,
+        )
+        val account = GroupWalletDerivation.account(guardedChildKey, Chain.Regtest, guardians = guardians)
+        val template = GroupWalletStatementEvent.template(account, certificate, createdAt)
+        return signedBy(childMaterial, template.kind, template.tags, template.content, createdAt)
+    }
+
+    private suspend fun tell(device: Device, statement: Event, from: HexKey = members[2], createdAt: Long = 1_700_000_100) {
+        val content = statement.toJson()
+        device.db.marmotInnerEventDao().upsert(
+            MarmotInnerEvent(
+                id = EventHasher.hashId(from, createdAt, GuardedWalletNoticeEvent.KIND, emptyArray(), content),
+                publicKey = from, kind = GuardedWalletNoticeEvent.KIND, createdAt = Instant.fromEpochSeconds(createdAt),
+                tags = emptyArray(), content = content, chatRoomId = roomId,
+            )
+        )
+    }
+
+    @Test
+    fun `an ancestor believes a statement naming a key its own walk reaches, and nothing else`() {
+        val statement = guardedStatement()
+
+        val wallet = assertNotNull(GuardianManager.verify(statement, roomId, thresholdPublicKey))
+        assertEquals(guardedChildRoomId, wallet.descendantChatRoomId)
+        assertEquals(listOf(guardedChildRoomId), wallet.lineage)
+        assertEquals("Translation team", wallet.name)
+        assertTrue(wallet.account.isGuarded)
+
+        val strangerKey = PrivateKey(ByteVector32(ByteArray(32) { 0x55 })).publicKey().toString()
+        val refusals = mapOf(
+            "a group that is not among its guardians" to GuardianManager.verify(statement, guardedChildRoomId, guardedChildKey),
+            "a key the ancestor's walk does not reach" to GuardianManager.verify(
+                guardedStatement(GuardianDerivation.grant(strangerKey, roomId, emptyList(), guardedChildRoomId)), roomId, thresholdPublicKey,
+            ),
+            "a statement the child's room did not sign" to GuardianManager.verify(Event(statement.id, statement.pubKey, statement.createdAt, statement.kind, statement.tags, statement.content, "0".repeat(128)), roomId, thresholdPublicKey),
+            "a plain statement" to run {
+                val plain = GroupWalletStatementEvent.template(GroupWalletDerivation.account(guardedChildKey, Chain.Regtest))
+                GuardianManager.verify(signedBy(childMaterial, plain.kind, plain.tags, plain.content), roomId, thresholdPublicKey)
+            },
+        )
+        refusals.forEach { (name, verified) -> assertNull(verified, name) }
+    }
+
+    @Test
+    fun `a notice in the ancestor's room is a guarded wallet it holds, under its first guardians`() = runBlocking {
+        val ancestor = device(members[0], signerIndex = 0)
+        val first = guardedStatement(createdAt = 1_700_000_000)
+        tell(ancestor, first)
+        // A later statement for the same account, naming other guardians, cannot
+        // move what the ancestor watches -- the earliest decides.
+        val second = guardedStatement(
+            GuardianDerivation.grant(thresholdPublicKey, roomId, emptyList(), guardedChildRoomId).map { it.copy(delay = 13) },
+            createdAt = 1_700_000_500,
+        )
+        tell(ancestor, second, createdAt = 1_700_000_600)
+        // And nonsense is read past, not believed.
+        ancestor.db.marmotInnerEventDao().upsert(
+            MarmotInnerEvent(id = "f".repeat(64), publicKey = members[2], kind = GuardedWalletNoticeEvent.KIND,
+                createdAt = Instant.fromEpochSeconds(1), tags = emptyArray(), content = "not an event", chatRoomId = roomId)
+        )
+
+        val held = GuardianManager.guardedWalletsOf(ancestor.db, roomId)
+        assertEquals(listOf(first.id), held.map { it.statement.id })
+        assertEquals(
+            "Shared the guarded wallet of Translation team with this group.",
+            GuardianManager.describeNotice(ancestor.db, roomId, Event("1".repeat(64), members[2], 1, GuardedWalletNoticeEvent.KIND, emptyArray(), first.toJson(), ""))
+        )
+    }
+
+    @Test
+    fun `a member in both rooms carries the child's statement up, once`() = runBlocking {
+        val member = device(members[0], signerIndex = 0)
+        // This device is also in the child's room, and holds its signed statement there.
+        member.db.chatRoomDao().upsert(ChatRoom(id = guardedChildRoomId, userPublicKey = member.publicKey, subject = "Translation team", description = null, mlsGroupState = "00"))
+        member.db.groupKeyStateDao().upsert(
+            com.machankura.bennu.compose.database.model.GroupKeyState(
+                chatRoomId = guardedChildRoomId, dkgSessionId = "child-ceremony", thresholdPublicKey = guardedChildKey,
+                derivationPath = SharedKeyDerivation.formatPath(), announcedBy = guardedChildRoomId,
+                announcedAt = Instant.fromEpochSeconds(1_700_000_000),
+            )
+        )
+        val statement = guardedStatement()
+        member.db.groupSignedEventDao().upsert(GroupSignedEvent.fromEvent(statement, chatRoomId = guardedChildRoomId))
+
+        val shareable = GuardianManager.shareableFrom(member.db, guardedChildRoomId, Chain.Regtest).single()
+        assertEquals(statement.id, shareable.statement.id)
+        assertEquals(listOf(roomId), shareable.rooms.map { it.chatRoom.id })
+
+        assertEquals(1, GuardianManager.share(member.db, shareable.statement, shareable.rooms, member.publicKey))
+        val queued = member.db.marmotInnerEventDao().getByChatRoomAndKinds(roomId, listOf(GuardedWalletNoticeEvent.KIND)).single()
+        assertEquals(member.publicKey, queued.publicKey)
+        assertNull(queued.marmotGroupEventId, "queued for the outbound pipeline, not yet sent")
+
+        // Told is told: nothing left to share, and the ancestor's own device reads it back.
+        assertEquals(emptyList(), GuardianManager.shareableFrom(member.db, guardedChildRoomId, Chain.Regtest))
+        assertEquals(listOf(statement.id), GuardianManager.guardedWalletsOf(member.db, roomId).map { it.statement.id })
     }
 }
