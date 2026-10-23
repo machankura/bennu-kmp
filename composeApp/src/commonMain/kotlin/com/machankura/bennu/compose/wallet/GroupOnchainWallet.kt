@@ -103,7 +103,7 @@ class GroupOnchainWallet(
     }
 }
 
-/** One receive address as the address list shows it. */
+/** One of the wallet's addresses as the address list shows it. */
 data class GroupAddress(
     val derivation: GroupWalletDerivation.Derived,
     val address: String,
@@ -183,25 +183,44 @@ data class GroupWalletState(
      */
     val receiveAddresses: List<GroupAddress>? by lazy {
         val current = receive.firstUnusedDerivedAddress?.second?.index ?: return@lazy null
-        val derived = receive.addresses.mapNotNull { (address, state) ->
-            (state.meta as? WalletState.AddressMeta.Derived)?.let { Triple(address, it.index, state) }
+        listed(GroupWalletDerivation.RECEIVE, receive, current)
+    }
+
+    /**
+     * The change addresses that have been used, newest first, or null until
+     * Electrum has answered. Never a current or a next one: change is chosen by
+     * a spend, and is not handed out to be paid.
+     */
+    val changeAddresses: List<GroupAddress>? by lazy {
+        change.firstUnusedDerivedAddress ?: return@lazy null
+        listed(GroupWalletDerivation.CHANGE, change, current = null)
+    }
+
+    /**
+     * [branch]'s addresses up to the highest used one, and -- given the branch's
+     * [current] index -- up to [GroupOnchainWallet.ADDRESSES_AHEAD] past that.
+     * Without a current index, only the used ones.
+     */
+    private fun listed(branch: Long, state: WalletState, current: Int?): List<GroupAddress> {
+        val derived = state.addresses.mapNotNull { (address, addressState) ->
+            (addressState.meta as? WalletState.AddressMeta.Derived)?.let { Triple(address, it.index, addressState) }
         }
         val highestUsed = derived.filter { it.third.alreadyUsed }.maxOfOrNull { it.second } ?: -1
-        val last = maxOf(current + GroupOnchainWallet.ADDRESSES_AHEAD, highestUsed)
+        val last = current?.let { maxOf(it + GroupOnchainWallet.ADDRESSES_AHEAD, highestUsed) } ?: highestUsed
 
-        derived
-            .filter { (_, index, _) -> index <= last }
+        return derived
+            .filter { (_, index, addressState) -> index <= last && (current != null || addressState.alreadyUsed) }
             .sortedByDescending { (_, index, _) -> index }
-            .map { (address, index, state) ->
+            .map { (address, index, addressState) ->
                 GroupAddress(
-                    derivation = GroupWalletDerivation.derive(account, GroupWalletDerivation.RECEIVE, index.toLong()),
+                    derivation = GroupWalletDerivation.derive(account, branch, index.toLong()),
                     address = address,
                     status = when {
-                        state.alreadyUsed -> GroupAddress.Status.USED
+                        addressState.alreadyUsed -> GroupAddress.Status.USED
                         index == current -> GroupAddress.Status.CURRENT
                         else -> GroupAddress.Status.NEXT
                     },
-                    balance = state.utxos.map { it.amount }.sum(),
+                    balance = addressState.utxos.map { it.amount }.sum(),
                 )
             }
     }

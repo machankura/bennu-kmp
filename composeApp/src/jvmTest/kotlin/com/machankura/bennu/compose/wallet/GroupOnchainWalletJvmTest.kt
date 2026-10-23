@@ -203,4 +203,28 @@ class GroupOnchainWalletJvmTest {
         assertTrue(state.receiveAddresses!!.none { it.address == change(0).address(Chain.Regtest) })
         assertTrue(state.receiveAddresses!!.all { it.derivation.change == GroupWalletDerivation.RECEIVE })
     }
+
+    @Test
+    fun `a wallet that has never sent lists no change addresses`() {
+        val wallet = GroupOnchainWallet(account, FakeElectrum(), scope)
+
+        val state = eventually { wallet.state.first { it.changeAddresses != null } }
+        assertEquals(emptyList(), state.changeAddresses, "unused change is never offered, not even as the next one")
+    }
+
+    @Test
+    fun `used change addresses are listed and the receive list is untouched`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+
+        val before = eventually { wallet.state.first { it.receiveAddresses != null && it.changeAddresses != null } }
+        eventually { electrum.pay(change(0).pubkeyScript, Satoshi(7_000)) }
+
+        val state = eventually { wallet.state.first { it.changeAddresses?.isNotEmpty() == true } }
+        val used = state.changeAddresses!!.single()
+        assertEquals(change(0), used.derivation)
+        assertEquals(GroupAddress.Status.USED, used.status)
+        assertEquals(Satoshi(7_000), used.balance)
+        assertEquals(before.listed(), state.listed())
+    }
 }

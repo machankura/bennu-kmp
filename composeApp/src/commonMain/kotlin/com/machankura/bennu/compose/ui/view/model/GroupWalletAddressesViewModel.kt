@@ -70,7 +70,7 @@ class GroupWalletAddressesViewModel(
             uiState = GroupWalletAddressesUIState.Loaded(receive = null)
             wallets.walletFor(wallet.account).state.collect { state ->
                 val receive = state.receiveAddresses
-                uiState = GroupWalletAddressesUIState.Loaded(receive = receive)
+                uiState = GroupWalletAddressesUIState.Loaded(receive = receive, change = state.changeAddresses.orEmpty())
 
                 val index = shown ?: return@collect
                 val status = receive?.firstOrNull { it.derivation.index == index }?.status ?: return@collect

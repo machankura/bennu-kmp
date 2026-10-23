@@ -43,6 +43,7 @@ import bennu.composeapp.generated.resources.address_s_was_just_paid
 import bennu.composeapp.generated.resources.addresses
 import bennu.composeapp.generated.resources.addresses_explainer
 import bennu.composeapp.generated.resources.being_handed_out_now
+import bennu.composeapp.generated.resources.change
 import bennu.composeapp.generated.resources.copy_address
 import bennu.composeapp.generated.resources.copy_address_s
 import bennu.composeapp.generated.resources.finding_the_group_s_coins
@@ -166,6 +167,7 @@ fun GroupWalletAddressesScreen(
                         AddressList(
                             modifier = Modifier.padding(padding),
                             receive = receive,
+                            change = state.change,
                             notify = notify,
                             onShow = { index, paid -> addressesViewModel.show(index) { notify(paid) } },
                         )
@@ -189,11 +191,18 @@ fun GroupWalletAddressesScreen(
 private fun AddressList(
     modifier: Modifier,
     receive: List<GroupAddress>,
+    change: List<GroupAddress>,
     notify: (String) -> Unit,
     onShow: (index: Long, paidMessage: String) -> Unit,
 ) {
     val clipboardManager = LocalClipboardManager.current
     val addressCopied = stringResource(Res.string.address_copied)
+    val copy = { address: GroupAddress ->
+        clipboardManager.setText(buildAnnotatedString { append(address.address) })
+        notify(addressCopied)
+    }
+    // Both branches start at index 0, so the index alone is not a row's identity.
+    val key = { address: GroupAddress -> "${address.derivation.change}/${address.derivation.index}" }
 
     LazyColumn(
         modifier = modifier.readableContent().fillMaxSize()
@@ -208,22 +217,34 @@ private fun AddressList(
             )
         }
 
-        items(receive, key = { it.derivation.index }) { address ->
+        items(receive, key = key) { address ->
             // Read here rather than in the click: the index is the row's, and a
             // click handler is not composable.
             val paid = stringResource(Res.string.address_s_was_just_paid, address.derivation.index.toString())
             AddressRow(
                 address = address,
-                onCopy = {
-                    clipboardManager.setText(buildAnnotatedString { append(address.address) })
-                    notify(addressCopied)
-                },
+                onCopy = { copy(address) },
                 // A used address is never offered for scanning: copying it is for
                 // checking, a QR code is for being paid.
                 onShow = if (address.status != GroupAddress.Status.USED) {
                     { onShow(address.derivation.index, paid) }
                 } else null,
             )
+        }
+
+        // The group's money too, and what a watch-only import will show beside
+        // the receive addresses -- but chosen by a spend, so never offered here.
+        if (change.isNotEmpty()) {
+            item {
+                Text(
+                    text = stringResource(Res.string.change),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = MaterialTheme.spacing.sectionGap),
+                )
+            }
+            items(change, key = key) { address ->
+                AddressRow(address = address, onCopy = { copy(address) }, onShow = null)
+            }
         }
     }
 }

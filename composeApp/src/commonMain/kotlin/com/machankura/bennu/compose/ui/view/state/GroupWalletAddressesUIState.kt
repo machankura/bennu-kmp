@@ -12,6 +12,8 @@ sealed interface GroupWalletAddressesUIState {
      */
     data class Loaded(
         val receive: List<GroupAddress>?,
+        /** The change addresses that have been used, newest first: empty for a wallet that has never sent. */
+        val change: List<GroupAddress> = emptyList(),
     ): GroupWalletAddressesUIState
 
     /**
