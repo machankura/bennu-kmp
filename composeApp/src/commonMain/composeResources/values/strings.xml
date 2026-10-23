@@ -622,6 +622,14 @@
     <string name="receive_address">Receive address</string>
     <string name="copy_address">Copy address</string>
     <string name="address_copied">Address copied</string>
+    <string name="all_addresses">All addresses</string>
+    <string name="addresses">Addresses</string>
+    <string name="addresses_explainer">Each payment should go to a new address. If someone else in the group is already sharing the current one, share one of the ones after it.</string>
+    <string name="being_handed_out_now">Being handed out now</string>
+    <string name="not_used_yet">Not used yet</string>
+    <string name="paid_s_sats">Paid · %1$s sats</string>
+    <string name="paid_spent_since">Paid · spent since</string>
+    <string name="copy_address_s">Copy address %1$s</string>
     <string name="finding_the_group_s_coins">Finding the group's coins…</string>
     <string name="nothing_has_been_sent_to_this_wallet_yet">Nothing has been sent to this wallet yet.</string>
     <string name="this_profile_cannot_watch_the_chain">This profile has no wallet of its own to watch the chain with, so the balance and the next address can't be shown here.</string>
