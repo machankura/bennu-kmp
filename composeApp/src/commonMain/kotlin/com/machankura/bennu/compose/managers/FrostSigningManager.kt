@@ -1159,7 +1159,7 @@ object FrostSigningManager {
      * transaction nobody can mine, and `correctlySpends` is the only check that
      * asks the question the network will. Nothing is applied and nothing is
      * filed as a `GroupSignedEvent` -- this is not an event, and the chronicle
-     * and the broadcast screen read that table.
+     * reads that table.
      */
     private suspend fun completeSpend(
         database: BennuDatabase,
@@ -1795,8 +1795,7 @@ object FrostSigningManager {
         // wire from here: a signed event authored by the threshold key cannot
         // travel as an inner event anyway, because the outbound pipeline
         // re-authors rumors as their sender and would strip the group's
-        // signature off. Sending one to relays is a member's separate act,
-        // from `BroadcastGroupSignedEventScreen`, off the recorded row.
+        // signature off.
         signedEvents.forEach { applySignedEvent(database, session, it, recorded) }
 
         announce(

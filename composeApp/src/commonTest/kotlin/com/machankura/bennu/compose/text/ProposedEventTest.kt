@@ -8,54 +8,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * How the events a group signs about itself are said to the member signing them.
+ * How the events a group signs are said to the member signing them.
  *
- * These are read on the signing screen, in the room's list of proposals and now
- * on the paste screen before proposing, and the same words in all three is the
- * point of there being one mapping. What is pinned is that each kind is said as
- * the thing it is and by the part of it a signer is actually deciding about --
- * a profile by its name, a post by its words, a relay list by its hosts -- and
- * never as "kind 0" over a wall of JSON.
+ * These are read on the signing screen and in the room's list of proposals, and
+ * the same words in both is the point of there being one mapping. What is
+ * pinned is that a kind the app has no words for is said by its number rather
+ * than described wrongly.
  */
 class ProposedEventTest {
-
-    @Test
-    fun `a profile is said by its name and what it says about itself`() {
-        val summary = ProposedEvent.summarize(
-            event(MetadataEvent.KIND, content = """{"name":"Translation collective","about":"We translate hard books."}""")
-        )
-
-        assertEquals("Nostr profile", summary.label)
-        assertEquals("Translation collective · We translate hard books.", summary.detail)
-
-        // Empty and unreadable are different things, and a signer should know which.
-        assertEquals("An empty profile", ProposedEvent.summarize(event(MetadataEvent.KIND, content = "{}")).detail)
-        assertEquals("Unreadable profile", ProposedEvent.summarize(event(MetadataEvent.KIND, content = "not json")).detail)
-    }
-
-    @Test
-    fun `a post is said by its words`() {
-        val summary = ProposedEvent.summarize(event(TextNoteEvent.KIND, content = "We have finished the first chapter."))
-
-        assertEquals("Post", summary.label)
-        assertEquals("We have finished the first chapter.", summary.detail)
-    }
-
-    @Test
-    fun `a relay list is said by which list it is and its hosts`() {
-        val summary = ProposedEvent.summarize(
-            event(
-                AdvertisedRelayListEvent.KIND,
-                tags = arrayOf(arrayOf("r", "wss://relay.one.example"), arrayOf("r", "wss://relay.two.example", "read"))
-            )
-        )
-
-        assertEquals("General relay list", summary.label)
-        assertEquals("relay.one.example, relay.two.example", summary.detail)
-
-        // An empty list is a withdrawal, which is worth saying in as many words.
-        assertEquals("No relays", ProposedEvent.summarize(event(AdvertisedRelayListEvent.KIND)).detail)
-    }
 
     @Test
     fun `a kind with no words of its own keeps its number`() {
@@ -64,6 +24,16 @@ class ProposedEventTest {
 
         assertEquals("Event of kind 30023", summary.label)
         assertEquals("An article", summary.detail)
+    }
+
+    @Test
+    fun `a profile, a post and a relay list are no longer described`() {
+        // The group's nostr profile, posts and relay lists were removed, and with
+        // them the words for what they were; a proposal for one from an older
+        // build is said like any other kind the app does not know.
+        listOf(MetadataEvent.KIND, TextNoteEvent.KIND, AdvertisedRelayListEvent.KIND).forEach { kind ->
+            assertEquals("Event of kind $kind", ProposedEvent.summarize(event(kind)).label)
+        }
     }
 
     private fun event(

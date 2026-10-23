@@ -141,8 +141,7 @@ class ChronicleEvent(
          *  - a `GroupKeyStateEvent` or a subgroup's birth certificate is a validly
          *    signed statement about the group that anyone holding a copy could
          *    replay -- see [ChronicleKinds];
-         *  - posts, profiles, relay lists and wallet statements have their own
-         *    ways to a member who joins late, or none worth a chronicle.
+         *  - wallet statements have their own way to a member who joins late.
          *
          * So the machinery stays and carries nothing: with an empty list a device
          * asks for no chronicle, sends none, and applies nothing from one that an
