@@ -1,5 +1,13 @@
 package com.machankura.bennu.compose.database
 
+import com.machankura.bennu.compose.database.model.IcebergShareRow
+import com.machankura.bennu.compose.database.model.IcebergNonceRow
+import com.machankura.bennu.compose.database.model.IcebergLabelLedger
+import com.machankura.bennu.compose.database.model.IcebergLabelAssignment
+import com.machankura.bennu.compose.database.model.IcebergEchoRow
+import com.machankura.bennu.compose.database.model.IcebergChannelLedger
+import com.machankura.bennu.compose.database.model.IcebergBudgetSpend
+import com.machankura.bennu.compose.database.dao.IcebergCoSigningDao
 import com.machankura.bennu.compose.database.dao.GroupLightningSeedDao
 import com.machankura.bennu.compose.database.model.GroupLightningSeed
 import com.machankura.bennu.compose.database.dao.IcebergKeySessionDao
@@ -156,8 +164,15 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         GroupLightningSeed::class,
         GroupSignedEvent::class,
         GroupTransaction::class,
+        IcebergBudgetSpend::class,
+        IcebergChannelLedger::class,
+        IcebergEchoRow::class,
         IcebergKeySession::class,
+        IcebergLabelAssignment::class,
+        IcebergLabelLedger::class,
+        IcebergNonceRow::class,
         IcebergParticipantMessage::class,
+        IcebergShareRow::class,
         InReplyToRelation::class,
         MantraArtifact::class,
         MantraArtifactVersion::class,
@@ -198,7 +213,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 28,
+    version = 29,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -393,6 +408,9 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // v28 is the Lightning wallet's node seed (docs/group-lightning-wallet.md, Phase 6):
         // the GroupLightningSeed table, keyed by the node id each seed produces.
         AutoMigration(from = 27, to = 28),
+        // v29 is the co-signing protocol (docs/group-lightning-wallet.md, Phase 9): seven new
+        // tables, from the round-one pool to the per-channel ledger. Nothing existing changes.
+        AutoMigration(from = 28, to = 29),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)
@@ -468,6 +486,8 @@ abstract class BennuDatabase: RoomDatabase() {
     abstract fun icebergKeySessionDao(): IcebergKeySessionDao
 
     abstract fun groupLightningSeedDao(): GroupLightningSeedDao
+
+    abstract fun icebergCoSigningDao(): IcebergCoSigningDao
 
     abstract fun marmotCommitResultDao(): MarmotCommitResultDao
 

@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.database.dao
 
+import com.machankura.bennu.compose.managers.GroupLightningCoSigner
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.managers.IcebergRitualManager
@@ -1595,6 +1596,16 @@ abstract class NostrDao(
                                 innerEvent = innerEvent,
                                 userPublicKey = activeKeyPair.pubKey.toHex(),
                                 nostrPrivateKey = activeKeyPair.privKey!!
+                            )
+
+                        // The Lightning wallet's co-signing: round one ahead of time,
+                        // the operator's requests, every member's echo, the shares.
+                        innerEvent.kind in GroupLightningEvents.CO_SIGNING ->
+                            GroupLightningCoSigner.process(
+                                database = database,
+                                localChatRoom = localChatRoom,
+                                innerEvent = innerEvent,
+                                userPublicKey = activeKeyPair.pubKey.toHex()
                             )
 
                         // A member handing out the Lightning wallet's node seed,
