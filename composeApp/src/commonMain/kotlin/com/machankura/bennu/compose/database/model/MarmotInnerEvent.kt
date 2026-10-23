@@ -64,14 +64,6 @@ data class MarmotInnerEvent( // TODO: Rename this to GiftWrapPayload...
     val content: String,
     val quotedEventId: String? = null,
 
-    /**
-     * For a SubmissionEvent rumor, the id of the nip30303 event it carries.
-     *
-     * The submission's own id is derived from the envelope, so it is the only
-     * handle the queue has on what is actually being submitted. Null for every
-     * other kind, where the row *is* the event.
-     */
-    val payloadEventId: HexKey? = null,
 
     /**
      * Associated MarmotGroupEvent
@@ -140,7 +132,6 @@ data class MarmotInnerEvent( // TODO: Rename this to GiftWrapPayload...
         if (!tags.contentDeepEquals(other.tags)) return false
         if (content != other.content) return false
         if (quotedEventId != other.quotedEventId) return false
-        if (payloadEventId != other.payloadEventId) return false
         if (marmotGroupEventId != other.marmotGroupEventId) return false
         if (directMessageRecipientPublicKey != other.directMessageRecipientPublicKey) return false
         if (createdAt != other.createdAt) return false
@@ -161,7 +152,6 @@ data class MarmotInnerEvent( // TODO: Rename this to GiftWrapPayload...
         result = 31 * result + tags.contentDeepHashCode()
         result = 31 * result + content.hashCode()
         result = 31 * result + (quotedEventId?.hashCode() ?: 0)
-        result = 31 * result + (payloadEventId?.hashCode() ?: 0)
         result = 31 * result + (marmotGroupEventId?.hashCode() ?: 0)
         result = 31 * result + (directMessageRecipientPublicKey?.hashCode() ?: 0)
         result = 31 * result + createdAt.hashCode()

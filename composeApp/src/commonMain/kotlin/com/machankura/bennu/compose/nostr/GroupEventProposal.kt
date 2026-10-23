@@ -48,8 +48,8 @@ object GroupEventProposal {
      *
      * Not the kinds `ChatMessage.applyInnerEvent` has an arm for. A subgroup
      * certificate or a key state event has invariants a paste cannot be trusted
-     * to meet and a place in the room's life that a form is not, and the
-     * nip30303 kinds have editors of their own. The line is "has a section on the
+     * to meet and a place in the room's life that a form is not. The line is
+     * "has a section on the
      * group's screen", because that is where a member goes to see it landed.
      */
     val ACCEPTED_KINDS: Set<Kind> =

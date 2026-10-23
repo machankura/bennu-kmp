@@ -32,7 +32,7 @@ import com.machankura.bennu.compose.ui.theme.spacing
 fun DkgJoinApprovalScreen(
     activeUserPublicKey: HexKey,
     chatRoomId: String,
-    dkgSessionId: String? = null,
+    dkgSessionId: String,
     activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
@@ -55,7 +55,7 @@ fun DkgJoinApprovalScreen(
 
         Text(
             text = "$group is creating a shared key that takes " +
-                "${session?.threshold ?: 0} of ${state.participantCount} members to sign with.",
+                "${session.threshold} of ${state.participantCount} members to sign with.",
             style = MaterialTheme.typography.bodyLarge
         )
 

@@ -16,5 +16,12 @@ import kotlinx.serialization.Serializable
 data class SelectSubgroupAdminsRoute(
     val activeUserPublicKey: String,
     val parentChatRoomId: String,
-    val relayHint: String? = null
+    val relayHint: String? = null,
+    /**
+     * A failed subgroup ceremony this is trying again, whose name, admins and
+     * quorum the picker starts from. Every one of them can still be changed, and
+     * every refusal runs again: a retry is a new ceremony, not the old one
+     * resumed.
+     */
+    val retrying: String? = null,
 ): Route()

@@ -9,6 +9,7 @@ silent, or a decision that looked arbitrary and was not.
 | [shared-key-ceremony.md](./shared-key-ceremony.md) | ChillDKG over NIP-17: the rounds, the approval gates, the chat transcript, participant ordering |
 | [shared-key-derivation.md](./shared-key-derivation.md) | deriving further keys from the group's threshold key with FROST tweaks — why not BIP32, why no chain code, and the one rule that must not be broken |
 | [subgroups.md](./subgroups.md) | a group making another group — the four ceremonies, what the parent's signature actually covers, and why the child's key is fresh rather than derived |
+| [ceremony-creation.md](./ceremony-creation.md) | one place to start a key ceremony — how joining a subgroup's ceremony opened a second one for the parent room, the screen that showed a ceremony and offered to start one in the same button, and the removal of the nip30303 documents, whose kinds collided with the ceremony's, leaving the member chronicle with nothing to carry and nothing to say |
 | [frost-batch-signing.md](./frost-batch-signing.md) | signing several events in one ceremony — why one nonce can never cover two messages, and the phased schema, wire and UI work that follows from it |
 | [group-chain-wallet.md](./group-chain-wallet.md) | an on-chain wallet the group's threshold key holds, modelled on Phoenix's final wallet — why the path is BIP86's unhardened tail under a public account step, why each input is a batch item with its own cache, and the seven checks a member makes before signing a spend |
 | [group-send-an-amount.md](./group-send-an-amount.md) | sending an amount in sats from the group's wallet, with change — why the gate as written could never lift and is removed in favour of the mainnet cap, the decimal point the gated form multiplies by ten, and change addresses reserved like coins |
@@ -36,9 +37,10 @@ failures a resend repairs and which heal on their own. The
 sync note stands alone, and the dead-code inventory reads as a follow-up to it. The
 batch-signing note is a phased plan that has been built: read it after the
 derivation note, whose one rule is the same one it is built around. The member
-chronicle note is a phased plan that has not been built, and reads as the
-membership note's unanswered half: what a member who joins late can be given,
-and the one thing they cannot. The
+chronicle note is a phased plan that has been built and now carries nothing --
+the document kinds it was for are gone -- and reads as the membership note's
+unanswered half: what a member who joins late can be given, and the one thing
+they cannot. The
 jvm-target note is unrelated to all of them: it is a build and packaging story.
 The subgroups note is a phased plan that has been built; it assumes both
 shared-key notes and reads as the ceremony's second half — what a group does
@@ -86,3 +88,8 @@ The group send-an-amount note is a phased plan that has been built, and reads
 as the third gate of the group chain wallet note's Phase 10: why that gate
 could not lift as written, and what stands in for it now that it is gone. Read
 its list of what the gated code got wrong before its phases.
+The ceremony-creation note is a phased plan that has been built. It reads as
+the subgroups note's Phase 10 followed through to the screens: read it after
+that phase, and its table of findings before any phase. Its second half
+removes the nip30303 documents and leaves the member chronicle built but
+carrying no kinds, so read it before building on the chronicle note.

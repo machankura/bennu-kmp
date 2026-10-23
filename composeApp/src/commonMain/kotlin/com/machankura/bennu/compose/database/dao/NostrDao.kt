@@ -1531,8 +1531,12 @@ abstract class NostrDao(
             is GroupEventResult.ProposalStaged -> {
                 database.marmotOutboundDao().commitStagedProposals(localChatRoom)
             }
+            // Every application message lands here -- chat, documents, and the
+            // ceremony and signing messages handled just below. Debug, because at
+            // info it read like a failure on each of them and sent at least one
+            // investigation the wrong way.
             else -> {
-                logger.i("No app logic to handle: $groupEventResult")
+                logger.d("No membership change to file for: $groupEventResult")
             }
         }
 

@@ -37,7 +37,7 @@ import bennu.composeapp.generated.resources.this_is_the_last_thing_the_ceremony_
 fun DkgRound2ApprovalScreen(
     activeUserPublicKey: HexKey,
     chatRoomId: String,
-    dkgSessionId: String? = null,
+    dkgSessionId: String,
     activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
@@ -59,7 +59,7 @@ fun DkgRound2ApprovalScreen(
 
         Text(
             text = "Everyone's contributions have been combined into a " +
-                "${session?.threshold ?: 0}-of-${state.participantCount} key.",
+                "${session.threshold}-of-${state.participantCount} key.",
             style = MaterialTheme.typography.bodyLarge
         )
 

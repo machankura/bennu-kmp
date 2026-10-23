@@ -32,6 +32,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.TextButton
+import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateSharedKeyRoute
+import bennu.composeapp.generated.resources.start_the_key_ceremony
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -223,6 +226,25 @@ fun SelectChatRoomTypeScreen(
                                     text = stringResource(Res.string.was_created_but_its_shared_key_ceremony, name),
                                     style = MaterialTheme.typography.bodyMedium
                                 )
+
+                                // Straight to the one screen that starts a group's own
+                                // ceremony, rather than leaving the member to find it
+                                // through the group's details.
+                                selectChatRoomTypeViewModel.createdChatRoomId.value?.let { createdChatRoomId ->
+                                    TextButton(
+                                        modifier = Modifier.padding(horizontal = MaterialTheme.spacing.space100),
+                                        onClick = {
+                                            onNavigateToRoute(
+                                                CreateSharedKeyRoute(
+                                                    activeUserPublicKey = activeUserPublicKey,
+                                                    chatRoomId = createdChatRoomId,
+                                                )
+                                            )
+                                        }
+                                    ) {
+                                        Text(stringResource(Res.string.start_the_key_ceremony))
+                                    }
+                                }
                             }
                         }
 

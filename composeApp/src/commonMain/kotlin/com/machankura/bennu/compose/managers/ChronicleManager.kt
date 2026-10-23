@@ -18,7 +18,7 @@ import kotlin.time.Instant
 import com.machankura.bennu.compose.nostr.chronicle.ChronicleEvent
 import com.machankura.bennu.compose.nostr.chronicle.ChronicleRequestEvent
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
+import com.machankura.bennu.compose.nostr.chronicle.ChronicleKinds
 
 /**
  * Building the group's signed record into pages a member who lacks it can apply.
@@ -28,49 +28,39 @@ import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
  * locally by each device that took part and never goes on the wire. This is how
  * it gets to them.
  *
- * ### The events are the chronicle, and the rows are the fallback
+ * ### Carrying nothing, for now
+ *
+ * What a chronicle may carry is [ChronicleEvent.KINDS], and that is empty since
+ * the document kinds it was built for were removed (docs/ceremony-creation.md,
+ * Phase 7). Every entry point here takes the kinds as a parameter defaulting to
+ * that list, and with it empty the chronicle is quiet: [requestIfEmpty] asks for
+ * nothing, [sendTo] sends nothing, and a page from an older build applies
+ * nothing. The machinery is kept, and tested with a list of the tests' own, for
+ * the next kind that should join.
+ *
+ * ### The events are the chronicle
  *
  * `GroupSignedEvent` holds what the group signed, as it signed it, so
- * [signedEventsOf] reads it first: no rebuild, no round-trip risk, and nothing
- * that depends on a row having kept every field of the event it came from. The
- * artifact's version label is the standing example -- it is not on the artifact
- * row at all, and [rebuiltEventsOf] has to go and find it on the initial version
- * or leave the artifact out.
+ * [signedEventsOf] reads it: no rebuild, no round-trip risk, and nothing that
+ * depends on a row having kept every field of the event it came from.
  *
- * A room whose work predates that table has no events on file, so the rebuild
- * stays as the fallback for exactly what the table is missing, keyed by id.
- * Every payload it produces stands or falls on being byte-identical to what was
- * signed; `ChronicleRoundTripTest` is what says it is, per kind, against a real
- * quorum, and it found two faults in the artifact's rebuild the first time it
- * ran -- both of which would have shipped payloads that every receiver drops as
- * forgeries without a word. Both it and everything that exists only to hold it
- * up are marked `@Deprecated`; the fallback can go once no install still holds
- * pre-v13 work, and docs/member-chronicle.md's "Retiring the rebuild" is the list
- * of what goes with it.
- *
- * **The allowlist does real work on the way out now.** The rebuild could only
- * ever produce document kinds; the table holds everything the group has ever
- * signed, `GroupKeyStateEvent` included. So [signedEventsOf] filters on
- * [ChronicleEvent.isChroniclable] before anything else, which is the same rule
- * [applyPage] applies on the way in. Without it `ChronicleEvent.build` would
- * refuse the page and take the whole chronicle down with it.
- *
- * A room's own key state no longer sits in that table under the room -- it is
- * signed in the NIP-17 room the ceremony ran in, before the room exists, and
- * filed under that room; see `GroupKeyStateManager`. That makes the filter a
- * narrower guard than it was and not a redundant one: what it is really stopping
+ * **The allowlist does real work on the way out.** The table holds everything
+ * the group has ever signed, `GroupKeyStateEvent` included. So [signedEventsOf]
+ * filters on the kinds before anything else, which is the same rule [applyPage]
+ * applies on the way in. Without it `ChronicleEvent.build` would refuse the page
+ * and take the whole chronicle down with it. What the filter is really stopping
  * is a member replaying any group-signed statement about the record as though it
- * were work, and [applyPage] refuses the same kinds coming the other way. The
- * two are a pair and neither is safe to drop on the strength of the other.
+ * were work, and [applyPage] refuses the same kinds coming the other way. The two
+ * are a pair and neither is safe to drop on the strength of the other.
  *
  * ### Nothing unverifiable leaves
  *
- * Every rebuilt event is checked with [GroupKeyStateEvent.isSignedByRoom] before
- * it is packed, against the same room id the recipient will check it with. That
- * is not politeness towards the receiver, who checks anyway. It is what keeps an
- * chronicle honest about its own size: a row that came from a member's rumor
- * cannot be chronicled, and dropping it here rather than letting the recipient
- * drop it means the page count says what will actually arrive.
+ * Every event is checked with [GroupKeyStateEvent.isSignedByRoom] before it is
+ * packed, against the same room id the recipient will check it with. That is not
+ * politeness towards the receiver, who checks anyway. It is what keeps a
+ * chronicle honest about its own size: dropping a payload here rather than
+ * letting the recipient drop it means the page count says what will actually
+ * arrive.
  */
 object ChronicleManager {
     private const val TAG = "ChronicleManager"
@@ -93,16 +83,13 @@ object ChronicleManager {
         recipient: HexKey,
         chronicleId: String = RandomInstance.bytes(32).toHex(),
         createdAt: Long = TimeUtils.now(),
+        kinds: ChronicleKinds = ChronicleEvent.KINDS,
     ): List<EventTemplate<ChronicleEvent>> {
-        val held = signedEventsOf(database, chatRoomId)
+        val held = signedEventsOf(database, chatRoomId, kinds)
 
-        // One rule over both sources: nothing leaves that the recipient could
-        // not check for themselves. What a drop means depends on where it came
-        // from, and the two are worth telling apart when reading this log --
-        // from the rebuild it is the ordinary case of a member's own rumor
-        // sitting in the same table as the group's work, and from the record it
-        // is a row that has drifted from the event it recorded, which nothing
-        // in this app does on purpose.
+        // Nothing leaves that the recipient could not check for themselves. A
+        // drop here is a row that has drifted from the event it recorded, which
+        // nothing in this app does on purpose.
         val verified = held.filter { GroupKeyStateEvent.isSignedByRoom(it, chatRoomId) }
         if (verified.size != held.size) {
             logger.d(
@@ -111,7 +98,7 @@ object ChronicleManager {
             )
         }
 
-        val pages = paginate(ChronicleEvent.inApplyOrder(verified))
+        val pages = paginate(kinds.inApplyOrder(verified))
         if (pages.isEmpty()) {
             logger.i("Nothing signed to chronicle for room $chatRoomId")
             return emptyList()
@@ -130,6 +117,7 @@ object ChronicleManager {
                 count = pages.size,
                 recipient = recipient,
                 createdAt = createdAt,
+                kinds = kinds,
             )
         }
     }
@@ -139,9 +127,12 @@ object ChronicleManager {
     /**
      * Ask the group for its signed history, if this device holds none of it.
      *
-     * Called on entering a room. The condition is deliberately crude -- no
-     * dialects and no artifacts -- because the three cases it has to catch look
-     * identical from inside the database and should not be told apart:
+     * Called on entering a room. Does nothing while [kinds] is empty, which it
+     * is in this app at the moment -- see the class comment.
+     *
+     * The condition is deliberately crude -- nothing of a chroniclable kind on
+     * file -- because the three cases it has to catch look identical from inside
+     * the database and should not be told apart:
      *
      *  - a member added after the work was done, whose invite may be recent;
      *  - a reinstall, whose invite is long past;
@@ -162,12 +153,17 @@ object ChronicleManager {
         database: BennuDatabase,
         chatRoomId: String,
         userPublicKey: HexKey,
+        kinds: ChronicleKinds = ChronicleEvent.KINDS,
     ): Boolean {
+        // Quiet while a chronicle may carry nothing: there is no answer worth
+        // asking for, and asking would put a request on the wire and a line in
+        // the transcript on every room the member opens.
+        if (kinds.isEmpty()) return false
+
         val chatRoom = database.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom ?: return false
         if (chatRoom.chronicleRequestedAt != null) return false
 
-        val holdsWork = database.mantraDialectDao().getDialectsByChatRoomId(chatRoomId).isNotEmpty() ||
-            database.mantraArtifactDao().getArtifactsByChatRoomId(chatRoomId).isNotEmpty()
+        val holdsWork = signedEventsOf(database, chatRoomId, kinds).isNotEmpty()
 
         if (holdsWork) return false
 
@@ -217,10 +213,11 @@ object ChronicleManager {
         chatRoomId: String,
         userPublicKey: HexKey,
         recipient: HexKey,
+        kinds: ChronicleKinds = ChronicleEvent.KINDS,
     ): Int {
         if (recipient.equals(userPublicKey, ignoreCase = true)) return 0
 
-        val pages = assemble(database, chatRoomId, recipient)
+        val pages = assemble(database, chatRoomId, recipient, kinds = kinds)
         if (pages.isEmpty()) {
             logger.i("Nothing signed here to send ${recipient.take(8)} for $chatRoomId")
             return 0
@@ -373,6 +370,7 @@ object ChronicleManager {
         chatRoomId: String,
         userPublicKey: HexKey,
         page: Event,
+        kinds: ChronicleKinds = ChronicleEvent.KINDS,
     ): Outcome {
         val recipient = ChronicleEvent(
             id = page.id,
@@ -388,7 +386,7 @@ object ChronicleManager {
             return Outcome()
         }
 
-        return sweep(database, chatRoomId, userPublicKey)
+        return sweep(database, chatRoomId, userPublicKey, kinds)
     }
 
     /**
@@ -421,6 +419,7 @@ object ChronicleManager {
         database: BennuDatabase,
         chatRoomId: String,
         userPublicKey: HexKey,
+        kinds: ChronicleKinds = ChronicleEvent.KINDS,
     ): Outcome {
         val pages = database.marmotInnerEventDao()
             .getByChatRoomAndKinds(chatRoomId, listOf(ChronicleEvent.KIND))
@@ -433,7 +432,7 @@ object ChronicleManager {
 
         while (true) {
             pass = Outcome()
-            pages.forEach { pass += applyPage(database, chatRoomId, it) }
+            pages.forEach { pass += applyPage(database, chatRoomId, it, kinds) }
 
             if (pass.failed == 0 || pass.failed >= previousFailures) {
                 if (pass.failed > 0) {
@@ -513,6 +512,7 @@ object ChronicleManager {
         database: BennuDatabase,
         chatRoomId: String,
         stored: MarmotInnerEvent,
+        kinds: ChronicleKinds,
     ): Outcome {
         val payloads = ChronicleEvent.decodePage(stored.content)
         if (payloads == null) {
@@ -530,13 +530,13 @@ object ChronicleManager {
 
         var outcome = Outcome()
 
-        ChronicleEvent.inApplyOrder(payloads).forEach { payload ->
+        kinds.inApplyOrder(payloads).forEach { payload ->
             // The allowlist first, and it is not a formality. Verification admits
             // an event to the apply path on the strength of the group's
             // signature, which makes every kind the group has ever signed
             // replayable by any member at any time -- a GroupKeyStateEvent from
             // an earlier epoch passes the signature check perfectly.
-            if (!ChronicleEvent.isChroniclable(payload.kind)) {
+            if (!kinds.isChroniclable(payload.kind)) {
                 logger.w(
                     "Chronicle page ${stored.id.take(8)} carries kind ${payload.kind}, " +
                         "which a chronicle may not deliver; dropping ${payload.id.take(8)}"
@@ -605,224 +605,31 @@ object ChronicleManager {
     }
 
     /**
-     * Every chroniclable event this device holds for the room: the ones the group
-     * signed here or sent here, plus anything only the rows still remember.
+     * Every chroniclable event this device holds for the room, as the group
+     * signed it.
      *
-     * The record comes first because it is the event rather than a reconstruction
-     * of one, and the rebuild fills the gap behind it -- keyed by id, so an event
-     * held both ways travels once. A room that upgraded mid-life has both, and
-     * neither half is complete on its own.
-     *
-     * The two disagree only in one direction worth naming. An id the rebuild
-     * produces that the record does not hold is either work from before the
-     * table existed, which is the point of the fallback, or a rebuild that has
-     * gone wrong -- and a wrong rebuild hashes to an id whose signature does not
-     * verify, so the filter in [assemble] drops it either way rather than
-     * shipping a payload every receiver reads as a forgery.
-     *
-     * Order does not matter at this point; [ChronicleEvent.inApplyOrder] settles it
-     * afterwards. It is stable within a rank, so a room holding some of its work
-     * both ways can order two chapters differently from a member holding one way
-     * only. That costs nothing: pages are idempotent and applied payload by
-     * payload, and two members already differed by the order their rows were
-     * written in.
+     * Order does not matter at this point; [ChronicleKinds.inApplyOrder] settles
+     * it afterwards.
      */
     private suspend fun signedEventsOf(
         database: BennuDatabase,
         chatRoomId: String,
-    ): List<Event> {
-        val recorded = database.groupSignedEventDao()
-            .getByChatRoomId(chatRoomId)
-            // The allowlist, applied to the source that can actually trip it --
-            // see the class comment. A key state on file is the room's own, and
-            // sending it would be handing every member a validly signed
-            // statement about what the room signs with, replayable forever.
-            .filter { ChronicleEvent.isChroniclable(it.kind) }
-            .map { it.toEvent() }
-
-        val onFile = recorded.mapTo(mutableSetOf()) { it.id }
-        val rebuilt = rebuiltEventsOf(database, chatRoomId).filterNot { it.id in onFile }
-
-        if (rebuilt.isNotEmpty()) {
-            logger.d(
-                "Chronicling $chatRoomId: ${recorded.size} event(s) as the group signed them, " +
-                    "${rebuilt.size} rebuilt from rows that predate the record"
-            )
-        }
-
-        return currentTranslationsOnly(recorded + rebuilt)
-    }
-
-    /**
-     * Drops every translation of a passage but the one that stands.
-     *
-     * The record keeps every event the group ever signed, deliberately -- a
-     * signature is the group's statement and discarding one is not this table's
-     * business. The rows do not: `ChatMessage.applyInnerEvent` supersedes a
-     * translation chunk, deleting the one it replaces, so a passage translated
-     * three times leaves one row and three events.
-     *
-     * That difference reaches the chronicle the moment it is read from the record
-     * rather than rebuilt from rows, and it compounds: every draft a group ever
-     * signed would travel in every chronicle it ever sends, for as long as the room
-     * exists. A chronicle exists to catch a member up on where the group has got
-     * to, not to hand them its drafting history.
-     *
-     * **The rule is the applying arm's, restated rather than approximated**:
-     * newest by the timestamp the group signed at, id breaking a tie. It has to
-     * be, or the chronicle would ship one translation as current and the recipient
-     * would settle on another -- and since both are validly signed, nothing
-     * downstream would notice the disagreement.
-     *
-     * Dropping the drafts is safe precisely because the recipient applies the
-     * same rule: it is not what keeps them correct, only what stops them being
-     * sent work they would immediately discard.
-     *
-     * A translation naming no passage is left alone rather than grouped with
-     * others: it is unappliable either way, and letting one stand in for a whole
-     * passage would let a malformed event suppress a good one.
-     */
-    private fun currentTranslationsOnly(events: List<Event>): List<Event> {
-        val translations = events.filter { it.kind == TranslationChunkEvent.KIND }
-        if (translations.size < 2) return events
-
-        val current = translations
-            .groupBy { event ->
-                val translation = TranslationChunkEvent(
-                    id = event.id,
-                    pubKey = event.pubKey,
-                    createdAt = event.createdAt,
-                    tags = event.tags,
-                    content = event.content,
-                    sig = event.sig,
-                )
-
-                val chapterId = translation.translationChapterId()
-                val chunkId = translation.chunkId()
-
-                if (chapterId == null || chunkId == null) event.id else "$chapterId/$chunkId"
-            }
-            .values
-            .mapNotNull { candidates ->
-                candidates.maxWithOrNull(compareBy({ it.createdAt }, { it.id }))
-            }
-            .mapTo(mutableSetOf()) { it.id }
-
-        if (current.size != translations.size) {
-            logger.d(
-                "Leaving ${translations.size - current.size} superseded translation(s) " +
-                    "out of the chronicle"
-            )
-        }
-
-        return events.filter { it.kind != TranslationChunkEvent.KIND || it.id in current }
-    }
-
-    /**
-     * The room's rows, rebuilt into the events they came from.
-     *
-     * Walked down the tree rather than queried per kind, because only dialects
-     * and artifacts have a by-room query and the rest hang off a parent. The walk
-     * is also what makes an artifact's version label reachable: it is not on the
-     * artifact row -- see `MantraArtifact.toArtifactEvent` -- and the version it
-     * went into is one step away here.
-     *
-     * Still walked on every chronicle, and by now it contributes nothing in most
-     * rooms: everything signed or applied since `GroupSignedEvent` existed is on
-     * file as an event, and [signedEventsOf] discards whatever this rebuilds of
-     * it. The walk is a handful of indexed queries against a room's own rows,
-     * and it is what makes a half-upgraded room whole, so it runs rather than
-     * being skipped when the record looks complete -- there is no way to tell a
-     * complete record from a partial one without doing it.
-     *
-     * It returns everything it can rebuild and lets [signedEventsOf] and the
-     * verify filter decide what can travel.
-     *
-     * Deprecated rather than merely legacy: it is a whole mechanism kept alive
-     * for a shrinking set of rows, and it takes eight `toXEvent()` methods and a
-     * ten-case round-trip suite with it. **docs/member-chronicle.md, "Retiring the
-     * rebuild", is the checklist** -- what goes, what only looks like it goes,
-     * and the one thing that has to be true before any of it can.
-     */
-    @Deprecated(
-        "Chronicle fallback for work signed before the GroupSignedEvent table. " +
-            "Goes when the last pre-v13 install does -- see the removal checklist " +
-            "in docs/member-chronicle.md."
-    )
-    private suspend fun rebuiltEventsOf(
-        database: BennuDatabase,
-        chatRoomId: String,
-    ): List<Event> = buildList {
-        database.mantraDialectDao().getDialectsByChatRoomId(chatRoomId).forEach {
-            add(it.toDialectEvent())
-        }
-
-        database.mantraArtifactDao().getArtifactsByChatRoomId(chatRoomId).forEach { artifact ->
-            val versions = database.mantraArtifactVersionDao()
-                .getArtifactVersionsByArtifactId(artifact.id)
-
-            // The version an artifact starts life with carries the label the
-            // artifact was signed with, and `ArtifactVersionEvent.initialVersionOf`
-            // gives it the artifact's own timestamp. The label is still not on the
-            // artifact row -- `fromArtifactEvent` drops it -- so this is where it
-            // comes back from. An artifact with no such version is one this device
-            // cannot rebuild, which is a gap in the chronicle rather than a reason to
-            // abandon it.
-            val versionLabel = versions
-                .firstOrNull { it.createdAt == artifact.createdAt }
-                ?.versionLabel
-
-            if (versionLabel == null) {
-                logger.w("Artifact ${artifact.id} has no initial version; leaving it out")
-            } else {
-                add(artifact.toArtifactEvent(versionLabel = versionLabel))
-            }
-
-            versions.forEach { version ->
-                add(version.toArtifactVersionEvent())
-
-                database.mantraChapterDao()
-                    .getChaptersByArtifactVersionId(version.id)
-                    .forEach { chapter ->
-                        add(chapter.toChapterEvent())
-
-                        database.mantraChunkDao()
-                            .getChunksByChapterId(chapter.id)
-                            .forEach { add(it.toChunkEvent()) }
-                    }
-
-                database.mantraTranslationArtifactVersionDao()
-                    .getTranslationsByArtifactVersionId(version.id)
-                    .forEach { translationVersion ->
-                        add(translationVersion.toTranslationArtifactVersionEvent())
-
-                        database.mantraTranslationChapterDao()
-                            .getTranslationChaptersByTranslationArtifactVersionId(translationVersion.id)
-                            .forEach { translationChapter ->
-                                add(translationChapter.toTranslationChapterEvent())
-
-                                // Only the translation that survived supersession
-                                // is here to be found: retranslating a passage
-                                // changes the text and so the event id, and the
-                                // arm that applies one drops what it replaces. So
-                                // a chronicle carries a group's current answer to
-                                // each passage rather than its drafts, which is
-                                // the same thing every other member holds.
-                                database.mantraTranslationChunkDao()
-                                    .getTranslationChunksByTranslationChapterId(translationChapter.id)
-                                    .forEach { add(it.toTranslationChunkEvent()) }
-                            }
-                    }
-            }
-        }
-    }
+        kinds: ChronicleKinds,
+    ): List<Event> = database.groupSignedEventDao()
+        .getByChatRoomId(chatRoomId)
+        // The allowlist, applied to the source that can actually trip it --
+        // see the class comment. A key state on file is the room's own, and
+        // sending it would be handing every member a validly signed
+        // statement about what the room signs with, replayable forever.
+        .filter { kinds.isChroniclable(it.kind) }
+        .map { it.toEvent() }
 
     /**
      * [events] cut into pages that fit, keeping the order they arrive in.
      *
      * Greedy: fill a page until the next event would cross either cap. Both are
-     * checked because they bind different chronicles -- a room of one-line dialects
-     * hits the count first and a room of chapters hits the bytes.
+     * checked because they bind different chronicles -- a room of one-line events
+     * hits the count first and a room of long ones hits the bytes.
      *
      * The bytes are the page's *escaped* bytes -- what it will occupy as the
      * `content` of the Marmot app event that carries it, which is what a
@@ -832,7 +639,7 @@ object ChronicleManager {
      *
      * An event too large to share a page with anything is given one of its own.
      * One too large for even that is dropped with a log rather than failing the
-     * chronicle: a chapter nobody can chronicle is a hole, and a member who gets
+     * chronicle: an event nobody can chronicle is a hole, and a member who gets
      * nothing at all is a bigger one.
      */
     private fun paginate(events: List<Event>): List<List<Event>> {

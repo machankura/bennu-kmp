@@ -907,6 +907,12 @@ second is refused rather than silently returning the first's key.
 
 ## Phase 10 — the ceremony moves into the parent's room
 
+*Followed up by [ceremony-creation.md](./ceremony-creation.md): with the
+ceremony in the parent's room, the shared-key screen's "Start key ceremony"
+offered a whole-room ceremony there, and a failed subgroup was retried as one.
+A Marmot room now refuses a ceremony of its own, and a failed subgroup is tried
+again from this picker, filled in from the ceremony that failed.*
+
 The thing [Phase 4](#why-not-the-parents-marmot-room) deferred, done, because the
 reason to wait was `docs/mls-skipped-keys.md` and that is being fixed. The child's
 ChillDKG and its key state now run in the parent's Marmot room on group events;
