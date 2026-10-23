@@ -48,7 +48,7 @@ The group-wallet-addresses note is a phased plan that has been built, and is the
 group-chain-wallet note's Phase 5 taken one screen further: read that note's
 Phases 4 and 5 first, and its own table of where the build chose differently
 before the code.
-The group-wallet-guardians note is a phased plan; it assumes the subgroups and group-chain-wallet notes, and changes one sentence in
+The group-wallet-guardians note is a phased plan that has been built; it assumes the subgroups and group-chain-wallet notes, and changes one sentence in
 each.
 The Material Design note is a phased plan that has not been built, and is the
 only one about what the app looks like rather than what it does; read the

@@ -1021,8 +1021,11 @@ is wanted, is the button.
 **A subgroup cannot sign for its parent, and the parent cannot sign for it.**
 Two independent keys, two independent quorums. The certificate is a claim about
 lineage, not a delegation of authority, and nothing in this design lets one group
-act as the other. If delegation is ever wanted it is a different mechanism and it
-should not be built on top of this one silently.
+act as the other. Delegation is a different mechanism, and it was built as one:
+[group-wallet-guardians.md](./group-wallet-guardians.md) lets a parent guard a
+child's wallet, but only when the parent's quorum signs guardian keys into the
+certificate *and* the child's quorum opens a guarded wallet naming them. The
+certificate on its own still delegates nothing.
 
 **A member added to the parent later sees no subgroups, and a member added to the
 subgroup later cannot verify its parent.** One cause, two faces, and both are the

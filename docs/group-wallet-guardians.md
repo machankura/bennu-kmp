@@ -10,8 +10,26 @@ Read [subgroups.md](./subgroups.md) and [group-chain-wallet.md](./group-chain-wa
 first. This builds on the birth certificate from the first and the account
 derivation from the second, and it changes one sentence in each.
 
-**A phased plan**, written against the code as it stood at `409be6db`, with the
-`lightning-kmp-app` submodule at `e0d2b82`.
+**Built**, phases 1-9, one commit each, written against the code as it stood at
+`409be6db` with the `lightning-kmp-app` submodule at `e0d2b82`. `GuardianDerivation`,
+`GuardianManager` and `FrostSigningManager.proposeGuardianSpend` are the entry
+points, and `GroupWalletRollout.GUARDIANS_ON_MAINNET` is the gate. The phases
+below are kept as written; where the build chose differently the table says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 4 is the statement, Phase 5 the addresses | Phase 4 did both: a statement cannot be verified without rebuilding the descriptors it carries, so `Account` learned its guardians and `deriveBelow` its tree in the same commit |
+| Phase 9 adds the rollout gate | the gate came with Phase 5, because that is where a guarded wallet is first offered; a way in shipped before its gate would have been offered on mainnet for four commits. Phase 9 is this table |
+| forwarded statements are stored for the ancestor to watch | no table: the 30333 notice is the `MarmotInnerEvent` row the inbound path files for every inner event, and `GuardianManager.guardedWalletsOf` checks each one again on every read -- the economy `GroupWallet` already has |
+| the proposal carries `["input", …]` tags | it carries one tag, `["guarded", <descendant>]`. Each input's `tap_bip32_derivation` already names its place under the descendant's account, exactly as the child's own spend does, so a second place to say it would be a second thing to disagree |
+| `check` asks the proposer's device whether a coin has 12 confirmations | the builder does: it only offers a guardian coins its lock has already let go of. `check` cannot ask, because a signer with no node has no tip, and a coin spent too early is a transaction nobody can mine rather than a loss |
+| `GroupTransactionWatcher` notices a guardian's spend | the wallet screen's view model does, each time the guarded wallet's coins change, by reading every used address's history off Electrum -- so a device asleep when the coin moved still finds it, and whichever device reads first writes the one line. A device that never opens the wallet screen writes nothing |
+| schema unchanged | v27: `GroupTransaction.guardedChatRoomId`, the descendant a guardian's spend draws from. A spend's account is otherwise read from the statement, and a guardian's is the descendant's statement, not the room's |
+| nothing outside the plan | a bug older than it: bitcoin-kmp reads a taproot derivation's fingerprint back from a PSBT as a signed int, so for half of all accounts every member but the proposer refused every spend as not the wallet's own. Fixed on its own, in `fix(wallet): read a PSBT's key fingerprint as unsigned`, because it reaches every plain wallet too |
+
+Still to do by hand, and the condition the mainnet gate lifts on: a guardian
+spend made on signet by a real three-level hierarchy, every member's device
+watching, and the grandchild's transcript naming the root.
 
 The headline: **the parent puts a guardian key for the child into the child's
 birth certificate, beside the keys its own ancestors gave it, each derived one
@@ -327,9 +345,10 @@ spent too early is a transaction nobody can mine, never a loss.
 
 ### What the child sees
 
-Nothing until it happens. `GroupTransactionWatcher` on a child's device sees one
-of its coins spent by a transaction it has no row for, reads the witness, finds
-a leaf it can name, and writes a transcript line saying which ancestor took it.
+Nothing until it happens. A child's device reads the history of every address
+its guarded wallet has used, finds a transaction whose witness carries one of
+its guardians' leaves for the coin it spent, and writes a transcript line saying
+which ancestor took how much -- `GuardianManager.takenIn` and `recordTaken`.
 
 ### What it costs onchain
 
@@ -395,6 +414,15 @@ newest winning — but nothing here prompts it to.
 threshold key, so to the shares of the ceremony that made it, including the
 shares of members who have since left. This is the wallet note's *removal from
 the group does not un-know a key*, inherited one level down.
+
+**It does not settle a spend that lost its coins to the other side.** The
+wallet note settles conflicting spends when one of the group's own confirms,
+because "only the group can spend its coins". A guarded wallet's coins have
+other spenders now. A child's open spend whose coin a guardian took, or a
+guardian's whose coin the child moved first, is never marked replaced: it sits
+as signed, rebroadcast every ten minutes, until somebody abandons it. The fix is
+for `GroupTransactionWatcher` to ask whether an unconfirmed spend's inputs are
+still unspent, and it is a follow-up rather than a line here.
 
 **It does not tell the child before it happens**, and it does not constrain where
 the coins go. "Only back into the child, at a new address" is a covenant, and
