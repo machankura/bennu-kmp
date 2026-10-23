@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
 import com.machankura.bennu.compose.nostr.subgroup.isDecided
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
@@ -477,6 +478,12 @@ object SubgroupManager {
                     "cannot name a parent yet"
             )
 
+        // Every other child signer refuses a certificate under another policy, so
+        // proposing it would only stall a quorum -- see [refuseKeyState].
+        refusePolicy(key, certificate.toEvent())?.let { reason ->
+            throw IllegalStateException("$parentChatRoomId's certificate for $subgroupChatRoomId $reason")
+        }
+
         return GroupKeyStateManager.propose(
             database = database,
             localChatRoom = ceremonyRoom,
@@ -488,6 +495,33 @@ object SubgroupManager {
                 certificate = certificate.toEvent()
             )
         )
+    }
+
+    /**
+     * Why a child signer should not sign [keyState] under [key], its own
+     * ceremony, or null when it may: the birth certificate it carries decides a
+     * wallet policy other than the one the ceremony announced.
+     *
+     * Every admin was shown that policy at the join gate, so joining was agreeing
+     * to it. A certificate proposed later under another -- by a parent admin
+     * resuming the flow, or one whose device read the parent differently -- would
+     * be the child signing a decision none of its members agreed to. A ceremony
+     * that announced none, from an older build, has nothing to hold the
+     * certificate to. `docs/subgroup-wallet-policy.md`, Phase 5.
+     */
+    fun refuseKeyState(key: DkgSession, keyState: Event): String? {
+        val certificate = GroupKeyStateEvent.parseBirthCertificate(keyState.tags) ?: return null
+        return refusePolicy(key, certificate)
+    }
+
+    private fun refusePolicy(key: DkgSession, certificate: Event): String? {
+        val agreed = key.subgroupWalletPolicy ?: return null
+        val certified = SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags)
+        return if (certified.isDecided(agreed)) {
+            null
+        } else {
+            "carries a certificate whose wallet policy is not the one this group was made under ($agreed)"
+        }
     }
 
     /**

@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupParentage
+import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
@@ -714,6 +716,39 @@ class SubgroupManagerJvmTest {
             ),
             "a guarded one, with the parent's keys passed on, is signable",
         )
+    }
+
+    /** A child key state carrying [certificate], unsigned -- the refusal reads its tags and nothing else. */
+    private fun keyStateCarrying(certificate: Event) = Event(
+        id = "e".repeat(64),
+        pubKey = childRoomId,
+        createdAt = 1_700_000_000,
+        kind = GroupKeyStateEvent.KIND,
+        tags = GroupKeyStateEvent.assembleTags(
+            chatRoomId = childRoomId,
+            dkgSessionId = "child-ceremony",
+            path = path,
+            parent = SubgroupParentage(parentRoomId, certificate),
+        ),
+        content = "",
+        sig = "",
+    )
+
+    @Test
+    fun `a child signer refuses a certificate under a policy its ceremony did not announce`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val unguarded = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.UNGUARDED))
+        val guarded = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED))
+        val undecided = proposedCertificate(parentRoom, ceremonyUnder(null))
+
+        // The admins joined a guarded subgroup.
+        val ceremony = ceremonyUnder(SubgroupWalletPolicy.GUARDED)
+        assertNotNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(unguarded)))
+        assertNotNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(undecided)), "undecided is not what they agreed to either")
+        assertNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(guarded)))
+
+        // An older build's ceremony announced nothing, and has nothing to hold a certificate to.
+        assertNull(SubgroupManager.refuseKeyState(ceremonyUnder(null), keyStateCarrying(unguarded)))
     }
 
     // ---- fixtures ----------------------------------------------------------

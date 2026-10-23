@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import fr.acinq.bitcoin.OutPoint
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
@@ -567,6 +568,22 @@ object FrostSigningManager {
             if (rebuilt.kind != SubgroupBirthCertificateEvent.KIND || thresholdPublicKey == null) return@forEach
             SubgroupManager.refuseCertificate(database, rebuilt.pubKey, thresholdPublicKey, rebuilt)?.let { reason ->
                 logger.w("Signing proposal $sessionId carries a birth certificate that $reason; dropping")
+                return null
+            }
+        }
+
+        // A subgroup's key state carries its birth certificate, and the
+        // certificate's wallet policy has to be the one this group was made
+        // under: every admin was shown it at the join gate, so joining was
+        // agreeing to it. A certificate proposed later, by a parent admin
+        // resuming the flow, under another one would be the child signing a
+        // decision none of its members agreed to. [key] is the child's own
+        // ceremony here, which is where the policy was filed.
+        // `docs/subgroup-wallet-policy.md`, Phase 5.
+        unsignedEvents.forEach { rebuilt ->
+            if (rebuilt.kind != GroupKeyStateEvent.KIND) return@forEach
+            SubgroupManager.refuseKeyState(key, rebuilt)?.let { reason ->
+                logger.w("Signing proposal $sessionId carries a key state that $reason; dropping")
                 return null
             }
         }
