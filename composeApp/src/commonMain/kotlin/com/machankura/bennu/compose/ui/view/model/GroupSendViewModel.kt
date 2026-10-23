@@ -20,11 +20,16 @@ import com.machankura.bennu.compose.text.parseSats
 import com.machankura.bennu.compose.ui.view.state.GroupSendUIState
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
+import com.machankura.bennu.compose.wallet.GroupWalletState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.Satoshi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -89,11 +94,34 @@ class GroupSendViewModel(
                 }
             }
 
-            val onchainWallet = wallets.walletFor(wallet.account)
-            watching?.cancel()
-            watching = viewModelScope.launch(Dispatchers.IO) {
-                onchainWallet.state.collect { state -> groupSendUIState = ready.copy(walletState = state) }
-            }
+            follow(ready, wallets.walletFor(wallet.account).state)
+        }
+    }
+
+    /**
+     * Keeps [ready] current: the coins from [chainState], and which of them --
+     * and which change addresses -- the room's open spends hold, re-read every
+     * time a spend is proposed, fails or settles. Read once, a spend another
+     * member proposed while this form was open would still look free, and
+     * sending everything would ask the group to sign a second spend of coins
+     * only one spend can have.
+     *
+     * One state from both, as the wallet screen does, so no frame shows new
+     * coins against old reservations. Apart from [initiate] so that it can be
+     * followed without an Electrum client.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    internal fun follow(ready: GroupSendUIState.Ready, chainState: Flow<GroupWalletState?>) {
+        val account = ready.wallet.account
+        val reservations = frostSigningRepository.observeGroupTransactions(chatRoomId).mapLatest {
+            frostSigningRepository.reservedOutPoints(chatRoomId) to
+                frostSigningRepository.reservedChangeIndices(chatRoomId, account)
+        }
+        watching?.cancel()
+        watching = viewModelScope.launch(Dispatchers.IO) {
+            combine(chainState, reservations) { state, (reserved, reservedChange) ->
+                ready.copy(walletState = state, reserved = reserved, reservedChange = reservedChange)
+            }.collect { groupSendUIState = it }
         }
     }
 

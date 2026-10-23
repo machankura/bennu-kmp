@@ -4,6 +4,10 @@ import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
+import com.machankura.bennu.compose.database.model.GroupTransaction
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
@@ -169,6 +173,61 @@ class GroupSendViewModelJvmTest {
         val built = assertIs<GroupSpendBuilder.Result.Built>(model.preview(), "the cap itself is allowed")
         assertNotNull(built.change)
         assertIs<GroupSpend.Result.Ok>(GroupSpend.check(built.psbt, mainnet))
+    }
+
+    /** The room's spends as the database would report them, and what they hold, set by the test. */
+    private class Reserving : FrostSigningRepository by FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY {
+        val transactions = MutableStateFlow<List<GroupTransaction>>(emptyList())
+        @Volatile var heldCoins: Set<OutPoint> = emptySet()
+        @Volatile var heldChange: Set<Long> = emptySet()
+        override fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>> = transactions
+        override suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint> = heldCoins
+        override suspend fun reservedChangeIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long> = heldChange
+    }
+
+    /** Two confirmed coins, 60,000 and 40,000 sats, on the first two receive addresses. */
+    private val twoCoins: GroupWalletState = run {
+        val coins = listOf(60_000L, 40_000L).mapIndexed { index, sats ->
+            val derived = GroupWalletDerivation.derive(account, GroupWalletDerivation.RECEIVE, index.toLong())
+            val tx = Transaction(2, listOf(TxIn(OutPoint(TxId(ByteVector32(ByteArray(32) { (index + 1).toByte() })), 0), ByteVector.empty, 0xffffffffL)), listOf(TxOut(Satoshi(sats), derived.pubkeyScript)), 0)
+            val meta = WalletState.AddressMeta.Derived(index)
+            derived.address(Chain.Regtest) to WalletState.AddressState(meta, true, listOf(WalletState.Utxo(tx.txid, 0, 100, tx, meta)))
+        }.toMap()
+        walletState.copy(receive = WalletState(coins))
+    }
+
+    private fun <T : Any> eventually(read: () -> T?): T =
+        runBlocking { withTimeout(5_000) { var value = read(); while (value == null) { delay(10); value = read() }; value } }
+
+    @Test
+    fun `a spend proposed while the form is open takes its coins out of what the form will send`() {
+        val signing = Reserving()
+        val ready = GroupSendUIState.Ready(localChatRoom, wallet, walletState = null, reserved = emptySet())
+        val model = viewModel(ready, signing = signing)
+        model.follow(ready, flowOf(twoCoins))
+        model.addressField.setTextAndPlaceCursorAtEnd("bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080")
+        model.feerateField.setTextAndPlaceCursorAtEnd("4")
+        model.sendEverything.value = true
+
+        val before = eventually { model.preview() as? GroupSpendBuilder.Result.Built }
+        assertEquals(Satoshi(100_000), before.amount + before.fee, "both coins, before anybody holds one")
+
+        // Another member's proposal arrives: it holds the 60,000 coin and change index 0.
+        val bigCoin = twoCoins.utxos.single { it.amount == Satoshi(60_000) }.utxo.outPoint
+        signing.heldCoins = setOf(bigCoin)
+        signing.heldChange = setOf(0L)
+        signing.transactions.value = listOf(
+            GroupTransaction(frostSigningSessionId = "theirs", chatRoomId = chatRoomId, chain = "regtest", account = 0, psbt = "", txid = "t".repeat(64))
+        )
+
+        val following = eventually { (model.groupSendUIState as GroupSendUIState.Ready).takeIf { it.reserved.isNotEmpty() } }
+        assertEquals(setOf(bigCoin), following.reserved)
+        assertEquals(setOf(0L), following.reservedChange)
+        assertEquals(twoCoins, following.walletState, "the coins are kept while the reservations change")
+
+        val after = assertIs<GroupSpendBuilder.Result.Built>(model.preview())
+        assertEquals(Satoshi(40_000), after.amount + after.fee, "only the coin nobody holds, without the form being opened again")
+        assertEquals(Satoshi(40_000), model.spendable())
     }
 
     @Test
