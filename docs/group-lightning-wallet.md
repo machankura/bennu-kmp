@@ -32,6 +32,7 @@ build chose differently, this table says so.
 | 0 | done, except the two spikes (see below) |
 | 1 | done: `IcebergDkg`, 11 tests, among them a byte-for-byte match against the library's dealer and a signature from every 2-of-4 and 3-of-7 quorum |
 | 2 | done, in the fork (`4bc973df`): the three signing methods suspend, `RemoteIcebergFundingSigner`, pings answered outside the channel loop. lightning-kmp's JVM suite, 985 tests, passes |
+| 3 | done: in the fork (`e15e31ba`), `withGroupBasepoints`, `GroupHeldOutputs` and `KeyManager.defaultFinalScriptPubKey`, 991 tests passing. In the app, `GroupLightningDerivation`, pinned, with a FROST quorum spending `to_remote` and `to_local` |
 
 | what the plan said | what it turned out to be |
 |---|---|
@@ -42,6 +43,11 @@ build chose differently, this table says so.
 | `Peer` answers `Ping` in its own coroutine | in `Peer.send`, before the command is queued, whenever the ping arrives on the adopted connection. The receive loop goes through `send` too. A ping that arrives before the connection is adopted falls through to the old handler |
 | a channel that times out disconnects | the signer returns `IcebergSigningTimeout` and the channel treats it as any failed signature. Disconnecting is the operator node's response (Phase 8), not lightning-kmp's |
 | a test drops one answer in ten | a test with a group that never answers, and checks the retry gets a new label. The channel suite runs with random delays, and asserts after every test that no label was asked to sign two messages |
+| lightning-kmp emits a `ChannelAction` naming each group-held output | it emits nothing. It skips the four claims it would have signed, and `GroupHeldOutputs.inLocalCommit`, `inRemoteCommit` and `inHtlcTx` find the output in a published transaction instead, with the leaf, the key, the per-commitment tweak and the delay. The operator's node calls them when a channel enters `Closing`. A new action would have reached every state that handles closing, and the Peer, for a fact the published transaction already carries |
+| our anchor CPFP is turned off for group channels | there is nothing to turn off: lightning-kmp's taproot channels publish no anchor spend (`anchorOutput = null` throughout `Helpers.Closing`) |
+| the closing script comes from a provider the app supplies | `KeyManager.defaultFinalScriptPubKey`, defaulting to `finalOnChainWallet`'s first address. It is fixed in a channel's parameters when the channel opens, as it always was. A close to a different onchain wallet address goes through `Shutdown`'s script override |
+| one channel per group node, because two would share a `shaSeed` | not needed. Channel keys derive from a random funding key *path* per channel, not from the funding key, so two channels have different per-commitment secrets even with the same group funding key. Only `RecoveredChannelKeys`, which a group node never uses, keys off the funding key |
+| `HtlcDelayedTx` is node-keyed | it is keyed from the delayed basepoint, so it pays the group too. What stays node-keyed is the HTLC transaction itself and the claims from the counterparty's commitment, which is the in-flight exposure the statement caps |
 | the kinds are reserved | in code: `GroupLightningEvents`, 30333-30349, with a test asserting the run is unbroken and touches no kind the app already dispatches on |
 | library phases land in the forks' `threshold` branches | on a new branch, `claude/group-lightning-wallet`, in `lightning-kmp-app` and in `experimental/lightning-kmp`. It is local and not pushed. The app's submodule pointer follows it, so a checkout of this branch needs those commits from the same machine until they are pushed |
 
