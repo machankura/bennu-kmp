@@ -26,6 +26,7 @@ silent, or a decision that looked arbitrary and was not.
 | [jvm-target.md](./jvm-target.md) | what desktop support cost, phased — why the native chain was already done, why an empty source set in our phoenix fork was the real blocker, and why DAO tests need none of it |
 | [npub-profile-preview.md](./npub-profile-preview.md) | showing the person before a direct message is started from a pasted npub — why the preview is a screen keyed by public key, what "found" means when a row can be a placeholder, and the phase that makes the button honest about a key package that never comes |
 | [material-design-conformance.md](./material-design-conformance.md) | what the M3 foundations actually require, measured against all 43 screens — the colour pairing that renders the app's own proposals invisible, and eight phases that put the decisions back in the theme |
+| [group-lightning-wallet.md](./group-lightning-wallet.md) | a Lightning wallet whose channels the group holds with an Iceberg threshold key, run by one elected operator. Covers why Iceberg needs its own ceremony and a DKG of its own, why every payment needs `2t-1` devices to answer, the echo rule that keeps a hostile operator from reusing a nonce label, and why a closing channel must pay the group's key rather than the node's |
 | [marmot-v2.md](./marmot-v2.md) | bringing the group layer onto the Marmot current profile after the quartz 1.15.2 bump — the nine rules that reach this app, why the room's id and the routing id have to become two values, nine phases from reading both profiles to publishing before applying, and the one fork the library cannot yet settle |
 
 Start with the ceremony if you are new to this area; the Marmot notes all assume it.
@@ -86,3 +87,8 @@ The group send-an-amount note is a phased plan that has been built, and reads
 as the third gate of the group chain wallet note's Phase 10: why that gate
 could not lift as written, and what stands in for it now that it is gone. Read
 its list of what the gated code got wrong before its phases.
+The group Lightning wallet note is a phased plan that has not been built. It
+assumes the group chain wallet note and the ceremony note, and reads as the
+lightning-kmp fork's `FEATURE-PARITY.md` taken past its "out of scope" line:
+read its eight constraints and its decision table before any phase, and its
+trust table before arguing with either.
