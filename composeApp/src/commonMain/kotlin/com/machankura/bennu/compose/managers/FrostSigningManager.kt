@@ -55,6 +55,7 @@ import com.machankura.bennu.compose.database.model.types.FrostSigningStage
 import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 
 /**
  * Signs a nostr event with a group's FROST threshold key, in one of its rooms.
@@ -551,6 +552,20 @@ object FrostSigningManager {
                     "Signing proposal $sessionId carries id ${proposed[index].id} at $index " +
                         "but its fields hash to ${rebuilt.id}; dropping"
                 )
+                return null
+            }
+        }
+
+        // A birth certificate's guardian keys are a promise by the group signing
+        // it, so they have to be the keys it grants: recomputed here from the key
+        // this session signs with and the group's own certificate, never taken
+        // from the proposer. Refused before anything is shown, for the reason a
+        // mismatched id is.
+        val thresholdPublicKey = key.thresholdPublicKey
+        unsignedEvents.forEach { rebuilt ->
+            if (rebuilt.kind != SubgroupBirthCertificateEvent.KIND || thresholdPublicKey == null) return@forEach
+            SubgroupManager.refuseGrant(database, rebuilt.pubKey, thresholdPublicKey, rebuilt)?.let { reason ->
+                logger.w("Signing proposal $sessionId carries a birth certificate that $reason; dropping")
                 return null
             }
         }

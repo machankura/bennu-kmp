@@ -34,7 +34,9 @@ import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
 import com.machankura.bennu.compose.database.model.DkgSession
 import com.machankura.bennu.compose.database.model.types.DkgRitualStage
+import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
 import com.machankura.bennu.compose.database.model.NostrEvent
 import com.machankura.bennu.compose.database.model.Participant
 import com.machankura.bennu.compose.database.model.Profile
@@ -494,7 +496,116 @@ class SubgroupManagerJvmTest {
         }
     }
 
+    @Test
+    fun `a certificate grants the child the parent's guardian key`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+
+        val proposed = proposedCertificate(parentRoom)
+
+        // A parent with no parent of its own grants one key: its own, one step on.
+        assertEquals(
+            GuardianDerivation.grant(parentMaterial.thresholdPublicKey.value.toHex(), parentRoomId, emptyList(), childRoomId),
+            SubgroupBirthCertificateEvent.parseGuardians(proposed.tags)
+        )
+        assertNull(SubgroupManager.refuseGrant(db, parentRoomId, parentMaterial.thresholdPublicKey.value.toHex(), proposed))
+    }
+
+    @Test
+    fun `a subgroup passes on the keys its own parent granted it, one step further`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        // The parent is itself a subgroup of a grandparent, whose key reached it
+        // through the parent's own certificate.
+        val grandparentKey = strangerMaterial.thresholdPublicKey.value.toHex()
+        val grandparentRoomId = roomOf(strangerMaterial)
+        val inherited = GuardianDerivation.grant(grandparentKey, grandparentRoomId, emptyList(), parentRoomId)
+        fileParentage(inherited)
+
+        val granted = assertNotNull(SubgroupBirthCertificateEvent.parseGuardians(proposedCertificate(parentRoom).tags))
+
+        assertEquals(listOf(parentRoomId, grandparentRoomId), granted.map { it.chatRoomId })
+        assertEquals(inherited[0].grantedTo(childRoomId), granted[1])
+        assertEquals(
+            GuardianDerivation.root(grandparentKey).extendedPublicKey
+                .derivePublicKey(GuardianDerivation.childIndex(parentRoomId))
+                .derivePublicKey(GuardianDerivation.childIndex(childRoomId))
+                .publicKey,
+            granted[1].publicKey,
+            "the grandparent's key in the grandchild is R / i(parent) / i(child)"
+        )
+    }
+
+    @Test
+    fun `a signer refuses guardian keys the group does not grant`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val parentKey = parentMaterial.thresholdPublicKey.value.toHex()
+        val proposed = proposedCertificate(parentRoom)
+        val granted = assertNotNull(SubgroupBirthCertificateEvent.parseGuardians(proposed.tags))
+        val coordinators = GuardianDerivation.grant(strangerMaterial.thresholdPublicKey.value.toHex(), parentRoomId, emptyList(), childRoomId)
+
+        fun withGuardians(guardians: List<GuardianDerivation.Guardian>) = certificate(
+            tags = proposed.tags.filterNot { it[0] == GuardianTag.TAG_NAME }.toTypedArray() +
+                guardians.map(GuardianTag::assemble)
+        )
+
+        val refusals = mapOf(
+            "a key of the coordinator's own" to withGuardians(coordinators),
+            "an extra ancestor" to withGuardians(granted + coordinators),
+            "the key not stepped for this child" to withGuardians(listOf(granted[0].copy(publicKey = GuardianDerivation.root(parentKey).publicKey))),
+            "a shorter delay" to withGuardians(listOf(granted[0].copy(delay = 1))),
+        )
+        refusals.forEach { (name, certificate) ->
+            assertNotNull(SubgroupManager.refuseGrant(db, parentRoomId, parentKey, certificate), name)
+        }
+
+        // An older proposer's certificate carries none, and grants nothing.
+        assertNull(SubgroupManager.refuseGrant(db, parentRoomId, parentKey, certificate()))
+    }
+
     // ---- fixtures ----------------------------------------------------------
+
+    /** The certificate [parentRoom] is asked to sign for the child, as the session holds it. */
+    private suspend fun proposedCertificate(parentRoom: LocalChatRoom): Event {
+        val session = SubgroupManager.proposeBirthCertificate(
+            database = db,
+            parentRoom = parentRoom,
+            userPublicKey = user,
+            key = completedChildCeremony(),
+            adminPublicKeys = listOf(user, alice, bob),
+            name = "Translation team",
+        )
+        return Event.fromJson(assertNotNull(db.frostSigningSessionDao().getItems(session.id).firstOrNull()).unsignedEventJson)
+    }
+
+    /**
+     * The parent's own key state, naming a grandparent through a certificate
+     * that grants [guardians]. Filed as `stateFrom` would leave it; nothing here
+     * re-checks the certificate, which is what having passed `stateFrom` means.
+     */
+    private suspend fun fileParentage(guardians: List<GuardianDerivation.Guardian>) {
+        val grandparentRoomId = roomOf(strangerMaterial)
+        val tags = SubgroupBirthCertificateEvent.assembleTags(
+            subgroupChatRoomId = parentRoomId,
+            parentChatRoomId = grandparentRoomId,
+            thresholdPublicKey = parentMaterial.thresholdPublicKey.value.toHex(),
+            adminPublicKeys = listOf(user, alice, bob),
+            name = "Ekklesia",
+            path = path,
+            guardians = guardians,
+        )
+        val parentCertificate = certificate(subgroupMaterial = parentMaterial, tags = tags, author = strangerMaterial)
+        db.groupKeyStateDao().upsert(
+            GroupKeyState(
+                chatRoomId = parentRoomId,
+                dkgSessionId = "parent-ceremony",
+                thresholdPublicKey = parentMaterial.thresholdPublicKey.value.toHex(),
+                derivationPath = SharedKeyDerivation.formatPath(path),
+                announcedBy = parentRoomId,
+                announcedAt = Instant.fromEpochSeconds(1_700_000_000),
+                parentChatRoomId = grandparentRoomId,
+                birthCertificateJson = parentCertificate.toJson(),
+            )
+        )
+    }
 
     /**
      * The NIP-17 room a ceremony runs in, stood up the way the picker does it --

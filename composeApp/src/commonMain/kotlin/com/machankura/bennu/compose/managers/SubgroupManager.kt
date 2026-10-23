@@ -229,6 +229,14 @@ object SubgroupManager {
             "$parentChatRoomId has already certified $subgroupChatRoomId"
         }
 
+        // The parent's guardian keys for the child: its own, and the ones its
+        // ancestors granted it. Every signer recomputes this list and refuses a
+        // certificate carrying any other -- see [refuseGrant].
+        val parentKey = FrostSigningManager.completedKey(database, parentChatRoomId)?.thresholdPublicKey
+            ?: throw IllegalStateException("$parentChatRoomId has no key to grant a guardian key under")
+        val guardians = grantFor(database, parentChatRoomId, parentKey, subgroupChatRoomId)
+            ?: throw IllegalStateException("$parentChatRoomId's own certificate carries guardian keys this build cannot read")
+
         logger.i("Asking $parentChatRoomId to certify $subgroupChatRoomId as its subgroup")
 
         return FrostSigningManager.proposeSigning(
@@ -242,10 +250,71 @@ object SubgroupManager {
                 thresholdPublicKey = thresholdPublicKey,
                 adminPublicKeys = adminPublicKeys,
                 name = subgroupName,
-                path = path
+                path = path,
+                guardians = guardians
             ),
             content = subgroupChatRoomId
         )
+    }
+
+    /**
+     * The guardian keys [chatRoomId]'s own certificate grants it, nearest first:
+     * empty for a group with no parent, or whose certificate predates guardian
+     * keys -- either way it grants only its own key onward -- and null when the
+     * certificate carries keys this build cannot read.
+     *
+     * Off the verified key state, which only holds a certificate
+     * `GroupKeyStateManager.stateFrom` checked.
+     */
+    suspend fun guardiansOf(database: BennuDatabase, chatRoomId: String): List<GuardianDerivation.Guardian>? {
+        val certificate = database.groupKeyStateDao().getByChatRoomId(chatRoomId)
+            ?.birthCertificateJson
+            ?.let { Event.fromJsonOrNull(it) }
+            ?: return emptyList()
+        return SubgroupBirthCertificateEvent.parseGuardians(certificate.tags)
+    }
+
+    /**
+     * What [parentChatRoomId], signing as [thresholdPublicKey], grants
+     * [subgroupChatRoomId]: `GuardianDerivation.grant` over the keys its own
+     * certificate carries. Null when those cannot be read.
+     */
+    suspend fun grantFor(
+        database: BennuDatabase,
+        parentChatRoomId: String,
+        thresholdPublicKey: HexKey,
+        subgroupChatRoomId: String
+    ): List<GuardianDerivation.Guardian>? {
+        val inherited = guardiansOf(database, parentChatRoomId) ?: return null
+        return GuardianDerivation.grant(thresholdPublicKey, parentChatRoomId, inherited, subgroupChatRoomId)
+    }
+
+    /**
+     * Why a proposed certificate's guardian keys are not the ones [chatRoomId]
+     * grants, or null when they are -- or when it carries none, which an older
+     * proposer's certificate does and which grants nothing.
+     *
+     * The check every parent signer makes before agreeing to guard a child. A
+     * coordinator who slipped a key of their own into the list, dropped an
+     * ancestor, or reordered the leaves would be asking the group to vouch for a
+     * wallet tree it did not make, so the proposal is refused rather than shown.
+     */
+    suspend fun refuseGrant(
+        database: BennuDatabase,
+        chatRoomId: String,
+        thresholdPublicKey: HexKey,
+        certificate: Event
+    ): String? {
+        val proposed = SubgroupBirthCertificateEvent.parseGuardians(certificate.tags)
+            ?: return "carries a guardian key that does not read"
+        if (proposed.isEmpty()) return null
+
+        val subgroupChatRoomId = SubgroupBirthCertificateEvent.parseSubgroupChatRoomId(certificate.tags)
+            ?: return "names no subgroup"
+        val expected = runCatching { grantFor(database, chatRoomId, thresholdPublicKey, subgroupChatRoomId) }.getOrNull()
+            ?: return "grants keys this device cannot check"
+
+        return if (proposed == expected) null else "grants guardian keys this group does not"
     }
 
     /**
