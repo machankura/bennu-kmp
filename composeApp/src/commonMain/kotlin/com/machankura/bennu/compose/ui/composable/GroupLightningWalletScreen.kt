@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.ui.composable
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,12 +18,16 @@ import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -32,7 +37,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,9 +50,12 @@ import bennu.composeapp.generated.resources.Res
 import bennu.composeapp.generated.resources.a_lightning_wallet_needs_four_signers
 import bennu.composeapp.generated.resources.at_most_s_sats_in_flight
 import bennu.composeapp.generated.resources.balance
+import bennu.composeapp.generated.resources.channel_actions
 import bennu.composeapp.generated.resources.channels
+import bennu.composeapp.generated.resources.close_to_the_onchain_wallet
 import bennu.composeapp.generated.resources.couldn_t_propose_this
 import bennu.composeapp.generated.resources.couldn_t_send_s_sats
+import bennu.composeapp.generated.resources.force_close
 import bennu.composeapp.generated.resources.group_wallet_on_s
 import bennu.composeapp.generated.resources.lightning_wallet
 import bennu.composeapp.generated.resources.lsp_s
@@ -208,6 +220,7 @@ fun GroupLightningWalletScreen(
                     state = state,
                     onReceive = { onNavigateToRoute(GroupLightningReceiveRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
                     onSend = { onNavigateToRoute(GroupLightningSendRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
+                    onClose = { channelId, force -> viewModel.close(channelId, force, onSession = toSession, onFailure = { notify(couldNotPropose) }) },
                     isPending = viewModel.isActionPending.value,
                     onNominate = { viewModel.nominateSelf(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
                     onStepDown = { viewModel.stepDown(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
@@ -218,7 +231,7 @@ fun GroupLightningWalletScreen(
 }
 
 @Composable
-private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, onSend: () -> Unit, isPending: Boolean, onNominate: () -> Unit, onStepDown: () -> Unit) {
+private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, onSend: () -> Unit, onClose: (channelId: String, force: Boolean) -> Unit, isPending: Boolean, onNominate: () -> Unit, onStepDown: () -> Unit) {
     val statement = state.wallet.statement
     val operatorName = state.operator?.publicKey?.let { key ->
         if (state.isOperator) stringResource(Res.string.you)
@@ -231,7 +244,7 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
         item { Balance(state.report, onReceive = onReceive.takeIf { state.operator?.publicKey != null }, onSend = onSend.takeIf { state.operator?.publicKey != null }) }
         state.report?.takeIf { it.checks.isNotEmpty() }?.let { report ->
             item { Text(stringResource(Res.string.channels), style = MaterialTheme.typography.titleSmall) }
-            items(report.checks, key = { it.channel.channelId }) { ChannelRow(it) }
+            items(report.checks, key = { it.channel.channelId }) { ChannelRow(it, onClose = { force: Boolean -> onClose(it.channel.channelId, force) }.takeIf { !isPending }) }
         }
         item { Text(stringResource(Res.string.payments), style = MaterialTheme.typography.titleSmall) }
         if (state.payments.isEmpty()) {
@@ -311,7 +324,7 @@ private fun Balance(report: GroupLightningReports.Report?, onReceive: (() -> Uni
 
 /** One channel, and whether the operator's figure for it is the one this device co-signed. */
 @Composable
-private fun ChannelRow(check: GroupLightningReports.ChannelCheck) {
+private fun ChannelRow(check: GroupLightningReports.ChannelCheck, onClose: ((force: Boolean) -> Unit)?) {
     val channel = check.channel
     ListItem(
         leadingContent = {
@@ -331,6 +344,21 @@ private fun ChannelRow(check: GroupLightningReports.ChannelCheck) {
                 },
                 color = if (check.agrees == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        },
+        // Closing is a proposal like any other: the menu only opens the signing session.
+        trailingContent = onClose?.let { close ->
+            {
+                var expanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { expanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(Res.string.channel_actions))
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.close_to_the_onchain_wallet)) }, onClick = { expanded = false; close(false) })
+                        DropdownMenuItem(text = { Text(stringResource(Res.string.force_close)) }, onClick = { expanded = false; close(true) })
+                    }
+                }
+            }
         },
     )
 }

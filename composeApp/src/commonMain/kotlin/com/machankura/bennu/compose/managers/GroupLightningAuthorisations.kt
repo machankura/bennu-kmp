@@ -20,8 +20,8 @@ import kotlin.time.Instant
  *
  * An authorisation is a group-signed event (kind 30346, [GroupLightningAuthorisationEvent]). The group
  * may sign two for one invoice -- once more after the first expired, say. They are one payment: the
- * budget is the larger, and it is open while either is. Force closes are Phase 13's, and none is
- * authorised until then.
+ * budget is the larger, and it is open while either is. A close or force close names one channel, and
+ * lasts [CHANNEL_ACTION_LIFETIME].
  */
 object GroupLightningAuthorisations {
     /** How long an authorisation stays open when its invoice does not say sooner. */
@@ -96,6 +96,28 @@ object GroupLightningAuthorisations {
         return FrostSigningManager.proposeSigning(database, localChatRoom, userPublicKey, template.kind, template.tags, template.content)
     }
 
-    /** Whether the group has authorised a force close of [channelId]: never, until Phase 13. */
-    suspend fun forceCloseAuthorised(database: BennuDatabase, chatRoomId: String, statement: GroupLightningWalletStatementEvent.Statement, channelId: ByteVector32): Boolean = false
+    /** How long a close or force close stays open: long enough for the operator's device to come online. */
+    val CHANNEL_ACTION_LIFETIME: Duration = 72.hours
+
+    /** Every close and force close the group has authorised in [chatRoomId] for the wallet [statement] names, open at [now]. */
+    suspend fun channelActions(database: BennuDatabase, chatRoomId: String, statement: GroupLightningWalletStatementEvent.Statement, now: Instant = Clock.System.now()): List<GroupLightningAuthorisationEvent.ChannelAction> =
+        database.groupSignedEventDao().getByChatRoomIdAndKind(chatRoomId, GroupLightningAuthorisationEvent.KIND)
+            .filter { it.verifies() }
+            .sortedWith(compareBy({ it.createdAt }, { it.id }))
+            .mapNotNull { GroupLightningAuthorisationEvent.readChannelAction(it.tags) }
+            .filter { it.chain == statement.chain && it.wallet == statement.wallet && it.expiresAt > now.epochSeconds }
+
+    /** Whether the group has authorised a force close of [channelId] that is still open. */
+    suspend fun forceCloseAuthorised(database: BennuDatabase, chatRoomId: String, statement: GroupLightningWalletStatementEvent.Statement, channelId: ByteVector32): Boolean =
+        channelActions(database, chatRoomId, statement).any { it.action == GroupLightningAuthorisationEvent.FORCE_CLOSE && it.channelId == channelId.toHex() }
+
+    /** Proposes that the operator's node close [channelId] -- mutually, or by force when [force]. */
+    suspend fun proposeChannelAction(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession {
+        val action = GroupLightningAuthorisationEvent.ChannelAction(
+            if (force) GroupLightningAuthorisationEvent.FORCE_CLOSE else GroupLightningAuthorisationEvent.CLOSE,
+            wallet.statement.chain, wallet.statement.wallet, channelId, (Clock.System.now() + CHANNEL_ACTION_LIFETIME).epochSeconds,
+        )
+        val template = GroupLightningAuthorisationEvent.template(action)
+        return FrostSigningManager.proposeSigning(database, localChatRoom, userPublicKey, template.kind, template.tags, template.content)
+    }
 }

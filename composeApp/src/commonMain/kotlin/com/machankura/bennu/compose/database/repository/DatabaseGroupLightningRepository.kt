@@ -63,6 +63,9 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
     override suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession =
         GroupLightningAuthorisations.propose(database, localChatRoom, userPublicKey, pay)
 
+    override suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession =
+        GroupLightningAuthorisations.proposeChannelAction(database, localChatRoom, userPublicKey, wallet, channelId, force)
+
     override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> =
         database.icebergKeySessionDao().observeSessionById(sessionId)
 

@@ -115,6 +115,12 @@ class GroupLightningWalletViewModel(
         act(onSession, onFailure) { lightningRepository.stepDown(state.localChatRoom, activeUserPublicKey, chain) }
     }
 
+    /** Proposes closing [channelId] to the onchain wallet, or by force when the LSP is gone. */
+    fun close(channelId: String, force: Boolean, onSession: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+        val state = uiState as? GroupLightningWalletUIState.Opened ?: return
+        act(onSession, onFailure) { lightningRepository.proposeClose(state.localChatRoom, activeUserPublicKey, state.wallet, channelId, force) }
+    }
+
     private fun act(onSession: (String) -> Unit, onFailure: () -> Unit, propose: suspend () -> FrostSigningSession) {
         if (isActionPending.value) return
         isActionPending.value = true

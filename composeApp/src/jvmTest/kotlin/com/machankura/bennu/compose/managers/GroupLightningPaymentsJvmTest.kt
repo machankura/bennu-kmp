@@ -28,6 +28,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -142,5 +143,37 @@ class GroupLightningPaymentsJvmTest {
         node.payAuthorised()
         delay(200)
         assertEquals(listOf(bolt11 to 12_000_000L), nodes.single().paid)
+    }
+
+    @Test
+    fun `a close the group authorises is made once, to the onchain wallet, and a force close by force`() = runBlocking<Unit> {
+        val (all, wallet) = opened()
+        val operator = all[1]
+        val id = randomBytes32().toHex()
+        operator.db.nostrEventDao().upsert(NostrEvent(id = id, pubKey = operator.publicKey, kind = 445, tags = emptyArray(), content = "", sig = "0".repeat(128)))
+        operator.db.marmotGroupEventDao().upsert(MarmotGroupEvent(id = id, userPublicKey = operator.publicKey, publicKey = operator.publicKey, chatRoomId = fixture.roomId, signature = "", encryptedContent = "", expiresAt = null, savedAt = Clock.System.now()))
+        val node = GroupLightningNode(
+            operator.db, operator.room, operator.publicKey, GroupLightningWalletManager.walletFor(operator.db, fixture.roomId, fixture.chain)!!, scope,
+            { configuration -> FakeGroupNode(configuration).also { nodes += it } },
+            handoverCheck = 10.minutes,
+        )
+        assertIs<GroupLightningNode.State.Running>(node.start())
+        val one = "c1".repeat(32)
+        val two = "c2".repeat(32)
+        nodes.single().channels = listOf(one, two).map { com.machankura.bennu.compose.wallet.lightning.WalletWire.ChannelView(it, "Normal", 1_000_000, 1, 1, "dd".repeat(32), 0, 0) }
+
+        fixture.signSession(all, all[3], GroupLightningAuthorisations.proposeChannelAction(all[3].db, all[3].room, all[3].publicKey, wallet, one, force = false).id)
+        fixture.signSession(all, all[2], GroupLightningAuthorisations.proposeChannelAction(all[2].db, all[2].room, all[2].publicKey, wallet, two, force = true).id)
+        node.closeAuthorised()
+        node.closeAuthorised()
+        assertEquals(listOf(one to GroupWalletDerivation.derive(fixture.account, GroupWalletDerivation.RECEIVE, 0).pubkeyScript), nodes.single().closed)
+        assertEquals(listOf(two), nodes.single().forceClosed)
+
+        val actions = GroupLightningAuthorisations.channelActions(all[0].db, fixture.roomId, wallet.statement)
+        assertEquals(listOf(GroupLightningAuthorisationEvent.CLOSE, GroupLightningAuthorisationEvent.FORCE_CLOSE), actions.map { it.action })
+        val summary = ProposedEvent.summarize(Event("", "", 0, GroupLightningAuthorisationEvent.KIND, GroupLightningAuthorisationEvent.template(actions[1]).tags, "", ""))
+        assertEquals("Force-close a Lightning channel", summary.label)
+        assertTrue(GroupLightningAuthorisations.channelActions(all[0].db, fixture.roomId, wallet.statement, Clock.System.now() + 4.days).isEmpty(), "both have expired")
+        assertNull(GroupLightningAuthorisationEvent.read(GroupLightningAuthorisationEvent.template(actions[0]).tags), "a close is not a payment")
     }
 }

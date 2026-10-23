@@ -15,8 +15,8 @@ import kotlin.time.Clock
  * group's commitment offers must pay a hash some authorisation names, within its amount and fee cap.
  * So the operator cannot add a payment, only make one the group signed for.
  *
- * Only `pay` exists so far. Closing, force-closing and splicing out are Phase 13's, and an action this
- * device does not know reads as null, which every caller treats as no authorisation at all.
+ * `pay` is a payment ([Pay]); `close` and `force-close` act on one channel ([ChannelAction]). An action
+ * this device does not know reads as null, which every caller treats as no authorisation at all.
  */
 object GroupLightningAuthorisationEvent {
     val KIND: Kind = GroupLightningEvents.AUTHORISATION
@@ -29,7 +29,13 @@ object GroupLightningAuthorisationEvent {
     private const val HASH_TAG = "hash"
     private const val EXPIRES_TAG = "expires"
 
+    private const val CHANNEL_TAG = "channel"
+
     const val PAY = "pay"
+    /** A mutual close of one channel, to the onchain wallet the statement names. */
+    const val CLOSE = "close"
+    /** Publishing our own commitment of one channel: what the group does when the LSP has gone away. */
+    const val FORCE_CLOSE = "force-close"
 
     /**
      * A payment the group authorises, at most [amountMsat] plus [maxFeeMsat], until [expiresAt] (epoch
@@ -87,5 +93,38 @@ object GroupLightningAuthorisationEvent {
         if (invoice.amount != null && invoice.amount!!.msat != amount) return null
         if (expires > invoice.timestampSeconds + (invoice.expirySeconds ?: Bolt11Invoice.DEFAULT_EXPIRY_SECONDS.toLong())) return null
         return Pay(chain, wallet, bolt11, amount, maxFee, hash, expires)
+    }
+
+    /** A [CLOSE] or [FORCE_CLOSE] of [channelId], open until [expiresAt] (epoch seconds). */
+    data class ChannelAction(val action: String, val chain: Chain, val wallet: Long, val channelId: String, val expiresAt: Long) {
+        init {
+            require(action == CLOSE || action == FORCE_CLOSE) { "not a channel action: $action" }
+        }
+    }
+
+    fun template(channelAction: ChannelAction, createdAt: Long = Clock.System.now().epochSeconds): EventTemplate<*> =
+        EventTemplate<Nothing>(
+            createdAt = createdAt,
+            kind = KIND,
+            tags = arrayOf(
+                arrayOf(D_TAG, "${GroupLightningWalletStatementEvent.identifier(channelAction.chain, channelAction.wallet)}:${channelAction.action}:${channelAction.channelId}"),
+                arrayOf(ACTION_TAG, channelAction.action),
+                arrayOf(CHANNEL_TAG, channelAction.channelId),
+                arrayOf(EXPIRES_TAG, channelAction.expiresAt.toString()),
+            ),
+            content = "",
+        )
+
+    /** The channel action [tags] authorise, or null for a payment, an unknown action, or tags that disagree. */
+    fun readChannelAction(tags: Array<Array<String>>): ChannelAction? {
+        fun value(name: String): String? = tags.firstOrNull { it.size >= 2 && it[0] == name }?.get(1)
+        val action = value(ACTION_TAG)?.takeIf { it == CLOSE || it == FORCE_CLOSE } ?: return null
+        val parts = value(D_TAG)?.split(':') ?: return null
+        if (parts.size != 4 || parts[2] != action) return null
+        val chain = GroupWalletStatementEvent.chainNamed(parts[0]) ?: return null
+        val wallet = parts[1].toLongOrNull() ?: return null
+        val channelId = value(CHANNEL_TAG)?.takeIf { it.length == 64 && it == parts[3] } ?: return null
+        val expires = value(EXPIRES_TAG)?.toLongOrNull() ?: return null
+        return ChannelAction(action, chain, wallet, channelId, expires)
     }
 }

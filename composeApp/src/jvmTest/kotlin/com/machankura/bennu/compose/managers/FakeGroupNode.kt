@@ -1,6 +1,7 @@
 package com.machankura.bennu.compose.managers
 
 import com.machankura.bennu.compose.wallet.lightning.WalletWire
+import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.utils.Either
 import fr.acinq.lightning.CltvExpiryDelta
 import fr.acinq.lightning.Feature
@@ -24,6 +25,9 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
     /** Every payment asked of the node, as (invoice, amount). */
     val paid = mutableListOf<Pair<String, Long>>()
     var paymentsSucceed = true
+    /** Every close asked of the node, as (channel, script), and every force close, by channel. */
+    val closed = mutableListOf<Pair<String, ByteVector>>()
+    val forceClosed = mutableListOf<String>()
 
     override suspend fun connect(): Boolean { connected = true; return true }
     override fun disconnect() { disconnected = true }
@@ -35,6 +39,8 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
             configuration.chain, amountMsat?.let(::MilliSatoshi), randomBytes32(), configuration.keyManager.nodeKeys.nodeKey.privateKey,
             Either.Left(description), CltvExpiryDelta(144), INVOICE_FEATURES,
         ).also { invoices += it }.write()
+    override suspend fun close(channelId: String, scriptPubKey: ByteVector) { closed += channelId to scriptPubKey }
+    override suspend fun forceClose(channelId: String) { forceClosed += channelId }
     override suspend fun hasPaid(paymentHash: String): Boolean = payments.any { !it.incoming && it.paymentHash == paymentHash }
     override suspend fun pay(bolt11: String, amountMsat: Long): WalletWire.PaymentView {
         paid += bolt11 to amountMsat

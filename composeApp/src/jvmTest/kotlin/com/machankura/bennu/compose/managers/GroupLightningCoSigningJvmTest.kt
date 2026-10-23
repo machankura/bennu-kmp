@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
@@ -36,6 +37,15 @@ import fr.acinq.lightning.transactions.Transactions
 import fr.acinq.lightning.utils.msat
 import fr.acinq.lightning.wire.OnionRoutingPacket
 import fr.acinq.lightning.wire.UpdateAddHtlc
+import kotlin.random.Random
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,14 +54,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlin.random.Random
-import kotlin.test.AfterTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertTrue
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * A commitment signed by the group for real: an operator's `RemoteIcebergFundingSigner` asks, four
@@ -165,6 +167,42 @@ class GroupLightningCoSigningJvmTest {
         val ours = (groupSig as Either.Right).value
         val theirs = (tx.partialSign(channel.remoteFundingKey, channel.groupKey, mapOf(), remoteNonce, listOf(remoteNonce.publicNonce, ours.nonce)) as Either.Right<ChannelSpendSignature.PartialSignatureWithNonce>).value
         return tx.aggregateSigs(channel.groupKey, channel.remoteFundingKey.publicKey(), ours, theirs, mapOf())
+    }
+
+    /** Our own commitment [index], signed as the group would sign it to force-close, with the counterparty's half. */
+    private suspend fun localSigns(group: Group, signer: RemoteIcebergFundingSigner, channel: Channel, index: Long, spec: CommitmentSpec): Either<Throwable, Transaction> {
+        val (tx, _) = Commitments.makeLocalTxs(channel.params, channel.commitParams, channel.keys.localCommitmentKeys(channel.params, index), index, channel.groupKey, channel.remoteFundingKey.publicKey(), channel.input, Transactions.CommitmentFormat.SimpleTaprootChannels, spec)
+        val context = FundingSigner.SigningContext.LocalCommitment(channel.params, channel.commitParams, index, spec)
+        val id = FundingSigner.VerificationNonceId(channel.fundingTxId, channel.remoteFundingKey.publicKey(), index)
+        val ourNonce = signer.verificationNonce(id)
+        val remoteNonce = NonceGenerator.signingNonce(channel.remoteFundingKey.publicKey(), channel.groupKey, channel.fundingTxId)
+        val groupSig = whilePumping(group) { signer.signWithVerificationNonce(tx, channel.remoteFundingKey.publicKey(), mapOf(), id, remoteNonce.publicNonce, context) }
+        if (groupSig is Either.Left) return Either.Left(groupSig.value)
+        val ours = (groupSig as Either.Right).value
+        val theirs = (tx.partialSign(channel.remoteFundingKey, channel.groupKey, mapOf(), remoteNonce, listOf(remoteNonce.publicNonce, ourNonce)) as Either.Right<ChannelSpendSignature.PartialSignatureWithNonce>).value
+        return tx.aggregateSigs(channel.groupKey, channel.remoteFundingKey.publicKey(), ours, theirs, mapOf())
+    }
+
+    @Test
+    fun `our own commitment is signed only once the group authorises a force close, and never a revoked one`() = runBlocking<Unit> {
+        val group = group()
+        val channel = Channel(group, ours = 400_000_000, theirs = 600_000_000)
+        val (signer, _) = operatorSigner(group, deadline = 3.seconds)
+        for (index in 0L..2L) {
+            val (tx, context) = channel.commitment(index, channel.spec)
+            assertIs<Either.Right<Transaction>>(groupSigns(group, signer, channel, tx, context))
+        }
+        val ours = channel.spec.copy(toLocal = 400_000_000.msat, toRemote = 600_000_000.msat)
+        assertIs<IcebergSigningTimeout>(assertIs<Either.Left<Throwable>>(localSigns(group, signer, channel, 2, ours)).value, "nothing is authorised")
+
+        val action = GroupLightningAuthorisationEvent.ChannelAction(GroupLightningAuthorisationEvent.FORCE_CLOSE, fixture.chain, 0, channel.params.channelId.toHex(), (kotlin.time.Clock.System.now() + 1.hours).epochSeconds)
+        val template = GroupLightningAuthorisationEvent.template(action)
+        fixture.sign(group.all, group.all[2], template.kind, template.tags, template.content)
+        assertEquals(listOf(action), GroupLightningAuthorisations.channelActions(group.all[3].db, fixture.roomId, group.wallet.statement))
+
+        assertIs<Either.Left<Throwable>>(localSigns(group, signer, channel, 0, ours), "commitment 0 was revoked long ago")
+        val signed = assertIs<Either.Right<Transaction>>(localSigns(group, signer, channel, 2, ours)).value
+        Transaction.correctlySpends(signed, mapOf(channel.input.outPoint to channel.input.txOut), ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)
     }
 
     @Test

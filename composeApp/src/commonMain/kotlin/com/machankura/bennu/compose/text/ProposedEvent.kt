@@ -240,6 +240,16 @@ object ProposedEvent {
                     invoice?.description?.takeIf { it.isNotBlank() }?.let { append(", for \"$it\"") }
                 },
             )
+        } ?: GroupLightningAuthorisationEvent.readChannelAction(event.tags)?.let { action ->
+            // Closing moves the channel's money to the onchain wallet; forcing it does so slowly, at a
+            // cost, and is for when the LSP has gone. The summary says which, because that is the choice.
+            if (action.action == GroupLightningAuthorisationEvent.FORCE_CLOSE) Summary(
+                label = "Force-close a Lightning channel",
+                detail = "Channel ${action.channelId.take(16)}: the group's own commitment is published, and its money reaches the onchain wallet after a delay",
+            ) else Summary(
+                label = "Close a Lightning channel",
+                detail = "Channel ${action.channelId.take(16)}: its money goes to the group's onchain wallet",
+            )
         } ?: Summary(label = "Authorise the Lightning wallet", detail = "An authorisation this device cannot read")
 
         else -> Summary(label = "Event of kind ${event.kind}", detail = event.content)

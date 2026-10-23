@@ -308,9 +308,45 @@ object GroupLightningCoSigner {
         return when (context.type) {
             "remote" -> checkRemote(database, wallet, request, context, params, tx, pinned)
             "closing" -> checkClosing(statement, context, tx, closeTo)
-            "local" -> if (GroupLightningAuthorisations.forceCloseAuthorised(database, roomId, statement, params.channelId)) null else "the group has not authorised a force close"
+            "local" -> checkLocal(database, wallet, request, context, params, tx, pinned)
             else -> "an unknown kind of transaction"
         }
+    }
+
+    /**
+     * Our own commitment, which the group signs only to force-close: authorised, rebuilt from its context,
+     * and no older than the counterparty commitment this device last signed for the channel, less one.
+     * The two numbers move together, so a local commitment further behind than that is one this channel
+     * has revoked, and publishing it would hand the counterparty everything.
+     */
+    private suspend fun checkLocal(
+        database: BennuDatabase,
+        wallet: GroupLightningWalletManager.Wallet,
+        request: CoSigningWire.SigningRequest,
+        context: CoSigningWire.Context,
+        params: fr.acinq.lightning.channel.ChannelParams,
+        tx: Transaction,
+        pinned: IcebergChannelLedger?,
+    ): String? {
+        if (!GroupLightningAuthorisations.forceCloseAuthorised(database, wallet.signedEvent.chatRoomId, wallet.statement, params.channelId)) return "the group has not authorised a force close"
+        val seed = wallet.seed ?: return "this device does not hold the node's seed, and cannot rebuild the commitment"
+        val commitParams = CoSigningWire.commit(context.commit ?: return "no commitment parameters")
+        val commitIndex = context.commitIndex ?: return "no commitment number"
+        pinned?.let { if (commitIndex < load(it.ledger).commitIndex - 1) return "commitment $commitIndex is older than this channel's current one, and revoked" }
+        val keys = keyManagerOf(ByteVector(seed.seed), wallet.statement.chain).channelKeys(params.localParams.fundingKeyPath)
+            .withGroupBasepoints(wallet.basepoints.forChannel)
+        val (rebuilt, _) = Commitments.makeLocalTxs(
+            channelParams = params,
+            commitParams = commitParams,
+            commitKeys = keys.localCommitmentKeys(params, commitIndex),
+            commitTxNumber = commitIndex,
+            localFundingPubkey = PublicKey.fromHex(wallet.statement.icebergKey),
+            remoteFundingPubKey = PublicKey.fromHex(request.remoteFundingPubKey),
+            commitmentInput = CoSigningWire.inputInfo(request.input),
+            commitmentFormat = Transactions.CommitmentFormat.SimpleTaprootChannels,
+            spec = CoSigningWire.spec(context.spec, params.channelId),
+        )
+        return if (rebuilt.tx != tx) "the commitment its context rebuilds to is not the one it asks to sign" else null
     }
 
     private suspend fun checkRemote(

@@ -3,6 +3,7 @@ package com.machankura.bennu.compose.managers
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.wallet.GroupChainClients
 import com.machankura.bennu.compose.wallet.lightning.GroupNodeKeyManager
 import com.machankura.bennu.compose.wallet.lightning.WalletWire
@@ -11,6 +12,7 @@ import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.PublicKey
+import fr.acinq.bitcoin.Satoshi
 import fr.acinq.bitcoin.utils.Either
 import fr.acinq.lightning.Feature
 import fr.acinq.lightning.FeatureSupport
@@ -20,6 +22,9 @@ import fr.acinq.lightning.NodeParams
 import fr.acinq.lightning.PaymentEvents
 import fr.acinq.lightning.WalletParams
 import fr.acinq.lightning.blockchain.electrum.ElectrumWatcher
+import fr.acinq.lightning.blockchain.fee.FeeratePerByte
+import fr.acinq.lightning.blockchain.fee.FeeratePerKw
+import fr.acinq.lightning.channel.ChannelCommand
 import fr.acinq.lightning.channel.states.ChannelStateWithCommitments
 import fr.acinq.lightning.crypto.RemoteIcebergFundingSigner
 import fr.acinq.lightning.db.Databases
@@ -29,6 +34,7 @@ import fr.acinq.lightning.db.WalletPayment
 import fr.acinq.lightning.io.PaymentSent
 import fr.acinq.lightning.io.Peer
 import fr.acinq.lightning.io.TcpSocket
+import fr.acinq.lightning.io.WrappedChannelCommand
 import fr.acinq.lightning.logging.LoggerFactory
 import fr.acinq.lightning.payment.Bolt11Invoice
 import kotlin.time.Clock
@@ -88,6 +94,10 @@ class GroupLightningNode(
         suspend fun hasPaid(paymentHash: String): Boolean
         /** Pays [bolt11] [amountMsat], through the LSP, and says how it went. */
         suspend fun pay(bolt11: String, amountMsat: Long): WalletWire.PaymentView
+        /** Starts a mutual close of [channelId] to [scriptPubKey]. */
+        suspend fun close(channelId: String, scriptPubKey: ByteVector)
+        /** Publishes our own commitment of [channelId]. */
+        suspend fun forceClose(channelId: String)
     }
 
     sealed class State {
@@ -210,6 +220,30 @@ class GroupLightningNode(
         }
     }
 
+    private val closing = mutableSetOf<String>()
+
+    /**
+     * Closes every channel the group has authorised closing, once per authorisation this run: mutually to
+     * the onchain wallet's first address, which is where the channel's own closing script already
+     * points, or by force.
+     */
+    internal suspend fun closeAuthorised() {
+        val handle = peer ?: return
+        val open = handle.channels().map { it.channelId }.toSet()
+        val actions = GroupLightningAuthorisations.channelActions(database, localChatRoom.chatRoom.id, wallet.statement, now())
+        if (actions.isEmpty()) return
+        val onchain = GroupWalletManager.walletFor(database, localChatRoom.chatRoom.id, chain, wallet.statement.onchainAccount) ?: return
+        val closeTo = GroupWalletDerivation.derive(onchain.account, GroupWalletDerivation.RECEIVE, 0).pubkeyScript
+        actions.filter { it.channelId in open }.forEach { action ->
+            if (!closing.add("${action.action}:${action.channelId}")) return@forEach
+            when (action.action) {
+                GroupLightningAuthorisationEvent.FORCE_CLOSE -> handle.forceClose(action.channelId)
+                else -> handle.close(action.channelId, closeTo)
+            }
+            logger.i("${action.action} of ${action.channelId.take(16)}, as the group authorised")
+        }
+    }
+
     /** Stops the node as soon as the room's newest operator statement names a later term. */
     private fun watchForHandover(term: Long) {
         watching?.cancel()
@@ -225,6 +259,7 @@ class GroupLightningNode(
                 runCatching { report(term) }.onFailure { logger.e("Could not report the wallet to the room", it) }
                 runCatching { answerInvoiceRequests() }.onFailure { logger.e("Could not answer an invoice request", it) }
                 runCatching { payAuthorised() }.onFailure { logger.e("Could not make an authorised payment", it) }
+                runCatching { closeAuthorised() }.onFailure { logger.e("Could not close an authorised channel", it) }
             }
         }
     }
@@ -309,6 +344,12 @@ class GroupLightningNode(
                     peer.createInvoice(Lightning.randomBytes32(), amountMsat?.let(::MilliSatoshi), Either.Left(description)).write()
                 override suspend fun hasPaid(paymentHash: String): Boolean =
                     databases.payments.listLightningOutgoingPayments(ByteVector32(paymentHash)).isNotEmpty()
+                override suspend fun close(channelId: String, scriptPubKey: ByteVector) {
+                    peer.mutualClose(ByteVector32(channelId), scriptPubKey, peer.onChainFeeratesFlow.value?.mutualCloseFeerate ?: FeeratePerKw(FeeratePerByte(Satoshi(2))))
+                }
+                override suspend fun forceClose(channelId: String) {
+                    peer.send(WrappedChannelCommand(ByteVector32(channelId), ChannelCommand.Close.ForceClose))
+                }
                 override suspend fun pay(bolt11: String, amountMsat: Long): WalletWire.PaymentView {
                     val invoice = Bolt11Invoice.read(bolt11).get()
                     return when (val result = peer.payInvoice(MilliSatoshi(amountMsat), invoice)) {

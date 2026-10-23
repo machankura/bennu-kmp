@@ -73,4 +73,7 @@ interface GroupLightningRepository {
 
     /** Proposes [pay] to the group; the operator's node pays it once a quorum signs. */
     suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession
+
+    /** Proposes closing [channelId] to the onchain wallet, or force-closing it when [force]. */
+    suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession
 }

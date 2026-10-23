@@ -757,4 +757,7 @@
     <string name="that_invoice_has_expired">That invoice has expired.</string>
     <string name="that_invoice_names_no_amount">That invoice names no amount, so give one.</string>
     <string name="that_invoice_pays_this_wallet">That invoice pays this wallet's own node.</string>
+    <string name="close_to_the_onchain_wallet">Close to the onchain wallet</string>
+    <string name="force_close">Force close</string>
+    <string name="channel_actions">Channel actions</string>
 </resources>
