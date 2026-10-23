@@ -201,6 +201,13 @@ class DatabaseChatRepository(
         null
     }
 
+    override suspend fun groupWalletGuardedOpening(chatRoomId: String, chain: Chain): GroupWalletManager.GuardedOpening? = try {
+        GroupWalletManager.guardedAccountFor(database, chatRoomId, chain)
+    } catch (e: Throwable) {
+        logger.e("Error deriving the guarded wallet account of $chatRoomId", e)
+        null
+    }
+
     override suspend fun groupSignedEvent(chatRoomId: String, id: HexKey): GroupSignedEvent? = try {
         database.groupSignedEventDao().getById(id)?.takeIf { it.chatRoomId == chatRoomId }
     } catch (e: Throwable) {

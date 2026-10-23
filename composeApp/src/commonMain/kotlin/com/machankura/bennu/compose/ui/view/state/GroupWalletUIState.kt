@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.ui.view.state
 
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.managers.GroupWalletManager
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.wallet.GroupWalletState
 import com.machankura.bennu.compose.wallet.GroupSpend
@@ -16,11 +17,16 @@ sealed interface GroupWalletUIState {
      * at all -- there is nothing to open then. [canSign] gates the way in, for
      * the reason every proposing screen gives: `proposeSigning` throws for a
      * device holding no share.
+     *
+     * [guarded] is the guarded account a subgroup could open instead, when its
+     * birth certificate grants it guardian keys and guarded wallets are offered
+     * on this network -- see `docs/group-wallet-guardians.md`.
      */
     data class NotOpened(
         val localChatRoom: LocalChatRoom,
         val account: GroupWalletDerivation.Account?,
         val canSign: Boolean,
+        val guarded: GroupWalletManager.GuardedOpening? = null,
     ): GroupWalletUIState
 
     /**

@@ -852,7 +852,11 @@ object FrostSigningManager {
     ): Pair<GroupTransaction, GroupWalletDerivation.Account>? {
         val transaction = database.groupTransactionDao().getBySessionId(session.id) ?: return null
         val chain = GroupWalletStatementEvent.chainNamed(transaction.chain) ?: return null
-        return transaction to GroupWalletDerivation.account(thresholdPublicKey, chain, transaction.account)
+        // The account as the room's statement opened it: a guarded one's
+        // addresses carry its guardians' leaves, and the bare derivation would be
+        // a plain account at the same key, whose addresses none of these coins are at.
+        val opened = GroupWalletManager.walletFor(database, transaction.chatRoomId, thresholdPublicKey, chain, transaction.account)
+        return transaction to (opened?.account ?: GroupWalletDerivation.account(thresholdPublicKey, chain, transaction.account))
     }
 
     /**

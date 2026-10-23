@@ -24,9 +24,14 @@ class GroupOnchainWallets(
     private val mutex = Mutex()
     private val wallets = mutableMapOf<String, GroupOnchainWallet>()
 
-    /** The wallet watching [account], made the first time it is asked for. Keyed by xpub, which names one account of one group on one network. */
+    /**
+     * The wallet watching [account], made the first time it is asked for. Keyed
+     * by its receive descriptor, which names one account of one group on one
+     * network *and* the guardians in its addresses -- an xpub alone would hand a
+     * guarded account the plain one's addresses.
+     */
     suspend fun walletFor(account: GroupWalletDerivation.Account): GroupOnchainWallet = mutex.withLock {
-        wallets.getOrPut(account.xpub) { GroupOnchainWallet(account, electrum, scope) }
+        wallets.getOrPut(account.receiveDescriptor) { GroupOnchainWallet(account, electrum, scope) }
     }
 
     /**

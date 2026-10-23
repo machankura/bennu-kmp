@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.repository
 
 import fr.acinq.bitcoin.Chain
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.managers.GroupWalletManager
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.GiftWrapPayload
@@ -118,6 +119,13 @@ interface ChatRepository {
      * null for a room with no key: what a statement proposing the wallet carries.
      */
     suspend fun groupWalletAccount(chatRoomId: String, chain: Chain): GroupWalletDerivation.Account?
+
+    /**
+     * The guarded account this group could open on [chain] instead, and the
+     * certificate granting its guardians -- or null for a group whose birth
+     * certificate grants it none.
+     */
+    suspend fun groupWalletGuardedOpening(chatRoomId: String, chain: Chain): GroupWalletManager.GuardedOpening?
 
     /**
      * The kind:1s this group signed, newest first.
@@ -377,6 +385,11 @@ interface ChatRepository {
                 chatRoomId: String,
                 chain: Chain
             ): GroupWalletDerivation.Account? = null
+
+            override suspend fun groupWalletGuardedOpening(
+                chatRoomId: String,
+                chain: Chain
+            ): GroupWalletManager.GuardedOpening? = null
 
             override suspend fun groupPosts(chatRoomId: String): List<GroupPost> = emptyList()
 

@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -72,6 +73,11 @@ import bennu.composeapp.generated.resources.finding_the_group_s_coins
 import bennu.composeapp.generated.resources.group_wallet
 import bennu.composeapp.generated.resources.nothing_has_been_sent_to_this_wallet_yet
 import bennu.composeapp.generated.resources.open_a_group_wallet
+import bennu.composeapp.generated.resources.open_a_guarded_wallet
+import bennu.composeapp.generated.resources.open_without_guardians
+import bennu.composeapp.generated.resources.the_groups_above_this_one_have_agreed_to_guard_it
+import bennu.composeapp.generated.resources.guarded_the_groups_above_this_one_can_spend
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import bennu.composeapp.generated.resources.opening_a_wallet_asks_the_group_to_agree
 import bennu.composeapp.generated.resources.receive_address
 import bennu.composeapp.generated.resources.received
@@ -205,8 +211,10 @@ fun GroupWalletScreen(
                             {
                                 OpenWalletAction(
                                     isPending = groupWalletViewModel.isActionPending.value,
-                                    onOpen = {
+                                    guardedOffered = state.guarded != null,
+                                    onOpen = { guarded ->
                                         groupWalletViewModel.openWallet(
+                                            guarded = guarded,
                                             onSuccess = { sessionId ->
                                                 // Onto the session: the wallet does
                                                 // not exist until a quorum signs.
@@ -275,7 +283,7 @@ fun GroupWalletScreen(
  * an unencrypted share on a member's device means once there are coins behind it.
  */
 @Composable
-private fun OpenWalletAction(isPending: Boolean, onOpen: () -> Unit) {
+private fun OpenWalletAction(isPending: Boolean, guardedOffered: Boolean, onOpen: (guarded: Boolean) -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
@@ -289,10 +297,32 @@ private fun OpenWalletAction(isPending: Boolean, onOpen: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Button(onClick = onOpen, enabled = !isPending) {
-            Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
-            Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
-            Text(stringResource(Res.string.open_a_group_wallet))
+        if (guardedOffered) {
+            // The default for a subgroup whose parent agreed to guard it, and the
+            // plain wallet beside it rather than hidden: being guarded is the
+            // group's own choice, and its quorum signing the statement is it
+            // making that choice.
+            Text(
+                text = stringResource(
+                    Res.string.the_groups_above_this_one_have_agreed_to_guard_it,
+                    GuardianDerivation.ANCESTOR_DELAY.toInt()
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = { onOpen(true) }, enabled = !isPending) {
+                Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
+                Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                Text(stringResource(Res.string.open_a_guarded_wallet))
+            }
+            OutlinedButton(onClick = { onOpen(false) }, enabled = !isPending) {
+                Text(stringResource(Res.string.open_without_guardians))
+            }
+        } else {
+            Button(onClick = { onOpen(false) }, enabled = !isPending) {
+                Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
+                Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                Text(stringResource(Res.string.open_a_group_wallet))
+            }
         }
     }
 }
@@ -319,6 +349,19 @@ private fun OpenWallet(
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
     ) {
         item { BalanceCard(walletState) }
+
+        if (state.wallet.account.isGuarded) {
+            item {
+                Text(
+                    text = stringResource(
+                        Res.string.guarded_the_groups_above_this_one_can_spend,
+                        GuardianDerivation.ANCESTOR_DELAY.toInt()
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
         onSend?.let { send ->
             item {

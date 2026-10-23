@@ -6,6 +6,7 @@ import com.machankura.bennu.compose.ui.view.state.SpendStatus
 import com.machankura.bennu.compose.wallet.GroupSpend
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
 import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import androidx.compose.runtime.MutableState
@@ -76,6 +77,9 @@ class GroupWalletViewModel(
                     localChatRoom = localChatRoom,
                     account = chatRepository.groupWalletAccount(chatRoomId, chain),
                     canSign = canSign,
+                    guarded = if (GroupWalletRollout.offersGuardiansOn(chain)) {
+                        chatRepository.groupWalletGuardedOpening(chatRoomId, chain)
+                    } else null,
                 )
                 return@launch
             }
@@ -159,16 +163,24 @@ class GroupWalletViewModel(
      * Never batched with anything, for the reason `GroupWalletStatementEvent`
      * gives -- every spend is opened against this, and it should never be as
      * available as its worst co-passenger.
+     *
+     * [guarded] opens the guarded account the room's certificate grants instead
+     * of the plain one: the statement then names the guardians and carries the
+     * certificate, and the group's quorum signing it is the group agreeing to be
+     * guarded.
      */
-    fun openWallet(onSuccess: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+    fun openWallet(guarded: Boolean = false, onSuccess: (sessionId: String) -> Unit, onFailure: () -> Unit) {
         val state = groupWalletUIState as? GroupWalletUIState.NotOpened ?: return
-        val account = state.account ?: return
+        val template = if (guarded) {
+            val opening = state.guarded ?: return
+            GroupWalletStatementEvent.template(opening.account, opening.certificate)
+        } else {
+            GroupWalletStatementEvent.template(state.account ?: return)
+        }
         // A second statement for the same account is harmless -- the same values
         // under the same `d` tag -- but it is a second quorum asked for nothing.
         if (isActionPending.value) return
         isActionPending.value = true
-
-        val template = GroupWalletStatementEvent.template(account)
 
         viewModelScope.launch(Dispatchers.IO) {
             val session = runCatching {

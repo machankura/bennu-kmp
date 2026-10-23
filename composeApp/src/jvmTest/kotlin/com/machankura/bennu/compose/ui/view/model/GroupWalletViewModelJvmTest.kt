@@ -106,11 +106,11 @@ class GroupWalletViewModelJvmTest {
         }
     }
 
-    private fun viewModel(chat: ChatRepository, signing: FrostSigningRepository = RecordingSigning()) =
+    private fun viewModel(chat: ChatRepository, signing: FrostSigningRepository = RecordingSigning(), chain: Chain = Chain.Mainnet) =
         GroupWalletViewModel(
             activeUserPublicKey = me,
             chatRoomId = chatRoomId,
-            chain = Chain.Mainnet,
+            chain = chain,
             initialGroupWalletUIState = GroupWalletUIState.Loading,
             chatRepository = chat,
             frostSigningRepository = signing,
@@ -167,6 +167,56 @@ class GroupWalletViewModelJvmTest {
             PrivateKey(ByteVector32(Hex.decode("1c0ffee".padStart(64, '0')))).publicKey().toString()
         ))
         runBlocking { withTimeout(5_000) { while (!failed) delay(10) } }
+    }
+
+    // ---- a guarded wallet ---------------------------------------------------
+
+    /** What the repository would hand a subgroup whose certificate grants it guardians; the checks behind it are `GroupWalletStatementEventTest`'s. */
+    private val certificate = com.vitorpamplona.quartz.nip01Core.core.Event(
+        "c".repeat(64), "b".repeat(64), 1_700_000_000, 30329, emptyArray(), chatRoomId, "f".repeat(128)
+    )
+    private val guardians = com.machankura.bennu.compose.managers.GuardianDerivation.grant(
+        PrivateKey(ByteVector32(Hex.decode("9a4e47".padStart(64, '0')))).publicKey().toString(),
+        "b".repeat(64), emptyList(), chatRoomId,
+    )
+
+    private fun guardedRepository(chain: Chain) = object : ChatRepository by repository(opened = null) {
+        override suspend fun groupWalletGuardedOpening(chatRoomId: String, chain: Chain) =
+            com.machankura.bennu.compose.managers.GroupWalletManager.GuardedOpening(
+                GroupWalletDerivation.account(
+                    PrivateKey(ByteVector32(Hex.decode("1c0ffee".padStart(64, '0')))).publicKey().toString(),
+                    chain, guardians = guardians,
+                ),
+                certificate,
+            )
+    }
+
+    @Test
+    fun `a subgroup is offered a guarded wallet on a test network, and not yet on mainnet`() {
+        val regtest = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest), chain = Chain.Regtest).apply { initiate() }.settled()
+        )
+        assertEquals(guardians, regtest.guarded?.account?.guardians)
+
+        val mainnet = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Mainnet)).apply { initiate() }.settled()
+        )
+        assertNull(mainnet.guarded, "behind GroupWalletRollout.GUARDIANS_ON_MAINNET")
+    }
+
+    @Test
+    fun `opening a guarded wallet proposes a statement naming the guardians and carrying the certificate`() {
+        val signing = RecordingSigning()
+        val model = viewModel(guardedRepository(Chain.Regtest), signing, chain = Chain.Regtest).apply { initiate() }
+        model.settled()
+
+        model.openWallet(guarded = true, onSuccess = {}, onFailure = {})
+        runBlocking { withTimeout(5_000) { while (signing.proposed == null || model.isActionPending.value) delay(10) } }
+
+        val (_, tags, content) = assertNotNull(signing.proposed)
+        val reading = assertNotNull(GroupWalletStatementEvent.read(tags, content))
+        assertEquals(guardians, reading.guardians)
+        assertEquals(certificate.id, reading.certificate?.id)
     }
 
     // ---- spends ------------------------------------------------------------
