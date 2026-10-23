@@ -23,9 +23,10 @@ import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
-import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
-import com.machankura.bennu.compose.nostr.GroupNostrProfile
-import com.machankura.bennu.compose.nostr.GroupRelaySet
+import com.vitorpamplona.quartz.nip17Dm.settings.ChatMessageRelayListEvent
+import com.vitorpamplona.quartz.nip50Search.SearchRelayListEvent
+import com.vitorpamplona.quartz.nip51Lists.relayLists.BlockedRelayListEvent
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import com.vitorpamplona.quartz.nipC7Chats.ChatEvent
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
@@ -412,53 +413,6 @@ data class ChatMessage(
         const val TYPE_SUBGROUP_CERTIFIED = "subgroupCertified"
 
         /**
-         * The group signed what it says about itself on nostr.
-         *
-         * A system line rather than a bubble, for the reason every group-signed
-         * line is one: nobody said it, the group signed it. Whoever filled the
-         * form in proposed it and a quorum agreed, and the transcript of that
-         * happening is the signing session's own -- this is the line saying what
-         * the group now is, which is worth having in the room because a rename is
-         * the kind of thing members should not have to go looking for.
-         *
-         * Written only for a profile the *room* signed. A kind:0 authored by
-         * anybody else that reaches this room is a member's own profile
-         * travelling as a rumor, which is not the group saying anything.
-         */
-        const val TYPE_GROUP_PROFILE_SIGNED = "groupProfileSigned"
-
-        /**
-         * The group signed where it lives on nostr.
-         *
-         * One line per list, so a session that changed three of them writes three.
-         * They are not three accounts of one thing -- each names which list was
-         * agreed, which is the part a reader needs -- and `applyInnerEvent` is
-         * handed one event at a time with no way to know it was in a batch anyway.
-         */
-        const val TYPE_GROUP_RELAYS_SIGNED = "groupRelaysSigned"
-
-        /**
-         * Every line about the group's own nostr identity, for the one check the
-         * transcript dispatches on.
-         *
-         * The profile and the relay lists together, because they are the same kind
-         * of statement -- the group's account of itself, signed by the group -- and
-         * the transcript does the same thing with both. A type missing from here
-         * renders as a chat bubble, silently, looking exactly like somebody having
-         * said "The group is now called Translation collective".
-         */
-        /**
-         * The group signed something to say publicly, in its own name.
-         *
-         * A system line rather than a bubble, like the other two -- nobody said it,
-         * the group signed it -- and the line names the post rather than repeating
-         * it, because the post itself is on the group's screen where it can be read
-         * whole. A quote here would be the same words twice with the second copy
-         * unable to say who agreed to them.
-         */
-        const val TYPE_GROUP_POST_SIGNED = "groupPostSigned"
-
-        /**
          * Lines the curated-lists feature wrote: the group signing a list's schema,
          * and an entry into one. The feature is gone and nothing writes either any
          * more, but rows already in a transcript still carry them, and a type
@@ -467,6 +421,15 @@ data class ChatMessage(
          */
         private const val TYPE_LEGACY_GROUP_SCHEMA_SIGNED = "groupSchemaSigned"
         private const val TYPE_LEGACY_GROUP_ENTRY_CURATED = "groupEntryCurated"
+
+        /**
+         * Lines the group's nostr profile, relay lists and posts wrote. Those
+         * features are gone too, and these stay for the same reason: rows already
+         * in a transcript carry them and have to stay system lines.
+         */
+        private const val TYPE_LEGACY_GROUP_PROFILE_SIGNED = "groupProfileSigned"
+        private const val TYPE_LEGACY_GROUP_RELAYS_SIGNED = "groupRelaysSigned"
+        private const val TYPE_LEGACY_GROUP_POST_SIGNED = "groupPostSigned"
 
         /**
          * The group opened a wallet.
@@ -485,10 +448,15 @@ data class ChatMessage(
          */
         const val TYPE_GROUP_TRANSACTION_CONFIRMED = "groupTransactionConfirmed"
 
+        /**
+         * Every line the group signed, for the one check the transcript
+         * dispatches on. A type missing from here renders as a chat bubble,
+         * silently, looking exactly like somebody having said it.
+         */
         val GROUP_IDENTITY_TYPES = setOf(
-            TYPE_GROUP_PROFILE_SIGNED,
-            TYPE_GROUP_RELAYS_SIGNED,
-            TYPE_GROUP_POST_SIGNED,
+            TYPE_LEGACY_GROUP_PROFILE_SIGNED,
+            TYPE_LEGACY_GROUP_RELAYS_SIGNED,
+            TYPE_LEGACY_GROUP_POST_SIGNED,
             TYPE_LEGACY_GROUP_SCHEMA_SIGNED,
             TYPE_LEGACY_GROUP_ENTRY_CURATED,
             TYPE_GROUP_WALLET_OPENED,
@@ -1094,10 +1062,8 @@ data class ChatMessage(
             createdAt: Instant,
             groupSignedEventId: HexKey? = null,
         ): ChatMessage? {
-            // The last resort, named because one arm reaches it deliberately rather
-            // than by falling off the end: a kind:1 the room did not sign is a
-            // member's own note travelling through the room, and it has always
-            // rendered as this. See the `TextNoteEvent` arm.
+            // The last resort: raw JSON in a bubble, the only trace an
+            // unrecognised payload leaves.
             fun unsupported() = ChatMessage(
                 giftWrapPayloadId = null,
                 messageType = "unsupported",
@@ -1219,103 +1185,6 @@ data class ChatMessage(
                     )
                 }
 
-                // The group saying who it is on nostr. A room's id is the pubkey
-                // it signs as, so a group has an identity from the moment it has a
-                // key; this is the kind:0 describing it, signed by the group's own
-                // quorum like everything else it says.
-                //
-                // **Only when the room itself signed it.** This arm is reached both
-                // from a completed signing session, where the author is the room by
-                // construction, and from an arriving inner event, where any member
-                // could have sent a rumor of this kind -- and it cannot tell which.
-                // A member's own kind:0 travelling through a room is their profile,
-                // not the group's, and gets no line here.
-                //
-                // No row is written. The event is already on file as a
-                // `GroupSignedEvent` -- `FrostSigningManager.complete` records the
-                // batch before it applies it -- and `GroupNostrProfile` reads the
-                // group's profile straight off those. A `Profile` row is not an
-                // option anyway: it hangs off `NostrEvent` by foreign key, and a
-                // group-signed event is not one.
-                MetadataEvent.KIND -> {
-                    if (!event.pubKey.equals(groupId, ignoreCase = true)) return null
-
-                    val profile = GroupNostrProfile.of(
-                        signedEvent = GroupSignedEvent.fromEvent(event, chatRoomId = groupId),
-                        chatRoomId = groupId,
-                    ) ?: return null
-
-                    ChatMessage(
-                        giftWrapPayloadId = null,
-                        messageType = TYPE_GROUP_PROFILE_SIGNED,
-                        marmotGroupEventId = marmotGroupEventId,
-                        marmotInnerEventId = marmotInnerEventId,
-                        senderPublicKey = senderPublicKey,
-                        isUserMessage = isUserMessage,
-                        chatRoomId = groupId,
-                        createdAt = createdAt,
-                        content = profile.name()?.let { "The group is now called $it" }
-                            ?: "The group signed a new profile for itself"
-                    )
-                }
-
-                // The group saying something publicly, in its own name -- which
-                // is a different thing from a member saying something in the room.
-                // A room's messages are `ChatEvent`s; this is a kind:1 authored by
-                // the room's own key, so any reader can check the group said it and
-                // that no single member could have.
-                //
-                // Verified like the arms below and for the same reason: a rumor
-                // carries an empty signature and any pubkey its sender likes, so an
-                // author check alone would let one member put words in the group's
-                // mouth in its own transcript.
-                //
-                // **Unlike those arms, a kind:1 that fails falls through to
-                // `unsupported` rather than vanishing.** A member's kind:0 or relay
-                // list passing through a room is identity plumbing nobody sent on
-                // purpose and silence is the right treatment; a kind:1 is content,
-                // somebody meant it, and it has rendered as an unsupported event
-                // since before any of this existed. Dropping it here would be this
-                // change quietly deleting messages it has no business touching.
-                TextNoteEvent.KIND -> {
-                    val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
-                    if (!signed.verifies()) return unsupported()
-
-                    ChatMessage(
-                        giftWrapPayloadId = null,
-                        messageType = TYPE_GROUP_POST_SIGNED,
-                        marmotGroupEventId = marmotGroupEventId,
-                        marmotInnerEventId = marmotInnerEventId,
-                        senderPublicKey = senderPublicKey,
-                        isUserMessage = isUserMessage,
-                        chatRoomId = groupId,
-                        createdAt = createdAt,
-                        content = "The group posted in its own name"
-                    )
-                }
-
-                // The group saying where it lives on nostr: which relays carry
-                // its work, take its messages, answer a search of it, and which it
-                // will not talk to.
-                //
-                // **Verified, not just attributed.** This arm is reached from a
-                // completed signing session, where the author is the room by
-                // construction, and from an arriving inner event, where it is
-                // whatever the sender wrote -- and it cannot tell which. A rumor
-                // carries an empty signature and any pubkey its sender likes, so an
-                // author check alone would let one member put "the group signed its
-                // general relay list" in the transcript. `verifies` is what makes
-                // the line mean what it says: the room's key over these tags.
-                //
-                // A member's own relay list travelling through the room fails the
-                // author half and gets no line, which is right -- it is their list,
-                // not the group's.
-                //
-                // No row is written, and nothing is parsed beyond the check. The
-                // events are already on file as `GroupSignedEvent` and
-                // `GroupRelayList` reads the lists straight off those; this arm
-                // exists so a signed relay list is a line in the transcript rather
-                // than raw JSON in a bubble.
                 // The group opening a wallet. Checked the whole way -- the room's
                 // signature, and the statement rederiving from the room's own key --
                 // because a line saying "the group opened a wallet" is a line people
@@ -1341,25 +1210,17 @@ data class ChatMessage(
                     )
                 }
 
-                in GroupRelaySet.KINDS -> {
-                    val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
-                    if (!signed.verifies()) return null
-
-                    val set = GroupRelaySet.entries.firstOrNull { it.kind == event.kind }
-                        ?: return null
-
-                    ChatMessage(
-                        giftWrapPayloadId = null,
-                        messageType = TYPE_GROUP_RELAYS_SIGNED,
-                        marmotGroupEventId = marmotGroupEventId,
-                        marmotInnerEventId = marmotInnerEventId,
-                        senderPublicKey = senderPublicKey,
-                        isUserMessage = isUserMessage,
-                        chatRoomId = groupId,
-                        createdAt = createdAt,
-                        content = "The group signed its ${set.name.lowercase()} relay list"
-                    )
-                }
+                // A profile or a relay list -- the group's or a member's own --
+                // travelling through the room. The app no longer reads either as
+                // the group's, and both are identity plumbing nobody sends into a
+                // room on purpose, so neither is a line nor a raw-JSON bubble: a
+                // signing session an older build opened for one ends in silence.
+                // A kind:1 is content, and keeps the bubble it always had.
+                MetadataEvent.KIND,
+                AdvertisedRelayListEvent.KIND,
+                ChatMessageRelayListEvent.KIND,
+                SearchRelayListEvent.KIND,
+                BlockedRelayListEvent.KIND -> null
 
                 // v2's two non-chat kinds. A kind:1210 that arrives is one member's
                 // assertion about what the group's state became, and this device

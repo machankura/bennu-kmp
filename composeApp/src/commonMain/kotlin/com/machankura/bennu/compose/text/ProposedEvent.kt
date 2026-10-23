@@ -1,10 +1,7 @@
 package com.machankura.bennu.compose.text
 
 import com.vitorpamplona.quartz.nip01Core.core.Event
-import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
-import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
-import com.machankura.bennu.compose.nostr.GroupRelaySet
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
@@ -13,8 +10,8 @@ import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
  * An event a group is being asked to sign, said in words.
  *
  * Shown as the thing rather than as an event: a member deciding whether to sign
- * is deciding about a profile or a relay list, and "kind 10002" answers a
- * question nobody asked. The raw kind stays for anything not recognised, since
+ * is deciding about a wallet or a subgroup, and "kind 30331" answers a question
+ * nobody asked. The raw kind stays for anything not recognised, since
  * refusing to describe an event is better than describing it wrongly.
  *
  * Not a composable, and deliberately: the same words appear on the signing
@@ -58,39 +55,6 @@ object ProposedEvent {
                     ?.let { "run by $it members" }
             ).joinToString(" · ")
         )
-
-        // The group's own profile. Named by what the group would be called and
-        // what it would say about itself, which is the whole of what is being
-        // decided; the JSON in the content is the one thing a signer should not
-        // have to read to find that out.
-        MetadataEvent.KIND -> Summary(
-            label = "Nostr profile",
-            detail = MetadataEvent(
-                event.id, event.pubKey, event.createdAt, event.tags, event.content, event.sig
-            ).contactMetaData()?.let { metadata ->
-                listOfNotNull(
-                    metadata.anyName()?.takeIf { it.isNotBlank() },
-                    metadata.about?.takeIf { it.isNotBlank() }
-                ).joinToString(" · ").ifEmpty { "An empty profile" }
-            } ?: "Unreadable profile"
-        )
-
-        // A post in the group's name. The words are what is being decided, so
-        // they are the detail rather than a count of them -- the same call the
-        // translated-passage arm makes.
-        TextNoteEvent.KIND -> Summary(label = "Post", detail = event.content)
-
-        // One of the group's relay lists, shown as hosts: every entry in one
-        // starts wss://, so the scheme is the part that never tells two apart.
-        // An empty one is a list the group is withdrawing, and says so.
-        in GroupRelaySet.KINDS -> {
-            val set = GroupRelaySet.entries.first { it.kind == event.kind }
-
-            Summary(
-                label = "${set.name} relay list",
-                detail = set.parse(event.tags).joinToString { it.displayUrl() }.ifEmpty { "No relays" }
-            )
-        }
 
         // The group opening a wallet. What a member is agreeing to is that the
         // group keeps coins here, so the summary names the network -- the one

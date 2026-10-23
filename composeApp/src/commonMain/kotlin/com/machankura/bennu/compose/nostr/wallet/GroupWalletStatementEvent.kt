@@ -37,7 +37,7 @@ import kotlin.time.Clock
  *
  * The xpub is every address and the whole balance, to whoever has it. Like the
  * signing kinds this only ever lives inside an encryption a relay cannot open,
- * and the broadcast screen refuses it by kind -- see [NEVER_BROADCAST].
+ * and nothing in the app sends a group-signed event to a relay.
  *
  * ### Why 30331
  *
@@ -49,9 +49,6 @@ import kotlin.time.Clock
  */
 object GroupWalletStatementEvent {
     val KIND: Kind = 30331
-
-    /** The kinds a member may never send to a relay, whatever the group signed. */
-    val NEVER_BROADCAST: Set<Kind> = setOf(KIND)
 
     private const val D_TAG = "d"
     private const val CHAIN_TAG = "chain"

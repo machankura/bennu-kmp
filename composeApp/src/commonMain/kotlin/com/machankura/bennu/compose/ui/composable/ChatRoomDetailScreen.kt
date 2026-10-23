@@ -27,10 +27,6 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.PersonRemove
-import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Campaign
-import androidx.compose.material.icons.filled.DataObject
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Unsubscribe
@@ -80,10 +76,6 @@ import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProfilePreviewRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
 import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateSharedKeyRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupPostsRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposalListRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.SearchMemberToAddToChatRoomRoute
 import com.machankura.bennu.compose.extensions.inComparableGroups
@@ -97,20 +89,8 @@ import com.machankura.bennu.compose.ui.theme.BennuTheme
 import com.machankura.bennu.compose.ui.view.model.ChatRoomDetailViewModel
 import com.machankura.bennu.compose.ui.view.state.ChatRoomDetailUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
-import com.vitorpamplona.quartz.nip01Core.metadata.UserMetadata
 import com.machankura.bennu.compose.ui.theme.spacing
 import bennu.composeapp.generated.resources.run_by_members
-import bennu.composeapp.generated.resources.nostr_profile
-import bennu.composeapp.generated.resources.relays
-import bennu.composeapp.generated.resources.posts
-import bennu.composeapp.generated.resources.not_described_yet
-import bennu.composeapp.generated.resources.n_of_m_relay_lists_agreed
-import bennu.composeapp.generated.resources.no_posts_yet
-import bennu.composeapp.generated.resources.one_post
-import bennu.composeapp.generated.resources.n_posts
-import bennu.composeapp.generated.resources.propose_event
-import bennu.composeapp.generated.resources.no_name_on_this_profile
 import bennu.composeapp.generated.resources.parent_group
 import bennu.composeapp.generated.resources.a_subgroup
 import bennu.composeapp.generated.resources.created_you_are_not_a_member
@@ -122,8 +102,6 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.SelectSubgro
 import com.machankura.bennu.compose.ui.composable.navigation.routes.NostrEventDetailRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ChatRoomDetailRoute
 import com.machankura.bennu.compose.managers.SubgroupManager
-import com.machankura.bennu.compose.nostr.GroupNostrProfile
-import com.machankura.bennu.compose.nostr.GroupRelaySet
 import bennu.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
 import bennu.composeapp.generated.resources.delete_group
@@ -343,122 +321,20 @@ fun ChatRoomDetailScreen(
                                 HorizontalDivider()
                             }
 
-                            // Under the room's identity and above its work, because
-                            // that is what it is: what the rest of nostr reads for
-                            // the key the signing key row names. The room's subject
-                            // and description above are this device's names for it;
-                            // this is the group's own, signed by the group.
-                            //
-                            // One row per kind of statement, each opening the screen
-                            // that shows it, rather than the statements themselves.
-                            // Five sections of cards, every card with a button under
-                            // it, made this screen as long as everything the group
-                            // had ever said, with its members and its subgroups
-                            // somewhere underneath. What a member opening it wants
-                            // first is the shape of that -- a name and a few counts
-                            // -- not every word of it. The row carries the shape;
-                            // the screen behind it carries the rest, with the same
-                            // broadcasts and the same gated ways in the sections had.
+                            // The group's coins, signed by the room's key and read
+                            // by nobody outside the room: the statement opening it
+                            // never leaves the group. Shown to every member, open
+                            // or not -- the screen behind it is where a member who
+                            // can sign asks the group to open one.
                             //
                             // Marmot rooms only, and absent rather than empty in a
                             // NIP-17 one. A NIP-17 room's id is not a key it can
-                            // sign as, so it has no nostr identity at all -- and a
-                            // row saying it has not described one yet would promise
-                            // something that is never coming.
-                            if (chatRoomDetailUIState.localChatRoom.chatRoom.mlsGroupState != null) {
+                            // sign as, so it has no wallet to open.
+                            if (
+                                GroupWalletRollout.ENABLED &&
+                                chatRoomDetailUIState.localChatRoom.chatRoom.mlsGroupState != null
+                            ) {
                                 item {
-                                    SignedWorkRow(
-                                        icon = Icons.Default.Badge,
-                                        headline = stringResource(Res.string.nostr_profile),
-                                        // The name the group gave itself and its
-                                        // address where it claims one: the two
-                                        // things a reader checks a profile for.
-                                        // Named rather than falling back to the
-                                        // pubkey, for the reason the card gives.
-                                        supporting = chatRoomDetailUIState.groupNostrProfile
-                                            ?.let { profile ->
-                                                listOfNotNull(
-                                                    profile.name()
-                                                        ?: stringResource(Res.string.no_name_on_this_profile),
-                                                    profile.nip05()
-                                                ).joinToString(" · ")
-                                            }
-                                            ?: stringResource(Res.string.not_described_yet),
-                                        onOpen = {
-                                            onNavigateToRoute.invoke(
-                                                GroupNostrProfileRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // Directly under the profile, because between them
-                                // they are the whole of the group's account of
-                                // itself on nostr: who it says it is, and where it
-                                // says it can be found.
-                                item {
-                                    SignedWorkRow(
-                                        icon = Icons.Default.Dns,
-                                        headline = stringResource(Res.string.relays),
-                                        // How many of the four lists the group has
-                                        // agreed, counted against the sets rather
-                                        // than the entries: the entries come back
-                                        // empty in a room that has none of this to
-                                        // say, and "0 of 0" would say nothing.
-                                        supporting = stringResource(
-                                            Res.string.n_of_m_relay_lists_agreed,
-                                            chatRoomDetailUIState.groupRelayLists.count { it.isAgreed },
-                                            GroupRelaySet.entries.size
-                                        ),
-                                        onOpen = {
-                                            onNavigateToRoute.invoke(
-                                                GroupRelaysRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // Under the relay lists, because these are what the
-                                // lists are *for*: the profile says who the group
-                                // is, the relays say where to find it, and these are
-                                // what a reader would find there.
-                                item {
-                                    SignedWorkRow(
-                                        icon = Icons.Default.Campaign,
-                                        headline = stringResource(Res.string.posts),
-                                        supporting = when (val count = chatRoomDetailUIState.groupPosts.size) {
-                                            0 -> stringResource(Res.string.no_posts_yet)
-                                            1 -> stringResource(Res.string.one_post)
-                                            else -> stringResource(Res.string.n_posts, count)
-                                        },
-                                        onOpen = {
-                                            onNavigateToRoute.invoke(
-                                                GroupPostsRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // The group's coins. After the identity block's
-                                // last signed row and before the paste, because it
-                                // is signed by the same key and read by nobody
-                                // outside the room: the statement opening it never
-                                // leaves the group. Shown to every member, open or
-                                // not -- the screen behind it is where a member who
-                                // can sign asks the group to open one.
-                                if (GroupWalletRollout.ENABLED) item {
                                     SignedWorkRow(
                                         icon = Icons.Default.AccountBalanceWallet,
                                         headline = stringResource(Res.string.group_wallet),
@@ -478,44 +354,6 @@ fun ChatRoomDetailScreen(
                                             )
                                         }
                                     )
-                                }
-
-                                // The untyped way into everything above it. Each
-                                // row opens a screen with a form that builds one
-                                // kind of event; this takes any of those kinds as
-                                // JSON, pasted from wherever it was made, and it
-                                // lands on whichever screen is its kind's once the
-                                // quorum signs -- the same reading, off the same
-                                // signed events. Last in the block because it is
-                                // about the block rather than about any one row of
-                                // it, and behind the same gate for the same reason.
-                                if (chatRoomDetailUIState.canEditNostrProfile) {
-                                    item {
-                                        TextButton(
-                                            onClick = {
-                                                onNavigateToRoute.invoke(
-                                                    ProposeGroupEventRoute(
-                                                        activeUserPublicKey = activeUserPublicKey,
-                                                        chatRoomId = chatRoomId,
-                                                        relayHint = relayHint
-                                                    )
-                                                )
-                                            }
-                                        ) {
-                                            Icon(
-                                                Icons.Default.DataObject,
-                                                contentDescription = Decorative
-                                            )
-
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    MaterialTheme.spacing.space125
-                                                )
-                                            )
-
-                                            Text(stringResource(Res.string.propose_event))
-                                        }
-                                    }
                                 }
 
                                 item {
@@ -1145,8 +983,8 @@ internal fun GroupKeyStateSheetContent(
 }
 
 /**
- * One row of the identity block: a kind of statement the group has signed, a
- * line summarising it, and the way to the screen where it is read in full.
+ * One row for a kind of statement the group has signed: a line summarising it,
+ * and the way to the screen where it is read in full.
  *
  * The same shape as the signing key and parent group rows above it -- a card
  * with a leading icon and a trailing chevron -- because it is the same kind of
@@ -1363,9 +1201,9 @@ private fun ChatRoomMessagingScreenPreview() {
                             subject = "Message title",
                             description = "Description of a chat room so that members now why they are here.",
                             initialGiftWrapPayloadId = "sdfaer",
-                            // A Marmot room, so the nostr profile section renders
-                            // at all -- it is hidden in a NIP-17 one, which has no
-                            // key to have an identity on nostr.
+                            // A Marmot room, so the signed-work block renders at
+                            // all -- it is hidden in a NIP-17 one, which has no key
+                            // to sign with.
                             mlsGroupState = "state"
                         ),
                         localParticipants = listOf(
@@ -1395,28 +1233,6 @@ private fun ChatRoomMessagingScreenPreview() {
                         announcedBy = "d".repeat(64),
                         announcedAt = Instant.fromEpochSeconds(1_700_000_000)
                     ),
-                    // A group that has described itself, so the section renders
-                    // with something in it rather than only in its empty state.
-                    // Built directly rather than read out of a signed event: the
-                    // reading checks a signature, and there is no real one here.
-                    groupNostrProfile = GroupNostrProfile(
-                        signedEvent = GroupSignedEvent(
-                            id = "e".repeat(64),
-                            chatRoomId = "publicKey",
-                            publicKey = "publicKey",
-                            kind = MetadataEvent.KIND,
-                            tags = emptyArray(),
-                            content = "",
-                            signature = "f".repeat(128),
-                            createdAt = Instant.fromEpochSeconds(1_700_000_000)
-                        ),
-                        metadata = UserMetadata().apply {
-                            displayName = "Translation collective"
-                            about = "A group translating hard books into Sesotho."
-                            nip05 = "group@example.com"
-                        }
-                    ),
-                    canEditNostrProfile = true
                 ),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
