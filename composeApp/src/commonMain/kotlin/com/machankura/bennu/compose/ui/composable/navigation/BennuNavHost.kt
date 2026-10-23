@@ -1,5 +1,15 @@
 package com.machankura.bennu.compose.ui.composable.navigation
 
+import fr.acinq.phoenixd.conf.LSP
+import fr.acinq.phoenix.db.createPaymentsDbDriver
+import fr.acinq.phoenix.db.createSqlitePaymentsDb
+import fr.acinq.phoenix.db.createChannelsDbDriver
+import fr.acinq.phoenix.db.createSqliteChannelsDb
+import fr.acinq.phoenix.managers.PhoenixDatabases
+import fr.acinq.phoenix.managers.DatabaseManager
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
+import com.machankura.bennu.compose.managers.GroupLightningNode
+import com.machankura.bennu.compose.wallet.lightning.GroupLightningNodes
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningWalletRoute
 import com.machankura.bennu.compose.ui.composable.GroupLightningWalletScreen
 import com.machankura.bennu.compose.ui.composable.navigation.routes.IcebergCeremonyRoute
@@ -291,6 +301,38 @@ fun BennuNavHost(
     }
     DisposableEffect(groupOnchainWallets) {
         onDispose { groupOnchainWallets?.let { wallets -> applicationIOScope.launch { wallets.stop() } } }
+    }
+
+    // The group Lightning nodes this identity is the elected operator of. Behind the
+    // rollout gate: nothing is built while it is off. Same lifetime as the wallets.
+    val groupLightningNodes = remember(groupChainClients) {
+        val business = activeIdentityForWallets?.business
+        val clients = groupChainClients
+        val user = activeIdentityForWallets?.nostrPublicKey
+        if (!GroupLightningRollout.ENABLED || business == null || clients == null || user == null) null else {
+            val ctx = business.phoenixGlobal.ctx
+            GroupLightningNodes(
+                database = auxDatabaseManager.auxDatabase,
+                userPublicKey = user,
+                scope = applicationIOScope,
+                peerFactory = GroupLightningNode.lightningKmpPeers(
+                    clients = clients,
+                    databasesFor = { nodeId, chain ->
+                        PhoenixDatabases(
+                            channels = createSqliteChannelsDb(createChannelsDbDriver(ctx, "group-" + DatabaseManager.channelsDbName(chain, nodeId))),
+                            payments = createSqlitePaymentsDb(createPaymentsDbDriver(ctx, "group-" + DatabaseManager.paymentsDbName(chain, nodeId)) {}, null, business.loggerFactory),
+                            cloudKit = null,
+                        )
+                    },
+                    walletParamsFor = { chain -> LSP.from(chain).walletParams },
+                    loggerFactory = business.loggerFactory,
+                    scope = applicationIOScope,
+                ),
+            ).also { it.start() }
+        }
+    }
+    DisposableEffect(groupLightningNodes) {
+        onDispose { groupLightningNodes?.let { nodes -> applicationIOScope.launch { nodes.stop() } } }
     }
 
     // Sends the group's signed spends to the network from this device too, and

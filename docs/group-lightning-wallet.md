@@ -37,6 +37,7 @@ build chose differently, this table says so.
 | 5 | done: `IcebergRitualManager`, schema 27 (`IcebergKeySession`, `IcebergParticipantMessage`), the ceremony screen and its transcript lines. Seven four-device tests, and the app's 1,391 JVM tests pass |
 | 6, 7 | done together, as their screen and summaries are one piece: the wallet and operator statements, the node seed (schema 28), `GroupLightningWalletManager`, `GroupLightningOperatorManager` and the Lightning wallet screen. Twelve new tests; the app's 1,403 JVM tests pass |
 | 9 | done before 8, because the node's transport is half of it: `GroupLightningCoSigner`, `CoSignerPolicy`, `GroupIcebergTransport`, schema 29, and the fork's `SigningContext` (`bd78ed62`). A four-device test co-signs a real commitment that spends its funding output beside a stock counterparty, and five refusals hold. The app's 1,415 JVM tests and the fork's 993 pass |
+| 8 | done: `GroupLightningNode`, `GroupNodeKeyManager` and `GroupLightningNodes`, wired into the app behind `GroupLightningRollout`. Four tests with a stand-in peer cover the keys, the start gate and the handover. The node has not connected to an LSP: that needs Phase 0's testnet3 run |
 
 | what the plan said | what it turned out to be |
 |---|---|
@@ -75,6 +76,12 @@ build chose differently, this table says so.
 | check 8, splices | refused: the channel is pinned to its funding output the first time a device signs for it, and a request for any other output is refused. Splices arrive with Phase 13 |
 | a co-signer whose database was restored collects high-water marks from `t` others | **not built.** The ledger is never pruned and a restored device starts with an empty one, so a restored co-signer could echo a label it answered before the restore. The echo rule still stops the label being signed under two messages unless `n-t+1` members echo the second, which needs the restored device and `n-2t+1` others to be wrong. It is listed under what is left |
 | the operator collects `t` shares | `2t-1`, the quorum the scheme wants online for round two; `aggregatePartialSignatures` degree-checks a set larger than `t` |
+| first find out whether `lightning-kmp-app/library` can host a second `PhoenixBusiness` | it does not need to. `GroupLightningNode` builds a lightning-kmp `Peer` itself, on Phoenix's SQLite channel and payment databases (`createSqliteChannelsDb`, `createSqlitePaymentsDb`), under file names prefixed `group-` so they never meet the identity's own |
+| the node does not connect while its pool is short | it provisions the pool as it starts, and the transport asks for more whenever fewer than a third of a window remain. It does not wait for the pool before connecting; a channel that needs a label the pool lacks fails by name (`IcebergNonceNotProvisioned`) |
+| the start gate reads when the room last synced | the newest group event this device saved for the room (`MarmotGroupEventDao.newestSavedAt`), because the app keeps no sync time. A sync time taken from the live subscription's end-of-stored-events is the follow-up |
+| a foreground service keeps the node running on Android | **not built.** The node runs while the app does |
+| a signing timeout disconnects the node | not done: lightning-kmp treats the timeout as a failed signature, and the channel retries on its own schedule |
+| a test runs regtest end to end against the docker eclair | not run, for Phase 0's reason. The four node tests use a stand-in peer, and the co-signing test in Phase 9 signs real commitments built from channel parameters |
 | the kinds are reserved | in code: `GroupLightningEvents`, 30333-30349, with a test asserting the run is unbroken and touches no kind the app already dispatches on |
 | library phases land in the forks' `threshold` branches | on a new branch, `claude/group-lightning-wallet`, in `lightning-kmp-app` and in `experimental/lightning-kmp`. It is local and not pushed. The app's submodule pointer follows it, so a checkout of this branch needs those commits from the same machine until they are pushed |
 

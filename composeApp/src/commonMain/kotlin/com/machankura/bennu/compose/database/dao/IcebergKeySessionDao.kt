@@ -22,6 +22,9 @@ interface IcebergKeySessionDao {
     @Query("SELECT * FROM IcebergKeySession WHERE chatRoomId = :chatRoomId ORDER BY createdAt DESC")
     fun observeSessionsForChatRoom(chatRoomId: String): Flow<List<IcebergKeySession>>
 
+    @Query("SELECT * FROM IcebergKeySession WHERE stage = 'COMPLETE'")
+    suspend fun getCompletedSessions(): List<IcebergKeySession>
+
     @Upsert
     suspend fun upsert(session: IcebergKeySession)
 

@@ -14,4 +14,11 @@ interface MarmotGroupEventDao {
 
     @Query("SELECT * FROM MarmotGroupEvent WHERE id = :id")
     suspend fun getMarmotGroupEventById(id: HexKey): MarmotGroupEvent?
+
+    /**
+     * When this device last saved a group event for [chatRoomId]: the nearest thing it has to when it
+     * last heard from the room, which the Lightning wallet's start gate reads.
+     */
+    @Query("SELECT MAX(savedAt) FROM MarmotGroupEvent WHERE chatRoomId = :chatRoomId")
+    suspend fun newestSavedAt(chatRoomId: String): kotlin.time.Instant?
 }
