@@ -547,6 +547,14 @@ object SubgroupManager {
         val keyState: GroupKeyState?,
     ) {
         /** Whether this device can open the subgroup, rather than only know of it. */
+        /**
+         * What the parent decided about the subgroup's wallet when it certified
+         * it -- `docs/subgroup-wallet-policy.md`. Founding history like [name]:
+         * decided once, and never changed by anything after.
+         */
+        val walletPolicy: WalletPolicyReading?
+            get() = SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags)
+
         val isJoined: Boolean get() = room != null
     }
 

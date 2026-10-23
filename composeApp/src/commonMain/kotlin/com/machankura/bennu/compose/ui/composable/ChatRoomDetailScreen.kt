@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.unguarded_wallet
+import bennu.composeapp.generated.resources.guarded_wallet
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
@@ -315,14 +319,21 @@ fun ChatRoomDetailScreen(
                                                 Text(text = stringResource(Res.string.parent_group))
                                             },
                                             supportingContent = {
-                                                Text(
-                                                    text = parentChatRoomId
-                                                        .take(16)
-                                                        .inComparableGroups(),
-                                                    fontFamily = FontFamily.Monospace,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.MiddleEllipsis
-                                                )
+                                                Column {
+                                                    Text(
+                                                        text = parentChatRoomId
+                                                            .take(16)
+                                                            .inComparableGroups(),
+                                                        fontFamily = FontFamily.Monospace,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.MiddleEllipsis
+                                                    )
+                                                    // What the parent decided about
+                                                    // this room's wallet at its birth.
+                                                    // Nothing for one that decided
+                                                    // nothing, as before policies.
+                                                    walletPolicyLabel(chatRoomDetailUIState.walletPolicy)?.let { Text(it) }
+                                                }
                                             }
                                         )
                                     }
@@ -1215,22 +1226,38 @@ private fun SubgroupCard(
                 )
             },
             supportingContent = {
-                Text(
-                    text = when {
-                        subgroup.isJoined -> stringResource(
-                            Res.string.run_by_members,
-                            subgroup.adminPublicKeys.size.toString()
-                        )
-                        // The room does not exist anywhere yet: the parent has
-                        // certified it and nobody has created it. Between steps 2
-                        // and 4 of docs/subgroups.md this is every member's view.
-                        subgroup.keyState == null -> stringResource(Res.string.certified_not_yet_created)
-                        else -> stringResource(Res.string.created_you_are_not_a_member)
-                    }
-                )
+                Column {
+                    Text(
+                        text = when {
+                            subgroup.isJoined -> stringResource(
+                                Res.string.run_by_members,
+                                subgroup.adminPublicKeys.size.toString()
+                            )
+                            // The room does not exist anywhere yet: the parent has
+                            // certified it and nobody has created it. Between steps 2
+                            // and 4 of docs/subgroups.md this is every member's view.
+                            subgroup.keyState == null -> stringResource(Res.string.certified_not_yet_created)
+                            else -> stringResource(Res.string.created_you_are_not_a_member)
+                        }
+                    )
+                    // What the parent decided about its wallet, from the certificate:
+                    // founding history, like the name the row falls back to.
+                    walletPolicyLabel(subgroup.walletPolicy)?.let { Text(it) }
+                }
             }
         )
     }
+}
+
+/**
+ * *Guarded wallet* or *Unguarded wallet* for a policy a parent decided, and
+ * null for one it left to the subgroup -- `docs/subgroup-wallet-policy.md`.
+ */
+@Composable
+private fun walletPolicyLabel(policy: WalletPolicyReading?): String? = when (policy) {
+    WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED) -> stringResource(Res.string.guarded_wallet)
+    WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED) -> stringResource(Res.string.unguarded_wallet)
+    else -> null
 }
 
 /** One labelled value of a key state, whole and comparable. */

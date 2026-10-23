@@ -138,6 +138,30 @@ class SubgroupManagerJvmTest {
     }
 
     @Test
+    fun `a listed child carries what its parent decided about its wallet`(): Unit = runBlocking {
+        seedRoom(parentRoomId)
+        record(
+            certificate(
+                tags = SubgroupBirthCertificateEvent.assembleTags(
+                    subgroupChatRoomId = childRoomId,
+                    parentChatRoomId = parentRoomId,
+                    thresholdPublicKey = childMaterial.thresholdPublicKey.value.toHex(),
+                    adminPublicKeys = listOf(user, alice, bob),
+                    name = "Translation team",
+                    path = path,
+                    walletPolicy = SubgroupWalletPolicy.UNGUARDED,
+                )
+            )
+        )
+        record(certificate(subgroupMaterial = siblingMaterial))
+
+        val subgroups = SubgroupManager.subgroupsOf(db, parentRoomId).associateBy { it.chatRoomId }
+
+        assertEquals(WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED), subgroups.getValue(childRoomId).walletPolicy)
+        assertEquals(WalletPolicyReading.Undecided, subgroups.getValue(siblingRoomId).walletPolicy, "a certificate from before policies")
+    }
+
+    @Test
     fun `a child whose room this device holds reports it`(): Unit = runBlocking {
         seedRoom(parentRoomId)
         seedRoom(childRoomId)
