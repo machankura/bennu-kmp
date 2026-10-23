@@ -9,9 +9,11 @@ Read [group-chain-wallet.md](./group-chain-wallet.md) first, Phases 8 and 10 in
 particular. This plan is that note's third rollout gate, and it starts from the
 code as it stands at `96055da5`.
 
-**Phases 1-5 built; 6 and 7 not.** Written against `GroupSendScreen`, `GroupSendViewModel`,
-`GroupSpendBuilder`, `GroupSpend` and `GroupWalletRollout` as they are at that
-commit.
+**Built, Phases 1-6**, except Phase 6's by-hand walkthrough on regtest; Phase 7
+is the first release. Written against `GroupSendScreen`, `GroupSendViewModel`,
+`GroupSpendBuilder`, `GroupSpend` and `GroupWalletRollout` as they were at that
+commit, and each phase says where the build chose differently. Phase 3 was
+committed before Phase 2, as Phase 2 asks.
 
 ---
 
@@ -336,7 +338,7 @@ payment plus change.
 
 ## Phase 6: checked, and opened
 
-**Half a day.**
+**Half a day. The automated checks are done; the by-hand walkthrough is not.**
 
 ```bash
 ./gradlew :composeApp:m3Audit
@@ -346,21 +348,24 @@ payment plus change.
 ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:jvmTest
 ```
 
-Then by hand, on regtest, with two devices in a group with an opened wallet:
+Both ran after every phase, and every phase was committed only once they
+passed. At the end: 1,348 JVM tests passing, the Android compile clean, and
+every audit budget and floor met.
 
-1. fund it with two coins;
-2. send an amount that needs one coin, and check that the preview's change
-   matches the approval screen's change on the other device;
-3. while the first spend is open, send a second amount, and check that it
-   picks the other coin and a different change address;
-4. sign both, confirm both, and check that both change coins appear in the
-   wallet's confirmed balance;
-5. send an amount that leaves dust change, and check the *go to the fee* line.
+**Still to do, by hand, on regtest**, with two devices in a group with an
+opened wallet. This needs two devices with nodes, so it was not done while
+building. Each step, and the automated test that comes closest:
 
-Then update [group-chain-wallet.md](./group-chain-wallet.md): remove the Phase
-10 table's *send-all only* row, and make the "built" table's `SEND_AN_AMOUNT`
-row say the gate was removed and that the mainnet cap stands in for it. This
-note is already in [README.md](./README.md).
+| step | closest automated cover | what it cannot show |
+|---|---|---|
+| 1. fund it with two coins | — | |
+| 2. send an amount that needs one coin, and check the preview's change matches the approval screen's on the other device | `GroupSpendSigningJvmTest`'s end-to-end case: the builder's `change` equals the other device's checked change output | the two screens drawn side by side |
+| 3. with the first spend open, send a second, and check it picks the other coin and a different change address | the same test, with an open spend holding index 0 and the second paying index 1 | reservations read through the real repository after a real round of messages |
+| 4. sign both, confirm both, and check that both change coins are in the confirmed balance | the same test's `confirmedBalance`, and `GroupOnchainWalletJvmTest`'s change coin over a fake Electrum | a real Electrum server reporting the change address |
+| 5. send an amount that leaves dust change, and check the *go to the fee* line | `GroupSpendBuilderTest`'s dust case for `absorbed` | the line itself on screen: no screen test produces dust change |
+
+The wallet note's tables were updated in Phase 2, and this note was added to
+[README.md](./README.md) with the plan.
 
 ---
 

@@ -77,3 +77,7 @@ of nine rules and its two constraints before any phase, and its table of where t
 build chose differently before any of the code -- its first row, that a room's
 profile picks its pipeline, is the shape of everything that follows, and its last
 is the one fork the library cannot yet settle.
+The group send-an-amount note is a phased plan that has been built, and reads
+as the third gate of the group chain wallet note's Phase 10: why that gate
+could not lift as written, and what stands in for it now that it is gone. Read
+its list of what the gated code got wrong before its phases.
