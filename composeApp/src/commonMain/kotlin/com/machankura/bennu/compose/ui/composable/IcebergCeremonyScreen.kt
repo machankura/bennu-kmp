@@ -38,6 +38,7 @@ import bennu.composeapp.generated.resources.confirm_what_you_saw
 import bennu.composeapp.generated.resources.confirming_publishes_your_public_share
 import bennu.composeapp.generated.resources.couldn_t_approve_this_step
 import bennu.composeapp.generated.resources.couldn_t_start_the_key_ceremony
+import bennu.composeapp.generated.resources.hasn_t_answered_the_proposal_yet
 import bennu.composeapp.generated.resources.join_the_ceremony
 import bennu.composeapp.generated.resources.joining_publishes_commitments
 import bennu.composeapp.generated.resources.lightning_wallet_key
@@ -234,7 +235,16 @@ private fun Ceremony(modifier: Modifier, state: IcebergCeremonyUIState.Loaded, i
         items(session.participants()) { participant ->
             ListItem(
                 headlineContent = { Text(members[participant]?.profile?.humanReadableNameOrPubkey() ?: participant.take(16)) },
-                supportingContent = { Text(stringResource(Res.string.s_of_3_steps, (state.progress[participant] ?: 0).toString())) },
+                supportingContent = {
+                    // Phase 15: a member whose build does not know these kinds never answers, and the
+                    // group would be smaller for it, so the screen says who has not.
+                    val steps = state.progress[participant] ?: 0
+                    val failed = session.stage == IcebergRitualStage.FAILED
+                    Text(
+                        text = if (steps == 0 && !failed) stringResource(Res.string.hasn_t_answered_the_proposal_yet) else stringResource(Res.string.s_of_3_steps, steps.toString()),
+                        color = if (steps == 0 && !failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
             )
         }
     }

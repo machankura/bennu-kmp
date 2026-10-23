@@ -774,4 +774,5 @@
     <string name="close_its_channels">Close its channels</string>
     <string name="sweep_s_sats">Sweep %1$s sats</string>
     <string name="nobody_runs_this_wallet_s_node">Nobody runs its node, and its channels close only through it.</string>
+    <string name="hasn_t_answered_the_proposal_yet">Hasn't answered the proposal yet. Their device may need an update that knows Lightning wallets.</string>
 </resources>
