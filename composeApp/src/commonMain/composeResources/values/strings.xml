@@ -21,6 +21,10 @@
       "XML file ... is not valid. Check the file content."
     -->
     <string name="abandoned">Abandoned</string>
+    <string name="abandon">Abandon</string>
+    <string name="abandon_ceremony">Abandon ceremony</string>
+    <string name="abandon_this_key_ceremony_question">Abandon this key ceremony?</string>
+    <string name="it_ends_for_everyone_in_it_no_key_is_created">It ends for everyone in it. No key is created, and the ceremony can be started again.</string>
     <string name="abandoned_nothing_was_signed">Abandoned. Nothing was signed.</string>
     <string name="filter_all">All</string>
     <string name="app_name">Bennu</string>

@@ -387,6 +387,24 @@ class DkgRitualViewModel(
     }
 
     /**
+     * Ends this ceremony for everyone in it. The screen asks the member to confirm
+     * first; the session flow delivers the failed row, so nothing is set here.
+     */
+    fun abandon() {
+        if (isActionPending.value) return
+
+        val loaded = dkgRitualUIState as? DkgRitualUIState.Loaded ?: return
+        if (!loaded.canAbandon) return
+
+        isActionPending.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            dkgRepository.abandon(loaded.localChatRoom, loaded.session.id)
+            isActionPending.value = false
+        }
+    }
+
+    /**
      * Agrees to whatever the ritual is currently waiting on from this device.
      *
      * Takes the step rather than reading it back from the state so a screen opened

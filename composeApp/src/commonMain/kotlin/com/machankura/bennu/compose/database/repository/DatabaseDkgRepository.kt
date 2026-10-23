@@ -214,6 +214,17 @@ class DatabaseDkgRepository(
         null
     }
 
+    override suspend fun abandon(localChatRoom: LocalChatRoom, sessionId: String): Boolean = try {
+        ChillDkgRitualManager.abandon(
+            database = database,
+            localChatRoom = localChatRoom,
+            sessionId = sessionId,
+        )
+    } catch (e: Throwable) {
+        logger.e("Error abandoning DKG ritual $sessionId", e)
+        false
+    }
+
     override suspend fun approve(
         localChatRoom: LocalChatRoom,
         sessionId: String,

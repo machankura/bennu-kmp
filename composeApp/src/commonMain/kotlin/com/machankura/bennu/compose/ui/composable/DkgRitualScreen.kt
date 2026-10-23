@@ -34,7 +34,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import bennu.composeapp.generated.resources.abandon
+import bennu.composeapp.generated.resources.abandon_ceremony
+import bennu.composeapp.generated.resources.abandon_this_key_ceremony_question
+import bennu.composeapp.generated.resources.cancel
+import bennu.composeapp.generated.resources.it_ends_for_everyone_in_it_no_key_is_created
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -167,6 +179,7 @@ fun DkgRitualScreen(
             is DkgRitualUIState.Loaded -> {
                 val session = dkgRitualUIState.session
                 val participantCount = dkgRitualUIState.participantCount
+                var isConfirmingAbandon by remember { mutableStateOf(false) }
                 val isActionPending = dkgRitualViewModel.isActionPending.value
 
                 Scaffold(
@@ -291,6 +304,44 @@ fun DkgRitualScreen(
                                     dkgRitualViewModel.createAdminGroup(onNavigateToRoute)
                                 }
                             )
+
+                            // Here rather than on the approval screens, where the
+                            // consequence can be read against the whole ceremony:
+                            // it ends for everyone, not just for this member.
+                            if (dkgRitualUIState.canAbandon) {
+                                TextButton(
+                                    onClick = { isConfirmingAbandon = true },
+                                    enabled = !isActionPending,
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    )
+                                ) {
+                                    Text(stringResource(Res.string.abandon_ceremony))
+                                }
+                            }
+                    }
+
+                    if (isConfirmingAbandon) {
+                        AlertDialog(
+                            onDismissRequest = { isConfirmingAbandon = false },
+                            title = { Text(stringResource(Res.string.abandon_this_key_ceremony_question)) },
+                            text = { Text(stringResource(Res.string.it_ends_for_everyone_in_it_no_key_is_created)) },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        isConfirmingAbandon = false
+                                        dkgRitualViewModel.abandon()
+                                    }
+                                ) {
+                                    Text(stringResource(Res.string.abandon))
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { isConfirmingAbandon = false }) {
+                                    Text(stringResource(Res.string.cancel))
+                                }
+                            },
+                        )
                     }
                 }
             }

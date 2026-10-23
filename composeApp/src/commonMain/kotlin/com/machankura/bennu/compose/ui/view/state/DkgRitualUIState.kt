@@ -7,6 +7,7 @@ import com.machankura.bennu.compose.database.model.Participant
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.intermdiate.LocalParticipant
 import com.machankura.bennu.compose.database.model.types.DkgApprovalStep
+import com.machankura.bennu.compose.database.model.types.DkgRitualStage
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.machankura.bennu.compose.managers.ChillDkgRitualManager
 
@@ -130,6 +131,15 @@ sealed interface DkgRitualUIState {
                     )
                 }
         }
+
+        /**
+         * Whether this member can end the ceremony for everyone: while it is still
+         * running, and only if they are in it. See `ChillDkgRitualManager.abandon`.
+         */
+        val canAbandon: Boolean
+            get() = session.stage != DkgRitualStage.COMPLETE &&
+                session.stage != DkgRitualStage.FAILED &&
+                session.userPublicKey in ChillDkgRitualManager.participantsOf(session, localChatRoom)
 
         /**
          * The `n` of the t-of-n, as the session has it, because that is the count

@@ -443,6 +443,98 @@ class SubgroupCeremonyInParentRoomTest {
     }
 
     /**
+     * A participant can end a ceremony for everyone in it.
+     *
+     * There is no "no" in ChillDKG short of this, and without it a ceremony
+     * opened by mistake could only be left running -- see
+     * docs/ceremony-creation.md, finding F8.
+     */
+    @Test
+    fun `a participant who abandons ends the ceremony on every device`(): Unit = runBlocking {
+        val room = parentRoom()
+        val session = openCeremony(room)
+
+        val theirRoom = receiverRoom()
+        val proposal = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL }
+        )
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        assertTrue(ChillDkgRitualManager.abandon(parent, room, session.id))
+        assertEquals(DkgRitualStage.FAILED, parent.dkgSessionDao().getSessionById(session.id)?.stage)
+
+        val failure = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.FAILURE },
+            "the other participants are told",
+        )
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = failure.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        assertEquals(
+            DkgRitualStage.FAILED,
+            receiver.dkgSessionDao().getSessionById(session.id)?.stage,
+            "and it ends for them too",
+        )
+
+        assertTrue(
+            !ChillDkgRitualManager.abandon(parent, room, session.id),
+            "a ceremony that is over cannot be abandoned again",
+        )
+    }
+
+    /**
+     * Every member of the parent can read a subgroup's proposal, and so can name
+     * its session. Only the people in it can end it (finding F9).
+     */
+    @Test
+    fun `a parent member outside the subgroup cannot end its ceremony`(): Unit = runBlocking {
+        val room = parentRoom()
+        val session = openCeremony(room)
+
+        val theirRoom = receiverRoom()
+        val proposal = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL }
+        )
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = Event(
+                id = "ab".repeat(32),
+                pubKey = malloryPublicKey,
+                createdAt = 2,
+                kind = DkgRitualEvents.FAILURE,
+                tags = DkgRitualEvents.assembleTags(sessionId = session.id),
+                content = "not mine to end",
+                sig = ""
+            ),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        val stillRunning = assertNotNull(receiver.dkgSessionDao().getSessionById(session.id))
+        assertTrue(stillRunning.stage != DkgRitualStage.FAILED, "a non-participant's FAILURE is ignored")
+    }
+
+    /**
      * The parent does not start signing as its own child.
      *
      * `completedKey`'s last fallback is a ceremony held in this very room, and it

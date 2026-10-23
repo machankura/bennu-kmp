@@ -110,6 +110,12 @@ interface DkgRepository {
      * room has no standing to propose one -- both of which mean there is nothing
      * true to propose.
      */
+    /**
+     * Ends a ceremony this device is in, for everyone in it -- see
+     * `ChillDkgRitualManager.abandon`. Returns whether it was ended.
+     */
+    suspend fun abandon(localChatRoom: LocalChatRoom, sessionId: String): Boolean
+
     suspend fun proposeGroupKeyState(
         localChatRoom: LocalChatRoom,
         userPublicKey: HexKey,
@@ -231,6 +237,8 @@ interface DkgRepository {
                 step: DkgApprovalStep,
                 nostrPrivateKey: ByteArray
             ) = Unit
+
+            override suspend fun abandon(localChatRoom: LocalChatRoom, sessionId: String): Boolean = false
 
             override suspend fun proposeGroupKeyState(
                 localChatRoom: LocalChatRoom,

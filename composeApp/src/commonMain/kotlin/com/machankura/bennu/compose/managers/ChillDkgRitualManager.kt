@@ -106,6 +106,9 @@ object ChillDkgRitualManager {
      */
     const val MINIMUM_PARTICIPANTS = 2
 
+    /** Why a ceremony a participant walked away from ended, as every device records it. */
+    private const val ABANDONED = "Abandoned by a participant"
+
     /**
      * This device's long-term ChillDKG host secret key.
      *
@@ -392,7 +395,7 @@ object ChillDkgRitualManager {
             return
         }
 
-        if (!record(database, session, innerEvent)) return
+        if (!record(database, localChatRoom, session, innerEvent)) return
 
         advance(
             database = database,
@@ -581,7 +584,7 @@ object ChillDkgRitualManager {
         logger.i("Replaying ${stored.size} stored message(s) for ritual ${session.id}")
 
         stored.forEach { payload ->
-            if (!record(database, session, payload)) return
+            if (!record(database, localChatRoom, session, payload)) return
         }
     }
 
@@ -595,6 +598,7 @@ object ChillDkgRitualManager {
      */
     private suspend fun record(
         database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
         session: DkgSession,
         innerEvent: Event
     ): Boolean {
@@ -665,6 +669,18 @@ object ChillDkgRitualManager {
             }
 
             DkgRitualEvents.FAILURE -> {
+                // Only somebody in the ceremony can end it. In a parent's room every
+                // member can read a subgroup's proposal, and so could name its
+                // session -- but a member who was never in it walking away is not
+                // the ceremony failing.
+                if (innerEvent.pubKey !in participantsOf(session, localChatRoom)) {
+                    logger.w(
+                        "Ritual ${session.id}: FAILURE from ${innerEvent.pubKey.take(8)}, " +
+                            "who is not in it; ignoring"
+                    )
+                    return true
+                }
+
                 fail(
                     database = database,
                     session = session,
@@ -1117,6 +1133,49 @@ object ChillDkgRitualManager {
         }
 
         return null
+    }
+
+    /**
+     * Ends a ceremony this device is in, for everyone in it.
+     *
+     * ChillDKG has no "no" short of this: a participant who never approves stalls
+     * the ceremony for good, and the others are left waiting on a key that will
+     * not come. Saying so lets them stop. It is the same FAILURE message a fault
+     * sends, and every device files it the same way -- no key is created, and the
+     * group can start again.
+     *
+     * Returns whether it was ended. Refuses, rather than throws, a ceremony this
+     * device is not in or one that is already over: a stale screen may ask.
+     */
+    suspend fun abandon(
+        database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
+        sessionId: String,
+    ): Boolean {
+        val session = database.dkgSessionDao().getSessionById(sessionId) ?: return false
+
+        if (session.stage == DkgRitualStage.COMPLETE || session.stage == DkgRitualStage.FAILED) {
+            logger.i("Ritual $sessionId is already over; nothing to abandon")
+            return false
+        }
+
+        if (session.userPublicKey !in participantsOf(session, localChatRoom)) {
+            logger.w("Ritual $sessionId does not include this device; not abandoning it")
+            return false
+        }
+
+        logger.i("Abandoning ritual $sessionId")
+
+        fail(database, session, ABANDONED)
+        broadcast(
+            database = database,
+            localChatRoom = localChatRoom,
+            session = session,
+            kind = DkgRitualEvents.FAILURE,
+            content = ABANDONED
+        )
+
+        return true
     }
 
     /**
