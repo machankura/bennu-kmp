@@ -448,6 +448,44 @@ class GuardianSigningJvmTest {
     }
 
     @Test
+    fun `the child reads off the chain which guardian took its coins, and says so once`(): Unit = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        val statement = guardedStatement()
+        tell(proposer, statement)
+        tell(other, statement)
+
+        val guarded = assertNotNull(GuardianManager.guardedWalletFor(proposer.db, roomId, guardedChildRoomId, chain, 0))
+        val funding = fundingOf(guarded.account)
+        val built = assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.sendAll(fundedState(guarded.account, funding, 100, 200), fr.acinq.bitcoin.Bitcoin.addressFromPublicKeyScript(chain.chainHash, elsewhere.toByteArray()).right!!, 2, emptySet(), guarded.spender())
+        )
+        val session = FrostSigningManager.proposeGuardianSpend(proposer.db, proposer.room, proposer.publicKey, built.psbt, guardedChildRoomId, chain)
+        pump(proposer, other)
+        FrostSigningManager.approve(other.db, other.room, session.id)
+        pump(proposer, other)
+        val signed = Transaction.read(assertNotNull(proposer.db.groupTransactionDao().getBySessionId(session.id)?.signedTransaction))
+
+        // What the child's device knows: its own coin, and the transaction that spent it.
+        val coins = mapOf(OutPoint(funding, 0) to (funding.txOut[0] to GroupWalletDerivation.derive(guarded.account, 0, 0)))
+        val taken = GuardianManager.takenIn(signed, guarded.account, coins)
+        assertEquals(listOf(GuardianManager.Taken(signed.txid, guarded.account.guardians[0], Satoshi(50_000))), taken)
+
+        // The child's own key-path spend names nobody.
+        val ownSpend = signed.updateWitness(0, fr.acinq.bitcoin.ScriptWitness(listOf(ByteVector(ByteArray(64)))))
+        assertEquals(emptyList(), GuardianManager.takenIn(ownSpend, guarded.account, coins))
+
+        // The line, written once, in the child's room -- the ancestor's name from
+        // this device's own copy of its room.
+        proposer.db.chatRoomDao().upsert(ChatRoom(id = guardedChildRoomId, userPublicKey = proposer.publicKey, subject = "Translation team", description = null, mlsGroupState = "00"))
+        assertEquals(1, GuardianManager.recordTaken(proposer.db, guardedChildRoomId, taken))
+        assertEquals(0, GuardianManager.recordTaken(proposer.db, guardedChildRoomId, taken), "a second reading of the chain writes nothing")
+        val line = proposer.db.chatMessageDao().getChatMessagesByChatRoomId(guardedChildRoomId).map { it.chatMessage }
+            .single { it.messageType == com.machankura.bennu.compose.database.model.ChatMessage.TYPE_GUARDIAN_SPEND }
+        assertTrue(line.content.startsWith("Council took 50000 sats from this wallet through its guardian leaf"), line.content)
+    }
+
+    @Test
     fun `a guardian's spend is refused for a wallet the room was not told about, or without the lock`(): Unit = runBlocking {
         val proposer = device(members[0], signerIndex = 0)
         val other = device(members[1], signerIndex = 1)

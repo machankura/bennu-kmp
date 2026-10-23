@@ -1,6 +1,12 @@
 package com.machankura.bennu.compose.wallet
 
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.managers.GuardianManager
+import fr.acinq.bitcoin.Crypto
+import fr.acinq.bitcoin.OutPoint
+import fr.acinq.bitcoin.Transaction
+import fr.acinq.bitcoin.TxId
+import fr.acinq.bitcoin.byteVector32
 import fr.acinq.lightning.blockchain.electrum.IElectrumClient
 import fr.acinq.lightning.blockchain.fee.FeeratePerByte
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +47,48 @@ class GroupOnchainWallets(
      */
     suspend fun suggestedFeeratePerVbyte(): Long? =
         electrum.estimateFees(6)?.let { FeeratePerByte(it).feerate.sat }?.coerceAtLeast(1)
+
+    /** Transactions fetched for [guardianSpends], which never change once mined or seen. */
+    private val transactions = mutableMapOf<TxId, Transaction>()
+
+    /**
+     * Every spend a guardian of [state]'s account made from it, read off the
+     * history of each address the wallet has used. Empty for an unguarded
+     * account, and for whatever Electrum cannot answer right now -- the next look
+     * asks again.
+     *
+     * History rather than a watch on coins disappearing: a device asleep when the
+     * coin moved still finds it, since the chain keeps the record and nothing
+     * here has to have been running at the time.
+     */
+    suspend fun guardianSpends(state: GroupWalletState): List<GuardianManager.Taken> {
+        val account = state.account
+        if (!account.isGuarded) return emptyList()
+
+        val used = listOf(GroupWalletDerivation.RECEIVE to state.receive, GroupWalletDerivation.CHANGE to state.change)
+            .flatMap { (branch, wallet) ->
+                wallet.addresses.values.filter { it.alreadyUsed }.mapNotNull { address ->
+                    address.meta.indexOrNull?.let { GroupWalletDerivation.derive(account, branch, it.toLong()) }
+                }
+            }
+        val ours = used.associateBy { it.pubkeyScript }
+
+        val history = used.flatMap { derived ->
+            runCatching { electrum.getScriptHashHistory(Crypto.sha256(derived.pubkeyScript).byteVector32().reversed()) }
+                .getOrDefault(emptyList())
+                .map { it.txid }
+        }.distinct().mapNotNull { txid -> transactionOf(txid) }
+
+        val coins = history.flatMap { tx ->
+            tx.txOut.mapIndexedNotNull { index, out -> ours[out.publicKeyScript]?.let { OutPoint(tx, index.toLong()) to (out to it) } }
+        }.toMap()
+
+        return history.flatMap { GuardianManager.takenIn(it, account, coins) }
+    }
+
+    private suspend fun transactionOf(txid: TxId): Transaction? =
+        mutex.withLock { transactions[txid] }
+            ?: runCatching { electrum.getTx(txid) }.getOrNull()?.also { tx -> mutex.withLock { transactions[txid] = tx } }
 
     suspend fun stop() = mutex.withLock {
         wallets.values.forEach { it.stop() }

@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.managers
 
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
+import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.database.model.MarmotInnerEvent
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
@@ -13,6 +14,12 @@ import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
 import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.OutPoint
+import fr.acinq.bitcoin.Satoshi
+import fr.acinq.bitcoin.Transaction
+import fr.acinq.bitcoin.TxId
+import fr.acinq.bitcoin.TxOut
+import fr.acinq.lightning.utils.sum
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -231,6 +238,79 @@ object GuardianManager {
         }
 
         return rooms.size
+    }
+
+    /** Coins of a guarded wallet one of its guardians took, in one transaction. */
+    data class Taken(
+        val txid: TxId,
+        val guardian: GuardianDerivation.Guardian,
+        val amount: Satoshi,
+    )
+
+    /**
+     * Which guardians of [account] took which of [coins] in [spending] -- one
+     * entry per guardian -- read off the witnesses alone.
+     *
+     * A guardian's input carries three things: a signature, a leaf, and the
+     * control block proving the leaf is in the address. The leaf is matched
+     * against the guardian leaves of the address the coin was at, so a leaf is
+     * named only by a guardian whose key it is; anything else -- the wallet's own
+     * key-path spend, a witness of another shape -- names nobody.
+     */
+    fun takenIn(
+        spending: Transaction,
+        account: GroupWalletDerivation.Account,
+        coins: Map<OutPoint, Pair<TxOut, GroupWalletDerivation.Derived>>,
+    ): List<Taken> {
+        if (!account.isGuarded) return emptyList()
+
+        return spending.txIn.mapNotNull { input ->
+            val (txOut, derivation) = coins[input.outPoint] ?: return@mapNotNull null
+            val stack = input.witness.stack.takeIf { it.size == 3 } ?: return@mapNotNull null
+            val leaves = GuardianDerivation.leaves(account.guardians, account.chain, account.account, derivation.change, derivation.index)
+            val position = leaves.indexOfFirst { it.script == stack[1] }.takeIf { it >= 0 } ?: return@mapNotNull null
+            account.guardians[position] to txOut.amount
+        }
+            .groupBy({ it.first }, { it.second })
+            .map { (guardian, amounts) -> Taken(spending.txid, guardian, amounts.sum()) }
+    }
+
+    /**
+     * Writes a transcript line in [chatRoomId] for each of [taken] it has no line
+     * for yet. Returns how many it wrote.
+     *
+     * The whole of the child's notice that an ancestor spent from its wallet --
+     * there is no channel from the ancestor's room into this one -- so it is
+     * written by whichever device reads the chain first, and every device that
+     * reads it afterwards finds it already there.
+     */
+    suspend fun recordTaken(database: BennuDatabase, chatRoomId: String, taken: List<Taken>): Int {
+        val written = database.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId)
+            .map { it.chatMessage }
+            .filter { it.messageType == ChatMessage.TYPE_GUARDIAN_SPEND }
+            .map { it.content }
+
+        val fresh = taken.filter { spend -> written.none { it.contains(spend.txid.toString()) } }
+        fresh.forEach { spend ->
+            val name = database.chatRoomDao().findChatRoomById(spend.guardian.chatRoomId)?.chatRoom?.subject
+                ?.takeIf { it.isNotBlank() }
+                ?: "A group above this one"
+            database.chatMessageDao().upsert(
+                ChatMessage(
+                    senderPublicKey = spend.guardian.chatRoomId,
+                    isUserMessage = false,
+                    giftWrapPayloadId = null,
+                    marmotGroupEventId = null,
+                    marmotInnerEventId = null,
+                    chatRoomId = chatRoomId,
+                    content = "$name took ${spend.amount.sat} sats from this wallet through its guardian leaf, " +
+                        "in transaction ${spend.txid}.",
+                    messageType = ChatMessage.TYPE_GUARDIAN_SPEND,
+                )
+            )
+            logger.i("${spend.guardian.chatRoomId} took ${spend.amount.sat} sats from $chatRoomId's guarded wallet in ${spend.txid}")
+        }
+        return fresh.size
     }
 
     /**

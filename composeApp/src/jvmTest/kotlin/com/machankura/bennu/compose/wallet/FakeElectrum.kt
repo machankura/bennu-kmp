@@ -41,6 +41,9 @@ internal class FakeElectrum : IElectrumClient {
     /** How many transactions have touched each script: Electrum's status is over the history, not the unspents. */
     private val history = mutableMapOf<ByteVector32, Int>()
 
+    /** The transactions that touched each script, in order: what `get_history` answers. */
+    private val historyTxs = mutableMapOf<ByteVector32, List<TxId>>()
+
     private fun status(scriptHash: ByteVector32): String? = history[scriptHash]?.let { "used:$it" }
 
     /** Pays [script] in a fresh transaction, confirmed at [height] (0 for the mempool), and tells the wallet. */
@@ -55,6 +58,7 @@ internal class FakeElectrum : IElectrumClient {
         val hash = scriptHash(script)
         unspents[hash] = unspents[hash].orEmpty() + UnspentItem(tx.txid, 0, amount.sat, height)
         history[hash] = (history[hash] ?: 0) + 1
+        historyTxs[hash] = historyTxs[hash].orEmpty() + tx.txid
         notifications.emit(ScriptHashSubscriptionResponse(hash, status(hash)))
     }
 
@@ -64,6 +68,17 @@ internal class FakeElectrum : IElectrumClient {
         unspents.remove(hash)
         history[hash] = (history[hash] ?: 0) + 1
         notifications.emit(ScriptHashSubscriptionResponse(hash, status(hash)))
+    }
+
+    /** The transaction paying [script] most recently, as [pay] made it. */
+    fun fundingOf(script: ByteVector): Transaction = txs.getValue(historyTxs.getValue(scriptHash(script)).last())
+
+    /** Spends what [script] holds with [tx] itself, which joins its history as a real spend would. */
+    suspend fun spendWith(script: ByteVector, tx: Transaction) {
+        val hash = scriptHash(script)
+        txs[tx.txid] = tx
+        historyTxs[hash] = historyTxs[hash].orEmpty() + tx.txid
+        spend(script)
     }
 
     override suspend fun startScriptHashSubscription(scriptHash: ByteVector32): ScriptHashSubscriptionResponse {
@@ -76,7 +91,8 @@ internal class FakeElectrum : IElectrumClient {
     override suspend fun getHeader(blockHeight: Int): BlockHeader? = null
     override suspend fun getHeaders(startHeight: Int, count: Int): List<BlockHeader> = emptyList()
     override suspend fun getMerkle(txId: TxId, blockHeight: Int, contextOpt: Transaction?): GetMerkleResponse? = null
-    override suspend fun getScriptHashHistory(scriptHash: ByteVector32): List<TransactionHistoryItem> = emptyList()
+    override suspend fun getScriptHashHistory(scriptHash: ByteVector32): List<TransactionHistoryItem> =
+        historyTxs[scriptHash].orEmpty().map { TransactionHistoryItem(100, it) }
     override suspend fun broadcastTransaction(tx: Transaction): TxId = tx.txid
     override suspend fun estimateFees(confirmations: Int): FeeratePerKw? = null
     override suspend fun startHeaderSubscription() = HeaderSubscriptionResponse(0, Block.RegtestGenesisBlock.header)

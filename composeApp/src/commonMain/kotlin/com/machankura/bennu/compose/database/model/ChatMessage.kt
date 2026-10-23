@@ -507,6 +507,13 @@ data class ChatMessage(
          */
         const val TYPE_GUARDED_WALLET_SHARED = "guardedWalletShared"
 
+        /**
+         * One of this group's guardians spent from its guarded wallet through its
+         * leaf. Read off the chain by `GuardianManager.takenIn`, and the child's
+         * only notice of it: nobody in this room signed it.
+         */
+        const val TYPE_GUARDIAN_SPEND = "guardianSpend"
+
         val GROUP_IDENTITY_TYPES = setOf(
             TYPE_GROUP_PROFILE_SIGNED,
             TYPE_GROUP_RELAYS_SIGNED,
@@ -516,6 +523,7 @@ data class ChatMessage(
             TYPE_GROUP_WALLET_OPENED,
             TYPE_GROUP_TRANSACTION_CONFIRMED,
             TYPE_GUARDED_WALLET_SHARED,
+            TYPE_GUARDIAN_SPEND,
         )
 
         /**

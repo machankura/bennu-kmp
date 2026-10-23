@@ -137,6 +137,9 @@ interface ChatRepository {
     /** Tells the groups in [shareable] about its statement, as [userPublicKey]. Returns how many were told. */
     suspend fun shareGuardedWallet(shareable: GuardianManager.Shareable, userPublicKey: HexKey): Int
 
+    /** Writes a transcript line for each guardian spend from this group's wallet it has none for yet. */
+    suspend fun recordGuardianSpends(chatRoomId: String, taken: List<GuardianManager.Taken>): Int
+
     /**
      * The kind:1s this group signed, newest first.
      *
@@ -411,6 +414,11 @@ interface ChatRepository {
             override suspend fun shareGuardedWallet(
                 shareable: GuardianManager.Shareable,
                 userPublicKey: HexKey
+            ): Int = 0
+
+            override suspend fun recordGuardianSpends(
+                chatRoomId: String,
+                taken: List<GuardianManager.Taken>
             ): Int = 0
 
             override suspend fun groupPosts(chatRoomId: String): List<GroupPost> = emptyList()

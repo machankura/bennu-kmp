@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -116,6 +118,7 @@ class GroupWalletViewModel(
             // state: any of them changing redraws the screen, and none may
             // overwrite another.
             val chainState = wallets?.walletFor(wallet.account)?.state ?: flowOf(null)
+            noticeGuardianSpends(wallet.account)
             watching = viewModelScope.launch(Dispatchers.IO) {
                 combine(
                     chainState,
@@ -140,6 +143,26 @@ class GroupWalletViewModel(
 
         val states = guarded.map { wallet -> wallets.walletFor(wallet.account).state.map { GuardedWalletRow(wallet, it) } }
         return combine(states) { it.toList() }
+    }
+
+    private var noticing: Job? = null
+
+    /**
+     * For a guarded wallet: each time its coins change, reads the chain for
+     * spends a guardian made from it and writes the transcript line for any that
+     * has none -- the group's only notice, since nobody in it signed them.
+     */
+    private suspend fun noticeGuardianSpends(account: GroupWalletDerivation.Account) {
+        val wallets = wallets ?: return
+        if (!account.isGuarded) return
+        val onchain = wallets.walletFor(account)
+
+        noticing?.cancel()
+        noticing = viewModelScope.launch(Dispatchers.IO) {
+            onchain.state
+                .distinctUntilChangedBy { state -> state.utxos.map { it.utxo.outPoint }.toSet() }
+                .collect { state -> chatRepository.recordGuardianSpends(chatRoomId, wallets.guardianSpends(state)) }
+        }
     }
 
     /**

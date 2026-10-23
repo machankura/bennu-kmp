@@ -230,6 +230,13 @@ class DatabaseChatRepository(
         0
     }
 
+    override suspend fun recordGuardianSpends(chatRoomId: String, taken: List<GuardianManager.Taken>): Int = try {
+        GuardianManager.recordTaken(database, chatRoomId, taken)
+    } catch (e: Throwable) {
+        logger.e("Error recording guardian spends from $chatRoomId's wallet", e)
+        0
+    }
+
     override suspend fun groupSignedEvent(chatRoomId: String, id: HexKey): GroupSignedEvent? = try {
         database.groupSignedEventDao().getById(id)?.takeIf { it.chatRoomId == chatRoomId }
     } catch (e: Throwable) {
