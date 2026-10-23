@@ -3,6 +3,8 @@ package com.machankura.bennu.compose.managers
 import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import fr.acinq.bitcoin.utils.Either
 import fr.acinq.lightning.CltvExpiryDelta
+import fr.acinq.lightning.Feature
+import fr.acinq.lightning.FeatureSupport
 import fr.acinq.lightning.Features
 import fr.acinq.lightning.Lightning.randomBytes32
 import fr.acinq.lightning.MilliSatoshi
@@ -28,6 +30,9 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
     override suspend fun createInvoice(amountMsat: Long?, description: String): String =
         Bolt11Invoice.create(
             configuration.chain, amountMsat?.let(::MilliSatoshi), randomBytes32(), configuration.keyManager.nodeKeys.nodeKey.privateKey,
-            Either.Left(description), CltvExpiryDelta(144), Features.empty,
+            Either.Left(description), CltvExpiryDelta(144), INVOICE_FEATURES,
         ).also { invoices += it }.write()
 }
+
+/** What a Bolt11 invoice must advertise to be read back at all. */
+val INVOICE_FEATURES = Features(Feature.VariableLengthOnion to FeatureSupport.Mandatory, Feature.PaymentSecret to FeatureSupport.Mandatory)

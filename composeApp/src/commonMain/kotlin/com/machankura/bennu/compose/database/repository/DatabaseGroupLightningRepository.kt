@@ -7,6 +7,7 @@ import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
 import com.machankura.bennu.compose.managers.FrostSigningManager
 import com.machankura.bennu.compose.database.model.FrostSigningSession
+import com.machankura.bennu.compose.database.model.GroupLightningInvoiceRow
 import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.managers.GroupLightningCoSigner
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
@@ -50,6 +51,12 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
 
     override fun observePayments(chatRoomId: String, chain: Chain): Flow<List<GroupLightningPaymentRow>> =
         database.groupLightningRecordsDao().observePayments(GroupLightningCoSigner.walletKey(chatRoomId, chain, 0L))
+
+    override suspend fun requestInvoice(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, amountMsat: Long?, description: String): String =
+        GroupLightningReports.requestInvoice(database, localChatRoom, userPublicKey, wallet, amountMsat, description)
+
+    override fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?> =
+        database.groupLightningRecordsDao().observeInvoice(GroupLightningCoSigner.walletKey(chatRoomId, chain, 0L), requestId)
 
     override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> =
         database.icebergKeySessionDao().observeSessionById(sessionId)

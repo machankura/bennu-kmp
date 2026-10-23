@@ -737,4 +737,14 @@
     <string name="received_s_sats">Received %1$s sats</string>
     <string name="sent_s_sats_with_a_fee_of_s_sats">Sent %1$s sats, with a fee of %2$s sats</string>
     <string name="couldn_t_send_s_sats">Couldn't send %1$s sats</string>
+    <string name="receive">Receive</string>
+    <string name="what_it_is_for">What it's for</string>
+    <string name="leave_the_amount_empty_to_let_the_payer_choose">Leave the amount empty to let the payer choose.</string>
+    <string name="ask_for_an_invoice">Ask for an invoice</string>
+    <string name="waiting_for_the_operator_s_device">Waiting for the operator's device to make the invoice. It has to be online.</string>
+    <string name="this_invoice_pays_the_group_s_node">This invoice pays the group's node, the one the group signed for. Whatever it receives is the group's.</string>
+    <string name="copy_invoice">Copy invoice</string>
+    <string name="invoice_copied">Invoice copied</string>
+    <string name="nobody_runs_this_wallet_to_make_an_invoice">Nobody runs this wallet yet, so there is no node to make an invoice.</string>
+    <string name="couldn_t_ask_for_an_invoice">Couldn't ask for an invoice.</string>
 </resources>

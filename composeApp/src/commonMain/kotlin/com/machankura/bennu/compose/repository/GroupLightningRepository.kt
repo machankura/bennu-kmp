@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.repository
 
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.IcebergKeySession
+import com.machankura.bennu.compose.database.model.GroupLightningInvoiceRow
 import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
 import com.machankura.bennu.compose.managers.GroupLightningReports
@@ -62,4 +63,10 @@ interface GroupLightningRepository {
 
     /** Every payment any snapshot has reported, newest first. */
     fun observePayments(chatRoomId: String, chain: Chain): Flow<List<GroupLightningPaymentRow>>
+
+    /** Asks the operator's node for an invoice; returns the request id its answer will carry. */
+    suspend fun requestInvoice(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, amountMsat: Long?, description: String): String
+
+    /** The operator's invoice for [requestId], once it has arrived and been checked. */
+    fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?>
 }

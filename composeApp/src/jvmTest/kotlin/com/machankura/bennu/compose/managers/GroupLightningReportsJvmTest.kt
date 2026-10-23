@@ -10,13 +10,13 @@ import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
+import fr.acinq.bitcoin.ByteVector
+import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.bitcoin.utils.Either
+import fr.acinq.lightning.CltvExpiryDelta
 import fr.acinq.lightning.Lightning.randomBytes32
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import fr.acinq.lightning.payment.Bolt11Invoice
+import fr.acinq.lightning.utils.msat
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,12 +25,19 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 /**
  * What the operator's node tells the room, and what each member makes of it
  * (`docs/group-lightning-wallet.md`, Phase 10): a snapshot is believed only from the operator of the term
  * it names, every member files it with each channel checked against its own co-signing ledger, and the
- * round-one assignments it carries reach whoever operates next.
+ * round-one assignments it carries reach whoever operates next. And an invoice a member asks for (Phase 11)
+ * is made by the operator's node and believed only if it pays the group's node.
  */
 class GroupLightningReportsJvmTest {
     private val fixture = GroupLightningFixture()
@@ -130,5 +137,43 @@ class GroupLightningReportsJvmTest {
         assertEquals(5L, assignment.counter)
         assertEquals(GroupLightningCoSigner.poolLabel(wallet.statement.icebergKey, 5).toHex(), assignment.label)
         assertNull(all[2].db.icebergCoSigningDao().assignmentFor(key, "verification:x:y:0"))
+    }
+
+    @Test
+    fun `a member asks for an invoice, and the operator's node makes one that pays the group's node`() = runBlocking<Unit> {
+        val (all, node) = running()
+        val wallet = GroupLightningWalletManager.walletFor(all[3].db, fixture.roomId, fixture.chain)!!
+        val requestId = GroupLightningReports.requestInvoice(all[3].db, all[3].room, all[3].publicKey, wallet, 21_000_000, "lunch")
+        fixture.pump(all, setOf(GroupLightningEvents.INVOICE_REQUEST))
+        node.answerInvoiceRequests()
+        node.answerInvoiceRequests()
+        assertEquals(1, nodes.single().invoices.size, "a request is answered once")
+        fixture.pump(all, setOf(GroupLightningEvents.INVOICE))
+
+        all.forEach { d ->
+            val row = assertNotNull(d.db.groupLightningRecordsDao().invoice(key, requestId), "device ${d.index} has the invoice")
+            val invoice = Bolt11Invoice.read(row.bolt11).get()
+            assertEquals(wallet.statement.nodeId, invoice.nodeId.toString())
+            assertEquals(21_000_000.msat, invoice.amount)
+            assertEquals("lunch", invoice.description)
+        }
+    }
+
+    @Test
+    fun `an invoice is believed only from the operator, and only if it pays the group's node`() = runBlocking<Unit> {
+        val (all, _) = running()
+        val wallet = GroupLightningWalletManager.walletFor(all[3].db, fixture.roomId, fixture.chain)!!
+        val nodeKey = GroupLightningCoSigner.keyManagerOf(ByteVector(wallet.seed!!.seed), fixture.chain).nodeKeys.nodeKey.privateKey
+        fun invoice(signer: PrivateKey) = Bolt11Invoice.create(fixture.chain, 1_000.msat, randomBytes32(), signer, Either.Left("x"), CltvExpiryDelta(144), INVOICE_FEATURES).write()
+        fun reply(from: GroupLightningFixture.Device, requestId: String, bolt11: String) = Event(
+            randomBytes32().toHex(), from.publicKey, Clock.System.now().epochSeconds, GroupLightningEvents.INVOICE, emptyArray(),
+            CommonJson.encodeToString(WalletWire.InvoiceReply.serializer(), WalletWire.InvoiceReply(key, requestId, bolt11)), "",
+        )
+        GroupLightningReports.process(all[3].db, all[3].room, reply(all[1], "elsewhere", invoice(PrivateKey(randomBytes32()))))
+        GroupLightningReports.process(all[3].db, all[3].room, reply(all[2], "not-the-operator", invoice(nodeKey)))
+        GroupLightningReports.process(all[3].db, all[3].room, reply(all[1], "good", invoice(nodeKey)))
+        assertNull(all[3].db.groupLightningRecordsDao().invoice(key, "elsewhere"), "an invoice paying another node")
+        assertNull(all[3].db.groupLightningRecordsDao().invoice(key, "not-the-operator"), "an invoice from a member who is not the operator")
+        assertNotNull(all[3].db.groupLightningRecordsDao().invoice(key, "good"))
     }
 }

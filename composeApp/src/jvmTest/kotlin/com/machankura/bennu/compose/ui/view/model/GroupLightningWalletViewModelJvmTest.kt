@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.ui.view.model
 
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.FrostSigningSession
+import com.machankura.bennu.compose.database.model.GroupLightningInvoiceRow
 import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.database.model.IcebergKeySession
@@ -17,6 +18,7 @@ import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatem
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.GroupLightningRepository
+import com.machankura.bennu.compose.ui.view.state.GroupLightningReceiveUIState
 import com.machankura.bennu.compose.ui.view.state.GroupLightningWalletUIState
 import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -85,7 +87,9 @@ class GroupLightningWalletViewModelJvmTest {
         val thresholds: List<Int> = listOf(2),
         val report: GroupLightningReports.Report? = null,
         val payments: List<GroupLightningPaymentRow> = emptyList(),
+        val invoice: GroupLightningInvoiceRow? = null,
     ) : GroupLightningRepository {
+        val requests = mutableListOf<Pair<Long?, String>>()
         override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> = flowOf(running)
         override fun observeCeremonies(chatRoomId: String): Flow<List<IcebergKeySession>> = flowOf(listOfNotNull(running))
         override suspend fun ceremonyMessages(sessionId: String): List<IcebergParticipantMessage> = emptyList()
@@ -104,6 +108,9 @@ class GroupLightningWalletViewModelJvmTest {
         override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain): FrostSigningSession = error("unused")
         override fun observeReport(chatRoomId: String, chain: Chain): Flow<GroupLightningReports.Report?> = flowOf(report)
         override fun observePayments(chatRoomId: String, chain: Chain): Flow<List<GroupLightningPaymentRow>> = flowOf(payments)
+        override suspend fun requestInvoice(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, amountMsat: Long?, description: String): String =
+            "r1".also { requests += amountMsat to description }
+        override fun observeInvoice(chatRoomId: String, chain: Chain, requestId: String): Flow<GroupLightningInvoiceRow?> = flowOf(invoice?.takeIf { it.requestId == requestId })
     }
 
     private val chat = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
@@ -168,5 +175,27 @@ class GroupLightningWalletViewModelJvmTest {
         assertEquals(400_000_000, state.report!!.snapshot.spendableMsat)
         assertEquals(true, state.report!!.checks.single().agrees)
         assertEquals(listOf(payment), state.payments)
+    }
+
+    @Test
+    fun `receiving asks the operator for an invoice and shows it once it arrives`() {
+        assertIs<GroupLightningReceiveUIState.Unavailable>(receiving(Lightning(completed = key, wallet = wallet)).uiState, "nobody runs the node")
+
+        val lightning = Lightning(completed = key, wallet = wallet, operator = operator("b".repeat(64)), invoice = GroupLightningInvoiceRow("w", "r1", "lnbcrt1"))
+        val viewModel = receiving(lightning)
+        assertIs<GroupLightningReceiveUIState.Form>(viewModel.uiState)
+        viewModel.amountField.edit { append("2,100") }
+        viewModel.descriptionField.edit { append(" lunch ") }
+        viewModel.request(onFailure = { error("the request failed") })
+        val shown = runBlocking { withTimeout(5_000) { while (viewModel.uiState !is GroupLightningReceiveUIState.Invoice) delay(10); viewModel.uiState } }
+        assertEquals("lnbcrt1", assertIs<GroupLightningReceiveUIState.Invoice>(shown).bolt11)
+        assertEquals(listOf<Pair<Long?, String>>(2_100_000L to "lunch"), lightning.requests.toList())
+    }
+
+    private fun receiving(lightning: GroupLightningRepository): GroupLightningReceiveViewModel {
+        val viewModel = GroupLightningReceiveViewModel(me, chatRoomId, Chain.Testnet3, GroupLightningReceiveUIState.Loading, chat, lightning)
+        viewModel.initiate()
+        runBlocking { withTimeout(5_000) { while (viewModel.uiState == GroupLightningReceiveUIState.Loading) delay(10) } }
+        return viewModel
     }
 }
