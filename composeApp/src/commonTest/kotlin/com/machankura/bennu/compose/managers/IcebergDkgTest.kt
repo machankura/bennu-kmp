@@ -198,13 +198,13 @@ class IcebergDkgTest {
     }
 
     @Test
-    fun `members shown different commitments sign different transcripts`() {
+    fun `members shown different commitments publish different transcripts`() {
         val params = IcebergDkg.Params.of(2, hostKeys(4), bytes32())
         val roots = (1..4).associateWith { bytes32() }
         val commitments = (1..4).associateWith { IcebergDkg.round1(params, it, roots.getValue(it)) }
-        val run = run(4, 2)
-        val honest = IcebergDkg.transcriptHash(params, commitments, run.publicShares, run.groupKey)
+        val honest = IcebergDkg.transcriptHash(params, commitments)
+        assertEquals(honest, IcebergDkg.transcriptHash(params, commitments.toList().reversed().toMap()))
         val other = commitments + (2 to IcebergDkg.round1(params, 2, bytes32()))
-        assertNotEquals(honest, IcebergDkg.transcriptHash(params, other, run.publicShares, run.groupKey))
+        assertNotEquals(honest, IcebergDkg.transcriptHash(params, other))
     }
 }

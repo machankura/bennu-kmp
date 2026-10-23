@@ -266,6 +266,48 @@ data class ChatMessage(
          * with a key, nobody hands it to them.
          */
         /**
+         * An Iceberg key ceremony -- the group Lightning wallet's key -- as lines in the group's
+         * chat. The same shape as the ChillDKG ceremony's, and kept apart from [DKG_TYPES] because a
+         * line has to open the ceremony it is about, and the two ceremonies have different screens.
+         * [dkgSessionId] carries the Iceberg session's id on these lines.
+         */
+        const val TYPE_ICEBERG_STARTED = "icebergStarted"
+        const val TYPE_ICEBERG_COMMITTED = "icebergCommitted"
+        const val TYPE_ICEBERG_REVEALED = "icebergRevealed"
+        const val TYPE_ICEBERG_CONFIRMED = "icebergConfirmed"
+        const val TYPE_ICEBERG_COMPLETE = "icebergComplete"
+        const val TYPE_ICEBERG_FAILED = "icebergFailed"
+        const val TYPE_ICEBERG_APPROVAL_NEEDED_JOIN = "icebergApprovalNeededJoin"
+        const val TYPE_ICEBERG_APPROVAL_NEEDED_REVEAL = "icebergApprovalNeededReveal"
+        const val TYPE_ICEBERG_APPROVAL_NEEDED_CONFIRM = "icebergApprovalNeededConfirm"
+
+        val ICEBERG_REQUEST_FULFILMENTS = mapOf(
+            TYPE_ICEBERG_APPROVAL_NEEDED_JOIN to TYPE_ICEBERG_COMMITTED,
+            TYPE_ICEBERG_APPROVAL_NEEDED_REVEAL to TYPE_ICEBERG_REVEALED,
+            TYPE_ICEBERG_APPROVAL_NEEDED_CONFIRM to TYPE_ICEBERG_CONFIRMED,
+        )
+
+        val ICEBERG_REQUEST_TYPES = ICEBERG_REQUEST_FULFILMENTS.keys
+
+        val ICEBERG_TYPES = setOf(
+            TYPE_ICEBERG_STARTED,
+            TYPE_ICEBERG_COMMITTED,
+            TYPE_ICEBERG_REVEALED,
+            TYPE_ICEBERG_CONFIRMED,
+            TYPE_ICEBERG_COMPLETE,
+            TYPE_ICEBERG_FAILED,
+        ) + ICEBERG_REQUEST_TYPES
+
+        /** As [DKG_AUTHORED_TYPES]: content written to follow the actor's name. A finished key has no actor. */
+        val ICEBERG_AUTHORED_TYPES = setOf(
+            TYPE_ICEBERG_STARTED,
+            TYPE_ICEBERG_COMMITTED,
+            TYPE_ICEBERG_REVEALED,
+            TYPE_ICEBERG_CONFIRMED,
+            TYPE_ICEBERG_FAILED,
+        )
+
+        /**
          * A FROST signing session, as lines in the group's chat.
          *
          * The same shape as the ceremony's, and for the same reason: signing with
@@ -670,7 +712,7 @@ data class ChatMessage(
          */
         fun answeredRequests(messages: List<ChatMessage>): Set<Long> = messages
             .mapNotNull { request ->
-                val published = (DKG_REQUEST_FULFILMENTS + FROST_REQUEST_FULFILMENTS)[request.messageType]
+                val published = (DKG_REQUEST_FULFILMENTS + FROST_REQUEST_FULFILMENTS + ICEBERG_REQUEST_FULFILMENTS)[request.messageType]
                     ?: return@mapNotNull null
 
                 val done = messages.any {

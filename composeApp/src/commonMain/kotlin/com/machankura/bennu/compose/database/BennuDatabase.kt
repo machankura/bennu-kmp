@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.database
 
+import com.machankura.bennu.compose.database.dao.IcebergKeySessionDao
+import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
+import com.machankura.bennu.compose.database.model.IcebergKeySession
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.database.dao.GroupTransactionDao
 import androidx.room3.ColumnTypeConverters
@@ -150,6 +153,8 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         GroupKeyState::class,
         GroupSignedEvent::class,
         GroupTransaction::class,
+        IcebergKeySession::class,
+        IcebergParticipantMessage::class,
         InReplyToRelation::class,
         MantraArtifact::class,
         MantraArtifactVersion::class,
@@ -190,7 +195,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 26,
+    version = 27,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -378,6 +383,10 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // nothing is rebuilt; a rebuild of either signing table would fire the
         // cascades from FrostSigningSession, see docs/frost-batch-signing.md.
         AutoMigration(from = 25, to = 26),
+        // v27 is the group Lightning wallet's key ceremony (docs/group-lightning-wallet.md,
+        // Phase 5): the IcebergKeySession and IcebergParticipantMessage tables. Two new
+        // tables and nothing else, which Room migrates itself.
+        AutoMigration(from = 26, to = 27),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)
@@ -449,6 +458,8 @@ abstract class BennuDatabase: RoomDatabase() {
     abstract fun mantraTranslationDao(): MantraTranslationDao
 
     abstract fun mantraTranslationContributorDao(): MantraTranslationContributorDao
+
+    abstract fun icebergKeySessionDao(): IcebergKeySessionDao
 
     abstract fun marmotCommitResultDao(): MarmotCommitResultDao
 

@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.ui.composable.navigation.routes.IcebergCeremonyRoute
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -183,6 +184,15 @@ fun ChatRoomMessagingScreen(
                                                 activeUserPublicKey = activeUserPublicKey,
                                                 chatRoomId = chatRoomId,
                                                 dkgSessionId = dkgSessionId
+                                            )
+                                        )
+                                    },
+                                    onOpenIcebergCeremony = { sessionId ->
+                                        onNavigateToRoute.invoke(
+                                            IcebergCeremonyRoute(
+                                                activeUserPublicKey = activeUserPublicKey,
+                                                chatRoomId = chatRoomId,
+                                                sessionId = sessionId
                                             )
                                         )
                                     },

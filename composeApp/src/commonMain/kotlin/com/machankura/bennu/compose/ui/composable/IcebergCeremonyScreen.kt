@@ -1,0 +1,241 @@
+package com.machankura.bennu.compose.ui.composable
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.lifecycle.viewmodel.compose.viewModel
+import bennu.composeapp.generated.resources.Res
+import bennu.composeapp.generated.resources.a_lightning_wallet_needs_four_signers
+import bennu.composeapp.generated.resources.abandoned_s
+import bennu.composeapp.generated.resources.confirm_what_you_saw
+import bennu.composeapp.generated.resources.confirming_publishes_your_public_share
+import bennu.composeapp.generated.resources.couldn_t_approve_this_step
+import bennu.composeapp.generated.resources.couldn_t_start_the_key_ceremony
+import bennu.composeapp.generated.resources.join_the_ceremony
+import bennu.composeapp.generated.resources.joining_publishes_commitments
+import bennu.composeapp.generated.resources.lightning_wallet_key
+import bennu.composeapp.generated.resources.open_an_onchain_wallet_on_s_first
+import bennu.composeapp.generated.resources.s_of_3_steps
+import bennu.composeapp.generated.resources.send_your_contributions
+import bennu.composeapp.generated.resources.sending_contributions_encrypts_each
+import bennu.composeapp.generated.resources.signers_needed_s_of_s
+import bennu.composeapp.generated.resources.start_a_key_ceremony
+import bennu.composeapp.generated.resources.the_group_has_a_lightning_wallet_key
+import bennu.composeapp.generated.resources.the_lightning_wallet_key_is_made_by_everyone
+import bennu.composeapp.generated.resources.this_group_has_no_lightning_wallet_key_yet
+import bennu.composeapp.generated.resources.waiting_for_contributions
+import bennu.composeapp.generated.resources.waiting_for_everyone_to_confirm
+import bennu.composeapp.generated.resources.waiting_for_everyone_to_join
+import bennu.composeapp.generated.resources.your_share_of_this_key_is_stored_unencrypted
+import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
+import com.machankura.bennu.compose.database.model.types.IcebergRitualStage
+import com.machankura.bennu.compose.identity.Identity
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.repository.ChatRepository
+import com.machankura.bennu.compose.repository.GroupLightningRepository
+import com.machankura.bennu.compose.ui.composable.widgets.Decorative
+import com.machankura.bennu.compose.ui.composable.widgets.EmptyState
+import com.machankura.bennu.compose.ui.composable.widgets.ErrorState
+import com.machankura.bennu.compose.ui.composable.widgets.LoadingDataIndicator
+import com.machankura.bennu.compose.ui.composable.widgets.LocalSnackbarHostState
+import com.machankura.bennu.compose.ui.composable.widgets.NavigateBackButton
+import com.machankura.bennu.compose.ui.composable.widgets.ScreenStateTransition
+import com.machankura.bennu.compose.ui.composable.widgets.rememberNotifier
+import com.machankura.bennu.compose.ui.theme.readableContent
+import com.machankura.bennu.compose.ui.theme.spacing
+import com.machankura.bennu.compose.ui.view.model.IcebergCeremonyViewModel
+import com.machankura.bennu.compose.ui.view.state.IcebergCeremonyUIState
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import kotlinx.coroutines.flow.StateFlow
+import org.jetbrains.compose.resources.stringResource
+
+/**
+ * A group's Lightning wallet key ceremony: who has done which of its three rounds, what this device is
+ * being asked, and -- for a group without one -- the way to start it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun IcebergCeremonyScreen(
+    activeUserPublicKey: HexKey,
+    chatRoomId: String,
+    sessionId: String?,
+    activeIdentityStateFlow: StateFlow<Identity?>,
+    chatRepository: ChatRepository,
+    lightningRepository: GroupLightningRepository,
+    onNavigateBack: () -> Unit,
+) {
+    val viewModel: IcebergCeremonyViewModel = viewModel(
+        factory = IcebergCeremonyViewModel.factory(
+            activeUserPublicKey = activeUserPublicKey,
+            chatRoomId = chatRoomId,
+            sessionId = sessionId,
+            chain = GroupLightningRollout.NETWORK,
+            activeIdentityStateFlow = activeIdentityStateFlow,
+            chatRepository = chatRepository,
+            lightningRepository = lightningRepository,
+        )
+    )
+    LaunchedEffect(true) { viewModel.initiate() }
+
+    val notify = rememberNotifier(rememberCoroutineScope())
+    val couldNotStart = stringResource(Res.string.couldn_t_start_the_key_ceremony)
+    val couldNotApprove = stringResource(Res.string.couldn_t_approve_this_step)
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(Res.string.lightning_wallet_key), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = { NavigateBackButton(onNavigateBack) }
+            )
+        }
+    ) { padding ->
+        ScreenStateTransition(viewModel.uiState) { uiState ->
+            when (val state = uiState) {
+                is IcebergCeremonyUIState.Error -> ErrorState(modifier = Modifier.padding(padding), message = state.message, onRetry = null)
+
+                IcebergCeremonyUIState.Loading -> LoadingDataIndicator(modifier = Modifier.fillMaxWidth().padding(padding))
+
+                is IcebergCeremonyUIState.Loaded -> if (state.session == null) {
+                    EmptyState(
+                        modifier = Modifier.padding(padding).readableContent(),
+                        message = when {
+                            !state.hasOnchainWallet -> stringResource(Res.string.open_an_onchain_wallet_on_s_first, GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK))
+                            state.thresholds.isEmpty() -> stringResource(Res.string.a_lightning_wallet_needs_four_signers)
+                            else -> stringResource(Res.string.this_group_has_no_lightning_wallet_key_yet)
+                        },
+                        icon = Icons.Default.Bolt,
+                        action = if (viewModel.canPropose()) {
+                            {
+                                StartCeremony(
+                                    thresholds = state.thresholds,
+                                    participants = state.holderCount,
+                                    chosen = viewModel.threshold.value,
+                                    onChoose = { viewModel.threshold.value = it },
+                                    isPending = viewModel.isActionPending.value,
+                                    onStart = { viewModel.propose(onFailure = { notify(couldNotStart) }) },
+                                )
+                            }
+                        } else null
+                    )
+                } else {
+                    Ceremony(
+                        modifier = Modifier.padding(padding),
+                        state = state,
+                        isPending = viewModel.isActionPending.value,
+                        onApprove = { viewModel.approve(onFailure = { notify(couldNotApprove) }) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StartCeremony(thresholds: List<Int>, participants: Int, chosen: Int?, onChoose: (Int) -> Unit, isPending: Boolean, onStart: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)) {
+        Text(stringResource(Res.string.the_lightning_wallet_key_is_made_by_everyone, (2 * (chosen ?: 2) - 1).toString()), style = MaterialTheme.typography.bodyMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+            thresholds.forEach { t ->
+                FilterChip(
+                    selected = t == chosen,
+                    onClick = { onChoose(t) },
+                    label = { Text(stringResource(Res.string.signers_needed_s_of_s, t.toString(), participants.toString())) },
+                )
+            }
+        }
+        Text(stringResource(Res.string.your_share_of_this_key_is_stored_unencrypted), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = onStart, enabled = !isPending && chosen != null) {
+            Icon(Icons.Default.Key, contentDescription = Decorative)
+            Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+            Text(stringResource(Res.string.start_a_key_ceremony))
+        }
+    }
+}
+
+@Composable
+private fun Ceremony(modifier: Modifier, state: IcebergCeremonyUIState.Loaded, isPending: Boolean, onApprove: () -> Unit) {
+    val session = state.session ?: return
+    val members = state.localChatRoom.localParticipants.associate { it.participant.participantPublicKey.lowercase() to it }
+    LazyColumn(
+        modifier = modifier.readableContent().fillMaxSize().padding(MaterialTheme.spacing.screenMargin),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
+    ) {
+        item {
+            Text(
+                text = when (session.stage) {
+                    IcebergRitualStage.COLLECTING_COMMITMENTS -> stringResource(Res.string.waiting_for_everyone_to_join)
+                    IcebergRitualStage.COLLECTING_REVEALS -> stringResource(Res.string.waiting_for_contributions)
+                    IcebergRitualStage.COLLECTING_CONFIRMATIONS -> stringResource(Res.string.waiting_for_everyone_to_confirm)
+                    IcebergRitualStage.COMPLETE -> stringResource(Res.string.the_group_has_a_lightning_wallet_key)
+                    IcebergRitualStage.FAILED -> stringResource(Res.string.abandoned_s, session.failureReason.orEmpty())
+                },
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(Res.string.signers_needed_s_of_s, session.threshold.toString(), session.participantCount.toString()),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        state.pending?.let { step ->
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(MaterialTheme.spacing.containerPadding), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+                        Text(
+                            text = when (step) {
+                                IcebergApprovalStep.JOIN -> stringResource(Res.string.joining_publishes_commitments)
+                                IcebergApprovalStep.REVEAL -> stringResource(Res.string.sending_contributions_encrypts_each)
+                                IcebergApprovalStep.CONFIRM -> stringResource(Res.string.confirming_publishes_your_public_share)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Button(onClick = onApprove, enabled = !isPending) {
+                            Text(
+                                when (step) {
+                                    IcebergApprovalStep.JOIN -> stringResource(Res.string.join_the_ceremony)
+                                    IcebergApprovalStep.REVEAL -> stringResource(Res.string.send_your_contributions)
+                                    IcebergApprovalStep.CONFIRM -> stringResource(Res.string.confirm_what_you_saw)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        items(session.participants()) { participant ->
+            ListItem(
+                headlineContent = { Text(members[participant]?.profile?.humanReadableNameOrPubkey() ?: participant.take(16)) },
+                supportingContent = { Text(stringResource(Res.string.s_of_3_steps, (state.progress[participant] ?: 0).toString())) },
+            )
+        }
+    }
+}

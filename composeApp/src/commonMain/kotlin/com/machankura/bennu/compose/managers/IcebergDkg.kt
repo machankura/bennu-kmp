@@ -42,7 +42,7 @@ import fr.acinq.bitcoin.utils.Either
  * A contributor who reveals something other than what it committed to is named
  * ([Fault.BadReveal]). One who commits to two different values in front of two
  * different members is not caught here; the transcript signature is what catches
- * that, because the two members then sign different transcripts.
+ * that, because the two members then publish different transcript hashes.
  *
  * ### Repair, which RSS gives away
  *
@@ -231,21 +231,23 @@ object IcebergDkg {
     }
 
     /**
-     * The hash every participant signs once it has its share: the parameters,
-     * every commitment and every public share. Two members who were shown
-     * different commitments, or different public shares, sign different hashes,
-     * and the ritual refuses to finish on signatures that do not all agree.
+     * The hash every participant publishes beside its public share: the parameters and every
+     * commitment. Two members who were shown different commitments publish different hashes, and the
+     * ritual refuses to finish on hashes that do not all agree.
+     *
+     * It cannot cover the public shares, which are published in the same message. Those are held
+     * together by [groupPublicKey], which refuses a set that does not lie on one polynomial, and by
+     * the wallet statement the group signs over the key they make (Phase 6), which a member whose
+     * device computed a different key refuses to sign.
      */
-    fun transcriptHash(params: Params, commitments: Map<Int, Commitments>, publicShares: List<PublicShare>, groupPublicKey: PublicKey): ByteVector32 {
-        require(publicShares.size == params.n && commitments.size == params.n)
+    fun transcriptHash(params: Params, commitments: Map<Int, Commitments>): ByteVector32 {
+        require(commitments.size == params.n)
         val bytes = buildList {
             addAll(params.sessionId.toByteArray().asList())
             for (j in 1..params.n) {
                 val c = commitments.getValue(j)
                 for (rank in params.heldRanks(j)) addAll(c.byRank.getValue(rank).toByteArray().asList())
             }
-            publicShares.forEach { addAll(it.toByteArray().asList()) }
-            addAll(groupPublicKey.value.toByteArray().asList())
         }
         return Crypto.taggedHash(bytes.toByteArray(), TAG_TRANSCRIPT)
     }

@@ -111,6 +111,8 @@ import com.machankura.bennu.compose.ui.composable.widgets.ErrorState
 fun ChatTranscript(
     viewModel: ChatMessageListViewModel,
     onOpenSharedKey: (dkgSessionId: String?) -> Unit,
+    /** Opens the Lightning wallet key ceremony an [ChatMessage.ICEBERG_TYPES] line is about. */
+    onOpenIcebergCeremony: (sessionId: String?) -> Unit = {},
     /**
      * Opens the signing this line is about, by session id -- or the room's
      * whole list of proposals when the line predates [ChatMessage.frostSigningSessionId]
@@ -269,6 +271,18 @@ fun ChatTranscript(
                                         onClick = {
                                             onOpenSharedKey(localChatMessage.chatMessage.dkgSessionId)
                                         }
+                                    )
+                                    return@items
+                                }
+
+                                // The Lightning wallet's key ceremony, the same kind of
+                                // notice as the onchain key's, opening its own screen.
+                                if (localChatMessage.chatMessage.messageType in ChatMessage.ICEBERG_TYPES) {
+                                    RitualNotice(
+                                        localChatMessage = localChatMessage,
+                                        isAnswered = localChatMessage.chatMessage.id in answeredRequests,
+                                        isSettled = localChatMessage.chatMessage.id in settledRequests,
+                                        onClick = { onOpenIcebergCeremony(localChatMessage.chatMessage.dkgSessionId) }
                                     )
                                     return@items
                                 }
@@ -816,6 +830,13 @@ private fun RitualNotice(
         ChatMessage.TYPE_DKG_APPROVAL_NEEDED_ROUND_1 -> Icons.Default.Upload
         ChatMessage.TYPE_DKG_APPROVAL_NEEDED_ROUND_2 -> Icons.Default.FactCheck
 
+        ChatMessage.TYPE_ICEBERG_STARTED -> Icons.Default.Key
+        ChatMessage.TYPE_ICEBERG_COMMITTED, ChatMessage.TYPE_ICEBERG_APPROVAL_NEEDED_JOIN -> Icons.Default.PersonAdd
+        ChatMessage.TYPE_ICEBERG_REVEALED, ChatMessage.TYPE_ICEBERG_APPROVAL_NEEDED_REVEAL -> Icons.Default.Upload
+        ChatMessage.TYPE_ICEBERG_CONFIRMED, ChatMessage.TYPE_ICEBERG_APPROVAL_NEEDED_CONFIRM -> Icons.Default.FactCheck
+        ChatMessage.TYPE_ICEBERG_COMPLETE -> Icons.Default.CheckCircle
+        ChatMessage.TYPE_ICEBERG_FAILED -> Icons.Default.ErrorOutline
+
         ChatMessage.TYPE_FROST_STARTED -> Icons.Default.Draw
         ChatMessage.TYPE_FROST_NONCE -> Icons.Default.Upload
         ChatMessage.TYPE_FROST_SIGNER_SET -> Icons.Default.Groups
@@ -858,11 +879,13 @@ private fun RitualNotice(
     // offering to review it would be offering a decision that has already gone by.
     val isRequest = (
         chatMessage.messageType in ChatMessage.DKG_REQUEST_TYPES ||
+            chatMessage.messageType in ChatMessage.ICEBERG_REQUEST_TYPES ||
             chatMessage.messageType in ChatMessage.FROST_REQUEST_TYPES
         ) && !isAnswered && !isSettled
 
     val tint = when {
         chatMessage.messageType == ChatMessage.TYPE_DKG_FAILED ||
+            chatMessage.messageType == ChatMessage.TYPE_ICEBERG_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_FROST_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_MEMBER_INVITE_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_CHANGE_REJECTED ->
@@ -898,6 +921,7 @@ private fun RitualNotice(
                     // so it follows a rename and is not stuck on the "LOADING..."
                     // placeholder a member is given the moment they are first seen.
                     if (chatMessage.messageType in ChatMessage.DKG_AUTHORED_TYPES ||
+                        chatMessage.messageType in ChatMessage.ICEBERG_AUTHORED_TYPES ||
                         chatMessage.messageType in ChatMessage.FROST_AUTHORED_TYPES
                     ) {
                         withStyle(

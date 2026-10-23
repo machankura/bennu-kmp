@@ -34,6 +34,7 @@ build chose differently, this table says so.
 | 2 | done, in the fork (`4bc973df`): the three signing methods suspend, `RemoteIcebergFundingSigner`, pings answered outside the channel loop. lightning-kmp's JVM suite, 985 tests, passes |
 | 3 | done: in the fork (`e15e31ba`), `withGroupBasepoints`, `GroupHeldOutputs` and `KeyManager.defaultFinalScriptPubKey`, 991 tests passing. In the app, `GroupLightningDerivation`, pinned, with a FROST quorum spending `to_remote` and `to_local` |
 | 4 | done: `GroupChainClients`, one Electrum connection per network for the wallets and the watcher; the wallet routes carry a chain; a second wallet row for testnet3 behind `GroupLightningRollout`, which is off |
+| 5 | done: `IcebergRitualManager`, schema 27 (`IcebergKeySession`, `IcebergParticipantMessage`), the ceremony screen and its transcript lines. Seven four-device tests, and the app's 1,391 JVM tests pass |
 
 | what the plan said | what it turned out to be |
 |---|---|
@@ -53,6 +54,12 @@ build chose differently, this table says so.
 | a testnet3 Electrum client per identity, from `AppConfigurationManager.randomElectrumServer` | from lightning-kmp's `ElectrumServers.pickElectrumServer`, which lists the same servers and needs no Phoenix business to call. The node's own client still serves the node's network |
 | `GroupOnchainWallets` is keyed by `(chain, account)` | it stays keyed by xpub, which already names one account on one network. What changed is the client: each wallet is made on its own network's |
 | a regtest test opens, receives and spends with mainnet unaffected | the existing wallet suites run on regtest unchanged through the new registry, and two new tests check that each spend goes out on its own network's connection, and that a spend naming no known network is left alone |
+| the ceremony's participants are sorted by host key | by nostr key. Their set is fixed before anyone speaks, as the holders of the onchain wallet's key that every device already has on record, so ChillDKG's host-key round has nothing to settle. Each key is read as the even point over its x coordinate for `IcebergDkg.Params` |
+| a transcript *signature* in round 3 | a transcript *hash*, beside the public share. The MLS frame already says who sent it. The hash covers the parameters and every commitment but not the public shares, which are published in the same message. `groupPublicKey`'s consistency check holds those together, and Phase 6's statement is where a member whose device computed a different key refuses to sign |
+| round-2 values are NIP-44 encrypted to each recipient's ceremony host key | to each recipient's nostr key, from the sender's, for the same reason as the row above |
+| an `IcebergKeySession` holds the share, and the protocol state | it holds the share and the *inputs*, as `DkgSession` does: a random root that every contribution is derived from, and every message in `IcebergParticipantMessage`. The root is dropped once the share exists, or when the ceremony fails |
+| the ceremony's transcript lines get their own session column | they reuse `ChatMessage.dkgSessionId` for the Iceberg session's id. The line's type says which ceremony screen it opens |
+| entry from the Lightning wallet screen | the Lightning wallet screen arrives in Phase 6. Until then the ceremony screen is reached from its own transcript lines, and `IcebergCeremonyRoute` with no session shows the room's newest, with the way to start one |
 | the kinds are reserved | in code: `GroupLightningEvents`, 30333-30349, with a test asserting the run is unbroken and touches no kind the app already dispatches on |
 | library phases land in the forks' `threshold` branches | on a new branch, `claude/group-lightning-wallet`, in `lightning-kmp-app` and in `experimental/lightning-kmp`. It is local and not pushed. The app's submodule pointer follows it, so a checkout of this branch needs those commits from the same machine until they are pushed |
 

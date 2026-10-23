@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.database.dao
 
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
+import com.machankura.bennu.compose.managers.IcebergRitualManager
 import androidx.room3.Dao
 import androidx.room3.Transaction
 import com.machankura.bennu.compose.database.GENESIS_AT
@@ -1587,6 +1589,17 @@ abstract class NostrDao(
 
                         DkgRitualEvents.isDkgRitualKind(innerEvent.kind) ->
                             ChillDkgRitualManager.processRitualPayload(
+                                database = database,
+                                localChatRoom = localChatRoom,
+                                innerEvent = innerEvent,
+                                userPublicKey = activeKeyPair.pubKey.toHex(),
+                                nostrPrivateKey = activeKeyPair.privKey!!
+                            )
+
+                        // The group Lightning wallet's key ceremony. Marmot only:
+                        // it runs where the onchain wallet it closes to already is.
+                        innerEvent.kind in GroupLightningEvents.CEREMONY ->
+                            IcebergRitualManager.processCeremonyPayload(
                                 database = database,
                                 localChatRoom = localChatRoom,
                                 innerEvent = innerEvent,

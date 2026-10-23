@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.ui.composable.navigation
 
+import com.machankura.bennu.compose.ui.composable.navigation.routes.IcebergCeremonyRoute
+import com.machankura.bennu.compose.ui.composable.IcebergCeremonyScreen
+import com.machankura.bennu.compose.database.repository.DatabaseGroupLightningRepository
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.wallet.GroupChainClients
 import com.machankura.bennu.compose.ui.composable.GroupSendScreen
@@ -234,6 +237,10 @@ fun BennuNavHost(
             database = auxDatabaseManager.auxDatabase,
             applicationIOScope
         )
+    }
+
+    val databaseGroupLightningRepository = remember {
+        DatabaseGroupLightningRepository(database = auxDatabaseManager.auxDatabase)
     }
 
     val databaseFrostSigningRepository = remember {
@@ -654,6 +661,21 @@ fun BennuNavHost(
                     onNavigateToRoute = { nextRoute ->
                         navController.navigate(route = nextRoute)
                     },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<IcebergCeremonyRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<IcebergCeremonyRoute>()
+
+                IcebergCeremonyScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    sessionId = route.sessionId,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
+                    chatRepository = databaseChatRepository,
+                    lightningRepository = databaseGroupLightningRepository,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
