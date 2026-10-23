@@ -1,5 +1,17 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.GroupTransaction
+import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.wallet.GroupSpend
+import fr.acinq.bitcoin.ByteVector64
+import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.Crypto
+import fr.acinq.bitcoin.ScriptFlags
+import fr.acinq.bitcoin.Transaction
+import fr.acinq.bitcoin.crypto.frost.TweakCache
+import fr.acinq.bitcoin.psbt.Psbt
+import fr.acinq.secp256k1.Hex
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -394,6 +406,14 @@ object FrostSigningManager {
                 sessionId = sessionId,
                 userPublicKey = userPublicKey
             )
+        } else if (innerEvent.kind == FrostSigningEvents.TRANSACTION_PROPOSAL) {
+            acceptSpendProposal(
+                database = database,
+                localChatRoom = localChatRoom,
+                innerEvent = innerEvent,
+                sessionId = sessionId,
+                userPublicKey = userPublicKey
+            )
         } else {
             // Not knowing the session is normal: a member catching up applies a
             // group's backlog in whatever order the epochs decrypt, so a nonce can
@@ -420,7 +440,7 @@ object FrostSigningManager {
         // coordinator goes out on the same pass that learns it was lost. Only
         // from the coordinator, and only messages already on file: see
         // [republishOwn].
-        if (innerEvent.kind == FrostSigningEvents.PROPOSAL &&
+        if (FrostSigningEvents.isProposal(innerEvent.kind) &&
             innerEvent.pubKey == session.coordinatorPublicKey &&
             FrostSigningEvents.parseSilentMembers(innerEvent.tags)
                 ?.contains(session.userPublicKey) == true
@@ -564,6 +584,332 @@ object FrostSigningManager {
     }
 
     /**
+     * Opens a session over one transaction from the group's wallet, making this
+     * device the coordinator.
+     *
+     * A transaction is a batch: one item per input, each its own FROST instance
+     * over that input's BIP341 sighash, with its own nonce seed and its own
+     * cache -- the coin it spends is at its own address. Everything the batch
+     * rules say holds here too, and two of them with more force. A retry is a new
+     * session with new seeds, never this one again, and a fee bump is a retry.
+     * And the batch is all or nothing, which for a transaction is not a policy:
+     * a transaction with one unsigned input is not a transaction.
+     *
+     * [psbt] is checked here exactly as every other member will check it, so a
+     * proposal that would be refused everywhere is refused before it is sent.
+     *
+     * @throws IllegalArgumentException when the spend fails a check, with the reason
+     * @throws IllegalStateException when the room has no key, this device holds no
+     * share of it, or the group has not opened a wallet on [chain] at [account]
+     */
+    suspend fun proposeSpend(
+        database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        psbt: Psbt,
+        chain: Chain,
+        account: Long = 0L,
+    ): FrostSigningSession {
+        val chatRoomId = localChatRoom.chatRoom.id
+        val ceremony = completedKey(database, chatRoomId)
+            ?: throw IllegalStateException("This group has no shared key to sign with")
+        val thresholdPublicKey = ceremony.thresholdPublicKey
+            ?: throw IllegalStateException("Ceremony ${ceremony.id} holds no threshold key")
+        val signerId = signerIdOf(database, ceremony, userPublicKey)
+            ?: throw IllegalStateException("This device is not a participant in ceremony ${ceremony.id}")
+        val wallet = GroupWalletManager.walletFor(database, chatRoomId, thresholdPublicKey, chain, account)
+            ?: throw IllegalStateException("This group has not opened a wallet on ${GroupWalletStatementEvent.chainName(chain)}")
+
+        val checked = when (val result = GroupSpend.check(psbt, wallet.account)) {
+            is GroupSpend.Result.Ok -> result.checked
+            is GroupSpend.Result.Refused -> throw IllegalArgumentException("This spend ${result.reason}")
+        }
+
+        val session = FrostSigningSession(
+            id = RandomInstance.bytes(32).toHex(),
+            chatRoomId = chatRoomId,
+            coordinatorPublicKey = userPublicKey,
+            userPublicKey = userPublicKey,
+            dkgSessionId = ceremony.id,
+            threshold = ceremony.threshold,
+            participantCount = ceremony.participantCount,
+            signerId = signerId,
+            // A transaction does not sign as the room: each input has its own
+            // derivation, and those are on the items.
+            derivationPath = null,
+            subject = FrostSigningSubject.TRANSACTION,
+            // Proposing a spend is already the act of agreeing to it.
+            signApprovedAt = Clock.System.now()
+        )
+        writeSpend(database, session, checked, chain, account)
+        announceStarted(database, session)
+
+        logger.i(
+            "Proposing spend ${session.id}: ${checked.inputs.size} input(s), " +
+                "${checked.amountSent.sat} sats out, ${checked.fee.sat} sats fee, txid ${checked.tx.txid}"
+        )
+
+        broadcast(
+            database = database,
+            localChatRoom = localChatRoom,
+            session = session,
+            kind = FrostSigningEvents.TRANSACTION_PROPOSAL,
+            content = GroupSpend.encode(psbt),
+            includeKey = true,
+            extraTags = FrostSigningEvents.walletTags(GroupWalletStatementEvent.chainName(chain), account)
+        )
+
+        advance(database, localChatRoom, session.id)
+
+        return session
+    }
+
+    /**
+     * Records a proposed spend, after every check [GroupSpend.check] makes.
+     * Returns the session, whether it was just created or already known.
+     *
+     * Publishes nothing, for the reason [acceptProposal] gives -- and trusts
+     * nothing the proposer computed. The account comes from the room's own
+     * verified statement, under *this ceremony's* key; the proposal's tags only
+     * say which statement. A ceremony that is not the room's -- a subgroup's,
+     * held in its parent's room -- cannot reach a statement the room signed, so
+     * a spend opened against one is refused here rather than signed for a
+     * wallet nobody opened.
+     */
+    private suspend fun acceptSpendProposal(
+        database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
+        innerEvent: Event,
+        sessionId: String,
+        userPublicKey: HexKey
+    ): FrostSigningSession? {
+        val psbt = GroupSpend.decode(innerEvent.content)
+
+        database.frostSigningSessionDao().getSessionById(sessionId)?.let { existing ->
+            // 7. Write-once. Every item's seed is already committed to its
+            // sighash; a different transaction under the same id would have those
+            // seeds produce a second partial signature over a second message.
+            val stored = database.groupTransactionDao().getBySessionId(sessionId)
+                ?.let { GroupSpend.decode(it.psbt)?.global?.tx }
+            if (existing.subject != FrostSigningSubject.TRANSACTION || stored == null || stored != psbt?.global?.tx) {
+                logger.w("Session $sessionId re-proposed with a different transaction; ignoring")
+            }
+            return existing
+        }
+
+        if (psbt == null) {
+            logger.w("Spend proposal $sessionId does not carry a PSBT; dropping")
+            return null
+        }
+
+        val key = FrostSigningEvents.parseKey(innerEvent.tags)
+            ?.let { database.dkgSessionDao().getSessionById(it) }
+            ?.takeIf { it.stage == DkgRitualStage.COMPLETE }
+        val thresholdPublicKey = key?.thresholdPublicKey
+        if (key == null || thresholdPublicKey == null) {
+            logger.w("Spend proposal $sessionId names a key this device does not hold; dropping")
+            return null
+        }
+
+        val signerId = signerIdOf(database, key, userPublicKey)
+        if (signerId == null) {
+            logger.w("Spend proposal $sessionId is for a ceremony this device did not take part in; dropping")
+            return null
+        }
+
+        val (chainName, account) = FrostSigningEvents.parseWallet(innerEvent.tags) ?: run {
+            logger.w("Spend proposal $sessionId names no wallet; dropping")
+            return null
+        }
+        val chain = GroupWalletStatementEvent.chainNamed(chainName) ?: run {
+            logger.w("Spend proposal $sessionId names a network this build does not know, $chainName; dropping")
+            return null
+        }
+
+        // 1. There is a wallet, and it is the room's.
+        val wallet = GroupWalletManager.walletFor(database, localChatRoom.chatRoom.id, thresholdPublicKey, chain, account)
+        if (wallet == null) {
+            logger.w("Spend proposal $sessionId spends from a wallet the group has not opened on $chainName; dropping")
+            return null
+        }
+
+        val checked = when (val result = GroupSpend.check(psbt, wallet.account)) {
+            is GroupSpend.Result.Ok -> result.checked
+            is GroupSpend.Result.Refused -> {
+                logger.w("Spend proposal $sessionId ${result.reason}; dropping")
+                return null
+            }
+        }
+
+        val session = FrostSigningSession(
+            id = sessionId,
+            chatRoomId = localChatRoom.chatRoom.id,
+            coordinatorPublicKey = innerEvent.pubKey,
+            userPublicKey = userPublicKey,
+            dkgSessionId = key.id,
+            threshold = key.threshold,
+            participantCount = key.participantCount,
+            signerId = signerId,
+            derivationPath = null,
+            subject = FrostSigningSubject.TRANSACTION,
+        )
+        writeSpend(database, session, checked, chain, account)
+        announceStarted(database, session)
+
+        logger.i(
+            "Recorded spend $sessionId: ${checked.inputs.size} input(s), ${checked.amountSent.sat} sats out, " +
+                "${checked.fee.sat} sats fee; awaiting approval"
+        )
+
+        announceApprovalNeeded(database, session)
+        replayStoredMessages(database, localChatRoom, session)
+
+        return session
+    }
+
+    /**
+     * The session, an item per input carrying that input's sighash and place
+     * under the account, and the transaction row -- the three things a spend is.
+     */
+    private suspend fun writeSpend(
+        database: BennuDatabase,
+        session: FrostSigningSession,
+        checked: GroupSpend.Checked,
+        chain: Chain,
+        account: Long,
+    ) {
+        database.frostSigningSessionDao().upsert(session)
+        database.frostSigningSessionDao().upsertItems(
+            checked.inputs.map { input ->
+                FrostSigningItem(
+                    sessionId = session.id,
+                    itemIndex = input.index,
+                    unsignedEventJson = derivationPayload(input.derivation),
+                    eventId = input.sighash.toHex(),
+                    // Independent per input, for the reason [itemsOver] gives.
+                    nonceRandom = RandomInstance.bytes(32).toHex(),
+                    inputIndex = input.index,
+                )
+            }
+        )
+        database.groupTransactionDao().insertIfAbsent(
+            GroupTransaction(
+                frostSigningSessionId = session.id,
+                chatRoomId = session.chatRoomId,
+                chain = GroupWalletStatementEvent.chainName(chain),
+                account = account,
+                psbt = GroupSpend.encode(checked.psbt),
+                txid = checked.tx.txid.toString(),
+            )
+        )
+    }
+
+    /** An input's place under the account, as the item's payload carries it. */
+    private fun derivationPayload(derived: GroupWalletDerivation.Derived): String =
+        """{"change":${derived.change},"index":${derived.index}}"""
+
+    private val DERIVATION_PAYLOAD = Regex("""^\{"change":(\d+),"index":(\d+)}$""")
+
+    /**
+     * The account a spend session signs under and where each of its inputs is,
+     * rebuilt on every pass from the ceremony's key and the transaction row --
+     * the same rule as a room's path: stored inputs, rederived, never cached.
+     */
+    private suspend fun spendDerivations(
+        database: BennuDatabase,
+        session: FrostSigningSession,
+        thresholdPublicKey: HexKey,
+        items: List<FrostSigningItem>,
+    ): List<GroupWalletDerivation.Derived>? {
+        val account = spendAccount(database, session, thresholdPublicKey)?.second ?: return null
+
+        return items.map { item ->
+            val (change, index) = DERIVATION_PAYLOAD.matchEntire(item.payload)?.destructured ?: return null
+            GroupWalletDerivation.derive(account, change.toLong(), index.toLong())
+        }
+    }
+
+    private suspend fun spendAccount(
+        database: BennuDatabase,
+        session: FrostSigningSession,
+        thresholdPublicKey: HexKey,
+    ): Pair<GroupTransaction, GroupWalletDerivation.Account>? {
+        val transaction = database.groupTransactionDao().getBySessionId(session.id) ?: return null
+        val chain = GroupWalletStatementEvent.chainNamed(transaction.chain) ?: return null
+        return transaction to GroupWalletDerivation.account(thresholdPublicKey, chain, transaction.account)
+    }
+
+    /**
+     * Verifies the group's signatures, puts them on the transaction, and closes
+     * the session -- for a spend, the counterpart of [complete].
+     *
+     * Each signature is checked against the output key of the coin it spends,
+     * and then the whole transaction against the script interpreter: a signature
+     * that verifies over the wrong sighash is a perfectly good signature and a
+     * transaction nobody can mine, and `correctlySpends` is the only check that
+     * asks the question the network will. Nothing is applied and nothing is
+     * filed as a `GroupSignedEvent` -- this is not an event, and the chronicle
+     * and the broadcast screen read that table.
+     */
+    private suspend fun completeSpend(
+        database: BennuDatabase,
+        session: FrostSigningSession,
+        items: List<FrostSigningItem>,
+    ) {
+        val key = database.dkgSessionDao().getSessionById(session.dkgSessionId)
+        val thresholdPublicKey = key?.thresholdPublicKey
+            ?: throw IllegalStateException("The ceremony this spend signs under is gone")
+        val (transaction, account) = spendAccount(database, session, thresholdPublicKey)
+            ?: throw IllegalStateException("This spend has no transaction on file")
+        val psbt = GroupSpend.decode(transaction.psbt)
+            ?: throw IllegalStateException("This spend's PSBT can no longer be read")
+        val checked = when (val result = GroupSpend.check(psbt, account)) {
+            is GroupSpend.Result.Ok -> result.checked
+            is GroupSpend.Result.Refused -> throw IllegalStateException("This spend ${result.reason}")
+        }
+
+        val signatures = items.mapIndexed { index, item ->
+            val input = checked.inputs[index]
+            val signature = ByteVector64(item.signature!!)
+            if (!Crypto.verifySignatureSchnorr(input.sighash, signature, input.derivation.outputKey)) {
+                throw IllegalStateException("The aggregated signature for input $index does not verify against its coin")
+            }
+            signature
+        }
+
+        val signed = GroupSpend.witnessed(checked.tx, signatures)
+        signed.correctlySpends(
+            checked.inputs.associate { it.outPoint to it.txOut },
+            ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS
+        )
+
+        update(database, session) { it.copy(stage = FrostSigningStage.COMPLETE) }
+
+        // The signature is made and valid either way; a row this device could not
+        // write is logged, not a failed ceremony -- the same rule as
+        // [recordSignedEvents].
+        try {
+            database.groupTransactionDao().upsert(
+                transaction.copy(signedTransaction = Hex.encode(Transaction.write(signed)))
+            )
+        } catch (e: Throwable) {
+            logger.e("Signed spend ${session.id} but could not record it", e)
+        }
+
+        announce(
+            database = database,
+            session = session,
+            messageType = ChatMessage.TYPE_FROST_COMPLETE,
+            content = "The group signed a transaction sending ${checked.amountSent.sat} sats, " +
+                "with ${checked.fee.sat} sats in fees. It took ${session.threshold} of " +
+                "${session.participantCount} members.",
+            actor = session.coordinatorPublicKey
+        )
+
+        logger.i("Spend ${session.id} complete: txid ${signed.txid}")
+    }
+
+    /**
      * Feeds in every message of this session that arrived before the proposal did.
      *
      * They were dropped at the time for want of a session to file them under, but
@@ -613,7 +959,7 @@ object FrostSigningManager {
         }
 
         val stored = received.filter { stored ->
-            stored.kind != FrostSigningEvents.PROPOSAL &&
+            !FrostSigningEvents.isProposal(stored.kind) &&
                 FrostSigningEvents.parseSessionId(stored.tags) == session.id
         }
 
@@ -636,7 +982,8 @@ object FrostSigningManager {
         innerEvent: Event
     ): Boolean {
         when (innerEvent.kind) {
-            FrostSigningEvents.PROPOSAL -> Unit // handled by acceptProposal
+            FrostSigningEvents.PROPOSAL,
+            FrostSigningEvents.TRANSACTION_PROPOSAL -> Unit // handled by acceptProposal and acceptSpendProposal
 
             FrostSigningEvents.NONCE,
             FrostSigningEvents.PARTIAL_SIGNATURE -> {
@@ -890,15 +1237,28 @@ object FrostSigningManager {
             // author on the event have to be the same derivation -- and the
             // session stores the path exactly so that every pass rebuilds the
             // same one.
-            val tweakCache = SharedKeyDerivation
-                .derive(thresholdPublicKey, session.pathIndices())
-                .cache
             val publicShares = key.publicShareList()
 
             // The events this session signs, in the order the proposal fixed. Every
             // join below is positional against it.
             val items = database.frostSigningSessionDao().getItems(sessionId)
             if (items.isEmpty()) return
+
+            // One cache per item. Every item of an event session signs as the
+            // room, so they share one; every input of a transaction is a coin at
+            // its own address, so each has its own -- and signing an input with
+            // its neighbour's cache aggregates to a perfectly good signature for a
+            // key that coin is not at.
+            val tweakCaches: List<TweakCache> = when (session.subject) {
+                FrostSigningSubject.EVENTS -> SharedKeyDerivation
+                    .derive(thresholdPublicKey, session.pathIndices())
+                    .cache
+                    .let { cache -> List(items.size) { cache } }
+
+                FrostSigningSubject.TRANSACTION -> spendDerivations(database, session, thresholdPublicKey, items)
+                    ?.map { it.cache }
+                    ?: throw IllegalStateException("The coins this transaction spends no longer derive under the group's wallet")
+            }
 
             val messages = items.map { ByteVector(it.eventId.hexToByteArray()) }
 
@@ -921,7 +1281,7 @@ object FrostSigningManager {
                         sessionRandom = ByteVector32(item.nonceRandom),
                         secretShare = secretShare,
                         publicShare = publicShares?.getOrNull(session.signerId),
-                        tweakedThresholdPublicKey = tweakCache.tweakedPublicKey,
+                        tweakedThresholdPublicKey = tweakCaches[index].tweakedPublicKey,
                         message = messages[index],
                         extraInput = null
                     )
@@ -1004,7 +1364,7 @@ object FrostSigningManager {
                     },
                     nParticipants = session.participantCount,
                     threshold = session.threshold,
-                    tweakCache = tweakCache,
+                    tweakCache = tweakCaches[index],
                     message = messages[index]
                 )
             }
@@ -1082,6 +1442,11 @@ object FrostSigningManager {
     private suspend fun complete(database: BennuDatabase, session: FrostSigningSession) {
         val items = database.frostSigningSessionDao().getItems(session.id)
         if (items.isEmpty() || items.any { !it.isSigned() }) return
+
+        if (session.subject == FrostSigningSubject.TRANSACTION) {
+            completeSpend(database, session, items)
+            return
+        }
 
         // Every signature is checked before any event is applied. A batch is
         // all-or-nothing, so a bad one anywhere has to fail the session rather
@@ -1235,7 +1600,9 @@ object FrostSigningManager {
 
     /** Every finished event of a batch, empty while any of them is still running. */
     fun signedEvents(items: List<FrostSigningItem>): List<Event> =
-        items.map { it.signature ?: return emptyList() }
+        // A transaction's items are inputs, and their signatures are witnesses,
+        // not events -- see [completeSpend].
+        if (items.any { it.inputIndex != null }) emptyList() else items.map { it.signature ?: return emptyList() }
             .mapIndexed { index, signature -> signedEvent(items[index], signature) }
 
     /**
@@ -2033,16 +2400,38 @@ object FrostSigningManager {
             return false
         }
 
-        val unsigned = items.mapNotNull { Event.fromJsonOrNull(it.unsignedEventJson) }
-        if (unsigned.size != items.size) {
-            // Refused rather than shortened. A proposal that quietly lost an
-            // event would have every signer's contribution rejected for being
-            // the wrong length, which is a stall with nothing to blame.
-            logger.w(
-                "Session $sessionId: only ${unsigned.size} of ${items.size} stored events could " +
-                    "be read; not resending a proposal that is missing one"
-            )
-            return false
+        // The proposal as it was first sent: the events, or the transaction.
+        val (proposalKind, proposalContent, proposalTags) = when (session.subject) {
+            FrostSigningSubject.EVENTS -> {
+                val unsigned = items.mapNotNull { Event.fromJsonOrNull(it.unsignedEventJson) }
+                if (unsigned.size != items.size) {
+                    // Refused rather than shortened. A proposal that quietly lost an
+                    // event would have every signer's contribution rejected for being
+                    // the wrong length, which is a stall with nothing to blame.
+                    logger.w(
+                        "Session $sessionId: only ${unsigned.size} of ${items.size} stored events could " +
+                            "be read; not resending a proposal that is missing one"
+                    )
+                    return false
+                }
+                Triple(FrostSigningEvents.PROPOSAL, FrostSigningEvents.encodeProposal(unsigned), emptyArray<Array<String>>())
+            }
+
+            // Byte for byte the PSBT that was proposed -- it is what every item's
+            // sighash was computed from, and a member who already holds the
+            // session ignores any other.
+            FrostSigningSubject.TRANSACTION -> {
+                val transaction = database.groupTransactionDao().getBySessionId(sessionId)
+                if (transaction == null) {
+                    logger.w("Session $sessionId: no transaction on file; nothing to resend")
+                    return false
+                }
+                Triple(
+                    FrostSigningEvents.TRANSACTION_PROPOSAL,
+                    transaction.psbt,
+                    FrostSigningEvents.walletTags(transaction.chain, transaction.account)
+                )
+            }
         }
 
         logger.i(
@@ -2056,10 +2445,11 @@ object FrostSigningManager {
             database = database,
             localChatRoom = localChatRoom,
             session = session,
-            kind = FrostSigningEvents.PROPOSAL,
-            content = FrostSigningEvents.encodeProposal(unsigned),
+            kind = proposalKind,
+            content = proposalContent,
             includeKey = true,
-            silentMembers = owed.toList()
+            silentMembers = owed.toList(),
+            extraTags = proposalTags
         )
 
         when (session.stage) {
@@ -2349,10 +2739,10 @@ object FrostSigningManager {
             database = database,
             session = session,
             messageType = ChatMessage.TYPE_FROST_STARTED,
-            content = "asked the group to sign " +
-                (if (count > 1) "$count events" else "something") +
-                " with its shared key. It takes ${session.threshold} of " +
-                "${session.participantCount} members to do it.",
+            content = (
+                if (session.subject == FrostSigningSubject.TRANSACTION) "asked the group to spend from its wallet"
+                else "asked the group to sign " + (if (count > 1) "$count events" else "something") + " with its shared key"
+            ) + ". It takes ${session.threshold} of ${session.participantCount} members to do it.",
             actor = session.coordinatorPublicKey
         )
     }
@@ -2378,9 +2768,10 @@ object FrostSigningManager {
             database = database,
             session = session,
             messageType = ChatMessage.TYPE_FROST_APPROVAL_NEEDED,
-            content = "Your approval is needed to sign " +
-                (if (count > 1) "$count events " else "") +
-                "with the group's shared key. Nothing has been published from this device yet.",
+            content = (
+                if (session.subject == FrostSigningSubject.TRANSACTION) "Your approval is needed to spend from the group's wallet. "
+                else "Your approval is needed to sign " + (if (count > 1) "$count events " else "") + "with the group's shared key. "
+            ) + "Nothing has been published from this device yet.",
             actor = session.userPublicKey
         )
     }
@@ -2415,7 +2806,10 @@ object FrostSigningManager {
                 "chose who is signing and combined their one-time values."
 
             FrostSigningEvents.PARTIAL_SIGNATURE -> ChatMessage.TYPE_FROST_PARTIAL_SIGNATURE to
-                "signed their part" + (if (batch) " of all $count events" else "") +
+                "signed their part" + (
+                    if (session.subject == FrostSigningSubject.TRANSACTION) " of the transaction"
+                    else if (batch) " of all $count events" else ""
+                ) +
                     ". On its own it proves nothing; combined with the others it is " +
                     "the group's " + (if (batch) "signatures." else "signature.")
 
@@ -2545,14 +2939,15 @@ object FrostSigningManager {
         content: String,
         includeKey: Boolean = false,
         signerIds: List<Int>? = null,
-        silentMembers: List<HexKey>? = null
+        silentMembers: List<HexKey>? = null,
+        extraTags: Array<Array<String>> = emptyArray()
     ): Boolean {
         val sessionTags = FrostSigningEvents.assembleTags(
             sessionId = session.id,
             dkgSessionId = if (includeKey) session.dkgSessionId else null,
             signerIds = signerIds,
             silentMembers = silentMembers
-        )
+        ) + extraTags
 
         // No MLS state is what marks a room NIP-17 -- the same reading
         // `NostrNip17Dao.getOrCreateChatRoom` writes and `sendChatMessage` makes

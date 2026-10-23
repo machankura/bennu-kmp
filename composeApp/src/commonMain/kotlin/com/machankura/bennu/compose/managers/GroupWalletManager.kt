@@ -35,6 +35,27 @@ object GroupWalletManager {
     ): GroupWalletDerivation.Account? =
         thresholdKeyFor(database, chatRoomId)?.let { GroupWalletDerivation.account(it, chain, account) }
 
+    /**
+     * The wallet [chatRoomId] has opened on [chain] under [thresholdPublicKey], or
+     * null when the room signed no statement that key rederives.
+     *
+     * The form a signing session uses: it names the ceremony it signs under, and
+     * a statement is only that ceremony's wallet if that ceremony's key reaches it.
+     */
+    suspend fun walletFor(
+        database: BennuDatabase,
+        chatRoomId: String,
+        thresholdPublicKey: HexKey,
+        chain: Chain,
+        account: Long,
+    ): GroupWallet? = GroupWallet.newestAmong(
+        signedEvents = database.groupSignedEventDao()
+            .getByChatRoomIdAndKind(chatRoomId, GroupWalletStatementEvent.KIND),
+        thresholdPublicKey = thresholdPublicKey,
+        chain = chain,
+        account = account,
+    )
+
     /** The wallet [chatRoomId] has opened on [chain], or null when the group has not opened one. */
     suspend fun walletFor(
         database: BennuDatabase,

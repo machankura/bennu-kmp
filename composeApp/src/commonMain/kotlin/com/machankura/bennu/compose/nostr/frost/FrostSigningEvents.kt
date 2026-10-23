@@ -107,9 +107,26 @@ object FrostSigningEvents {
      */
     val DECLINE: Kind = 30330
 
+    /**
+     * Opens a session over a transaction from the group's wallet. Content is the
+     * PSBT, base64; the key is named in [FrostKeyTag] as for [PROPOSAL], and the
+     * wallet in a `chain` and an `account` tag -- which pick the room's statement
+     * to check against, and nothing more.
+     *
+     * A kind of its own rather than a PSBT inside a [PROPOSAL]. A build that does
+     * not know this kind does not route it, so an old device never signs a
+     * transaction it cannot show its owner: it is a member who did not sign, and
+     * a quorum without them still can. Every message after the proposal is the
+     * kinds above, unchanged, with one value per input.
+     *
+     * 30332 because 30331 is the wallet statement it is opened against.
+     */
+    val TRANSACTION_PROPOSAL: Kind = 30332
+
     /** Every kind above, for filtering inbound payloads in one check. */
     val ALL: Set<Kind> = setOf(
         PROPOSAL,
+        TRANSACTION_PROPOSAL,
         NONCE,
         SIGNER_SET,
         PARTIAL_SIGNATURE,
@@ -140,6 +157,23 @@ object FrostSigningEvents {
         signerIds?.let { add(FrostSignerIdsTag.assemble(it)) }
         silentMembers?.takeIf { it.isNotEmpty() }?.let { add(FrostSilentMembersTag.assemble(it)) }
     }.toTypedArray()
+
+    /** Whether [kind] opens a session -- over events or over a transaction. */
+    fun isProposal(kind: Kind): Boolean = kind == PROPOSAL || kind == TRANSACTION_PROPOSAL
+
+    private const val CHAIN_TAG = "chain"
+    private const val ACCOUNT_TAG = "account"
+
+    /** The wallet a [TRANSACTION_PROPOSAL] spends from, as tags. */
+    fun walletTags(chain: String, account: Long): Array<Array<String>> =
+        arrayOf(arrayOf(CHAIN_TAG, chain), arrayOf(ACCOUNT_TAG, account.toString()))
+
+    /** The network and account a [TRANSACTION_PROPOSAL] names, or null when it names either badly. */
+    fun parseWallet(tags: Array<Array<String>>): Pair<String, Long>? {
+        val chain = tags.firstOrNull { it.size >= 2 && it[0] == CHAIN_TAG }?.get(1) ?: return null
+        val account = tags.firstOrNull { it.size >= 2 && it[0] == ACCOUNT_TAG }?.get(1)?.toLongOrNull() ?: return null
+        return chain to account
+    }
 
     fun parseSessionId(tags: Array<Array<String>>): String? =
         tags.firstNotNullOfOrNull(FrostSessionIdTag::parse)?.sessionId
