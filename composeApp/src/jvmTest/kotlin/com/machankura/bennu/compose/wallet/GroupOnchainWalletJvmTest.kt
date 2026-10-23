@@ -45,7 +45,8 @@ import kotlin.test.assertTrue
  * The group's wallet watching a chain that only exists in this file.
  *
  * `IElectrumClient` is small and documented never to throw, so a fake of it is
- * a few maps: what each script has been paid, and the transactions that paid it.
+ * a few maps: what each script has been paid, what of it is unspent, and the
+ * transactions that paid it.
  */
 class GroupOnchainWalletJvmTest {
     private class FakeElectrum : IElectrumClient {
@@ -55,7 +56,10 @@ class GroupOnchainWalletJvmTest {
         override val notifications = MutableSharedFlow<ElectrumSubscriptionResponse>(extraBufferCapacity = 64)
         override val connectionStatus: StateFlow<ElectrumConnectionStatus> = MutableStateFlow(ElectrumConnectionStatus.Closed(null))
 
-        private fun status(scriptHash: ByteVector32): String? = unspents[scriptHash]?.takeIf { it.isNotEmpty() }?.let { "used" }
+        /** How many transactions have touched each script: Electrum's status is over the history, not the unspents. */
+        private val history = mutableMapOf<ByteVector32, Int>()
+
+        private fun status(scriptHash: ByteVector32): String? = history[scriptHash]?.let { "used:$it" }
 
         /** Pays [script] in a fresh transaction, confirmed at [height] (0 for the mempool), and tells the wallet. */
         suspend fun pay(script: ByteVector, amount: Satoshi, height: Long = 100) {
@@ -68,6 +72,15 @@ class GroupOnchainWalletJvmTest {
             txs[tx.txid] = tx
             val hash = scriptHash(script)
             unspents[hash] = unspents[hash].orEmpty() + UnspentItem(tx.txid, 0, amount.sat, height)
+            history[hash] = (history[hash] ?: 0) + 1
+            notifications.emit(ScriptHashSubscriptionResponse(hash, status(hash)))
+        }
+
+        /** Spends everything [script] holds: its unspents go, its history stays. */
+        suspend fun spend(script: ByteVector) {
+            val hash = scriptHash(script)
+            unspents.remove(hash)
+            history[hash] = (history[hash] ?: 0) + 1
             notifications.emit(ScriptHashSubscriptionResponse(hash, status(hash)))
         }
 
@@ -171,5 +184,103 @@ class GroupOnchainWalletJvmTest {
             eventually { wallet.state.first { it.receive.addresses.size == GroupOnchainWallet.RECEIVE_LOOKAHEAD.toInt() } }
         }
         assertTrue(FakeElectrum.scriptHash(receive(9).pubkeyScript) in electrum.subscribed)
+    }
+
+    private fun GroupWalletState.listed(): List<Pair<Long, GroupAddress.Status>>? =
+        receiveAddresses?.map { it.derivation.index to it.status }
+
+    @Test
+    fun `a fresh wallet lists the current address and the two after it`() {
+        val wallet = GroupOnchainWallet(account, FakeElectrum(), scope)
+
+        val state = eventually { wallet.state.first { it.receiveAddresses != null } }
+        assertEquals(
+            listOf(2L to GroupAddress.Status.NEXT, 1L to GroupAddress.Status.NEXT, 0L to GroupAddress.Status.CURRENT),
+            state.listed(),
+        )
+        assertEquals(state.receiveAddress, state.receiveAddresses!!.last().address, "the current row is the address the wallet screen shows")
+    }
+
+    @Test
+    fun `a paid address stays in the list and the list moves on with it`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+
+        eventually { wallet.state.first { it.receiveAddresses != null } }
+        eventually { electrum.pay(receive(0).pubkeyScript, Satoshi(25_000)) }
+
+        val state = eventually { wallet.state.first { it.receiveAddress == receive(1).address(Chain.Regtest) } }
+        assertEquals(
+            listOf(
+                3L to GroupAddress.Status.NEXT,
+                2L to GroupAddress.Status.NEXT,
+                1L to GroupAddress.Status.CURRENT,
+                0L to GroupAddress.Status.USED,
+            ),
+            state.listed(),
+        )
+        assertEquals(Satoshi(25_000), state.receiveAddresses!!.last().balance)
+    }
+
+    @Test
+    fun `a paid address that has been spent from is still used`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+
+        eventually { wallet.state.first { it.receiveAddresses != null } }
+        eventually { electrum.pay(receive(0).pubkeyScript, Satoshi(25_000)) }
+        eventually { wallet.state.first { it.receiveAddress == receive(1).address(Chain.Regtest) } }
+        eventually { electrum.spend(receive(0).pubkeyScript) }
+
+        val state = eventually { wallet.state.first { it.utxos.isEmpty() && it.receiveAddresses != null } }
+        val spent = state.receiveAddresses!!.single { it.derivation.index == 0L }
+        assertEquals(GroupAddress.Status.USED, spent.status)
+        assertEquals(Satoshi(0), spent.balance)
+        assertEquals(receive(1).address(Chain.Regtest), state.receiveAddress, "an emptied address is not handed out again")
+    }
+
+    @Test
+    fun `a payment past the current address is listed however far up it is`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+
+        eventually { wallet.state.first { it.receiveAddresses != null } }
+        eventually { electrum.pay(receive(6).pubkeyScript, Satoshi(10_000)) }
+
+        val state = eventually { wallet.state.first { it.receiveAddresses?.any { it.status == GroupAddress.Status.USED } == true } }
+        assertEquals(
+            listOf(6L to GroupAddress.Status.USED) +
+                (5L downTo 1L).map { it to GroupAddress.Status.NEXT } +
+                listOf(0L to GroupAddress.Status.CURRENT),
+            state.listed(),
+            "the lowest unused address is still the current one",
+        )
+    }
+
+    @Test
+    fun `every listed address is one the wallet watches`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+
+        eventually { wallet.state.first { it.receiveAddresses != null } }
+        eventually { electrum.pay(receive(0).pubkeyScript, Satoshi(1_000)) }
+        eventually { electrum.pay(receive(1).pubkeyScript, Satoshi(1_000)) }
+
+        val state = eventually { wallet.state.first { it.receiveAddress == receive(2).address(Chain.Regtest) } }
+        val watched = state.receive.addresses.keys
+        state.receiveAddresses!!.forEach { assertTrue(it.address in watched, "${it.derivation.index} is listed but not watched") }
+    }
+
+    @Test
+    fun `change addresses are never listed for receiving`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+
+        eventually { wallet.state.first { it.nextChangeIndex == 0L } }
+        eventually { electrum.pay(change(0).pubkeyScript, Satoshi(7_000)) }
+
+        val state = eventually { wallet.state.first { it.nextChangeIndex == 1L && it.receiveAddresses != null } }
+        assertTrue(state.receiveAddresses!!.none { it.address == change(0).address(Chain.Regtest) })
+        assertTrue(state.receiveAddresses!!.all { it.derivation.change == GroupWalletDerivation.RECEIVE })
     }
 }

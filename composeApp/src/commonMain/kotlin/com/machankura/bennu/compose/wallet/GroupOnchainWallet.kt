@@ -89,6 +89,37 @@ class GroupOnchainWallet(
 
         /** Change addresses are only ever chosen by a spend, one at a time. */
         const val CHANGE_LOOKAHEAD: UInt = 3u
+
+        /**
+         * Unused receive addresses the address list offers past the current one,
+         * so several members can each hand out a different one. Every one of them
+         * has to be watched already, or a payment to it would go unseen.
+         */
+        const val ADDRESSES_AHEAD: Int = 2
+
+        init {
+            require(ADDRESSES_AHEAD < RECEIVE_LOOKAHEAD.toInt()) { "the address list would offer addresses the wallet does not watch" }
+        }
+    }
+}
+
+/** One receive address as the address list shows it. */
+data class GroupAddress(
+    val derivation: GroupWalletDerivation.Derived,
+    val address: String,
+    val status: Status,
+    /** What it holds now: zero for an address never paid, and for one paid and spent. */
+    val balance: Satoshi,
+) {
+    enum class Status {
+        /** The address the wallet screen is handing out. */
+        CURRENT,
+
+        /** Not paid yet, and past the current one. */
+        NEXT,
+
+        /** Paid at least once, whether or not the coins have moved since. */
+        USED,
     }
 }
 
@@ -139,6 +170,41 @@ data class GroupWalletState(
      * fifty times would be address reuse with a straight face.
      */
     val receiveAddress: String? get() = receive.firstUnusedDerivedAddress?.first
+
+    /**
+     * The receive addresses worth listing, newest first: every one paid, the one
+     * being handed out, and [GroupOnchainWallet.ADDRESSES_AHEAD] after it -- or
+     * null until Electrum has said which are used, for the reason
+     * [receiveAddress] is.
+     *
+     * The list reaches the highest paid address even past the current one plus
+     * the addresses ahead: the current address is the *lowest* unused one, so a
+     * watch-only wallet paid further up leaves it where it was.
+     */
+    val receiveAddresses: List<GroupAddress>? by lazy {
+        val current = receive.firstUnusedDerivedAddress?.second?.index ?: return@lazy null
+        val derived = receive.addresses.mapNotNull { (address, state) ->
+            (state.meta as? WalletState.AddressMeta.Derived)?.let { Triple(address, it.index, state) }
+        }
+        val highestUsed = derived.filter { it.third.alreadyUsed }.maxOfOrNull { it.second } ?: -1
+        val last = maxOf(current + GroupOnchainWallet.ADDRESSES_AHEAD, highestUsed)
+
+        derived
+            .filter { (_, index, _) -> index <= last }
+            .sortedByDescending { (_, index, _) -> index }
+            .map { (address, index, state) ->
+                GroupAddress(
+                    derivation = GroupWalletDerivation.derive(account, GroupWalletDerivation.RECEIVE, index.toLong()),
+                    address = address,
+                    status = when {
+                        state.alreadyUsed -> GroupAddress.Status.USED
+                        index == current -> GroupAddress.Status.CURRENT
+                        else -> GroupAddress.Status.NEXT
+                    },
+                    balance = state.utxos.map { it.amount }.sum(),
+                )
+            }
+    }
 
     /** The change index a spend should pay back to, or null until Electrum has answered. */
     val nextChangeIndex: Long? get() = change.firstUnusedDerivedAddress?.second?.index?.toLong()
