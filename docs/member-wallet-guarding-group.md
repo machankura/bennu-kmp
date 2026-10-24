@@ -12,8 +12,25 @@ Read [member-guarded-wallets.md](./member-guarded-wallets.md) first, Phases 10
 and 11 especially. This plan changes what those phases draw. It does not change
 what they verify.
 
-**Not built.** Written against `263a25a7`, schema v31. No phase needs a schema
-change.
+**Built**, phases 1-6, one commit each, written against `263a25a7`, schema v31;
+no phase changed the schema. `GuardedWallet.directGuardianChatRoomId`,
+`GuardianManager.foundingNameOf`, `GuardedWalletNoticeEvent.certificateIn`,
+`byPerson` and `MemberWalletManager.byWallet` are the entry points. The phases
+below are kept as written; where the build chose differently the table says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| D3, third source: 30331 notices told to *any* room here | only those told to the holding room, which `guardedWalletsOf` already reads. Reaching every room would have been a query by kind across rooms, the one new query the plan said it did not need |
+| Phase 2: `foundingNameOf` | and `foundingCertificateOf` beside it, which returns the checked event: Phase 3 forwards the certificate, not the name |
+| Phase 3, step 4: each told row paired with its own carried certificate, and the copy with one wins a fold | every certificate the room's notices carry is pooled, with the ones its 30331 statements embed, and offered to every wallet. Each is checked against the room and parent it would name, so one that certifies neither is never used, and the fold needs no tiebreak |
+| Phase 3, not in the plan | *Tell the groups above* offers only guardians above the room it is shown from. It offered every guardian but that room, so a device in P and M was asked to tell M about M's own member's wallet -- found writing the two-hop test |
+| Phase 5, step 2: `guarded_by_this_group`, `n_guarded_wallets` | noun phrases inside `guarded_by_s` -- `this_group`, `a_group_below_s`, `a_group_below_this_one` -- so the button descriptions can use the same phrase mid-sentence; `n_wallets`, since *2 guarded wallets, guarded by 2 groups* says it twice; and `s_comma_s` to join the two plurals |
+| Phase 5, step 3: `guardedWalletName` gives `@alice · Savings` | every such sentence is *X's guarded wallet*, and *@alice · Savings's* does not read. A labelled wallet is *@alice's guarded wallet “Savings”*, an unlabelled one *@alice's wallet guarded by #M* |
+| Phase 5, step 4: `displayName` becomes `@alice · Savings` | `displayName` is unchanged; `Spender.Guardian` gains `label`, and `ProposedSpend.guardedWallet` appends it the same way. The transcript's *The group signed …* line and the send form's title use it too |
+| Phase 4: cards nearest first, then by guardian name | then by label as well, so two wallets under one group keep an order |
+| Phase 6: `GuardedHereWallet(walletId, label, guardianName, holders)` | and `below`, the group it is known to sit below, for the line when no holder can name the guardian; with neither it is *another group*. `GuardedHere.guardianName`, which was the holder's room name, is now `holderName` |
+
+Still to do by hand: Phase 7's run on signet.
 
 ---
 
@@ -416,6 +433,7 @@ a dimension. `readableContent()` is already on the list's root.
 ## Phase 7 — docs, the audit, and by hand
 
 - **This note**: *Built*, plus a table of where the build chose differently.
+  Done.
 - [member-guarded-wallets.md](./member-guarded-wallets.md): Phases 10 and 11 get
   a pointer here. Phase 11's *Guarded by #Ekklesia* is changed to say that the
   holder now appears on the holder's own line.

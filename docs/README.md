@@ -63,6 +63,9 @@ takes the guardians note's derivation unchanged and gives the key path to one
 person: read that note and the policy note's D2 first, then this note's table
 of why a birth certificate will not do, its Phase 0, and its table of where the
 build chose differently before the code.
+The member-wallet-guarding-group note is a phased plan that has been built,
+and changes what the member-guarded-wallets note's Phases 10 and 11 draw, not
+what they verify: read those two phases first.
 The subgroup-wallet-policy note is a phased plan that has been built. It
 reads as the guardians note's *whose choice it is* reversed: read
 that section, then this note's Phase 0, whose five decisions shape every phase

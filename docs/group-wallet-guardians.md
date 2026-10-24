@@ -343,7 +343,12 @@ needed one level at a time, not between the grandchild and the root directly.
 
 Since [member-guarded-wallets.md](./member-guarded-wallets.md) the thing
 forwarded may also be a member wallet certificate, which the guarding group
-signed itself and so needs no forwarding into that group.
+signed itself and so needs no forwarding into that group. Since
+[member-wallet-guarding-group.md](./member-wallet-guarding-group.md) the notice
+carrying one also carries, as a `certificate` tag, the guarding group's own
+birth certificate, so a group above that was never in its room can name it.
+Like the statement, the tag is checked rather than trusted, and an older build
+ignores it.
 
 Once it has the statement, the ancestor watches the descendant's addresses on the
 Electrum client it already holds — unknown script hashes are ignored, so this

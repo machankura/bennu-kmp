@@ -760,6 +760,10 @@ replaces and settles.
 
 The guardian side is built. What changes is what a guarded wallet can be.
 
+[member-wallet-guarding-group.md](./member-wallet-guarding-group.md) later
+gathered these rows by person and named, on each, the group that directly
+guards the wallet.
+
 ### `GuardianManager.GuardedWallet` learns its subject
 
 ```kotlin
@@ -845,7 +849,10 @@ wallet for you*. An empty section with the button hidden is not shown at all.
 There is a new section, **Wallets your groups guard**, listing every guarded
 wallet this device knows of whose subject is that npub. These come from each
 group's own certificates and from forwarded notices, so a root sees a
-grandchild's member. Each row reads *Guarded by #Ekklesia*, with the amount within
+grandchild's member. (Since [member-wallet-guarding-group.md](./member-wallet-guarding-group.md),
+D7, there is one entry per wallet: *Guarded by* names the group that signed its
+certificate, and each group here holding a leaf has a line of its own beneath.)
+Each row reads *Guarded by #Ekklesia*, with the amount within
 this group's reach, and *Spend* for a share-holder, which opens
 `GroupSendRoute(chatRoomId = <the guardian room>, guardedChatRoomId = W)`, the
 guardian spend that exists today. When the profile shown is the active one, the
