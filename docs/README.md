@@ -77,10 +77,11 @@ reads as the guardian-delay note's last build-table row answered: read the
 member-wallets note and the guardian-delay note first, then its table of where
 the delay should live, then its Phase 0, and its table of where the build chose
 differently before the code.
-The guarded-wallet-forwarding note is a phased plan that has not been built.
+The guarded-wallet-forwarding note is a phased plan that has been built.
 It changes who sends a 30333 notice and when, and no format: read the guardians
 note's *How an ancestor finds the coins* and the member-guarded-wallets note's
-Phase 10 first, then its two bugs and its Phase 0.
+Phase 10 first, then its two bugs, its Phase 0, and its table of where the build
+chose differently before the code.
 The guarded-wallet-funding note is a phased plan that has been built. It
 reads as the guardians note run the other way, coins in rather than out: read
 that note and the address note's *Why `+ 2`* first, then its seven decisions

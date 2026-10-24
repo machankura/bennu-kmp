@@ -345,6 +345,13 @@ Since [member-guarded-wallets.md](./member-guarded-wallets.md) the thing
 forwarded may also be a member wallet certificate, which the guarding group
 signed itself and so needs no forwarding into that group.
 
+Since [guarded-wallet-forwarding.md](./guarded-wallet-forwarding.md) nobody has to
+remember to. A device that files a guarded wallet it believes tells the groups
+above it is in -- upward only, never a group that already holds it, one elected
+device at once and the rest when a group's chat or wallet screen next opens --
+and *Share* is the fallback for a notice lost on the wire. Overlap is still what
+it needs: a device in both rooms, one generation at a time.
+
 Once it has the statement, the ancestor watches the descendant's addresses on the
 Electrum client it already holds — unknown script hashes are ignored, so this
 costs subscriptions and nothing else — and its wallet screen grows a *Guarded

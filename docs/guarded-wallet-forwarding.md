@@ -23,7 +23,26 @@ Phase 10, first. This plan changes no format: the notice is the 30333
 before believing one is unchanged. What changes is who sends it, when, and to
 which groups.
 
-**Not built.** Written against the code as it stood at `263a25a7`, schema v30.
+**Built**, phases 1-7, one commit each, written against the code as it stood at
+`263a25a7`, schema v30; the build changes no schema and no format.
+`GuardianManager.believable`, `upwardOf`, `forward`, `forwardOnArrival` and
+`forwardAll` are the entry points, and `GroupWalletRollout.FORWARDS_GUARDED_WALLETS`
+is the switch. The phases below are kept as written; where the build chose
+differently the table says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 1's tests are in commonTest | jvmTest, `GuardedWalletForwardingRulesJvmTest`: `believable` is tested against certificates a real quorum signed, and FROST runs on the JVM |
+| Phase 2: `forward` writes the forwarder's own line | `share` writes it, so the button writes it too -- the forwarder never seeing its own line was the button's gap as much as the automation's (Phase 5) |
+| Phase 3: the notice arm forwards after `describeNotice` believes it | before, and whether or not it does. `describeNotice` needs this room's key to make the ancestor's walk; forwarding needs only `believable`, so a device in a middle group that holds no key state for it still carries a notice on up |
+| Phase 3: a test with the switch off | not written: the switch is a `const`, and a test cannot turn it. Each trigger reads it in one line, `forwardOnArrival` and `forwardAll` |
+| Phase 3's notice test arrives through the inbound path | through `GuardianManager.forwardOnArrival`, which the inbound path calls: the 30333 arm sits inside MLS decryption, which a jvmTest does not drive. The certificate and statement arms are driven through `ChatMessage.applyInnerEvent` itself |
+| Phase 4: `ChatRepository.forwardGuardedWallets` | with a default body, so every fake repository in the tests needed no change |
+| Phase 5: nothing else changes | two older tests described a notice under an id other than the one they filed. Under the one-line rule that is a second notice, and silent; they now describe the notice they filed |
+| Phase 6: each row's supporting line explains the fallback | one line under the section's heading says it, and each row keeps *Not yet shared with the groups above that you're in*: the same sentence on every row was the same sentence N times |
+| Phase 7: the three-device run | not made |
+
+Still to do by hand: Phase 7's run on signet.
 
 ---
 
