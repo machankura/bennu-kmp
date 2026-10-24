@@ -622,4 +622,5 @@
     <string name="your_spends">Your spends</string>
     <string name="sent_waiting_for_the_network">Sent, waiting for the network to report it</string>
     <string name="in_the_mempool">In the mempool</string>
+    <string name="at_s">@%1$s</string>
 </resources>

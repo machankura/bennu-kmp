@@ -31,6 +31,8 @@ import fr.acinq.bitcoin.crypto.frost.IndividualNonce
 import fr.acinq.bitcoin.crypto.frost.KeyMaterial
 import fr.acinq.bitcoin.crypto.frost.SecretNonce
 import fr.acinq.bitcoin.crypto.frost.Session
+import fr.acinq.bitcoin.crypto.frost.TweakCache
+import fr.acinq.bitcoin.ByteVector64
 import kotlin.time.Instant
 
 /**
@@ -185,9 +187,11 @@ internal object GroupFixtures {
         return requireNotNull(db.chatRoomDao().findChatRoomById(roomId))
     }
 
-    private fun signature(material: KeyMaterial, eventId: String): String {
-        val cache = SharedKeyDerivation.derive(thresholdKeyOf(material), path).cache
-        val message = ByteVector(eventId.hexToByteArray())
+    private fun signature(material: KeyMaterial, eventId: String): String =
+        signWith(material, SharedKeyDerivation.derive(thresholdKeyOf(material), path).cache, ByteVector(eventId.hexToByteArray())).toHex()
+
+    /** A 2-of-3 FROST signature by [material]'s quorum over [message] under [cache] -- a leaf's, an address's, the room's. */
+    fun signWith(material: KeyMaterial, cache: TweakCache, message: ByteVector): ByteVector64 {
         val signerIds = listOf(0, 1)
 
         val nonces = signerIds.map { signerId ->
@@ -212,6 +216,6 @@ internal object GroupFixtures {
         val partials = signerIds.mapIndexed { position, signerId ->
             session.sign(nonces[position].first, material.secretShares[signerId], signerId.toUInt()).right!!
         }
-        return session.aggregateSigs(partials).right!!.toByteArray().toHex()
+        return session.aggregateSigs(partials).right!!
     }
 }

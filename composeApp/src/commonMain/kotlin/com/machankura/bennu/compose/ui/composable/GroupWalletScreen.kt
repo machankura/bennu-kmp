@@ -80,6 +80,7 @@ import bennu.composeapp.generated.resources.nothing_has_been_sent_to_this_wallet
 import bennu.composeapp.generated.resources.open_a_group_wallet
 import bennu.composeapp.generated.resources.open_a_guarded_wallet
 import bennu.composeapp.generated.resources.a_subgroup
+import bennu.composeapp.generated.resources.at_s
 import bennu.composeapp.generated.resources.couldn_t_share_the_wallet
 import bennu.composeapp.generated.resources.guarded_wallets
 import bennu.composeapp.generated.resources.not_yet_shared_with_the_groups_above
@@ -677,12 +678,13 @@ private fun LazyListScope.guardianItems(
         items(guardedWallets, key = { "guarded-" + it.wallet.statement.id }) { row ->
             ListItem(
                 leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
-                headlineContent = { Text(row.wallet.name ?: stringResource(Res.string.a_subgroup), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                headlineContent = { Text(guardedName(row.wallet.subject), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingContent = {
-                    Text(
-                        row.withinReach?.let { stringResource(Res.string.s_sats_within_this_group_s_reach, it.grouped()) }
-                            ?: stringResource(Res.string.balance_not_known_yet)
-                    )
+                    val reach = row.withinReach?.let { stringResource(Res.string.s_sats_within_this_group_s_reach, it.grouped()) }
+                        ?: stringResource(Res.string.balance_not_known_yet)
+                    // A member's label says which of their wallets it is.
+                    val label = (row.wallet.subject as? GuardianManager.GuardedSubject.Member)?.label
+                    Text(label?.let { stringResource(Res.string.s_dot_s, it, reach) } ?: reach)
                 },
                 trailingContent = onSpend?.let { spend ->
                     {
@@ -701,7 +703,15 @@ private fun LazyListScope.guardianItems(
         }
         items(shareable, key = { "shareable-" + it.statement.id }) { candidate ->
             ListItem(
-                headlineContent = { Text(candidate.name ?: stringResource(Res.string.a_subgroup), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                headlineContent = {
+                    Text(
+                        text = candidate.ownerPublicKey?.let { stringResource(Res.string.at_s, candidate.ownerName ?: it.take(8)) }
+                            ?: candidate.name
+                            ?: stringResource(Res.string.a_subgroup),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 supportingContent = { Text(stringResource(Res.string.not_yet_shared_with_the_groups_above)) },
                 trailingContent = {
                     TextButton(onClick = { onShare(candidate) }, enabled = !isPending) {
@@ -711,6 +721,18 @@ private fun LazyListScope.guardianItems(
             )
         }
     }
+}
+
+/**
+ * A guarded wallet as an ancestor's list names it: a subgroup by the name its
+ * parent certified -- `#Translation` -- and a member by their profile's name --
+ * `@alice` -- falling back to the start of their key. A person's name is theirs
+ * and live; the certificate fixes who they are, not what they are called.
+ */
+@Composable
+internal fun guardedName(subject: GuardianManager.GuardedSubject): String = when (subject) {
+    is GuardianManager.GuardedSubject.Subgroup -> subject.name ?: stringResource(Res.string.a_subgroup)
+    is GuardianManager.GuardedSubject.Member -> stringResource(Res.string.at_s, subject.ownerName ?: subject.ownerPublicKey.take(8))
 }
 
 @Composable
