@@ -227,7 +227,7 @@ object GroupSpend {
                     .takeIf { it.pubkeyScript == payment.txOut.publicKeyScript && it.internalKey == internalKey }
                     ?.let { Funding(payment.index, wallet, it) }
             } ?: return FundingReading.Refused(
-                "output ${payment.index} claims $branch/$index of ${candidates.first().name ?: "a subgroup"}'s guarded wallet, which is not where it pays"
+                "output ${payment.index} claims $branch/$index of ${candidates.first().displayName ?: "a subgroup"}'s guarded wallet, which is not where it pays"
             )
         }
         return FundingReading.Ok(fundings)

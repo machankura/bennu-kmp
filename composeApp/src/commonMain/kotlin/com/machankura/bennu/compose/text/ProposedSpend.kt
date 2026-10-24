@@ -37,7 +37,7 @@ object ProposedSpend {
             }
         )
 
-    private fun nameOf(funding: GroupSpend.Funding): String = funding.wallet.name ?: "a subgroup"
+    private fun nameOf(funding: GroupSpend.Funding): String = funding.wallet.displayName ?: "a subgroup"
 
     /** The address [script] pays, or the script itself where it has no address. */
     fun addressOf(script: ByteVector, chain: Chain): String =

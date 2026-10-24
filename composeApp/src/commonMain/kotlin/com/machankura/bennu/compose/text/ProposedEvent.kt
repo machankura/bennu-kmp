@@ -3,6 +3,10 @@ package com.machankura.bennu.compose.text
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletRequestEvent
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
@@ -27,7 +31,12 @@ object ProposedEvent {
      */
     data class Summary(val label: String, val detail: String)
 
-    fun summarize(event: Event): Summary = when (event.kind) {
+    /**
+     * [nameOf] names a member by public key, for the one summary that is about a
+     * person: a caller with profiles to hand passes them, and one without gets
+     * the summary without a name rather than a wrong one.
+     */
+    fun summarize(event: Event, nameOf: (HexKey) -> String? = { null }): Summary = when (event.kind) {
         // The one thing a group signs that is about the group rather than about
         // its work, and the only one a member sees before the room has done
         // anything. Shown as the path and the ceremony rather than as the key:
@@ -90,6 +99,32 @@ object ProposedEvent {
             detail = GroupWalletStatementEvent.read(event.tags, event.content)?.let { statement ->
                 "On ${GroupWalletStatementEvent.chainName(statement.chain)}, account ${statement.account}"
             } ?: "A wallet statement this device cannot read"
+        )
+
+        // The group agreeing to guard one member's wallet. What a signer weighs
+        // is whose wallet, and what the group can do with it: take any coin that
+        // has sat for 12 blocks, alongside every group above it, while only the
+        // member can spend before then. The keys are their device's to check.
+        MemberWalletCertificateEvent.KIND -> Summary(
+            label = "Guard a member's wallet",
+            detail = MemberWalletCertificateEvent.requestOf(event)
+                ?.let { MemberWalletRequestEvent.read(it) }
+                ?.let { reading ->
+                    val delay = GuardianDerivation.ANCESTOR_DELAY
+                    val reach = when (val count = reading.guardians.size) {
+                        1 -> "this group can take its coins once they are $delay blocks old"
+                        2 -> "this group and the one above it can take its coins once they are $delay blocks old"
+                        else -> "this group and the ${count - 1} above it can take its coins once they are $delay blocks old"
+                    }
+                    listOfNotNull(
+                        nameOf(reading.memberPublicKey)?.let { "For @$it" },
+                        reading.label,
+                        "on ${GroupWalletStatementEvent.chainName(reading.chain)}",
+                        reach,
+                        "only the member can spend from it before then",
+                    ).joinToString(" · ")
+                }
+                ?: "A member wallet this device cannot read"
         )
 
         else -> Summary(label = "Event of kind ${event.kind}", detail = event.content)

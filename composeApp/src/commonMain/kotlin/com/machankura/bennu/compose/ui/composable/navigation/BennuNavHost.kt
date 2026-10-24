@@ -139,6 +139,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletAddressesRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.NewMemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberSendRoute
+import com.machankura.bennu.compose.ui.composable.MemberSendScreen
+import com.machankura.bennu.compose.ui.composable.MemberWalletScreen
+import com.machankura.bennu.compose.ui.composable.NewMemberWalletScreen
+import com.machankura.bennu.compose.database.repository.DatabaseMemberWalletRepository
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
 import fr.acinq.phoenix.managers.NodeParamsManager
@@ -205,6 +212,13 @@ fun BennuNavHost(
         DatabaseFrostSigningRepository(
             database = auxDatabaseManager.auxDatabase,
             applicationIOScope
+        )
+    }
+
+    val databaseMemberWalletRepository = remember {
+        DatabaseMemberWalletRepository(
+            database = auxDatabaseManager.auxDatabase,
+            activeIdentity = sovereignWalletViewModel.activeIdentity,
         )
     }
 
@@ -909,6 +923,8 @@ fun BennuNavHost(
                         )
                     },
                     signOut = signOutOfReadOnlyIdentity,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    wallets = groupOnchainWallets,
                 )
             }
             composable<ShareProfileRoute> { backStackEntry ->
@@ -1065,6 +1081,7 @@ fun BennuNavHost(
                     relayHint = route.relayHint,
                     nostrRepository = databaseNostrRepository,
                     chatRepository = databaseChatRepository,
+                    memberWalletRepository = databaseMemberWalletRepository,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(
                             route = actionRoute
@@ -1141,6 +1158,50 @@ fun BennuNavHost(
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
                     },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<MemberWalletRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<MemberWalletRoute>()
+
+                MemberWalletScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    walletId = route.walletId,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    wallets = groupOnchainWallets,
+                    onSend = { walletId ->
+                        navController.navigate(route = MemberSendRoute(activeUserPublicKey = route.activeUserPublicKey, walletId = walletId))
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<MemberSendRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<MemberSendRoute>()
+
+                MemberSendScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    walletId = route.walletId,
+                    chain = NodeParamsManager.chain,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    wallets = groupOnchainWallets,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<NewMemberWalletRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<NewMemberWalletRoute>()
+
+                NewMemberWalletScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    chain = NodeParamsManager.chain,
+                    canWatch = groupOnchainWallets != null,
+                    memberWalletRepository = databaseMemberWalletRepository,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
@@ -1310,6 +1371,8 @@ fun BennuNavHost(
                     profilePublicKey = route.profilePublicKey,
                     nostrRepository = databaseNostrRepository,
                     chatRepository = databaseChatRepository,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    onNavigateToRoute = { actionRoute -> navController.navigate(route = actionRoute) },
                     // The room replaces the preview, as it replaces the profile detail
                     // above: back from a chat is the list, not the person it was started
                     // from.

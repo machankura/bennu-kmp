@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.database
 
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.database.dao.GroupTransactionDao
+import com.machankura.bennu.compose.database.dao.MemberWalletDao
 import androidx.room3.ColumnTypeConverters
 import androidx.room3.AutoMigration
 import androidx.room3.ConstructedBy
@@ -78,6 +79,8 @@ import com.machankura.bennu.compose.database.model.MarmotPublishObligation
 import com.machankura.bennu.compose.database.model.MarmotOutboundGate
 import com.machankura.bennu.compose.managers.MarmotEngine
 import com.machankura.bennu.compose.database.model.MarmotRetainedEpochSecret
+import com.machankura.bennu.compose.database.model.MemberWallet
+import com.machankura.bennu.compose.database.model.MemberWalletSpend
 import com.machankura.bennu.compose.database.model.Mention
 import com.machankura.bennu.compose.database.model.NegentropySynchronizeRequest
 import com.machankura.bennu.compose.database.model.NegentropySynchronizeResult
@@ -135,6 +138,8 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         MarmotPublishObligation::class,
         MarmotOutboundGate::class,
         MarmotRetainedEpochSecret::class,
+        MemberWallet::class,
+        MemberWalletSpend::class,
         Mention::class,
         NegentropySynchronizeRequest::class,
         NegentropySynchronizeResult::class,
@@ -153,7 +158,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 29,
+    version = 30,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -355,6 +360,12 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // subgroup's ceremony was proposed under (docs/subgroup-wallet-policy.md,
         // Phase 2). Every ceremony before it chose none, which is what null means.
         AutoMigration(from = 28, to = 29),
+        // v30 adds MemberWallet and MemberWalletSpend: the random key of a
+        // guarded wallet one member holds and a group guards, and the spends the
+        // member signed alone from it (docs/member-guarded-wallets.md, Phase 5).
+        // New tables, and no foreign keys -- deleting a group's room must never
+        // delete a key coins may sit behind.
+        AutoMigration(from = 29, to = 30),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)
@@ -390,6 +401,8 @@ abstract class BennuDatabase: RoomDatabase() {
     abstract fun groupSignedEventDao(): GroupSignedEventDao
 
     abstract fun groupTransactionDao(): GroupTransactionDao
+
+    abstract fun memberWalletDao(): MemberWalletDao
 
     abstract fun connectionDao(): ConnectionDao
 
@@ -458,6 +471,11 @@ abstract class BennuDatabase: RoomDatabase() {
         useWriterConnection { transactor ->
             transactor.immediateTransaction {
                 // TODO: Actually delete the data...
+                //
+                // When this does: MemberWallet holds the only copy of keys that
+                // coins may sit behind (docs/member-guarded-wallets.md, D6). A
+                // caller wiping a profile that holds an open member wallet has to
+                // say so first and offer the key's export, before anything goes.
             }
         }
     }

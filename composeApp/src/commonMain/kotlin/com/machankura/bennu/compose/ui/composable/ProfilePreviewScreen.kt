@@ -1,5 +1,19 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.repository.MemberWalletRepository
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import com.machankura.bennu.compose.managers.GuardianManager
+import com.machankura.bennu.compose.ui.view.model.PersonGuardedWalletsViewModel
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupSendRoute
+import bennu.composeapp.generated.resources.wallets_your_groups_guard
+import bennu.composeapp.generated.resources.guarded_by_s
+import bennu.composeapp.generated.resources.a_group
+import bennu.composeapp.generated.resources.s_dot_s
+import bennu.composeapp.generated.resources.spend
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Icon
+import com.machankura.bennu.compose.ui.composable.widgets.Decorative
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,7 +28,6 @@ import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -46,7 +59,6 @@ import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ChatRoomMessagingRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
-import com.machankura.bennu.compose.ui.composable.widgets.Decorative
 import com.machankura.bennu.compose.ui.composable.widgets.EmptyState
 import com.machankura.bennu.compose.ui.composable.widgets.ErrorState
 import com.machankura.bennu.compose.ui.composable.widgets.LoadingDataIndicator
@@ -91,7 +103,16 @@ fun ProfilePreviewScreen(
     chatRepository: ChatRepository,
     onStartChat: (Route) -> Unit,
     onNavigateBack: () -> Unit,
+    // The person's guarded wallets that this profile's groups guard
+    // (docs/member-guarded-wallets.md, Phase 11), and where a spend from one goes.
+    memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
+    onNavigateToRoute: (Route) -> Unit = {},
 ) {
+    val personWalletsViewModel: PersonGuardedWalletsViewModel = viewModel(
+        factory = PersonGuardedWalletsViewModel.factory(ownerPublicKey = profilePublicKey, memberWalletRepository = memberWalletRepository),
+    )
+    LaunchedEffect(true) { personWalletsViewModel.initiate() }
+
     val profilePreviewViewModel: ProfilePreviewViewModel = viewModel(
         factory = ProfilePreviewViewModel.factory(
             activeUserPublicKey = activeUserPublicKey,
@@ -187,6 +208,24 @@ fun ProfilePreviewScreen(
                                 onRetry = { profilePreviewViewModel.retry() },
                             )
                         }
+
+                        // One's own wallets are listed on one's own profile, with their
+                        // keys; this is the guardians' view of somebody else's.
+                        if (profilePublicKey != activeUserPublicKey && personWalletsViewModel.rows.isNotEmpty()) {
+                            GuardedByYourGroups(
+                                rows = personWalletsViewModel.rows,
+                                onSpend = { row ->
+                                    onNavigateToRoute(
+                                        GroupSendRoute(
+                                            activeUserPublicKey = activeUserPublicKey,
+                                            chatRoomId = row.wallet.ancestorChatRoomId,
+                                            relayHint = null,
+                                            guardedChatRoomId = row.wallet.descendantChatRoomId,
+                                        )
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
 
@@ -219,6 +258,33 @@ fun ProfilePreviewScreen(
     LaunchedEffect(true) {
         if (initialProfilePreviewUIState == ProfilePreviewUIState.Loading) {
             profilePreviewViewModel.initiate()
+        }
+    }
+}
+
+/**
+ * The person's guarded wallets as this profile's groups hold them: one row per
+ * guarding group, and -- where this device holds a share of that group's key --
+ * the way to spend through its leaf, which is the guardian spend the group's
+ * wallet screen already offers.
+ */
+@Composable
+private fun GuardedByYourGroups(
+    rows: List<MemberWalletManager.GuardedHere>,
+    onSpend: (MemberWalletManager.GuardedHere) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+        Text(stringResource(Res.string.wallets_your_groups_guard), style = MaterialTheme.typography.titleMedium)
+        rows.forEach { row ->
+            val guardian = stringResource(Res.string.guarded_by_s, row.guardianName ?: stringResource(Res.string.a_group))
+            val label = (row.wallet.subject as? GuardianManager.GuardedSubject.Member)?.label
+            ListItem(
+                leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
+                headlineContent = { Text(label?.let { stringResource(Res.string.s_dot_s, it, guardian) } ?: guardian) },
+                trailingContent = if (row.canSpend) {
+                    { TextButton(onClick = { onSpend(row) }) { Text(stringResource(Res.string.spend)) } }
+                } else null,
+            )
         }
     }
 }

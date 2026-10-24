@@ -90,6 +90,19 @@ class GroupOnchainWallets(
         mutex.withLock { transactions[txid] }
             ?: runCatching { electrum.getTx(txid) }.getOrNull()?.also { tx -> mutex.withLock { transactions[txid] = tx } }
 
+    /**
+     * Hands [tx] to Electrum -- for a spend a member signed alone, which has no
+     * session for `GroupTransactionWatcher` to follow. Electrum reports success
+     * whatever the server said, so this is not evidence it reached the network:
+     * [confirmationsOf] is.
+     */
+    suspend fun broadcast(tx: Transaction) {
+        electrum.broadcastTransaction(tx)
+    }
+
+    /** How deep [tx] is: 0 in the mempool, null while Electrum has not heard of it or cannot be asked. */
+    suspend fun confirmationsOf(tx: Transaction): Int? = runCatching { electrum.getConfirmations(tx) }.getOrNull()
+
     suspend fun stop() = mutex.withLock {
         wallets.values.forEach { it.stop() }
         wallets.clear()
