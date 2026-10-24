@@ -135,7 +135,13 @@ internal object GroupFixtures {
      * a signing session in. Built as a real room is -- the id derived from the
      * group's own key -- for the reason `SubgroupManagerJvmTest.parentWith` gives.
      */
-    suspend fun signingRoom(db: BennuDatabase, material: KeyMaterial, members: List<HexKey>, subject: String = "#Ekklesia"): LocalChatRoom {
+    suspend fun signingRoom(
+        db: BennuDatabase,
+        material: KeyMaterial,
+        members: List<HexKey>,
+        subject: String = "#Ekklesia",
+        holdsShare: Boolean = true,
+    ): LocalChatRoom {
         val roomId = roomOf(material)
         (members + owner).forEach { seedProfile(db, it) }
 
@@ -151,6 +157,8 @@ internal object GroupFixtures {
             ChatRoom(id = roomId, userPublicKey = owner, subject = subject, description = metadata.description, mlsGroupState = mlsGroup.saveState().encodeTls().toHex())
         )
         db.participantDao().upsert((members + owner).map { Participant(participantPublicKey = it, chatRoomId = roomId, relayHint = null) })
+
+        if (!holdsShare) return requireNotNull(db.chatRoomDao().findChatRoomById(roomId))
 
         val ceremonyId = "signing-" + roomId.take(8)
         db.dkgSessionDao().upsert(

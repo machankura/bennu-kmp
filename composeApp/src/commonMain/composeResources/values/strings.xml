@@ -563,4 +563,27 @@
     <string name="the_subgroup_s_wallet_will_not_be_guarded">The subgroup's wallet will not be guarded: only the subgroup can spend from it.</string>
     <string name="the_group_above_decided_this_wallet_is_guarded">The group above this one decided this group's wallet is guarded. Each group above it can spend any coin in it once it has %1$d confirmations, without this group agreeing.</string>
     <string name="the_group_above_decided_this_wallet_is_not_guarded">The group above this one decided this group's wallet is not guarded. Only this group can spend from it.</string>
+    <!-- A member's guarded wallet: docs/member-guarded-wallets.md -->
+    <string name="new_guarded_wallet">New guarded wallet</string>
+    <string name="a_group">A group</string>
+    <string name="choose_a_group_to_guard_it">Choose a group to guard it</string>
+    <string name="you_are_in_no_groups_that_can_guard_a_wallet">You're in no groups that could guard a wallet for you.</string>
+    <string name="a_wallet_only_you_can_spend_from_guarded_by_s">A wallet only you can spend from, guarded by %1$s</string>
+    <string name="s_can_take_any_coin_without_asking_you">%1$s can take any coin in it that has been confirmed for %2$d blocks, without asking you.</string>
+    <string name="s_and_the_group_above_it_can_take_any_coin_without_asking_you">%1$s and the group above it can take any coin in it that has been confirmed for %2$d blocks, without asking you.</string>
+    <string name="s_and_the_d_groups_above_it_can_take_any_coin_without_asking_you">%1$s and the %2$d groups above it can take any coin in it that has been confirmed for %3$d blocks, without asking you.</string>
+    <string name="members_of_those_groups_will_see_this_wallet">Members of the groups that guard it will see its balance, and that it's yours.</string>
+    <string name="if_you_lose_this_device_those_groups_can_still_move_your_coins">If you lose this device, those groups can still move your coins for you.</string>
+    <string name="label_optional">Label (optional)</string>
+    <string name="ask_s">Ask %1$s</string>
+    <string name="asked_s_to_guard_a_wallet">Asked %1$s to guard a wallet.</string>
+    <string name="couldn_t_ask_the_group_to_guard_a_wallet">Couldn't ask the group to guard a wallet.</string>
+    <string name="this_profile_cannot_sign_a_request">This profile can only look, so it can't sign a request.</string>
+    <string name="only_a_group_can_guard_a_wallet">Only a group with a shared key can guard a wallet.</string>
+    <string name="this_device_does_not_know_what_this_group_signs_with">This device doesn't know what this group signs with yet, so it can't work out the group's leaves.</string>
+    <string name="ask_the_group_for_its_key">Ask the group for its key</string>
+    <string name="asked_for_the_group_s_key">Asked. A member who holds the group's key will answer when their device next reads the room.</string>
+    <string name="this_group_s_guardian_keys_can_t_be_read_to_guard_a_wallet">This group's guardian keys can't be read by this version of the app.</string>
+    <string name="member_wallets_are_not_offered_on_this_network">Guarded wallets for members aren't offered on this network yet.</string>
+    <string name="this_profile_cannot_watch_its_own_coins">This profile has no wallet of its own to watch the chain with, so it couldn't see its own coins.</string>
 </resources>

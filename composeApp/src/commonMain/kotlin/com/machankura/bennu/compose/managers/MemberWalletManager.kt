@@ -3,15 +3,21 @@ package com.machankura.bennu.compose.managers
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.FrostSigningSession
+import com.machankura.bennu.compose.database.model.MemberWallet
 import com.machankura.bennu.compose.database.model.MarmotInnerEvent
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.FrostSigningStage
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.GroupKeyNoticeEvent
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.MemberWalletRequestEvent
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
+import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.PrivateKey
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -94,6 +100,152 @@ object MemberWalletManager {
         queue(database, chatRoomId, userPublicKey, GroupKeyNoticeEvent.answeringTags(request.id, groupKey, path), content = state.thresholdPublicKey)
         logger.i("Answered ${request.pubKey.take(8)}'s request for $chatRoomId's key")
         return true
+    }
+
+    // ---- The member's side -----------------------------------------------
+
+    /** Why a member cannot ask a group to guard a wallet for them here, said as a reason the screen can name. */
+    enum class Refusal {
+        /** A read-only profile: it cannot sign the request. */
+        CANNOT_SIGN,
+
+        /** The room is not a Marmot group, so there is no quorum to sign and no room to carry it. */
+        NOT_A_GROUP,
+
+        /** This device does not know what the group signs with -- [askForGroupKey] is the way on. */
+        KEY_UNKNOWN,
+
+        /** The group's certificate carries guardian keys this build cannot read. */
+        GUARDIANS_UNREADABLE,
+
+        /** Member wallets are not offered on this network yet: `GroupWalletRollout.offersMemberWalletsOn`. */
+        NOT_ON_THIS_NETWORK,
+
+        /** The profile has no Electrum client, so it could not see its own coins. Read by the screen, not here. */
+        CANNOT_WATCH,
+    }
+
+    /** Why [chatRoomId] cannot guard a wallet for this profile on [chain], or null when it can. */
+    suspend fun refusal(database: BennuDatabase, chatRoomId: String, canSign: Boolean, chain: Chain): Refusal? {
+        if (!canSign) return Refusal.CANNOT_SIGN
+        if (!GroupWalletRollout.offersMemberWalletsOn(chain)) return Refusal.NOT_ON_THIS_NETWORK
+        val room = database.chatRoomDao().findChatRoomById(chatRoomId)
+        if (room?.chatRoom?.mlsGroupState == null) return Refusal.NOT_A_GROUP
+        val groupKey = groupKeyFor(database, chatRoomId) ?: return Refusal.KEY_UNKNOWN
+        if (groupKey.certificate != null && SubgroupBirthCertificateEvent.parseGuardians(groupKey.certificate.tags) == null) {
+            return Refusal.GUARDIANS_UNREADABLE
+        }
+        return null
+    }
+
+    /**
+     * How many groups a wallet guarded by [chatRoomId] would be guarded by: the
+     * group, and every group above it whose key it passes down. Null when this
+     * device does not know the group's key.
+     */
+    suspend fun reachOf(database: BennuDatabase, chatRoomId: String): Int? =
+        groupKeyFor(database, chatRoomId)?.let { it.guardians.size + 1 }
+
+    /**
+     * Steps 1 and 2: makes a random key, works out every ancestor's leaf and
+     * both descriptors, stores the key, and only then asks [chatRoomId] to
+     * guard the wallet, as the member [memberPrivateKey] holds.
+     *
+     * The row is written before the request is queued, so a crash between the
+     * two leaves a key and no request rather than a request and no key. The
+     * request is checked the way every signer will check it before it goes, so
+     * a quorum is never shown one this device would refuse. A member who holds a
+     * share of the group's key puts it to the group in the same breath; anybody
+     * else waits for a signer to.
+     *
+     * @throws IllegalStateException with the [Refusal] when it cannot be asked
+     */
+    suspend fun request(
+        database: BennuDatabase,
+        chatRoomId: String,
+        memberPrivateKey: PrivateKey,
+        chain: Chain,
+        label: String?,
+        createdAt: Instant = Clock.System.now(),
+    ): MemberWallet {
+        refusal(database, chatRoomId, canSign = true, chain)?.let { throw IllegalStateException("Cannot ask: $it") }
+        val groupKey = groupKeyFor(database, chatRoomId) ?: throw IllegalStateException("Cannot ask: ${Refusal.KEY_UNKNOWN}")
+        val memberPublicKey = memberPrivateKey.xOnlyPublicKey().value.toHex()
+
+        val walletPrivateKey = MemberWalletDerivation.generate()
+        val walletId = MemberWalletDerivation.walletId(walletPrivateKey.publicKey())
+        val grant = GuardianDerivation.grant(groupKey.thresholdPublicKey, chatRoomId.lowercase(), groupKey.guardians, walletId)
+        val account = MemberWalletDerivation.account(walletPrivateKey.publicKey(), chain, grant)
+
+        val request = MemberWalletRequestEvent.build(
+            memberPrivateKey = memberPrivateKey,
+            groupChatRoomId = chatRoomId,
+            walletPrivateKey = walletPrivateKey,
+            account = account,
+            label = label,
+            createdAt = createdAt.epochSeconds,
+        )
+        checkNotNull(MemberWalletRequestEvent.verified(request)) { "The request this device built does not check out" }
+
+        val wallet = MemberWallet(
+            walletId = walletId,
+            ownerPublicKey = memberPublicKey,
+            guardingChatRoomId = chatRoomId,
+            chain = GroupWalletStatementEvent.chainName(chain),
+            walletPrivateKey = walletPrivateKey.value.toHex(),
+            label = MemberWalletRequestEvent.read(request)?.label,
+            requestJson = request.toJson(),
+            // The request's own second: the row and the event it carries agree on when.
+            createdAt = Instant.fromEpochSeconds(request.createdAt),
+        )
+        database.memberWalletDao().upsert(wallet)
+        send(database, chatRoomId, request)
+        logger.i("Asked $chatRoomId to guard wallet ${walletId.take(8)}")
+
+        sponsorIfSigner(database, chatRoomId, memberPublicKey, request)
+        return wallet
+    }
+
+    /**
+     * Asks again with the request [wallet] was asked with, unchanged -- for a
+     * request no signer put to the group, or one the group did not sign.
+     */
+    suspend fun askAgain(database: BennuDatabase, wallet: MemberWallet) {
+        val request = Event.fromJsonOrNull(wallet.requestJson) ?: throw IllegalStateException("The stored request does not read")
+        send(database, wallet.guardingChatRoomId, request)
+        sponsorIfSigner(database, wallet.guardingChatRoomId, wallet.ownerPublicKey, request)
+    }
+
+    /**
+     * Forgets [walletId]'s key. Refused once a group has certified the wallet:
+     * from then on its addresses may have been paid. Before, none was ever
+     * offered, so no coin can be behind the key.
+     */
+    suspend fun discard(database: BennuDatabase, walletId: String) {
+        val wallet = database.memberWalletDao().getById(walletId) ?: return
+        check(certificatesOf(database, wallet.guardingChatRoomId).none { it.walletId == walletId }) {
+            "A group guards this wallet: its key is not discarded"
+        }
+        database.memberWalletDao().delete(walletId)
+    }
+
+    /** The request into [chatRoomId], whole, as an inner event's content: see `MemberWalletRequestEvent`. */
+    private suspend fun send(database: BennuDatabase, chatRoomId: String, request: Event) {
+        queue(
+            database = database,
+            chatRoomId = chatRoomId,
+            userPublicKey = request.pubKey,
+            tags = arrayOf(arrayOf("h", chatRoomId.lowercase())),
+            content = request.toJson(),
+            kind = MemberWalletRequestEvent.KIND,
+        )
+    }
+
+    private suspend fun sponsorIfSigner(database: BennuDatabase, chatRoomId: String, memberPublicKey: HexKey, request: Event) {
+        if (!FrostSigningManager.canSign(database, chatRoomId)) return
+        val room = database.chatRoomDao().findChatRoomById(chatRoomId) ?: return
+        runCatching { putToGroup(database, room, memberPublicKey, request) }
+            .onFailure { logger.w("Asked $chatRoomId, and could not put it to the group: ${it.message}") }
     }
 
     // ---- The group's side ------------------------------------------------

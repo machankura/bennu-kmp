@@ -139,6 +139,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletAddressesRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.NewMemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.NewMemberWalletScreen
+import com.machankura.bennu.compose.database.repository.DatabaseMemberWalletRepository
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
 import fr.acinq.phoenix.managers.NodeParamsManager
@@ -205,6 +208,13 @@ fun BennuNavHost(
         DatabaseFrostSigningRepository(
             database = auxDatabaseManager.auxDatabase,
             applicationIOScope
+        )
+    }
+
+    val databaseMemberWalletRepository = remember {
+        DatabaseMemberWalletRepository(
+            database = auxDatabaseManager.auxDatabase,
+            activeIdentity = sovereignWalletViewModel.activeIdentity,
         )
     }
 
@@ -1141,6 +1151,20 @@ fun BennuNavHost(
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
                     },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<NewMemberWalletRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<NewMemberWalletRoute>()
+
+                NewMemberWalletScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    chain = NodeParamsManager.chain,
+                    canWatch = groupOnchainWallets != null,
+                    memberWalletRepository = databaseMemberWalletRepository,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
