@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.state
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import com.machankura.bennu.compose.managers.MemberWalletManager
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
@@ -102,6 +103,14 @@ sealed interface ChatRoomDetailUIState {
         val canAskForMemberWallet: Boolean = false,
         /** Whether this device holds a share, and so can put a member's request to the group. */
         val canSponsor: Boolean = false,
+        /**
+         * Whether this group guards its members' wallets, and at what delay --
+         * its newest member-wallet policy, or null for one it never signed.
+         * `docs/member-wallet-delay.md`.
+         */
+        val memberWalletPolicy: MemberWalletPolicyEvent.Policy? = null,
+        /** Whether to show that at all: a Marmot group, still going. */
+        val showsMemberWalletPolicy: Boolean = false,
     ): ChatRoomDetailUIState
 
     data class Error(

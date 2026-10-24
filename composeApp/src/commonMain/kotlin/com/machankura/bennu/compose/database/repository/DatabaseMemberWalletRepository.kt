@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.database.repository
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.FrostSigningSession
@@ -107,6 +108,13 @@ class DatabaseMemberWalletRepository(
         MemberWalletManager.recordChain(database, txid, confirmations, broadcastAt)
 
     override fun observeSpends(walletId: String): Flow<List<MemberWalletSpend>> = database.memberWalletDao().observeSpends(walletId)
+
+    override suspend fun policyOf(chatRoomId: String): MemberWalletPolicyEvent.Policy? = try {
+        MemberWalletManager.policyFor(database, chatRoomId)
+    } catch (e: Throwable) {
+        logger.e("Error reading $chatRoomId's member-wallet policy", e)
+        null
+    }
 
     override suspend fun memberWalletsOf(chatRoomId: String): List<MemberWalletManager.GroupMemberWallet> = try {
         MemberWalletManager.memberWalletsOf(database, chatRoomId)
