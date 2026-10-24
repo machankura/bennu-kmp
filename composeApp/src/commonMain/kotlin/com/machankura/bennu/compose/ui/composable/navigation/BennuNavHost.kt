@@ -1170,6 +1170,7 @@ fun BennuNavHost(
                     frostSigningRepository = databaseFrostSigningRepository,
                     wallets = groupOnchainWallets,
                     guardedChatRoomId = route.guardedChatRoomId,
+                    fundChatRoomId = route.fundChatRoomId,
                     onNavigateToRouteAndPopUpInclusive = { signingRoute ->
                         // Replace the form so back returns to the wallet rather
                         // than to a spend that has already been proposed.

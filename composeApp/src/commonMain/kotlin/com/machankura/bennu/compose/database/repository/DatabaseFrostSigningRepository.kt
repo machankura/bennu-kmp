@@ -186,6 +186,13 @@ class DatabaseFrostSigningRepository(
         emptySet()
     }
 
+    override suspend fun reservedFundingIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long> = try {
+        FrostSigningManager.reservedFundingIndices(database, chatRoomId, account)
+    } catch (e: Throwable) {
+        logger.e("Error reading the funding addresses reserved in $chatRoomId", e)
+        emptySet()
+    }
+
     override fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>> =
         database.groupTransactionDao().observeByChatRoomId(chatRoomId)
 

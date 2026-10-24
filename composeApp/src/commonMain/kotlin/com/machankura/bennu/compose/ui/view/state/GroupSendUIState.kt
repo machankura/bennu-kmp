@@ -1,6 +1,8 @@
 package com.machankura.bennu.compose.ui.view.state
 
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.managers.GuardianManager
+import com.machankura.bennu.compose.wallet.GroupAddress
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.wallet.GroupSpend
 import com.machankura.bennu.compose.wallet.GroupWalletState
@@ -25,6 +27,8 @@ sealed interface GroupSendUIState {
          * the descendant's.
          */
         val spender: GroupSpend.Spender = GroupSpend.Spender.Owner,
+        /** The descendant's guarded wallet this send pays, or null for a send to a typed address. */
+        val funding: FundingTarget? = null,
     ): GroupSendUIState
 
     /** A room this device cannot propose from -- no wallet, no share, or no node. */
@@ -33,4 +37,22 @@ sealed interface GroupSendUIState {
     data class Error(val message: String): GroupSendUIState
 
     data object Loading: GroupSendUIState
+}
+
+/**
+ * A descendant's guarded wallet a send funds, with where it is up to: its chain
+ * state as this device watches it, and the receive indices the room's open
+ * fundings already hold. See `docs/guarded-wallet-funding.md`.
+ */
+data class FundingTarget(
+    val wallet: GuardianManager.GuardedWallet,
+    /** Null until Electrum has answered for the descendant's addresses. */
+    val walletState: GroupWalletState?,
+    val reserved: Set<Long> = emptySet(),
+) {
+    /** The address the send pays, moving on whenever the one before it is paid or held. */
+    val address: GroupAddress? get() = walletState?.fundingAddress(reserved)
+
+    /** Electrum has answered, and open fundings hold every address the wallet watches. */
+    val allHeld: Boolean get() = walletState?.receiveAddress != null && address == null
 }
