@@ -399,6 +399,31 @@ object GuardianManager {
         return targets
     }
 
+    /** Every network a guarded wallet can be on: the catch-up forwards them all. */
+    private val CHAINS: List<Chain> = listOf(Chain.Mainnet, Chain.Testnet3, Chain.Testnet4, Chain.Signet, Chain.Regtest)
+
+    /**
+     * The catch-up: everything [shareableFrom] would list from [chatRoomId], on
+     * every network, through [forward] without the election -- whatever the
+     * elected device never sent, whatever arrived while this one was offline,
+     * and everything filed before forwarding existed.
+     * `docs/guarded-wallet-forwarding.md`, Phase 4. Run as the group's chat and
+     * its wallet screen open. Returns how many groups were told.
+     */
+    suspend fun forwardAll(database: BennuDatabase, chatRoomId: String): Int {
+        if (!GroupWalletRollout.FORWARDS_GUARDED_WALLETS) return 0
+        val own = CHAINS.mapNotNull { chain ->
+            GroupWalletManager.walletFor(database, chatRoomId, chain)?.takeIf { it.account.isGuarded }?.signedEvent?.toEvent()
+        }
+        val held = guardedWalletsOf(database, chatRoomId).map { it.statement }
+
+        return (own + held).distinctBy { it.id }.sumOf { statement ->
+            runCatching { forward(database, statement, chatRoomId, whenElected = false).size }
+                .onFailure { logger.e("Could not forward ${statement.id.take(8)} from $chatRoomId", it) }
+                .getOrDefault(0)
+        }
+    }
+
     /**
      * [forward] on arrival, from the inbound path: elected, behind
      * `GroupWalletRollout.FORWARDS_GUARDED_WALLETS`, and never failing the

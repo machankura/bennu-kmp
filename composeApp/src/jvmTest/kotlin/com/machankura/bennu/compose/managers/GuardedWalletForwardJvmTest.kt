@@ -245,4 +245,31 @@ class GuardedWalletForwardJvmTest {
         arrives(signedAsRoom(middle, template.kind, template.tags, template.content, template.createdAt), middleRoom)
         assertTrue(noticesIn(rootRoom).isEmpty())
     }
+
+    // ---- Phase 4: the catch-up ---------------------------------------------
+
+    @Test
+    fun `a certificate filed before forwarding existed is told the first time its group is opened`(): Unit = runBlocking {
+        // A lower-keyed member in both rooms: on arrival this device would have
+        // waited for them, and nobody sent anything.
+        val earlier = "00".repeat(31) + "01"
+        inRoom(group, groupCertificate, members = listOf(memberPublicKey, earlier))
+        inRoom(middle, middleCertificate, members = listOf(earlier))
+        signedInGroup()
+        assertTrue(noticesIn(middleRoom).isEmpty())
+
+        assertEquals(1, GuardianManager.forwardAll(db, groupRoom))
+        assertEquals(listOf(certificate.id), noticesIn(middleRoom).map { it.id })
+        assertEquals(0, GuardianManager.forwardAll(db, groupRoom), "and not again")
+    }
+
+    @Test
+    fun `the catch-up through the repository, as opening the room runs it`(): Unit = runBlocking {
+        inAllThree()
+        signedInGroup()
+        val repository = com.machankura.bennu.compose.database.repository.DatabaseChatRepository(db, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO))
+
+        assertEquals(2, repository.forwardGuardedWallets(groupRoom), "the middle group and the root")
+        assertEquals(0, repository.forwardGuardedWallets(middleRoom), "the root has heard, and the group signed it")
+    }
 }

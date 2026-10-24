@@ -128,6 +128,13 @@ interface ChatRepository {
     /** Tells the groups in [shareable] about its statement, as [userPublicKey]. Returns how many were told. */
     suspend fun shareGuardedWallet(shareable: GuardianManager.Shareable, userPublicKey: HexKey): Int
 
+    /**
+     * Tells the groups above this one about every guarded wallet it holds that
+     * they have not heard of -- the catch-up of `docs/guarded-wallet-forwarding.md`.
+     * Returns how many groups were told. Nothing, by default.
+     */
+    suspend fun forwardGuardedWallets(chatRoomId: String): Int = 0
+
     /** Writes a transcript line for each guardian spend from this group's wallet it has none for yet. */
     suspend fun recordGuardianSpends(chatRoomId: String, taken: List<GuardianManager.Taken>): Int
 
