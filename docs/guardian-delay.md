@@ -148,12 +148,13 @@ to take funds back from a subgroup that is still active.
 
 ## Phase 0 — decisions, before any code
 
-Six, each with a recommendation. The phases below assume the recommended answer.
+Six, each with a recommendation except D1, which is decided. The phases below
+assume the recommended answer.
 
 ### D1. Whose delay does the parent choose?
 
-**Recommended: its own leaf's only. An inherited key keeps the delay its
-ancestor chose.**
+**Decided: its own leaf's only. An inherited key keeps the delay its ancestor
+chose.**
 
 With root → middle `M` → grandchild `C`:
 
