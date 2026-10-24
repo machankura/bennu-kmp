@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.managers.GuardianManager
+import com.machankura.bennu.compose.ui.view.state.FundingTarget
+import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
@@ -180,9 +183,11 @@ class GroupSendViewModelJvmTest {
         val transactions = MutableStateFlow<List<GroupTransaction>>(emptyList())
         @Volatile var heldCoins: Set<OutPoint> = emptySet()
         @Volatile var heldChange: Set<Long> = emptySet()
+        @Volatile var heldFunding: Set<Long> = emptySet()
         override fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>> = transactions
         override suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint> = heldCoins
         override suspend fun reservedChangeIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long> = heldChange
+        override suspend fun reservedFundingIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long> = heldFunding
     }
 
     /** Two confirmed coins, 60,000 and 40,000 sats, on the first two receive addresses. */
@@ -240,5 +245,116 @@ class GroupSendViewModelJvmTest {
         val built = assertIs<GroupSpendBuilder.Result.Built>(model.preview())
         assertEquals(Satoshi(100_000), built.amount + built.fee)
         assertNull(built.change)
+    }
+
+    // ---- Funding a descendant's guarded wallet ---------------------------------
+
+    private val descendantRoomId = "c".repeat(64)
+    private val descendant: GroupWalletDerivation.Account = GroupWalletDerivation.account(
+        PrivateKey(ByteVector32(Hex.decode("decaf".padStart(64, '0')))).publicKey().toString(), Chain.Regtest,
+    )
+    private val guarded = GuardianManager.GuardedWallet(
+        ancestorChatRoomId = chatRoomId,
+        descendantChatRoomId = descendantRoomId,
+        statement = Event("1".repeat(64), descendantRoomId, 1_700_000_000, GroupWalletStatementEvent.KIND, emptyArray(), "", ""),
+        account = descendant,
+        certificate = Event("2".repeat(64), chatRoomId, 1_700_000_000, 0, arrayOf(arrayOf("name", "Savings")), "", ""),
+        lineage = listOf(descendantRoomId),
+    )
+
+    /** The descendant's receive branch as Electrum reports it: its first ten addresses watched, [paid] of them used. */
+    private fun descendantState(paid: Set<Int> = emptySet()): GroupWalletState {
+        val receive = (0 until 10).associate { index ->
+            GroupWalletDerivation.derive(descendant, GroupWalletDerivation.RECEIVE, index.toLong()).address(Chain.Regtest) to
+                WalletState.AddressState(WalletState.AddressMeta.Derived(index), alreadyUsed = index in paid, utxos = emptyList())
+        }
+        return GroupWalletState(descendant, WalletState(receive), WalletState.empty, tipHeight = 110)
+    }
+
+    private fun fundingForm(signing: FrostSigningRepository, fundingState: Flow<GroupWalletState?>): GroupSendViewModel {
+        val ready = GroupSendUIState.Ready(localChatRoom, wallet, walletState = null, reserved = emptySet(), funding = FundingTarget(guarded, walletState = null))
+        return viewModel(ready, signing = signing).apply {
+            follow(ready, flowOf(walletState), fundingState)
+            feerateField.setTextAndPlaceCursorAtEnd("4")
+            amountField.setTextAndPlaceCursorAtEnd("30,000")
+        }
+    }
+
+    @Test
+    fun `a funding pays two past the descendant's current address, and says so in the PSBT`() {
+        val signing = RecordingSigning()
+        val model = fundingForm(signing, flowOf(descendantState()))
+
+        val built = eventually { model.preview() as? GroupSpendBuilder.Result.Built }
+        assertEquals(2L, built.funded?.derived?.index)
+        assertEquals(GroupWalletDerivation.derive(descendant, GroupWalletDerivation.RECEIVE, 2).pubkeyScript, built.psbt.global.tx.txOut[0].publicKeyScript)
+        assertEquals(setOf(2L), GroupSpend.claimedFundingIndices(built.psbt, descendant))
+
+        // The address field plays no part: whatever is typed there, the funding goes where it goes.
+        model.addressField.setTextAndPlaceCursorAtEnd("bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080")
+        assertEquals(built.psbt, assertIs<GroupSpendBuilder.Result.Built>(model.preview()).psbt)
+
+        model.propose(onSuccess = {}, onFailure = {})
+        runBlocking { withTimeout(5_000) { while (signing.proposed == null) delay(10) } }
+        assertEquals(built.psbt, signing.proposed, "proposed as the room's own spend")
+    }
+
+    @Test
+    fun `an open funding moves the next one on`() {
+        val signing = Reserving()
+        val model = fundingForm(signing, flowOf(descendantState()))
+        assertEquals(2L, eventually { (model.preview() as? GroupSpendBuilder.Result.Built)?.funded }.derived.index)
+
+        signing.heldFunding = setOf(2L)
+        signing.transactions.value = listOf(
+            GroupTransaction(frostSigningSessionId = "theirs", chatRoomId = chatRoomId, chain = "regtest", account = 0, psbt = "", txid = "t".repeat(64))
+        )
+        assertEquals(3L, eventually { (model.preview() as? GroupSpendBuilder.Result.Built)?.funded?.takeIf { it.derived.index != 2L } }.derived.index)
+    }
+
+    @Test
+    fun `a payment to the address while the form is open moves it on`() {
+        val chain = MutableStateFlow(descendantState())
+        val model = fundingForm(RecordingSigning(), chain)
+        assertEquals(2L, eventually { (model.preview() as? GroupSpendBuilder.Result.Built)?.funded }.derived.index)
+
+        chain.value = descendantState(paid = setOf(2))
+        assertEquals(3L, eventually { (model.preview() as? GroupSpendBuilder.Result.Built)?.funded?.takeIf { it.derived.index != 2L } }.derived.index)
+    }
+
+    @Test
+    fun `nothing is built while the descendant's addresses are not known, or every one is held`() {
+        val waiting = fundingForm(RecordingSigning(), flowOf(null))
+        val state = eventually { (waiting.groupSendUIState as GroupSendUIState.Ready).takeIf { it.walletState != null } }
+        assertNull(waiting.preview())
+        assertEquals(false, state.funding?.allHeld)
+
+        val signing = Reserving().apply { heldFunding = (2L until 10L).toSet() }
+        val full = fundingForm(signing, flowOf(descendantState()))
+        val held = eventually { (full.groupSendUIState as GroupSendUIState.Ready).takeIf { it.funding?.walletState != null } }
+        assertEquals(true, held.funding?.allHeld)
+        assertNull(full.preview())
+    }
+
+    @Test
+    fun `a route naming a source and a destination is not opened, nor one funding a wallet the room does not hold`() {
+        var asked = 0
+        val chat = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
+            override suspend fun getChatRoomByIdentifier(identifier: String) = localChatRoom
+            override suspend fun canSign(chatRoomId: String) = true
+            override suspend fun groupWallet(chatRoomId: String, chain: Chain) = wallet
+            override suspend fun guardedWallets(chatRoomId: String): List<GuardianManager.GuardedWallet> { asked++; return emptyList() }
+        }
+        val both = GroupSendViewModel("a".repeat(64), chatRoomId, Chain.Regtest, GroupSendUIState.Loading, chat, RecordingSigning(), wallets = null,
+            guardedChatRoomId = descendantRoomId, fundChatRoomId = descendantRoomId).apply { initiate() }
+        runBlocking { withTimeout(5_000) { while (both.groupSendUIState == GroupSendUIState.Loading) delay(10) } }
+        assertEquals(GroupSendUIState.Unavailable, both.groupSendUIState)
+        assertEquals(0, asked, "refused before either wallet is looked for")
+
+        val unknown = GroupSendViewModel("a".repeat(64), chatRoomId, Chain.Regtest, GroupSendUIState.Loading, chat, RecordingSigning(), wallets = null,
+            fundChatRoomId = descendantRoomId).apply { initiate() }
+        runBlocking { withTimeout(5_000) { while (unknown.groupSendUIState == GroupSendUIState.Loading) delay(10) } }
+        assertEquals(GroupSendUIState.Unavailable, unknown.groupSendUIState)
+        assertEquals(1, asked)
     }
 }

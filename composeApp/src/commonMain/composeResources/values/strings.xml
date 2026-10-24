@@ -473,6 +473,11 @@
     <string name="spend_from_s_s_guarded_wallet">Spend from %1$s's guarded wallet</string>
     <string name="wallets_of_groups_below_this_one">Wallets of groups below this one. This group can spend a coin in them once it has %1$d confirmations.</string>
     <string name="s_sats_within_this_group_s_reach">%1$s sats within this group's reach</string>
+    <string name="fund_s_s_guarded_wallet">Fund %1$s's guarded wallet</string>
+    <string name="to">To</string>
+    <string name="this_group_can_spend_these_coins_again">This group can spend these coins again once they have %1$d confirmations.</string>
+    <string name="finding_an_address_in_s_s_wallet">Finding an address in %1$s's wallet…</string>
+    <string name="wait_for_this_group_s_open_payments_to_s">Wait for this group's open payments to %1$s to confirm.</string>
     <string name="tell_the_groups_above">Tell the groups above</string>
     <string name="not_yet_shared_with_the_groups_above">Not yet shared with the groups above that you're in</string>
     <string name="share">Share</string>
@@ -525,6 +530,7 @@
     <string name="feerate_in_sats_per_byte">Fee rate in sats per byte</string>
     <string name="ask_the_group_to_send">Ask the group to send</string>
     <string name="sends_s_sats_with_a_fee_of_s_sats">Sends %1$s sats, with a fee of %2$s sats.</string>
+    <string name="sends_s_sats_to_s_s_guarded_wallet_with_a_fee_of_s_sats">Sends %1$s sats to %2$s's guarded wallet, with a fee of %3$s sats.</string>
     <string name="s_sats_come_back_to_the_group_as_change">%1$s sats come back to the group as change.</string>
     <string name="that_isn_t_an_address_on_s">That isn't an address on %1$s.</string>
     <string name="the_group_has_nothing_confirmed_to_spend">The group has nothing confirmed to spend yet.</string>
