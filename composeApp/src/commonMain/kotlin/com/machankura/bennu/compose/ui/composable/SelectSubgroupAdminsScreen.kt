@@ -392,7 +392,7 @@ private fun WalletPolicyChooser(
             style = MaterialTheme.typography.titleSmall
         )
 
-        val delay = GuardianDerivation.ANCESTOR_DELAY.toInt()
+        val delay = GuardianDerivation.DEFAULT_DELAY.toInt()
         WalletPolicyRow(
             title = stringResource(Res.string.guarded_wallet),
             // Names the reach the parent is actually granting: itself, and each

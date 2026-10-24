@@ -91,7 +91,7 @@ class GuardianSpendRoundTest {
         lockTime = 0,
     )
 
-    private fun spend(funding: Transaction, sequence: Long = GuardianDerivation.ANCESTOR_DELAY) = Transaction(
+    private fun spend(funding: Transaction, sequence: Long = GuardianDerivation.DEFAULT_DELAY) = Transaction(
         version = 2,
         txIn = listOf(TxIn(OutPoint(funding, 0), ByteVector.empty, sequence)),
         txOut = listOf(TxOut(Satoshi(49_000), Script.pay2wpkh(PrivateKey(ByteVector32(ByteArray(32) { 9 })).publicKey()))),

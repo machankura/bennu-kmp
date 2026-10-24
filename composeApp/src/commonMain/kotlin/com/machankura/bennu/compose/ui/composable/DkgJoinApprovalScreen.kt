@@ -75,7 +75,7 @@ fun DkgJoinApprovalScreen(
                 text = when (policy) {
                     SubgroupWalletPolicy.GUARDED -> stringResource(
                         Res.string.the_subgroup_s_wallet_will_be_guarded,
-                        GuardianDerivation.ANCESTOR_DELAY.toInt()
+                        GuardianDerivation.DEFAULT_DELAY.toInt()
                     )
                     SubgroupWalletPolicy.UNGUARDED -> stringResource(Res.string.the_subgroup_s_wallet_will_not_be_guarded)
                 },

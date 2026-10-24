@@ -53,12 +53,33 @@ import fr.acinq.bitcoin.crypto.frost.TweakCache
  */
 object GuardianDerivation {
     /**
-     * How many blocks a coin has to sit confirmed before an ancestor can take
-     * it. One value for every ancestor at every distance -- see the doc's
-     * "Why 12, and why for everybody". Written into every guardian tag rather
-     * than assumed, so a later delay is a later account's tags, not a new format.
+     * The fewest blocks a coin can sit confirmed before an ancestor can take it:
+     * about an hour, so the child's own spends always go first -- a guardian
+     * cannot race the child for a payment that has only just arrived.
+     * `docs/guardian-delay.md`.
      */
-    const val ANCESTOR_DELAY: Long = 12L
+    const val MIN_DELAY: Long = 6L
+
+    /**
+     * The most: BIP68's block-based relative lock is the low 16 bits of
+     * `nSequence`, so 65,535 blocks, about 15 months. Staying within it also
+     * keeps bit 22 clear, so the lock always counts blocks, and keeps every
+     * guardian input far below `GroupSpend.MAX_SEQUENCE`, so a guardian spend
+     * can still be bumped.
+     */
+    const val MAX_DELAY: Long = 0xFFFFL
+
+    /** Every delay a leaf may carry. A guardian tag outside it does not read. */
+    val DELAY_RANGE: LongRange = MIN_DELAY..MAX_DELAY
+
+    /**
+     * The delay a parent is offered first for its own leaf, and the one every
+     * certificate carried before parents chose: two hours. Each guardian's own
+     * delay is written into its tag, and each ancestor's travels down the tree
+     * unchanged -- [Guardian.grantedTo] copies it -- so this is a default, not
+     * the delay. `docs/guardian-delay.md`.
+     */
+    const val DEFAULT_DELAY: Long = 12L
 
     /**
      * The key of the guardian root's HMAC. An input to every guardian key, so it
@@ -84,7 +105,7 @@ object GuardianDerivation {
         val chatRoomId: String,
         val publicKey: PublicKey,
         val chainCode: ByteVector32,
-        val delay: Long = ANCESTOR_DELAY,
+        val delay: Long = DEFAULT_DELAY,
     ) {
         /** As a depth-0 extended key, the form every derivation below starts from. */
         val extendedPublicKey: DeterministicWallet.ExtendedPublicKey
@@ -100,7 +121,7 @@ object GuardianDerivation {
         fun encoded(chain: Chain): String =
             extendedPublicKey.encode(if (chain.isMainnet()) DeterministicWallet.xpub else DeterministicWallet.tpub)
 
-        /** The same ancestor, one public step further, for [childChatRoomId]. */
+        /** The same ancestor, one public step further, for [childChatRoomId] -- and at the same delay. */
         fun grantedTo(childChatRoomId: String): Guardian {
             val child = extendedPublicKey.derivePublicKey(childIndex(childChatRoomId))
             return copy(publicKey = child.publicKey, chainCode = child.chaincode)
@@ -176,15 +197,21 @@ object GuardianDerivation {
      * The same function a signer's device runs to check a proposed certificate:
      * a certificate whose guardians are not exactly this list is not one the
      * group agreed to.
+     *
+     * [delay] is the parent's own leaf's, which it chooses for this child. An
+     * inherited key keeps the delay its own ancestor chose: a group cannot
+     * shorten or lengthen another group's terms in its child's wallet.
      */
     fun grant(
         thresholdPublicKey: HexKey,
         ownChatRoomId: String,
         inherited: List<Guardian>,
         childChatRoomId: String,
+        delay: Long = DEFAULT_DELAY,
     ): List<Guardian> {
+        require(delay in DELAY_RANGE) { "a guardian's delay is $MIN_DELAY to $MAX_DELAY blocks, not $delay" }
         val own = root(thresholdPublicKey).extendedPublicKey.derivePublicKey(childIndex(childChatRoomId))
-        return listOf(Guardian(ownChatRoomId, own.publicKey, own.chaincode)) +
+        return listOf(Guardian(ownChatRoomId, own.publicKey, own.chaincode, delay)) +
             inherited.map { it.grantedTo(childChatRoomId) }
     }
 
@@ -202,7 +229,7 @@ object GuardianDerivation {
      * it, as miniscript writes it; anything else is a minimal number push.
      */
     fun leafScript(key: XonlyPublicKey, delay: Long): List<ScriptElt> {
-        require(delay in 1L..0xFFFFL) { "a relative lock in blocks is 1 to 65535, not $delay" }
+        require(delay in DELAY_RANGE) { "a guardian's delay is $MIN_DELAY to $MAX_DELAY blocks, not $delay" }
         val lock = if (delay <= 16) ScriptEltMapping.code2elt.getValue(0x50 + delay.toInt())
             else OP_PUSHDATA(Script.encodeNumber(delay))
         return listOf(OP_PUSHDATA(key), OP_CHECKSIGVERIFY, lock, OP_CHECKSEQUENCEVERIFY)

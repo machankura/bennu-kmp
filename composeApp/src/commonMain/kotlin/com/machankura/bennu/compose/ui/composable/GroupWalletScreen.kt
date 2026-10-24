@@ -383,7 +383,7 @@ private fun OpenWalletAction(
                 text = when (decided) {
                     SubgroupWalletPolicy.GUARDED -> stringResource(
                         Res.string.the_group_above_decided_this_wallet_is_guarded,
-                        GuardianDerivation.ANCESTOR_DELAY.toInt()
+                        GuardianDerivation.DEFAULT_DELAY.toInt()
                     )
                     SubgroupWalletPolicy.UNGUARDED -> stringResource(Res.string.the_group_above_decided_this_wallet_is_not_guarded)
                 },
@@ -405,7 +405,7 @@ private fun OpenWalletAction(
             Text(
                 text = stringResource(
                     Res.string.the_groups_above_this_one_have_agreed_to_guard_it,
-                    GuardianDerivation.ANCESTOR_DELAY.toInt()
+                    GuardianDerivation.DEFAULT_DELAY.toInt()
                 ),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -458,7 +458,7 @@ private fun OpenWallet(
                 Text(
                     text = stringResource(
                         Res.string.guarded_the_groups_above_this_one_can_spend,
-                        GuardianDerivation.ANCESTOR_DELAY.toInt()
+                        GuardianDerivation.DEFAULT_DELAY.toInt()
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -669,7 +669,7 @@ private fun LazyListScope.guardianItems(
         }
         item {
             Text(
-                text = stringResource(Res.string.wallets_of_groups_below_this_one, GuardianDerivation.ANCESTOR_DELAY.toInt()),
+                text = stringResource(Res.string.wallets_of_groups_below_this_one, GuardianDerivation.DEFAULT_DELAY.toInt()),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

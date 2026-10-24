@@ -86,7 +86,7 @@ data class GuardedWalletRow(
      */
     val withinReach: Satoshi?
         get() = walletState?.let { state ->
-            state.utxos.filter { state.confirmations(it) >= GuardianDerivation.ANCESTOR_DELAY }.map { it.amount }.sum()
+            state.utxos.filter { state.confirmations(it) >= GuardianDerivation.DEFAULT_DELAY }.map { it.amount }.sum()
         }
 }
 
