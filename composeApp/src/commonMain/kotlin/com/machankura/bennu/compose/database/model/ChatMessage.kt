@@ -12,6 +12,8 @@ import com.machankura.bennu.compose.database.model.traits.TimestampedEntity
 import com.machankura.bennu.compose.database.model.traits.UserViewableEntity
 import com.machankura.bennu.compose.exceptions.MarmotUnprocessableInnerEventException
 import com.machankura.bennu.compose.managers.ChronicleManager
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import com.machankura.bennu.compose.nostr.wallet.GroupKeyNoticeEvent
 import com.machankura.bennu.compose.managers.GroupKeyStateManager
 import com.machankura.bennu.compose.managers.GroupWalletManager
 import com.machankura.bennu.compose.managers.GuardianManager
@@ -975,6 +977,24 @@ data class ChatMessage(
                             // kinds MIP-03 already forces the two to agree, so the
                             // fallback is for a result that carries no leaf index.
                             recipient = senderIdentity ?: event.pubKey,
+                        )
+
+                        return null
+                    }
+
+                    // A member asking what the group signs with, so their device
+                    // can work out a guarded wallet's leaves, or a member
+                    // answering. Plumbing, so no line either way: the row above
+                    // is the record, and an answer is checked each time it is
+                    // read. Answered like the chronicle's request -- by any
+                    // member holding the key state, none elected.
+                    // docs/member-guarded-wallets.md, Phase 2.
+                    if (event.kind == GroupKeyNoticeEvent.KIND) {
+                        MemberWalletManager.answerKeyRequest(
+                            database = database,
+                            chatRoomId = groupEventResult.groupId,
+                            request = event,
+                            userPublicKey = activeKeyPair.pubKey.toHex(),
                         )
 
                         return null
