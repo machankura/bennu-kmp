@@ -13,13 +13,12 @@ import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
  *
  * Chosen for three properties:
  *
- *  - **each is a group-signed kind `ChatMessage.applyInnerEvent` has an arm
- *    for**, so a payload goes down the real apply path rather than falling
- *    through to "unsupported";
- *  - **none of those arms writes a row of its own or throws** -- the group's
- *    profile, relay lists and posts are read straight off `GroupSignedEvent`
- *    -- so what a receiver holds afterwards is exactly the `GroupSignedEvent`
- *    rows the chronicle recorded, and comparing those is comparing the work;
+ *  - **none is a kind the app gives a meaning of its own** -- a profile and a
+ *    relay list apply to nothing, and a kind:1 to the "unsupported" line it
+ *    has always been -- so applying one neither throws nor writes a
+ *    `GroupSignedEvent` of its own, and the `GroupSignedEvent` rows a receiver
+ *    holds afterwards are exactly the ones the chronicle recorded: comparing
+ *    those is comparing the work;
  *  - **the order disagrees with the kind numbers** (10002 before 0 before 1),
  *    so a test that the order is the list's cannot pass by sorting on kind.
  *

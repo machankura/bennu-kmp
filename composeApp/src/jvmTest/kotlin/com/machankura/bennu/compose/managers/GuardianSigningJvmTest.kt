@@ -470,6 +470,23 @@ class GuardianSigningJvmTest {
         assertEquals(listOf(statement.id), GuardianManager.guardedWalletsOf(member.db, roomId).map { it.statement.id })
     }
 
+    @Test
+    fun `a grandchild's statement told to its parent and grandparent at once reaches both`(): Unit = runBlocking {
+        val member = device(members[0], signerIndex = 0)
+        val grandparentRoomId = "9".repeat(64)
+        member.db.chatRoomDao().upsert(ChatRoom(id = grandparentRoomId, userPublicKey = member.publicKey, subject = "Assembly", description = null, mlsGroupState = "00"))
+        val rooms = listOf(roomId, grandparentRoomId).map { assertNotNull(member.db.chatRoomDao().findChatRoomById(it)) }
+
+        // One statement, one sharer, one second: only the room tells the two notices apart.
+        assertEquals(2, GuardianManager.share(member.db, guardedStatement(), rooms, member.publicKey, createdAt = 1_700_000_100))
+
+        val told = listOf(roomId, grandparentRoomId).associateWith { room ->
+            member.db.marmotInnerEventDao().getByChatRoomAndKinds(room, listOf(GuardedWalletNoticeEvent.KIND)).single()
+        }
+        told.forEach { (room, notice) -> assertEquals(listOf(listOf("h", room)), notice.tags.map { it.toList() }) }
+        assertEquals(2, told.values.map { it.id }.toSet().size)
+    }
+
     // ---- Spending from a guarded wallet ------------------------------------
 
     private val chain = Chain.Regtest

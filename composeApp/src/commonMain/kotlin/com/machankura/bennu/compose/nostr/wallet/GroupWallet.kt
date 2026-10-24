@@ -17,9 +17,8 @@ import kotlin.time.Instant
  * threshold key -- [account] is what [GroupWalletStatementEvent.Reading.verifiedAgainst]
  * returned, never what the statement said.
  *
- * Read off [GroupSignedEvent] and gated on [GroupSignedEvent.verifies], the way
- * `GroupRelayList` is: only an event the room itself authored is the group
- * speaking.
+ * Read off [GroupSignedEvent] and gated on [GroupSignedEvent.verifies]: only an
+ * event the room itself authored is the group speaking.
  */
 data class GroupWallet(
     val signedEvent: GroupSignedEvent,
@@ -53,9 +52,8 @@ data class GroupWallet(
          * The newest wallet the group opened on [chain] at [account], or null for
          * one it never has.
          *
-         * Newest by the group's own timestamp with the id breaking a tie, for the
-         * reason `GroupRelayList.newestAmong` gives: two devices reading the same
-         * events in different orders have to agree.
+         * Newest by the group's own timestamp with the id breaking a tie, because
+         * two devices reading the same events in different orders have to agree.
          *
          * Two rules first, for a guarded account, each of which keeps a later
          * statement from moving every address of one already holding coins:

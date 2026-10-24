@@ -17,9 +17,6 @@ import com.machankura.bennu.compose.nostr.MarmotProfile
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
 import com.machankura.bennu.compose.managers.MarmotGroupCreation
 import com.machankura.bennu.compose.managers.SubgroupManager
-import com.machankura.bennu.compose.nostr.GroupNostrProfile
-import com.machankura.bennu.compose.nostr.GroupPost
-import com.machankura.bennu.compose.nostr.GroupRelayList
 import com.machankura.bennu.compose.database.model.Participant
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatMessage
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
@@ -104,27 +101,6 @@ interface ChatRepository {
     suspend fun guardiansOf(chatRoomId: String): List<GuardianDerivation.Guardian>?
 
     /**
-     * The kind:0 this group signed about itself, or null while it has signed
-     * none.
-     *
-     * The group's identity on nostr is the room's own id, so it has one to
-     * describe whether or not it ever has. Read off the group's signed events and
-     * verified there -- see `GroupNostrProfile` -- so a room shows the profile its
-     * own key signed or shows that it has none.
-     */
-    suspend fun groupNostrProfile(chatRoomId: String): GroupNostrProfile?
-
-    /**
-     * Where this group has said it lives on nostr: one entry per relay set, always
-     * all of them.
-     *
-     * A set the group has never agreed comes back unsigned and empty rather than
-     * missing, because "never said" is a state the screen has to show and a gap in
-     * a list is not one. See `GroupRelayList.isAgreed`.
-     */
-    suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList>
-
-    /**
      * The wallet this group has opened on [chain], or null when it has not --
      * read off the group's signed statement and rederived from the room's key.
      */
@@ -154,27 +130,6 @@ interface ChatRepository {
 
     /** Writes a transcript line for each guardian spend from this group's wallet it has none for yet. */
     suspend fun recordGuardianSpends(chatRoomId: String, taken: List<GuardianManager.Taken>): Int
-
-    /**
-     * The kind:1s this group signed, newest first.
-     *
-     * The group speaking as itself, which is a different thing from a member
-     * speaking in the room -- the transcript is the second. Unlike the profile and
-     * the relay lists these accumulate rather than replace, so this is a list and
-     * an empty one means the group has said nothing publicly.
-     */
-    suspend fun groupPosts(chatRoomId: String): List<GroupPost>
-
-    /**
-     * One event the group signed, as the group signed it, or null when this
-     * device does not hold it or it was signed in some other room.
-     *
-     * Scoped to the room rather than looked up by id alone, because the id
-     * arrives as a navigation argument and the screen it opens names a room in
-     * its title: an event from one room shown under another room's name would
-     * be a lie the signature check cannot catch, since both rooms' events verify.
-     */
-    suspend fun groupSignedEvent(chatRoomId: String, id: HexKey): GroupSignedEvent?
 
     /**
      * Whether this device holds a share of the group's key, and so could take
@@ -406,11 +361,6 @@ interface ChatRepository {
 
             override suspend fun guardiansOf(chatRoomId: String): List<GuardianDerivation.Guardian>? = emptyList()
 
-            override suspend fun groupNostrProfile(chatRoomId: String): GroupNostrProfile? = null
-
-            override suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList> =
-                GroupRelayList.allAmong(emptyList(), chatRoomId)
-
             override suspend fun groupWallet(chatRoomId: String, chain: Chain): GroupWallet? = null
 
             override suspend fun groupWalletAccount(
@@ -439,13 +389,6 @@ interface ChatRepository {
                 chatRoomId: String,
                 taken: List<GuardianManager.Taken>
             ): Int = 0
-
-            override suspend fun groupPosts(chatRoomId: String): List<GroupPost> = emptyList()
-
-            override suspend fun groupSignedEvent(
-                chatRoomId: String,
-                id: HexKey
-            ): GroupSignedEvent? = null
 
             override suspend fun canSign(chatRoomId: String): Boolean = false
 

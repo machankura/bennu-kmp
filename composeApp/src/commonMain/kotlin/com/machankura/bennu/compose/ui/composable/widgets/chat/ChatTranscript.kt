@@ -346,15 +346,11 @@ fun ChatTranscript(
                                     return@items
                                 }
 
-                                // The group's own profile, signed. Same treatment
-                                // and for the same reason: nobody said it. Answered
-                                // and settled because it reports rather than asks --
-                                // a quorum has already signed by the time this line
-                                // exists.
-                                //
-                                // It leads nowhere. What a reader wants from one is
-                                // the profile, and the nostr profile section of the
-                                // group's detail screen is where that lives.
+                                // Something the group signed. Same treatment and for
+                                // the same reason: nobody said it. Answered and
+                                // settled because it reports rather than asks -- a
+                                // quorum has already signed by the time this line
+                                // exists. It leads nowhere.
                                 if (localChatMessage.chatMessage.messageType in ChatMessage.GROUP_IDENTITY_TYPES) {
                                     RitualNotice(
                                         localChatMessage = localChatMessage,

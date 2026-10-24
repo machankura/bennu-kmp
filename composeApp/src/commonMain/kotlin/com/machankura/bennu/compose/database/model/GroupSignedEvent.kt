@@ -36,12 +36,6 @@ import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
  * columns are `NostrEvent`'s so that what is stored is an event rather than a
  * summary of one, which is what makes [verifies] answerable from the row alone.
  *
- * The one way one reaches a relay is a member sending it there by hand -- from
- * `BroadcastGroupSignedEventScreen`, or every accepted entry at once from the
- * entries screen -- and that path serialises the row straight to the pool
- * without ever making a `NostrEvent` of it -- see
- * `BroadcastGroupSignedEventViewModel` for why a row would be the wrong shape.
- *
  * ### The derivation path
  *
  * [publicKey] is the group's threshold key walked to [derivationPath], and for a

@@ -96,7 +96,7 @@ Almost all of it. The preview is a new screen over pieces that exist.
 | a kind 0 arriving overwrites the placeholder row | [NostrDao.kt:424](../composeApp/src/commonMain/kotlin/com/machankura/bennu/compose/database/dao/NostrDao.kt) | the observed flow emits it |
 | the stack shape for "a profile becomes a chat": push the room, pop the profile | [BennuNavHost.kt:1706](../composeApp/src/commonMain/kotlin/com/machankura/bennu/compose/ui/composable/navigation/BennuNavHost.kt), `NostrEventDetailRoute`'s DM exit | copied |
 | `ProfileAvatar`, `humanReadableNameOrPubkey()`, `staticIdentifier()`, `hexToNpubHrp()` | `Profile.kt`, `Credentials.kt` | built |
-| a constant app bar with the state transition inside it | [GroupNostrProfileScreen.kt:106](../composeApp/src/commonMain/kotlin/com/machankura/bennu/compose/ui/composable/GroupNostrProfileScreen.kt) | the layout to copy |
+| a constant app bar with the state transition inside it | `GroupNostrProfileScreen`, since removed with the group's nostr profile | the layout to copy |
 | `LoadingDataIndicator(text = …)`, `EmptyState(message, icon, action)`, `ErrorState(onRetry)`, `NavigateBackButton`, `LocalCanSign` | `widgets/` | built |
 | strings: `profile`, `try_again`, `start_chat`, `send_message` | `strings.xml` | present; the new ones are listed per phase |
 

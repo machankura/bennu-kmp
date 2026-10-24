@@ -56,10 +56,8 @@ fun ProfileAvatar(
 /**
  * The same avatar for a subject that has no `Profile` row.
  *
- * A group's is the case in hand: its kind:0 is signed by the group and kept as a
- * `GroupSignedEvent`, which is not a `NostrEvent` and so cannot have a `Profile`
- * hanging off it -- see `GroupNostrProfile`. The picture and the name are all this
- * ever wanted from a profile, so they are what it takes.
+ * The picture and the name are all this ever wanted from a profile, so they are
+ * what it takes.
  *
  * [name] only reaches the content description. The tint behind a missing picture
  * comes from [publicKey], which is what keeps the same subject the same colour

@@ -75,6 +75,7 @@ import bennu.composeapp.generated.resources.each_member_s_share_is_stored_unencr
 import bennu.composeapp.generated.resources.export_watch_only
 import bennu.composeapp.generated.resources.finding_the_group_s_coins
 import bennu.composeapp.generated.resources.group_wallet
+import bennu.composeapp.generated.resources.s_onchain_wallet
 import bennu.composeapp.generated.resources.nothing_has_been_sent_to_this_wallet_yet
 import bennu.composeapp.generated.resources.open_a_group_wallet
 import bennu.composeapp.generated.resources.open_a_guarded_wallet
@@ -203,13 +204,22 @@ fun GroupWalletScreen(
         onNavigateToRoute(FrostSigningRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId, sessionId = sessionId))
     }
 
+    // Named for its group once the room is known; a room with no subject, and
+    // the moment before it loads, fall back to the generic name.
+    val groupName = when (val state = groupWalletViewModel.groupWalletUIState) {
+        is GroupWalletUIState.NotOpened -> state.localChatRoom.chatRoom.subject
+        is GroupWalletUIState.Loaded -> state.localChatRoom.chatRoom.subject
+        else -> null
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = stringResource(Res.string.group_wallet),
+                        text = groupName?.let { stringResource(Res.string.s_onchain_wallet, it) }
+                            ?: stringResource(Res.string.group_wallet),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

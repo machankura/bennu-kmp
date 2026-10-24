@@ -215,6 +215,10 @@ object GuardianManager {
      * Tells every room in [rooms] about [statement], as [userPublicKey]: one
      * notice each, queued for the outbound pipeline the way every inner event
      * is. Returns how many were queued.
+     *
+     * Each notice names its room in an `h` tag. Without it, one statement told
+     * to a grandchild's parent and grandparent in the same second is one id --
+     * and one row, the last room's -- so the parent was never told.
      */
     suspend fun share(
         database: BennuDatabase,
@@ -224,9 +228,9 @@ object GuardianManager {
         createdAt: Long = Clock.System.now().epochSeconds,
     ): Int {
         val content = statement.toJson()
-        val tags = emptyArray<Array<String>>()
 
         rooms.forEach { room ->
+            val tags = arrayOf(arrayOf("h", room.chatRoom.id))
             val id = EventHasher.hashId(userPublicKey, createdAt, GuardedWalletNoticeEvent.KIND, tags, content)
             database.marmotInnerEventDao().upsert(
                 MarmotInnerEvent(
