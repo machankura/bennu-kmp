@@ -14,6 +14,8 @@ import com.machankura.bennu.compose.exceptions.MarmotUnprocessableInnerEventExce
 import com.machankura.bennu.compose.managers.ChronicleManager
 import com.machankura.bennu.compose.managers.MemberWalletManager
 import com.machankura.bennu.compose.nostr.wallet.GroupKeyNoticeEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletRequestEvent
 import com.machankura.bennu.compose.managers.GroupKeyStateManager
 import com.machankura.bennu.compose.managers.GroupWalletManager
 import com.machankura.bennu.compose.managers.GuardianManager
@@ -468,6 +470,17 @@ data class ChatMessage(
         const val TYPE_GUARDIAN_SPEND = "guardianSpend"
 
         /**
+         * A member asked this group to guard a wallet only they can spend from --
+         * a `MemberWalletRequestEvent` this device checked. A request, not a
+         * decision: the group decides when a signer puts it to the quorum. See
+         * `docs/member-guarded-wallets.md`.
+         */
+        const val TYPE_MEMBER_WALLET_REQUESTED = "memberWalletRequested"
+
+        /** The group signed a member wallet certificate: it now guards that member's wallet. */
+        const val TYPE_MEMBER_WALLET_GUARDED = "memberWalletGuarded"
+
+        /**
          * Every line the group signed, for the one check the transcript
          * dispatches on. A type missing from here renders as a chat bubble,
          * silently, looking exactly like somebody having said it.
@@ -482,6 +495,8 @@ data class ChatMessage(
             TYPE_GROUP_TRANSACTION_CONFIRMED,
             TYPE_GUARDED_WALLET_SHARED,
             TYPE_GUARDIAN_SPEND,
+            TYPE_MEMBER_WALLET_REQUESTED,
+            TYPE_MEMBER_WALLET_GUARDED,
         )
 
         /**
@@ -1118,6 +1133,10 @@ data class ChatMessage(
          * which is why they need an id of their own, and why every row this
          * writes carries it.
          */
+        /** A member as a transcript line names them: their profile's name, or the start of their key. */
+        private suspend fun memberName(database: BennuDatabase, publicKey: HexKey): String =
+            database.profileDao().getProfileByPublicKey(publicKey)?.humanReadableNameOrPubkey() ?: publicKey.take(8)
+
         internal suspend fun applyInnerEvent(
             database: BennuDatabase,
             groupId: String,
@@ -1249,6 +1268,50 @@ data class ChatMessage(
                         createdAt = createdAt,
                         content = "The group made ${name ?: "a subgroup"} a subgroup, " +
                             "run by $admins of its members"
+                    )
+                }
+
+                // A member asking the group to guard a wallet of theirs. The
+                // inner event carries the signed request whole; only a request
+                // that checks out and asks this room gets a line, and it is a
+                // line and nothing more -- the group decides when a signer puts
+                // it to the quorum. docs/member-guarded-wallets.md.
+                MemberWalletRequestEvent.KIND -> {
+                    val request = MemberWalletRequestEvent.carried(event) ?: return null
+                    val reading = MemberWalletRequestEvent.verified(request)?.reading ?: return null
+                    if (!reading.groupChatRoomId.equals(groupId, ignoreCase = true)) return null
+
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = TYPE_MEMBER_WALLET_REQUESTED,
+                        marmotGroupEventId = marmotGroupEventId,
+                        marmotInnerEventId = marmotInnerEventId,
+                        senderPublicKey = senderPublicKey,
+                        isUserMessage = isUserMessage,
+                        chatRoomId = groupId,
+                        createdAt = createdAt,
+                        content = "@${memberName(database, reading.memberPublicKey)} asked this group to guard a wallet",
+                    )
+                }
+
+                // The group agreeing to guard a member's wallet. Checked whole --
+                // the room's signature and the request inside -- because the line
+                // says the group made a promise about somebody's money. It is
+                // filed as a `GroupSignedEvent` either way, and every reader
+                // checks it there again.
+                MemberWalletCertificateEvent.KIND -> {
+                    val verified = MemberWalletCertificateEvent.verify(event, groupId) ?: return null
+
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = TYPE_MEMBER_WALLET_GUARDED,
+                        marmotGroupEventId = marmotGroupEventId,
+                        marmotInnerEventId = marmotInnerEventId,
+                        senderPublicKey = senderPublicKey,
+                        isUserMessage = isUserMessage,
+                        chatRoomId = groupId,
+                        createdAt = createdAt,
+                        content = "This group now guards a wallet for @${memberName(database, verified.memberPublicKey)}",
                     )
                 }
 

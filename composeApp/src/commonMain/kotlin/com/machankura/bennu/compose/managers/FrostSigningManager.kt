@@ -6,6 +6,7 @@ import fr.acinq.bitcoin.OutPoint
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
 import com.machankura.bennu.compose.wallet.GroupSpend
 import fr.acinq.bitcoin.ByteVector64
 import fr.acinq.bitcoin.Chain
@@ -569,6 +570,23 @@ object FrostSigningManager {
             if (rebuilt.kind != SubgroupBirthCertificateEvent.KIND || thresholdPublicKey == null) return@forEach
             SubgroupManager.refuseCertificate(database, rebuilt.pubKey, thresholdPublicKey, rebuilt)?.let { reason ->
                 logger.w("Signing proposal $sessionId carries a birth certificate that $reason; dropping")
+                return null
+            }
+        }
+
+        // A member wallet's certificate is this group agreeing to guard one
+        // member's key, so it has to be exactly what that member asked for, asked
+        // by a member, with exactly the guardian keys this group grants -- the
+        // list a guarded subgroup of it would get. Recomputed from this device's
+        // own key state, never taken from the sponsor who proposed it.
+        // docs/member-guarded-wallets.md, Phase 7.
+        unsignedEvents.forEach { rebuilt ->
+            if (rebuilt.kind != MemberWalletCertificateEvent.KIND) return@forEach
+            val reason = thresholdPublicKey
+                ?.let { MemberWalletManager.refuseCertificate(database, rebuilt.pubKey, it, rebuilt) }
+                ?: if (thresholdPublicKey == null) "cannot be checked without the group's key" else null
+            reason?.let {
+                logger.w("Signing proposal $sessionId carries a member wallet certificate that $it; dropping")
                 return null
             }
         }

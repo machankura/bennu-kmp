@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountTree
 import bennu.composeapp.generated.resources.open
 import bennu.composeapp.generated.resources.the_group_has_its_key_finish_setting_it_up
@@ -841,6 +842,7 @@ private fun RitualNotice(
         // path, so they get separate icons -- the whole reason both lines exist is
         // to be able to see that the first happened and the second did not.
         ChatMessage.TYPE_SUBGROUP_CERTIFIED -> Icons.Default.AccountTree
+        ChatMessage.TYPE_MEMBER_WALLET_REQUESTED, ChatMessage.TYPE_MEMBER_WALLET_GUARDED -> Icons.Default.AccountBalanceWallet
         ChatMessage.TYPE_MEMBER_INVITED -> Icons.Default.PersonAdd
         ChatMessage.TYPE_MEMBER_INVITE_SENT -> Icons.Default.Upload
         ChatMessage.TYPE_MEMBER_INVITE_FAILED -> Icons.Default.ErrorOutline

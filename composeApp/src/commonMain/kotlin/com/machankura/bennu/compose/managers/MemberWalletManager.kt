@@ -2,8 +2,13 @@ package com.machankura.bennu.compose.managers
 
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
+import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.MarmotInnerEvent
+import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.database.model.types.FrostSigningStage
 import com.machankura.bennu.compose.nostr.wallet.GroupKeyNoticeEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletRequestEvent
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
@@ -89,6 +94,144 @@ object MemberWalletManager {
         queue(database, chatRoomId, userPublicKey, GroupKeyNoticeEvent.answeringTags(request.id, groupKey, path), content = state.thresholdPublicKey)
         logger.i("Answered ${request.pubKey.take(8)}'s request for $chatRoomId's key")
         return true
+    }
+
+    // ---- The group's side ------------------------------------------------
+
+    /**
+     * Every certificate [chatRoomId] holds that verifies as its own: the member
+     * wallets this group guards, newest first. One per wallet -- the `d` tag makes
+     * two certificates for one wallet replacements, and they say the same thing.
+     */
+    suspend fun certificatesOf(database: BennuDatabase, chatRoomId: String): List<MemberWalletCertificateEvent.Verified> =
+        database.groupSignedEventDao()
+            .getByChatRoomIdAndKind(chatRoomId, MemberWalletCertificateEvent.KIND)
+            .mapNotNull { MemberWalletCertificateEvent.verify(it.toEvent(), chatRoomId) }
+            .sortedByDescending { it.certificate.createdAt }
+            .distinctBy { it.walletId }
+
+    /**
+     * Every request a member has put into [chatRoomId] that checks out and asks
+     * this room, newest first, one per wallet.
+     */
+    suspend fun requestsIn(database: BennuDatabase, chatRoomId: String): List<MemberWalletRequestEvent.Verified> =
+        database.marmotInnerEventDao()
+            .getByChatRoomAndKinds(chatRoomId, listOf(MemberWalletRequestEvent.KIND))
+            .mapNotNull { MemberWalletRequestEvent.carried(it.asEvent()) }
+            .mapNotNull { MemberWalletRequestEvent.verified(it) }
+            .filter { it.reading.groupChatRoomId.equals(chatRoomId, ignoreCase = true) }
+            .sortedByDescending { it.request.createdAt }
+            .distinctBy { it.reading.walletId }
+
+    /**
+     * The event id a certificate for [request] signed in [chatRoomId] will have.
+     * The room's id is the author, and the request fixes everything else -- which
+     * is what lets two sponsors find each other's session.
+     */
+    fun certificateIdFor(chatRoomId: String, request: Event): HexKey {
+        val template = MemberWalletCertificateEvent.template(request)
+        return EventHasher.hashId(chatRoomId.lowercase(), template.createdAt, template.kind, template.tags, template.content)
+    }
+
+    /** The session open in [chatRoomId] over [request]'s certificate, if one is still running. */
+    suspend fun openSessionFor(database: BennuDatabase, chatRoomId: String, request: Event): FrostSigningSession? {
+        val certificateId = certificateIdFor(chatRoomId, request)
+        return database.frostSigningSessionDao().getSessionsForChatRoom(chatRoomId)
+            .filter { it.stage != FrostSigningStage.FAILED && it.stage != FrostSigningStage.COMPLETE }
+            .firstOrNull { session -> database.frostSigningSessionDao().getItems(session.id).any { it.eventId == certificateId } }
+    }
+
+    /** Whether the latest session over [request]'s certificate in [chatRoomId] failed -- declined, or abandoned. */
+    suspend fun wasNotSigned(database: BennuDatabase, chatRoomId: String, request: Event): Boolean {
+        val certificateId = certificateIdFor(chatRoomId, request)
+        val sessions = database.frostSigningSessionDao().getSessionsForChatRoom(chatRoomId)
+            .filter { session -> database.frostSigningSessionDao().getItems(session.id).any { it.eventId == certificateId } }
+        return sessions.isNotEmpty() && sessions.all { it.stage == FrostSigningStage.FAILED }
+    }
+
+    /**
+     * The requests in [chatRoomId] still waiting for somebody to put them to the
+     * group: no certificate for the wallet, and no session running over one.
+     */
+    suspend fun awaitingSponsor(database: BennuDatabase, chatRoomId: String): List<MemberWalletRequestEvent.Verified> {
+        val certified = certificatesOf(database, chatRoomId).map { it.walletId }.toSet()
+        return requestsIn(database, chatRoomId)
+            .filter { it.reading.walletId !in certified }
+            .filter { openSessionFor(database, chatRoomId, it.request) == null }
+    }
+
+    /**
+     * Why [chatRoomId], signing as [thresholdPublicKey], should not sign a
+     * proposed member wallet [certificate] -- or null when it may.
+     *
+     * The check every signer makes before agreeing to guard a member's wallet,
+     * refused before anything is shown, for the reason a mismatched id is:
+     *
+     *  - it is not exactly the certificate the request it carries asks for, or
+     *    the request does not check out, or it asked another group;
+     *  - the person asking is not a member of this room;
+     *  - its guardians are not the ones this group grants: `SubgroupManager.grantFor`
+     *    with the wallet's id in a child room's place -- the same list a guarded
+     *    subgroup of this group would get. A coordinator who slipped a key in,
+     *    dropped an ancestor or reordered the leaves is refused here.
+     *
+     * The group's own wallet policy decides only which keys the grant carries.
+     * It never refuses a member's wallet: an unguarded group guards its members
+     * with its own key alone. `docs/member-guarded-wallets.md`, Phase 7.
+     */
+    suspend fun refuseCertificate(
+        database: BennuDatabase,
+        chatRoomId: String,
+        thresholdPublicKey: HexKey,
+        certificate: Event,
+    ): String? {
+        val verified = MemberWalletCertificateEvent.verify(certificate, chatRoomId, signed = false)
+            ?: return "is not a certificate this group could have been asked for"
+
+        val member = database.participantDao().findParticipantsByChatRoomId(chatRoomId)
+            .any { it.participantPublicKey.equals(verified.memberPublicKey, ignoreCase = true) }
+        if (!member) return "was asked by somebody who is not a member"
+
+        val expected = runCatching { SubgroupManager.grantFor(database, chatRoomId, thresholdPublicKey, verified.walletId) }.getOrNull()
+            ?: return "grants keys this device cannot check"
+        return if (verified.account.guardians == expected) null else "grants guardian keys this group does not"
+    }
+
+    /**
+     * Puts [request] to [groupRoom]'s quorum, as [userPublicKey]: a signing
+     * session over the certificate the request determines, which this device's
+     * proposing counts as approving. Returns the session already running over it
+     * instead, when another signer got there first.
+     *
+     * @throws IllegalStateException when the wallet is already certified, or this
+     * device would refuse the certificate itself -- a quorum should never be asked
+     * for what the proposer's own device knows is wrong.
+     */
+    suspend fun putToGroup(database: BennuDatabase, groupRoom: LocalChatRoom, userPublicKey: HexKey, request: Event): FrostSigningSession {
+        val chatRoomId = groupRoom.chatRoom.id
+        val reading = MemberWalletRequestEvent.verified(request)?.reading
+            ?: throw IllegalStateException("This request does not check out")
+        check(certificatesOf(database, chatRoomId).none { it.walletId == reading.walletId }) { "This group already guards that wallet" }
+        openSessionFor(database, chatRoomId, request)?.let { return it }
+
+        val thresholdPublicKey = GroupWalletManager.thresholdKeyFor(database, chatRoomId)
+            ?: throw IllegalStateException("This group has no shared key to sign with")
+        val template = MemberWalletCertificateEvent.template(request)
+        val unsigned = Event(certificateIdFor(chatRoomId, request), chatRoomId.lowercase(), template.createdAt, template.kind, template.tags, template.content, "")
+        refuseCertificate(database, chatRoomId, thresholdPublicKey, unsigned)?.let { reason ->
+            throw IllegalStateException("This group would refuse it: it $reason")
+        }
+
+        logger.i("Putting ${reading.memberPublicKey.take(8)}'s wallet ${reading.walletId.take(8)} to $chatRoomId")
+        return FrostSigningManager.proposeSigning(
+            database = database,
+            localChatRoom = groupRoom,
+            userPublicKey = userPublicKey,
+            kind = template.kind,
+            tags = template.tags,
+            content = template.content,
+            createdAt = template.createdAt,
+        )
     }
 
     private suspend fun noticesIn(database: BennuDatabase, chatRoomId: String): List<Event> =

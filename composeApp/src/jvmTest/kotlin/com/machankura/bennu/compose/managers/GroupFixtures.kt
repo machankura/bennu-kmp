@@ -2,6 +2,17 @@ package com.machankura.bennu.compose.managers
 
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.ChatRoom
+import com.machankura.bennu.compose.database.model.DkgParticipantMessage
+import com.machankura.bennu.compose.database.model.DkgSession
+import com.machankura.bennu.compose.database.model.Participant
+import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.database.model.types.DkgRitualStage
+import com.machankura.bennu.compose.nostr.Relays
+import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
+import com.vitorpamplona.quartz.marmot.mip01Groups.MarmotGroupData
+import com.vitorpamplona.quartz.marmot.mls.crypto.Ed25519
+import com.vitorpamplona.quartz.marmot.mls.group.MlsGroup
+import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.database.model.NostrEvent
 import com.machankura.bennu.compose.database.model.Profile
@@ -116,6 +127,54 @@ internal object GroupFixtures {
         seedProfile(db, owner)
         if (db.chatRoomDao().findChatRoomById(chatRoomId) != null) return
         db.chatRoomDao().upsert(ChatRoom(id = chatRoomId, userPublicKey = owner, subject = subject, description = null, mlsGroupState = null))
+    }
+
+    /**
+     * [material]'s Marmot room on this device, with [owner] holding a share of its
+     * key and every one of [members] a participant: a room this device can open
+     * a signing session in. Built as a real room is -- the id derived from the
+     * group's own key -- for the reason `SubgroupManagerJvmTest.parentWith` gives.
+     */
+    suspend fun signingRoom(db: BennuDatabase, material: KeyMaterial, members: List<HexKey>, subject: String = "#Ekklesia"): LocalChatRoom {
+        val roomId = roomOf(material)
+        (members + owner).forEach { seedProfile(db, it) }
+
+        val metadata = MarmotGroupData(
+            nostrGroupId = roomId,
+            name = subject,
+            description = SharedKeyDerivation.describe("Admins of $subject."),
+            adminPubkeys = members + owner,
+            relays = Relays.DefaultDMRelayList.map { it.url },
+        )
+        val mlsGroup = MlsGroup.create(KeyPair().pubKey, Ed25519.generateKeyPair().privateKey, listOf(metadata.toExtension()))
+        db.chatRoomDao().upsert(
+            ChatRoom(id = roomId, userPublicKey = owner, subject = subject, description = metadata.description, mlsGroupState = mlsGroup.saveState().encodeTls().toHex())
+        )
+        db.participantDao().upsert((members + owner).map { Participant(participantPublicKey = it, chatRoomId = roomId, relayHint = null) })
+
+        val ceremonyId = "signing-" + roomId.take(8)
+        db.dkgSessionDao().upsert(
+            DkgSession(
+                id = ceremonyId,
+                chatRoomId = roomId,
+                coordinatorPublicKey = owner,
+                userPublicKey = owner,
+                threshold = THRESHOLD,
+                participantCount = members.size + 1,
+                stage = DkgRitualStage.COMPLETE,
+                hostPublicKey = owner,
+                round1Random = "aa".repeat(32),
+                round2AuxRandom = "bb".repeat(32),
+                thresholdPublicKey = thresholdKeyOf(material),
+                secretShare = "cc".repeat(32),
+            )
+        )
+        (members + owner).forEachIndexed { index, member ->
+            db.dkgSessionDao().upsert(
+                DkgParticipantMessage(sessionId = ceremonyId, participantPublicKey = member, kind = DkgRitualEvents.HOST_KEY, payload = "0${index + 1}".repeat(33))
+            )
+        }
+        return requireNotNull(db.chatRoomDao().findChatRoomById(roomId))
     }
 
     private fun signature(material: KeyMaterial, eventId: String): String {

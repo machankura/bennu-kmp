@@ -126,10 +126,15 @@ object MemberWalletCertificateEvent {
      * Whether the guardians are the ones the group grants is what the group's
      * signers checked before signing. A reader trusts the group's quorum for
      * that, and it is no new trust: that quorum can already take every coin.
+     *
+     * [signed] false is for a certificate still being proposed, which has no
+     * signature yet: everything else is checked, and its author has to be the
+     * room the session will sign as.
      */
-    fun verify(certificate: Event, groupChatRoomId: String): Verified? = runCatching {
+    fun verify(certificate: Event, groupChatRoomId: String, signed: Boolean = true): Verified? = runCatching {
         if (certificate.kind != KIND) return null
-        if (!GroupKeyStateEvent.isSignedByRoom(certificate, groupChatRoomId)) return null
+        if (signed && !GroupKeyStateEvent.isSignedByRoom(certificate, groupChatRoomId)) return null
+        if (!signed && !certificate.pubKey.equals(groupChatRoomId, ignoreCase = true)) return null
 
         val request = requestOf(certificate) ?: return null
         val verified = MemberWalletRequestEvent.verified(request) ?: return null
