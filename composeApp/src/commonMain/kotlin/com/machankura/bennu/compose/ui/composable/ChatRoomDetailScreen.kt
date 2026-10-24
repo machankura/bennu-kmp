@@ -2,6 +2,22 @@ package com.machankura.bennu.compose.ui.composable
 
 import bennu.composeapp.generated.resources.guarded_wallet_after
 import com.machankura.bennu.compose.ui.composable.widgets.delayText
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import com.machankura.bennu.compose.repository.MemberWalletRepository
+import com.machankura.bennu.compose.ui.composable.navigation.routes.NewMemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.FrostSigningRoute
+import bennu.composeapp.generated.resources.members_guarded_wallets
+import bennu.composeapp.generated.resources.ask_this_group_to_guard_a_wallet_for_you
+import bennu.composeapp.generated.resources.asked_by_s_not_yet_signed
+import bennu.composeapp.generated.resources.put_to_the_group
+import bennu.composeapp.generated.resources.couldn_t_put_it_to_the_group
+import bennu.composeapp.generated.resources.at_s
+import bennu.composeapp.generated.resources.s_dot_s
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.style.TextOverflow
 import bennu.composeapp.generated.resources.unguarded_wallet
 import bennu.composeapp.generated.resources.guarded_wallet
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
@@ -13,7 +29,6 @@ import bennu.composeapp.generated.resources.open_on_s
 import bennu.composeapp.generated.resources.not_opened_yet
 import bennu.composeapp.generated.resources.group_wallet
 import bennu.composeapp.generated.resources.s_onchain_wallet
-import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -47,7 +62,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -68,7 +82,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.machankura.bennu.compose.database.model.ChatRoom
@@ -156,6 +169,7 @@ fun ChatRoomDetailScreen(
     initialChatRoomDetailUIState: ChatRoomDetailUIState = ChatRoomDetailUIState.Loading,
     nostrRepository: NostrRepository,
     chatRepository: ChatRepository,
+    memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
     onNavigateToRoute: (Route) -> Unit,
     onPopBackToRoute: (Route) -> Unit,
     onNavigateBack: () -> Unit,
@@ -167,9 +181,11 @@ fun ChatRoomDetailScreen(
             initialChatRoomDetailUIState = initialChatRoomDetailUIState,
             nostrRepository = nostrRepository,
             chatRepository = chatRepository,
-            activeUserPublicKey = activeUserPublicKey
+            activeUserPublicKey = activeUserPublicKey,
+            memberWalletRepository = memberWalletRepository,
         )
     )
+    val couldNotPutToGroup = stringResource(Res.string.couldn_t_put_it_to_the_group)
 
     // Read outside the click handlers: stringResource and rememberNotifier are both
     // composable, and a lambda passed to onClick is not.
@@ -445,6 +461,59 @@ fun ChatRoomDetailScreen(
                                         )
 
                                         Text(stringResource(Res.string.add_subgroup))
+                                    }
+                                }
+                            }
+
+                            // A member's wallet is a person, not a room, so it is its
+                            // own section and its row opens the person -- there is no
+                            // chat to open. docs/member-guarded-wallets.md, Phase 11.
+                            if (chatRoomDetailUIState.memberWallets.isNotEmpty() || chatRoomDetailUIState.canAskForMemberWallet) {
+                                item { HorizontalDivider() }
+                                item {
+                                    Text(
+                                        text = stringResource(Res.string.members_guarded_wallets),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+                                items(
+                                    items = chatRoomDetailUIState.memberWallets,
+                                    key = { "member-wallet-" + it.walletId }
+                                ) { wallet ->
+                                    MemberWalletRow(
+                                        wallet = wallet,
+                                        isPending = chatRoomDetailViewModel.isActionPending.value,
+                                        onOpen = {
+                                            onNavigateToRoute.invoke(
+                                                ProfilePreviewRoute(activeUserPublicKey = activeUserPublicKey, profilePublicKey = wallet.ownerPublicKey)
+                                            )
+                                        },
+                                        onPutToGroup = if (!wallet.isCertified && chatRoomDetailUIState.canSponsor) {
+                                            {
+                                                chatRoomDetailViewModel.putToGroup(
+                                                    request = wallet.request,
+                                                    onSuccess = { sessionId ->
+                                                        onNavigateToRoute.invoke(
+                                                            FrostSigningRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId, sessionId = sessionId)
+                                                        )
+                                                    },
+                                                    onFailure = { notify(couldNotPutToGroup) },
+                                                )
+                                            }
+                                        } else null,
+                                    )
+                                }
+                                if (chatRoomDetailUIState.canAskForMemberWallet) {
+                                    item {
+                                        TextButton(
+                                            onClick = {
+                                                onNavigateToRoute.invoke(NewMemberWalletRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId))
+                                            }
+                                        ) {
+                                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
+                                            Spacer(modifier = Modifier.width(MaterialTheme.spacing.space125))
+                                            Text(stringResource(Res.string.ask_this_group_to_guard_a_wallet_for_you))
+                                        }
                                     }
                                 }
                             }
@@ -1035,6 +1104,39 @@ private fun SignedWorkRow(
             }
         )
     }
+}
+
+/**
+ * One member's guarded wallet, as the guarding group's page lists it: the
+ * person, by the live name of their profile, and the label they gave it. A
+ * request no signer has put to the group yet says so, and offers the one thing
+ * a signer can do about it.
+ */
+@Composable
+private fun MemberWalletRow(
+    wallet: MemberWalletManager.GroupMemberWallet,
+    isPending: Boolean,
+    onOpen: () -> Unit,
+    onPutToGroup: (() -> Unit)?,
+) {
+    val name = stringResource(Res.string.at_s, wallet.ownerName ?: wallet.ownerPublicKey.take(8))
+    ListItem(
+        modifier = Modifier.clickable(onClick = onOpen).minimumInteractiveComponentSize(),
+        leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
+        headlineContent = {
+            Text(
+                text = wallet.label?.let { stringResource(Res.string.s_dot_s, name, it) } ?: name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        supportingContent = if (wallet.isCertified) null else {
+            { Text(stringResource(Res.string.asked_by_s_not_yet_signed, name)) }
+        },
+        trailingContent = onPutToGroup?.let { put ->
+            { TextButton(onClick = put, enabled = !isPending) { Text(stringResource(Res.string.put_to_the_group)) } }
+        },
+    )
 }
 
 /**

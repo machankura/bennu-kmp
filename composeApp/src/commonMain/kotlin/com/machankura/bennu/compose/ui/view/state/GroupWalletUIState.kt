@@ -92,6 +92,19 @@ data class GuardedWalletRow(
         get() = walletState?.let { state ->
             state.utxos.filter { state.confirmations(it) >= wallet.delay }.map { it.amount }.sum()
         }
+
+    /**
+     * Coins in the wallet not yet within reach: in the mempool, or confirmed
+     * less deeply than this group's own leaf's lock, the same one [withinReach]
+     * counts past. What a funding looks like for the two
+     * hours after it lands -- without it, [withinReach] would make the money
+     * look gone. Every such coin, whoever paid it, which is all this group can
+     * know. Null while the chain is not known.
+     */
+    val arriving: Satoshi?
+        get() = walletState?.let { state ->
+            state.utxos.filter { state.confirmations(it) < wallet.delay }.map { it.amount }.sum()
+        }
 }
 
 /** Where one of the room's spends has got to, as one fact a member reads. */

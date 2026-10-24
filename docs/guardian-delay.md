@@ -25,7 +25,7 @@ everybody*](./group-wallet-guardians.md#the-leaf).
 
 **Built**, phases 1-8, one commit each, in the order the plan asked for —
 Phase 7 before Phase 5 — written against the code as it stood at `60cb3fa7`,
-schema v29; the build is schema v30. `GuardianDerivation.DELAY_RANGE`,
+schema v29; the build is schema v31. `GuardianDerivation.DELAY_RANGE`,
 `grant(..., delay)`, `BlockDuration` and `delayText` are the entry points. The
 phases below are kept as written, line references included, which have since
 moved; where the build chose differently the table says so.
@@ -40,6 +40,8 @@ moved; where the build chose differently the table says so.
 | Phase 6: the summary's own-leaf line | a separate element, *this group after 144 blocks, about 1 day*, after the existing reach line |
 | Phase 7: the guarded section's title says the shortest delay | not built. Each guardian is listed nearest first with its own delay, named by the room this device holds for it — `GroupWalletUIState.guardianNames` — and otherwise *a group above this one* |
 | Phase 7: `withinReach` reads `wallet.account.guardians[position].delay` | `GuardianManager.GuardedWallet.delay`, the same thing named once |
+| Phase 4: schema 29 → 30 | **30 → 31.** The default branch took 30 for the member-wallet tables (`docs/member-guarded-wallets.md`) while this was being built, so `DkgSession.guardianDelay` is v31 |
+| nothing about member wallets or funding | both landed on the default branch meanwhile, quoting 12. On merging: `GuardedWalletRow.arriving` counts by this group's own leaf like `withinReach`; the funding form says that leaf's delay; a member wallet's screens and its proposal summary say each guardian's delay, through `MemberWalletManager.delaysOf` -- the group's own leaf at the default, every group above at the delay it chose. A group still cannot choose the delay on its own leaf in a member's wallet |
 
 Still to do by hand: the three-emulator run in Phase 8.
 

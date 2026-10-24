@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.state
 
+import com.machankura.bennu.compose.managers.MemberWalletManager
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -91,6 +92,16 @@ sealed interface ChatRoomDetailUIState {
          * and nobody rejoins, so every write entrance is hidden and the room says so.
          */
         val isDisbanded: Boolean = false,
+        /**
+         * The member wallets this group guards, and the requests for one still
+         * waiting for a signer -- `docs/member-guarded-wallets.md`. Its own
+         * section, never mixed into [subgroups]: a row here is a person.
+         */
+        val memberWallets: List<MemberWalletManager.GroupMemberWallet> = emptyList(),
+        /** Whether this profile could ask this group to guard a wallet for it. */
+        val canAskForMemberWallet: Boolean = false,
+        /** Whether this device holds a share, and so can put a member's request to the group. */
+        val canSponsor: Boolean = false,
     ): ChatRoomDetailUIState
 
     data class Error(

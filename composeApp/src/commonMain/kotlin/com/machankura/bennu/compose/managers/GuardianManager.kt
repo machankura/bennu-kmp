@@ -10,6 +10,8 @@ import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.nostr.wallet.GuardedWalletNoticeEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
 import com.machankura.bennu.compose.wallet.GroupSpend
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -43,22 +45,48 @@ object GuardianManager {
 
     private val logger = Logger.withTag(TAG)
 
+    /**
+     * Whose guarded wallet it is: a subgroup's, under its quorum's key, or one
+     * member's, under a key only they hold -- `docs/member-guarded-wallets.md`.
+     * Either way [id] is what the line of descent ends in, so every guardian
+     * signs for its leaf the same way.
+     */
+    sealed interface GuardedSubject {
+        /** A room id, or a member wallet's `W`. */
+        val id: String
+
+        data class Subgroup(override val id: String, val name: String?) : GuardedSubject
+
+        data class Member(
+            override val id: String,
+            val ownerPublicKey: HexKey,
+            val label: String?,
+            /** The member's profile name on this device, where one is known; filled where a database is to hand. */
+            val ownerName: String? = null,
+        ) : GuardedSubject
+    }
+
     /** A descendant's guarded wallet, as one of its ancestors holds it. */
     data class GuardedWallet(
         /** The ancestor holding it: the room it was told to. */
         val ancestorChatRoomId: String,
+        /** [subject]'s id: the descendant's room, or a member wallet's `W`. */
         val descendantChatRoomId: String,
-        /** The descendant's signed statement, whole. */
+        /**
+         * What the ancestor believes it on, whole: a subgroup's signed statement,
+         * or the member wallet certificate the guarding group signed.
+         */
         val statement: Event,
         /** The account the statement opens, rederived from the descendant's key. */
         val account: GroupWalletDerivation.Account,
-        /** The descendant's birth certificate, carried in the statement. */
+        /** A subgroup's birth certificate, carried in the statement -- or, for a member, the certificate itself. */
         val certificate: Event,
         /** The rooms the ancestor walks from its own child down to the descendant -- `GuardianDerivation.lineage`. */
         val lineage: List<String>,
+        val subject: GuardedSubject = GuardedSubject.Subgroup(descendantChatRoomId, SubgroupBirthCertificateEvent.parseName(certificate.tags)),
     ) {
-        /** What the descendant's parent certified it as. The founding name: a rename does not reach it. */
-        val name: String? get() = SubgroupBirthCertificateEvent.parseName(certificate.tags)
+        /** What the descendant's parent certified it as, for a subgroup. The founding name: a rename does not reach it. */
+        val name: String? get() = (subject as? GuardedSubject.Subgroup)?.name
 
         val chain: Chain get() = account.chain
 
@@ -77,7 +105,14 @@ object GuardianManager {
 
         /** The ancestor as the spender of a spend from this wallet, signing as [thresholdPublicKey] -- null to only build one. */
         fun spender(thresholdPublicKey: HexKey? = null): GroupSpend.Spender.Guardian =
-            GroupSpend.Spender.Guardian(position = position, lineage = lineage, thresholdPublicKey = thresholdPublicKey, name = name)
+            GroupSpend.Spender.Guardian(position = position, lineage = lineage, thresholdPublicKey = thresholdPublicKey, name = displayName)
+
+        /** How a spend from it names it: a subgroup's founding name, or `@` and a member's. */
+        val displayName: String?
+            get() = when (val subject = subject) {
+                is GuardedSubject.Subgroup -> subject.name
+                is GuardedSubject.Member -> "@" + (subject.ownerName ?: subject.ownerPublicKey.take(8))
+            }
     }
 
     /**
@@ -97,6 +132,7 @@ object GuardianManager {
      *     a leaf this group cannot sign, whatever the statement calls it.
      */
     fun verify(statement: Event, ancestorChatRoomId: String, ancestorThresholdPublicKey: HexKey): GuardedWallet? = runCatching {
+        if (statement.kind == MemberWalletCertificateEvent.KIND) return verifyMember(statement, ancestorChatRoomId, ancestorThresholdPublicKey)
         if (statement.kind != GroupWalletStatementEvent.KIND) return null
         val descendantChatRoomId = statement.pubKey
         if (!GroupKeyStateEvent.isSignedByRoom(statement, descendantChatRoomId)) return null
@@ -130,6 +166,42 @@ object GuardianManager {
     }.getOrNull()
 
     /**
+     * [certificate] as a member's guarded wallet [ancestorChatRoomId] guards, or
+     * null when it is not one: the guarding group signed it over the member's
+     * own request (`MemberWalletCertificateEvent.verify`), and -- rule 4 of
+     * [verify] -- the key it names for the ancestor is the key the ancestor's
+     * guardian root reaches down the line of descent, which ends in the
+     * wallet's id where a subgroup's ends in its room.
+     */
+    private fun verifyMember(certificate: Event, ancestorChatRoomId: String, ancestorThresholdPublicKey: HexKey): GuardedWallet? = runCatching {
+        val verified = MemberWalletCertificateEvent.verify(certificate, certificate.pubKey) ?: return null
+        val account = verified.account
+
+        val lineage = GuardianDerivation.lineage(account.guardians, verified.walletId, ancestorChatRoomId) ?: return null
+        val named = account.guardians.first { it.chatRoomId.equals(ancestorChatRoomId, ignoreCase = true) }
+        val walked = GuardianDerivation.root(ancestorThresholdPublicKey).extendedPublicKey
+            .derivePublicKey(lineage.map(GuardianDerivation::childIndex))
+        if (walked.publicKey != named.publicKey || walked.chaincode != named.chainCode) return null
+
+        GuardedWallet(
+            ancestorChatRoomId = ancestorChatRoomId,
+            descendantChatRoomId = verified.walletId,
+            statement = certificate,
+            account = account,
+            certificate = certificate,
+            lineage = lineage,
+            subject = GuardedSubject.Member(verified.walletId, verified.memberPublicKey, verified.label),
+        )
+    }.getOrNull()
+
+    /** [wallet] with its member's profile name, where this device knows one. */
+    private suspend fun named(database: BennuDatabase, wallet: GuardedWallet): GuardedWallet {
+        val member = wallet.subject as? GuardedSubject.Member ?: return wallet
+        val name = database.profileDao().getProfileByPublicKey(member.ownerPublicKey)?.humanReadableNameOrPubkey()
+        return wallet.copy(subject = member.copy(ownerName = name))
+    }
+
+    /**
      * Every guarded wallet [ancestorChatRoomId] has been told about and can sign
      * for, one per descendant account on each network.
      *
@@ -143,10 +215,19 @@ object GuardianManager {
         val thresholdPublicKey = GroupWalletManager.thresholdKeyFor(database, ancestorChatRoomId) ?: return emptyList()
         val order = compareBy<GuardedWallet>({ it.openedAt }, { it.statement.id })
 
-        return database.marmotInnerEventDao()
+        // What it was told, and -- for its own members' wallets -- what it signed:
+        // the group holds a member wallet certificate it signed, and needs no
+        // notice to learn of it.
+        val told = database.marmotInnerEventDao()
             .getByChatRoomAndKinds(ancestorChatRoomId, listOf(GuardedWalletNoticeEvent.KIND))
             .mapNotNull { row -> Event.fromJsonOrNull(row.content) }
+        val signed = database.groupSignedEventDao()
+            .getByChatRoomIdAndKind(ancestorChatRoomId, MemberWalletCertificateEvent.KIND)
+            .map { it.toEvent() }
+
+        return (told + signed)
             .mapNotNull { verify(it, ancestorChatRoomId, thresholdPublicKey) }
+            .map { named(database, it) }
             .groupBy { Triple(it.descendantChatRoomId, it.chain, it.account.account) }
             .mapNotNull { (_, statements) ->
                 val first = statements.minWithOrNull(order) ?: return@mapNotNull null
@@ -169,9 +250,12 @@ object GuardianManager {
     /** A guarded statement this device can carry upward, and the rooms it can carry it into. */
     data class Shareable(
         val statement: Event,
-        /** What the statement's room was certified as, for the screen. */
+        /** What the statement's room was certified as, for the screen. Null for a member's wallet. */
         val name: String?,
         val rooms: List<LocalChatRoom>,
+        /** For a member's wallet: the member, and their profile name where this device knows one. */
+        val ownerPublicKey: HexKey? = null,
+        val ownerName: String? = null,
     )
 
     /**
@@ -188,14 +272,28 @@ object GuardianManager {
                 val certificate = GroupWalletStatementEvent.read(statement.tags, statement.content)?.certificate
                 statement to (certificate?.let { SubgroupBirthCertificateEvent.parseName(it.tags) })
             }
+        // Everything it guards or was told of -- its own members' wallets among
+        // them, since it holds those certificates itself -- passed on a
+        // generation further.
         val passedOn = guardedWalletsOf(database, chatRoomId)
             .filter { it.chain == chain }
-            .map { it.statement to it.name }
 
-        return (listOfNotNull(own) + passedOn).mapNotNull { (statement, name) ->
-            val rooms = targetsFor(database, statement, excluding = chatRoomId)
-            rooms.takeIf { it.isNotEmpty() }?.let { Shareable(statement, name, it) }
+        val candidates = listOfNotNull(own?.let { (statement, name) -> Shareable(statement, name, emptyList()) }) +
+            passedOn.map { wallet ->
+                val member = wallet.subject as? GuardedSubject.Member
+                Shareable(wallet.statement, wallet.name, emptyList(), member?.ownerPublicKey, member?.ownerName)
+            }
+
+        return candidates.mapNotNull { candidate ->
+            val rooms = targetsFor(database, candidate.statement, excluding = chatRoomId)
+            rooms.takeIf { it.isNotEmpty() }?.let { candidate.copy(rooms = it) }
         }
+    }
+
+    /** The guardians [statement] names, nearest first: a subgroup's statement's, or a member wallet certificate's. */
+    private fun guardiansNamedIn(statement: Event): List<GuardianDerivation.Guardian> = when (statement.kind) {
+        MemberWalletCertificateEvent.KIND -> GuardianTag.parseAll(statement.tags).orEmpty()
+        else -> GroupWalletStatementEvent.read(statement.tags, statement.content)?.guardians.orEmpty()
     }
 
     /**
@@ -204,9 +302,7 @@ object GuardianManager {
      * group with a key has an MLS room.
      */
     private suspend fun targetsFor(database: BennuDatabase, statement: Event, excluding: String): List<LocalChatRoom> {
-        val guardians = GroupWalletStatementEvent.read(statement.tags, statement.content)?.guardians.orEmpty()
-
-        return guardians
+        return guardiansNamedIn(statement)
             .map { it.chatRoomId }
             .filterNot { it.equals(excluding, ignoreCase = true) }
             .mapNotNull { database.chatRoomDao().findChatRoomById(it) }
@@ -341,7 +437,10 @@ object GuardianManager {
         val thresholdPublicKey = GroupWalletManager.thresholdKeyFor(database, chatRoomId) ?: return null
         val wallet = verify(statement, chatRoomId, thresholdPublicKey) ?: return null
 
-        return wallet.name?.let { "Shared the guarded wallet of $it with this group." }
-            ?: "Shared a subgroup's guarded wallet with this group."
+        return when (val subject = named(database, wallet).subject) {
+            is GuardedSubject.Member -> "Shared @${subject.ownerName ?: subject.ownerPublicKey.take(8)}'s guarded wallet with this group."
+            is GuardedSubject.Subgroup -> subject.name?.let { "Shared the guarded wallet of $it with this group." }
+                ?: "Shared a subgroup's guarded wallet with this group."
+        }
     }
 }

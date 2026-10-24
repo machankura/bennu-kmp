@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 30,
-    "identityHash": "1e74428a4c91d18f88a395a4add76229",
+    "identityHash": "47aa631ec4032d9b2c00bf0b38689864",
     "entities": [
       {
         "tableName": "BroadcastNostrEventReceipt",
@@ -855,7 +855,7 @@
       },
       {
         "tableName": "DkgSession",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `chatRoomId` TEXT NOT NULL, `coordinatorPublicKey` TEXT NOT NULL, `userPublicKey` TEXT NOT NULL, `threshold` INTEGER NOT NULL, `participantCount` INTEGER NOT NULL, `participantPublicKeys` TEXT, `subject` TEXT, `walletPolicy` TEXT, `guardianDelay` INTEGER, `stage` TEXT NOT NULL, `hostPublicKey` TEXT NOT NULL, `round1Random` TEXT NOT NULL, `round2AuxRandom` TEXT NOT NULL, `coordinatorRound1` TEXT, `certificate` TEXT, `thresholdPublicKey` TEXT, `secretShare` TEXT, `publicShares` TEXT, `recoveryData` TEXT, `failureReason` TEXT, `hostKeyApprovedAt` INTEGER, `round1ApprovedAt` INTEGER, `round2ApprovedAt` INTEGER, `approvalRequestedThrough` TEXT, `parentChatRoomId` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `savedAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`chatRoomId`) REFERENCES `ChatRoom`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `chatRoomId` TEXT NOT NULL, `coordinatorPublicKey` TEXT NOT NULL, `userPublicKey` TEXT NOT NULL, `threshold` INTEGER NOT NULL, `participantCount` INTEGER NOT NULL, `participantPublicKeys` TEXT, `subject` TEXT, `walletPolicy` TEXT, `stage` TEXT NOT NULL, `hostPublicKey` TEXT NOT NULL, `round1Random` TEXT NOT NULL, `round2AuxRandom` TEXT NOT NULL, `coordinatorRound1` TEXT, `certificate` TEXT, `thresholdPublicKey` TEXT, `secretShare` TEXT, `publicShares` TEXT, `recoveryData` TEXT, `failureReason` TEXT, `hostKeyApprovedAt` INTEGER, `round1ApprovedAt` INTEGER, `round2ApprovedAt` INTEGER, `approvalRequestedThrough` TEXT, `parentChatRoomId` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `savedAt` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`chatRoomId`) REFERENCES `ChatRoom`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -907,11 +907,6 @@
             "fieldPath": "walletPolicy",
             "columnName": "walletPolicy",
             "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "guardianDelay",
-            "columnName": "guardianDelay",
-            "affinity": "INTEGER"
           },
           {
             "fieldPath": "stage",
@@ -2800,6 +2795,158 @@
         ]
       },
       {
+        "tableName": "MemberWallet",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`walletId` TEXT NOT NULL, `ownerPublicKey` TEXT NOT NULL, `guardingChatRoomId` TEXT NOT NULL, `chain` TEXT NOT NULL, `walletPrivateKey` TEXT NOT NULL, `label` TEXT, `requestJson` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`walletId`))",
+        "fields": [
+          {
+            "fieldPath": "walletId",
+            "columnName": "walletId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerPublicKey",
+            "columnName": "ownerPublicKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "guardingChatRoomId",
+            "columnName": "guardingChatRoomId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chain",
+            "columnName": "chain",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "walletPrivateKey",
+            "columnName": "walletPrivateKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "requestJson",
+            "columnName": "requestJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "walletId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_MemberWallet_ownerPublicKey",
+            "unique": false,
+            "columnNames": [
+              "ownerPublicKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemberWallet_ownerPublicKey` ON `${TABLE_NAME}` (`ownerPublicKey`)"
+          },
+          {
+            "name": "index_MemberWallet_guardingChatRoomId",
+            "unique": false,
+            "columnNames": [
+              "guardingChatRoomId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemberWallet_guardingChatRoomId` ON `${TABLE_NAME}` (`guardingChatRoomId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "MemberWalletSpend",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`txid` TEXT NOT NULL, `walletId` TEXT NOT NULL, `psbt` TEXT NOT NULL, `signedTransaction` TEXT NOT NULL, `broadcastAt` INTEGER, `seenAt` INTEGER, `confirmedAt` INTEGER, `replacedByTxid` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`txid`))",
+        "fields": [
+          {
+            "fieldPath": "txid",
+            "columnName": "txid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "walletId",
+            "columnName": "walletId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "psbt",
+            "columnName": "psbt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "signedTransaction",
+            "columnName": "signedTransaction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "broadcastAt",
+            "columnName": "broadcastAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "seenAt",
+            "columnName": "seenAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "confirmedAt",
+            "columnName": "confirmedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "replacedByTxid",
+            "columnName": "replacedByTxid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "txid"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_MemberWalletSpend_walletId",
+            "unique": false,
+            "columnNames": [
+              "walletId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemberWalletSpend_walletId` ON `${TABLE_NAME}` (`walletId`)"
+          }
+        ]
+      },
+      {
         "tableName": "Mention",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `mentionedPublicKey` TEXT NOT NULL, `mentioningNostrEventId` TEXT, `relayUrl` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `savedAt` INTEGER NOT NULL, `deletedAt` INTEGER, `broadcastedAt` INTEGER, FOREIGN KEY(`mentionedPublicKey`) REFERENCES `Profile`(`publicKey`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`mentioningNostrEventId`) REFERENCES `NostrEvent`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
@@ -4573,7 +4720,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1e74428a4c91d18f88a395a4add76229')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '47aa631ec4032d9b2c00bf0b38689864')"
     ]
   }
 }

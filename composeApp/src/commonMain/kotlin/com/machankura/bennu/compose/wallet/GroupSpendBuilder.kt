@@ -27,10 +27,27 @@ import fr.acinq.lightning.utils.sum
  * [GroupSpend.Spender.Guardian] -- takes only coins its leaf's lock has already
  * let go of, puts that lock on every input, and weighs each input by its leaf
  * and control block. Its change, if any, goes back to the descendant.
+ *
+ * A spend can also *fund* a descendant's guarded wallet: a [Destination.Funding]
+ * pays the receive address `GroupWalletState.fundingAddress` chose, and the PSBT
+ * says so on that output, in the derivation field change already uses, so every
+ * signer can derive it again. See `docs/guarded-wallet-funding.md`.
  */
 object GroupSpendBuilder {
     /** Phoenix's floor, kept: an output below it is one no node will relay. */
     val DUST: Satoshi = Satoshi(546)
+
+    /** Where a spend's payment goes. */
+    sealed interface Destination {
+        /** What the member typed: whatever it is, it is not the group's to vouch for. */
+        data class Address(val address: String) : Destination
+
+        /**
+         * A descendant's guarded wallet, at [derived] under its [account] -- the
+         * receive address `GroupWalletState.fundingAddress` chose.
+         */
+        data class Funding(val account: GroupWalletDerivation.Account, val derived: GroupWalletDerivation.Derived) : Destination
+    }
 
     sealed interface Result {
         data class Built(
@@ -40,6 +57,8 @@ object GroupSpendBuilder {
             val change: Satoshi?,
             /** What [fee] holds beyond the feerate: change too small to send back, paid to the miner instead. */
             val absorbed: Satoshi = Satoshi(0),
+            /** The guarded wallet the payment funds, or null for a payment to a typed address. */
+            val funded: Destination.Funding? = null,
         ) : Result
         data object NotAnAddress : Result
         data object NothingToSpend : Result
@@ -72,8 +91,18 @@ object GroupSpendBuilder {
         feeratePerVbyte: Long,
         reserved: Set<OutPoint>,
         spender: GroupSpend.Spender = GroupSpend.Spender.Owner,
+    ): Result = sendAll(state, Destination.Address(address), feeratePerVbyte, reserved, spender)
+
+    /** Every confirmed, unreserved coin, to [destination], less the fee. */
+    fun sendAll(
+        state: GroupWalletState,
+        destination: Destination,
+        feeratePerVbyte: Long,
+        reserved: Set<OutPoint>,
+        spender: GroupSpend.Spender = GroupSpend.Spender.Owner,
     ): Result {
-        val script = scriptOf(state, address) ?: return Result.NotAnAddress
+        val script = scriptOf(state, destination) ?: return Result.NotAnAddress
+        val funded = destination as? Destination.Funding
         val coins = spendable(state, reserved, spender).ifEmpty { return Result.NothingToSpend }
 
         val total = coins.map { it.amount }.sum()
@@ -82,7 +111,7 @@ object GroupSpendBuilder {
         if (amount < DUST) return Result.BelowDust
 
         val tx = transaction(state, coins, listOf(TxOut(amount, script)), spender)
-        return Result.Built(psbtOf(state, tx, coins, change = emptyMap()), amount, fee, change = null)
+        return Result.Built(psbtOf(state, tx, coins, change = emptyMap(), funded), amount, fee, change = null, funded = funded)
     }
 
     /**
@@ -98,8 +127,20 @@ object GroupSpendBuilder {
         reserved: Set<OutPoint>,
         reservedChange: Set<Long> = emptySet(),
         spender: GroupSpend.Spender = GroupSpend.Spender.Owner,
+    ): Result = send(state, Destination.Address(address), amount, feeratePerVbyte, reserved, reservedChange, spender)
+
+    /** [amount] to [destination], as [send] to an address does. */
+    fun send(
+        state: GroupWalletState,
+        destination: Destination,
+        amount: Satoshi,
+        feeratePerVbyte: Long,
+        reserved: Set<OutPoint>,
+        reservedChange: Set<Long> = emptySet(),
+        spender: GroupSpend.Spender = GroupSpend.Spender.Owner,
     ): Result {
-        val script = scriptOf(state, address) ?: return Result.NotAnAddress
+        val script = scriptOf(state, destination) ?: return Result.NotAnAddress
+        val funded = destination as? Destination.Funding
         if (amount < DUST) return Result.BelowDust
         val coins = spendable(state, reserved, spender).sortedByDescending { it.amount.sat }.ifEmpty { return Result.NothingToSpend }
 
@@ -116,7 +157,7 @@ object GroupSpendBuilder {
 
             if (leftover >= DUST) {
                 val tx = transaction(state, chosen, listOf(TxOut(amount, script), TxOut(leftover, change.pubkeyScript)), spender)
-                return Result.Built(psbtOf(state, tx, chosen, mapOf(1 to change)), amount, withChange, leftover)
+                return Result.Built(psbtOf(state, tx, chosen, mapOf(1 to change), funded), amount, withChange, leftover, funded = funded)
             }
 
             // Enough to pay without change: the remainder, under dust, goes to fees.
@@ -124,8 +165,9 @@ object GroupSpendBuilder {
             if (total - amount >= withoutChange) {
                 val tx = transaction(state, chosen, listOf(TxOut(amount, script)), spender)
                 return Result.Built(
-                    psbtOf(state, tx, chosen, emptyMap()), amount, total - amount, change = null,
+                    psbtOf(state, tx, chosen, emptyMap(), funded), amount, total - amount, change = null,
                     absorbed = total - amount - withoutChange,
+                    funded = funded,
                 )
             }
         }
@@ -148,17 +190,20 @@ object GroupSpendBuilder {
         if (reduced < DUST) return Result.NotEnough
 
         val tx = spend.tx.copy(txOut = spend.tx.txOut.mapIndexed { index, out -> if (index == target.index) out.copy(amount = reduced) else out })
+        // A funding keeps its claim, or the bump would read as a payment to a bare address.
         val psbt = GroupSpend.psbtOf(
             tx,
             spend.inputs.map { it.txOut to it.derivation },
             spend.outputs.mapNotNull { output -> output.change?.let { output.index to it } }.toMap(),
             spend.account,
+            funding = spend.fundings.associate { it.outputIndex to (it.wallet.account to it.derived) },
         )
         return Result.Built(
             psbt = psbt,
             amount = if (target.isChange) spend.amountSent else reduced,
             fee = fee,
             change = if (target.isChange) reduced else null,
+            funded = spend.fundings.singleOrNull()?.let { Destination.Funding(it.wallet.account, it.derived) },
         )
     }
 
@@ -191,9 +236,17 @@ object GroupSpendBuilder {
     private fun lockOf(state: GroupWalletState, spender: GroupSpend.Spender): Long? =
         (spender as? GroupSpend.Spender.Guardian)?.let { state.account.guardians[it.position].delay }
 
-    private fun scriptOf(state: GroupWalletState, address: String): ByteVector? =
-        Bitcoin.addressToPublicKeyScript(state.account.chain.chainHash, address.trim()).right
+    /**
+     * What [destination] pays: a typed address's script, or the funded wallet's
+     * own derivation -- never a string round trip, so a funding is always an
+     * address. Null for text that is not an address on this network, and for a
+     * funding on another network.
+     */
+    private fun scriptOf(state: GroupWalletState, destination: Destination): ByteVector? = when (destination) {
+        is Destination.Address -> Bitcoin.addressToPublicKeyScript(state.account.chain.chainHash, destination.address.trim()).right
             ?.let { ByteVector(Script.write(it)) }
+        is Destination.Funding -> destination.derived.pubkeyScript.takeIf { destination.account.chain == state.account.chain }
+    }
 
     private fun transaction(state: GroupWalletState, coins: List<GroupUtxo>, outputs: List<TxOut>, spender: GroupSpend.Spender) = Transaction(
         version = 2,
@@ -226,6 +279,15 @@ object GroupSpendBuilder {
         return Satoshi(feeratePerVbyte * ((weight + 3) / 4))
     }
 
-    private fun psbtOf(state: GroupWalletState, tx: Transaction, coins: List<GroupUtxo>, change: Map<Int, GroupWalletDerivation.Derived>) =
-        GroupSpend.psbtOf(tx, coins.map { it.utxo.txOut to it.derivation }, change, state.account)
+    /** The payment is always output 0, so a funding's claim goes there. */
+    private fun psbtOf(
+        state: GroupWalletState,
+        tx: Transaction,
+        coins: List<GroupUtxo>,
+        change: Map<Int, GroupWalletDerivation.Derived>,
+        funded: Destination.Funding?,
+    ) = GroupSpend.psbtOf(
+        tx, coins.map { it.utxo.txOut to it.derivation }, change, state.account,
+        funding = funded?.let { mapOf(0 to (it.account to it.derived)) }.orEmpty(),
+    )
 }

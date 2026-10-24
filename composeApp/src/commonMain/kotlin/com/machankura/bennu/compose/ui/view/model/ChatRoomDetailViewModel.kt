@@ -24,6 +24,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import com.machankura.bennu.compose.database.model.types.MarmotReindexReport
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import com.machankura.bennu.compose.repository.MemberWalletRepository
+import com.vitorpamplona.quartz.nip01Core.core.Event
 
 class ChatRoomDetailViewModel(
     val chatRoomId: String,
@@ -32,6 +35,8 @@ class ChatRoomDetailViewModel(
     initialChatRoomDetailUIState: ChatRoomDetailUIState,
     val nostrRepository: NostrRepository,
     val chatRepository: ChatRepository,
+    /** The member wallets this group guards -- `docs/member-guarded-wallets.md`. The no-op lists none. */
+    val memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
 ): ViewModel() {
 
     var chatRoomDetailUIState: ChatRoomDetailUIState by mutableStateOf(initialChatRoomDetailUIState)
@@ -98,7 +103,34 @@ class ChatRoomDetailViewModel(
                     canAddSubgroup = canSign,
                     canGovern = canGovern,
                     isDisbanded = isDisbanded,
+                    memberWallets = memberWalletRepository.memberWalletsOf(chatRoomId),
+                    // Offered wherever the new-wallet screen could get somewhere:
+                    // a group, a profile that signs, a network it is open on. A key
+                    // this device does not know yet is that screen's to ask for.
+                    canAskForMemberWallet = !isDisbanded && memberWalletRepository.refusal(chatRoomId, NodeParamsManager.chain).let {
+                        it == null || it == MemberWalletManager.Refusal.KEY_UNKNOWN
+                    },
+                    canSponsor = canSign,
                 )
+            }
+        }
+    }
+
+    /**
+     * Puts a member's request for a guarded wallet to the group, as this device:
+     * a signing session over the certificate it asks for, which proposing counts
+     * as approving. [onSuccess] gets the session, for the screen to move onto.
+     */
+    fun putToGroup(request: Event, onSuccess: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+        if (isActionPending.value) return
+        isActionPending.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val session = runCatching { memberWalletRepository.putToGroup(chatRoomId, request) }
+                .onFailure { logger.e("Couldn't put a member's wallet to $chatRoomId", it) }
+                .getOrNull()
+            viewModelScope.launch(Dispatchers.Main) {
+                isActionPending.value = false
+                if (session != null) onSuccess(session.id) else onFailure()
             }
         }
     }
@@ -215,6 +247,7 @@ class ChatRoomDetailViewModel(
             initialChatRoomDetailUIState: ChatRoomDetailUIState = ChatRoomDetailUIState.Loading,
             nostrRepository: NostrRepository,
             chatRepository: ChatRepository,
+            memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ChatRoomDetailViewModel(
@@ -224,6 +257,7 @@ class ChatRoomDetailViewModel(
                     initialChatRoomDetailUIState = initialChatRoomDetailUIState,
                     nostrRepository = nostrRepository,
                     chatRepository = chatRepository,
+                    memberWalletRepository = memberWalletRepository,
                 )
             }
         }

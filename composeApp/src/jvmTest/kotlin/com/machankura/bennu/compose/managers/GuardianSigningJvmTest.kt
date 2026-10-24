@@ -580,6 +580,9 @@ class GuardianSigningJvmTest {
         val state = fundedState(near.account, fundingOf(near.account), height = 100, tip = 199)
         assertEquals(Satoshi(50_000), GuardedWalletRow(near, state).withinReach)
         assertEquals(Satoshi(0), GuardedWalletRow(far, state).withinReach)
+        // And what is arriving is the rest of it, by the same leaf's lock.
+        assertEquals(Satoshi(0), GuardedWalletRow(near, state).arriving)
+        assertEquals(Satoshi(50_000), GuardedWalletRow(far, state).arriving)
     }
 
     @Test
@@ -676,5 +679,132 @@ class GuardianSigningJvmTest {
         val unlocked = built.psbt.global.tx.let { tx -> tx.copy(txIn = tx.txIn.map { it.copy(sequence = GroupSpend.MAX_SEQUENCE) }) }
         val psbt = GroupSpend.psbtOf(unlocked, listOf(funding.txOut[0] to GroupWalletDerivation.derive(guarded.account, 0, 0)), emptyMap(), guarded.account)
         assertIs<GroupSpend.Result.Refused>(GroupSpend.check(psbt, guarded.account, guarded.spender(thresholdPublicKey)))
+    }
+
+    // ---- Funding a descendant's guarded wallet -------------------------------
+
+    /** The room opens its own plain wallet, signed by a quorum, so it has coins to fund with. */
+    private suspend fun openOwnWallet(proposer: Device, other: Device): GroupWalletDerivation.Account {
+        val own = GroupWalletDerivation.account(thresholdPublicKey, chain)
+        val template = GroupWalletStatementEvent.template(own)
+        val session = FrostSigningManager.proposeSigning(proposer.db, proposer.room, proposer.publicKey, template.kind, template.tags, template.content)
+        pump(proposer, other)
+        FrostSigningManager.approve(other.db, other.room, session.id)
+        pump(proposer, other)
+        listOf(proposer, other).forEach { assertNotNull(GroupWalletManager.walletFor(it.db, roomId, chain), "the room's own wallet is open") }
+        return own
+    }
+
+    /** The room's own wallet holding one confirmed coin at its first receive address. */
+    private fun ownState(own: GroupWalletDerivation.Account): GroupWalletState {
+        val coin = GroupWalletDerivation.derive(own, GroupWalletDerivation.RECEIVE, 0)
+        val paid = Transaction(
+            2, listOf(TxIn(OutPoint(TxId(ByteVector32(ByteArray(32) { 0x71 })), 0), ByteVector.empty, 0xffffffffL)),
+            listOf(TxOut(Satoshi(80_000), coin.pubkeyScript)), 0,
+        )
+        val meta = WalletState.AddressMeta.Derived(0)
+        val receive = WalletState(mapOf(coin.address(chain) to WalletState.AddressState(meta, alreadyUsed = true, utxos = listOf(WalletState.Utxo(paid.txid, 0, 100, paid, meta)))))
+        val change = WalletState((0 until 3).associate { index ->
+            GroupWalletDerivation.derive(own, GroupWalletDerivation.CHANGE, index.toLong()).address(chain) to
+                WalletState.AddressState(WalletState.AddressMeta.Derived(index), alreadyUsed = false, utxos = emptyList())
+        })
+        return GroupWalletState(own, receive, change, tipHeight = 110)
+    }
+
+    private fun fundingTo(guarded: GuardianManager.GuardedWallet, index: Long) =
+        GroupSpendBuilder.Destination.Funding(guarded.account, GroupWalletDerivation.derive(guarded.account, GroupWalletDerivation.RECEIVE, index))
+
+    @Test
+    fun `a funding is read as one by every device holding the wallet, and its address is held`(): Unit = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        val statement = guardedStatement()
+        tell(proposer, statement)
+        tell(other, statement)
+        val own = openOwnWallet(proposer, other)
+
+        val guarded = assertNotNull(GuardianManager.guardedWalletFor(proposer.db, roomId, guardedChildRoomId, chain, 0))
+        val built = assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.send(ownState(own), fundingTo(guarded, 2), Satoshi(30_000), 2, emptySet())
+        )
+        val session = FrostSigningManager.proposeSpend(proposer.db, proposer.room, proposer.publicKey, built.psbt, chain)
+        pump(proposer, other)
+
+        val seen = assertNotNull(FrostSigningManager.checkedSpend(other.db, session.id))
+        val funding = seen.fundings.single()
+        assertEquals(guardedChildRoomId, funding.wallet.descendantChatRoomId)
+        assertEquals(2L, funding.derived.index)
+        assertEquals(
+            com.machankura.bennu.compose.text.ProposedEvent.Summary(
+                "Fund Translation team's guarded wallet",
+                "Send 30,000 sats to Translation team's guarded wallet, address 2",
+            ),
+            com.machankura.bennu.compose.text.ProposedSpend.summarize(seen, chain),
+        )
+        assertEquals(setOf(2L), FrostSigningManager.reservedFundingIndices(other.db, roomId, guarded.account))
+
+        // A bump keeps the claim, or it would read as a payment to a bare address.
+        val bumped = assertIs<GroupSpendBuilder.Result.Built>(GroupSpendBuilder.bump(seen, 5))
+        assertEquals(setOf(2L), GroupSpend.claimedFundingIndices(bumped.psbt, guarded.account))
+        assertEquals(2L, bumped.funded?.derived?.index)
+
+        // Abandoned, it lets the address go.
+        other.db.frostSigningSessionDao().upsert(other.session(session.id)!!.copy(stage = FrostSigningStage.FAILED))
+        assertEquals(emptySet(), FrostSigningManager.reservedFundingIndices(other.db, roomId, guarded.account))
+    }
+
+    @Test
+    fun `a funding claiming an address it does not pay is refused by every device that can tell`(): Unit = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        // Only the other device holds the wallet, so only it can check the claim.
+        tell(other, guardedStatement())
+        val own = openOwnWallet(proposer, other)
+
+        val guarded = assertNotNull(GuardianManager.guardedWalletFor(other.db, roomId, guardedChildRoomId, chain, 0))
+        val honest = assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.send(ownState(own), fundingTo(guarded, 2), Satoshi(30_000), 2, emptySet())
+        )
+        // Pays address 2, says address 3.
+        val claimed = GroupWalletDerivation.derive(guarded.account, GroupWalletDerivation.RECEIVE, 3)
+        val coin = GroupWalletDerivation.derive(own, GroupWalletDerivation.RECEIVE, 0)
+        val lying = GroupSpend.psbtOf(
+            honest.psbt.global.tx,
+            listOf(TxOut(Satoshi(80_000), coin.pubkeyScript) to coin),
+            mapOf(1 to GroupWalletDerivation.derive(own, GroupWalletDerivation.CHANGE, 0)),
+            own,
+            funding = mapOf(0 to (guarded.account to claimed)),
+        )
+        assertIs<GroupSpend.FundingReading.Refused>(
+            GroupSpend.fundingsOf(assertIs<GroupSpend.Result.Ok>(GroupSpend.check(lying, own)).checked, listOf(guarded))
+        )
+
+        val session = FrostSigningManager.proposeSpend(proposer.db, proposer.room, proposer.publicKey, lying, chain)
+        pump(proposer, other)
+        assertNull(other.session(session.id), "the device that holds the wallet never puts it to the member")
+    }
+
+    @Test
+    fun `a device never told about the wallet reads a funding as the bare address it pays`(): Unit = runBlocking {
+        val proposer = device(members[0], signerIndex = 0)
+        val other = device(members[1], signerIndex = 1)
+        tell(proposer, guardedStatement())
+        val own = openOwnWallet(proposer, other)
+
+        val guarded = assertNotNull(GuardianManager.guardedWalletFor(proposer.db, roomId, guardedChildRoomId, chain, 0))
+        val destination = fundingTo(guarded, 2)
+        val built = assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.send(ownState(own), destination, Satoshi(30_000), 2, emptySet())
+        )
+        val session = FrostSigningManager.proposeSpend(proposer.db, proposer.room, proposer.publicKey, built.psbt, chain)
+        pump(proposer, other)
+
+        val seen = assertNotNull(FrostSigningManager.checkedSpend(other.db, session.id), "accepted: the address is the truth")
+        assertEquals(emptyList(), seen.fundings)
+        assertEquals(
+            "Send 30,000 sats to ${destination.derived.address(chain)}",
+            com.machankura.bennu.compose.text.ProposedSpend.summarize(seen, chain).detail,
+        )
+        assertEquals(1, assertNotNull(FrostSigningManager.checkedSpend(proposer.db, session.id)).fundings.size, "and the proposer's own device still names it")
     }
 }

@@ -20,6 +20,7 @@ import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
 import com.machankura.bennu.compose.text.SatsInput
 import com.machankura.bennu.compose.text.parseSats
+import com.machankura.bennu.compose.ui.view.state.FundingTarget
 import com.machankura.bennu.compose.ui.view.state.GroupSendUIState
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupSpendBuilder
@@ -32,6 +33,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,6 +56,8 @@ class GroupSendViewModel(
     private val wallets: GroupOnchainWallets?,
     /** The descendant whose guarded wallet this form spends from, or null for the room's own. */
     val guardedChatRoomId: String? = null,
+    /** The descendant whose guarded wallet this form pays, or null for a payment to a typed address. */
+    val fundChatRoomId: String? = null,
 ): ViewModel() {
     private val logger = Logger.withTag(TAG)
 
@@ -77,20 +81,29 @@ class GroupSendViewModel(
                 return@launch
             }
 
+            // Spending from one descendant's wallet into another's is a decision
+            // of its own, not one this form makes -- docs/guarded-wallet-funding.md, D6.
+            if (guardedChatRoomId != null && fundChatRoomId != null) {
+                groupSendUIState = GroupSendUIState.Unavailable
+                return@launch
+            }
+
             // A descendant's guarded wallet, as this room was told it, with the
             // group as its guardian -- or the room's own wallet.
-            val guarded = guardedChatRoomId?.let { descendant ->
-                chatRepository.guardedWallets(chatRoomId).firstOrNull {
-                    it.descendantChatRoomId.equals(descendant, ignoreCase = true) && it.chain == chain
-                }
+            val heldByRoom = if (guardedChatRoomId != null || fundChatRoomId != null) chatRepository.guardedWallets(chatRoomId) else emptyList()
+            fun held(descendant: String?) = descendant?.let {
+                heldByRoom.firstOrNull { wallet -> wallet.descendantChatRoomId.equals(it, ignoreCase = true) && wallet.chain == chain }
             }
+            val guarded = held(guardedChatRoomId)
+            // The wallet a send from the room's own pays, when it funds one.
+            val funded = held(fundChatRoomId)
             val wallet = when {
                 guardedChatRoomId == null -> chatRepository.groupWallet(chatRoomId, chain)
                 guarded == null -> null
                 else -> GroupWallet(GroupSignedEvent.fromEvent(guarded.statement, chatRoomId = guarded.descendantChatRoomId), guarded.account)
             }
             val canSign = localChatRoom.chatRoom.mlsGroupState != null && chatRepository.canSign(chatRoomId)
-            if (wallet == null || !canSign || wallets == null) {
+            if (wallet == null || !canSign || wallets == null || (fundChatRoomId != null && funded == null)) {
                 groupSendUIState = GroupSendUIState.Unavailable
                 return@launch
             }
@@ -102,6 +115,7 @@ class GroupSendViewModel(
                 reserved = frostSigningRepository.reservedOutPoints(chatRoomId),
                 reservedChange = frostSigningRepository.reservedChangeIndices(chatRoomId, wallet.account),
                 spender = guarded?.spender() ?: GroupSpend.Spender.Owner,
+                funding = funded?.let { FundingTarget(it, walletState = null, reserved = frostSigningRepository.reservedFundingIndices(chatRoomId, it.account)) },
             )
             groupSendUIState = ready
 
@@ -111,7 +125,7 @@ class GroupSendViewModel(
                 }
             }
 
-            follow(ready, wallets.walletFor(wallet.account).state)
+            follow(ready, wallets.walletFor(wallet.account).state, funded?.let { wallets.walletFor(it.account).state })
         }
     }
 
@@ -126,18 +140,35 @@ class GroupSendViewModel(
      * One state from both, as the wallet screen does, so no frame shows new
      * coins against old reservations. Apart from [initiate] so that it can be
      * followed without an Electrum client.
+     *
+     * A send that funds a descendant's wallet follows [fundingState] too, and
+     * the addresses the room's open fundings hold: if the address it was going
+     * to pay is paid or taken while the form is open, the next one is shown.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    internal fun follow(ready: GroupSendUIState.Ready, chainState: Flow<GroupWalletState?>) {
+    internal fun follow(
+        ready: GroupSendUIState.Ready,
+        chainState: Flow<GroupWalletState?>,
+        fundingState: Flow<GroupWalletState?>? = null,
+    ) {
         val account = ready.wallet.account
+        val fundedAccount = ready.funding?.wallet?.account
         val reservations = frostSigningRepository.observeGroupTransactions(chatRoomId).mapLatest {
-            frostSigningRepository.reservedOutPoints(chatRoomId) to
-                frostSigningRepository.reservedChangeIndices(chatRoomId, account)
+            Triple(
+                frostSigningRepository.reservedOutPoints(chatRoomId),
+                frostSigningRepository.reservedChangeIndices(chatRoomId, account),
+                fundedAccount?.let { frostSigningRepository.reservedFundingIndices(chatRoomId, it) }.orEmpty(),
+            )
         }
         watching?.cancel()
         watching = viewModelScope.launch(Dispatchers.IO) {
-            combine(chainState, reservations) { state, (reserved, reservedChange) ->
-                ready.copy(walletState = state, reserved = reserved, reservedChange = reservedChange)
+            combine(chainState, fundingState ?: flowOf(null), reservations) { state, funded, (reserved, reservedChange, reservedFunding) ->
+                ready.copy(
+                    walletState = state,
+                    reserved = reserved,
+                    reservedChange = reservedChange,
+                    funding = ready.funding?.copy(walletState = funded, reserved = reservedFunding),
+                )
             }.collect { groupSendUIState = it }
         }
     }
@@ -196,12 +227,17 @@ class GroupSendViewModel(
         }
 
         val feerate = feerateField.text.toString().trim().toLongOrNull()?.takeIf { it > 0 } ?: return null
-        val address = addressField.text.toString().trim().takeIf { it.isNotEmpty() } ?: return null
+        // A funding pays the address its target chose, never one typed: the
+        // title says whose wallet it is, and a typed one would make that a claim.
+        val destination = when (val funding = state.funding) {
+            null -> GroupSpendBuilder.Destination.Address(addressField.text.toString().trim().takeIf { it.isNotEmpty() } ?: return null)
+            else -> GroupSpendBuilder.Destination.Funding(funding.wallet.account, funding.address?.derivation ?: return null)
+        }
 
         val built = if (amount == null) {
-            GroupSpendBuilder.sendAll(walletState, address, feerate, state.reserved, state.spender)
+            GroupSpendBuilder.sendAll(walletState, destination, feerate, state.reserved, state.spender)
         } else {
-            GroupSpendBuilder.send(walletState, address, amount, feerate, state.reserved, state.reservedChange, state.spender)
+            GroupSpendBuilder.send(walletState, destination, amount, feerate, state.reserved, state.reservedChange, state.spender)
         }
         return GroupSpendBuilder.capped(built, GroupWalletRollout.capFor(chain))
     }
@@ -250,11 +286,12 @@ class GroupSendViewModel(
             frostSigningRepository: FrostSigningRepository,
             wallets: GroupOnchainWallets?,
             guardedChatRoomId: String? = null,
+            fundChatRoomId: String? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 GroupSendViewModel(
                     activeUserPublicKey, chatRoomId, chain, initialGroupSendUIState,
-                    chatRepository, frostSigningRepository, wallets, guardedChatRoomId,
+                    chatRepository, frostSigningRepository, wallets, guardedChatRoomId, fundChatRoomId,
                 )
             }
         }

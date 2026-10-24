@@ -199,16 +199,10 @@ object GroupWalletDerivation {
         val root = PublicKey(ByteVector(thresholdPublicKey.hexToByteArray()))
         require(root.isValid()) { "the threshold key is not a valid point" }
 
-        val i = Crypto.hmac512(
-            ACCOUNT_TAG.encodeToByteArray(),
-            root.value.toByteArray() + chain.chainHash.value.toByteArray() + Pack.writeInt32BE(account.toInt())
-        )
-        val tweak = i.copyOfRange(0, 32)
-        val chainCode = i.copyOfRange(32, 64)
-        require(Crypto.isPrivKeyValid(tweak)) { "the account step for account $account landed on an invalid scalar" }
+        val (tweak, chainCode) = accountStep(root, chain, account)
 
         val accountKey = root + PrivateKey(tweak).publicKey()
-        val cache = plainTweak(TweakCache.create(root), ByteVector32(tweak), "the account step")
+        val cache = plainTweak(TweakCache.create(root), tweak, "the account step")
         // The cache tracks the full point; the point arithmetic above is the
         // reference it has to agree with, or every session for this account signs
         // for a key nobody's coins are at.
@@ -219,7 +213,7 @@ object GroupWalletDerivation {
             account = account,
             extendedPublicKey = DeterministicWallet.ExtendedPublicKey(
                 publickeybytes = accountKey.value,
-                chaincode = ByteVector32(chainCode),
+                chaincode = chainCode,
                 depth = 0,
                 path = KeyPath.empty,
                 parent = 0L,
@@ -227,6 +221,24 @@ object GroupWalletDerivation {
             cache = cache,
             guardians = guardians,
         )
+    }
+
+    /**
+     * The account step's tweak and chain code for [root]: `I[0:32]` and
+     * `I[32:64]` of the tagged HMAC over the key, the network and the account.
+     *
+     * Split out for the one holder of a key path who has its private key -- a
+     * member wallet, `MemberWalletDerivation` -- which adds the same tweak to
+     * the scalar that [account] adds to the point.
+     */
+    internal fun accountStep(root: PublicKey, chain: Chain, account: Long): Pair<ByteVector32, ByteVector32> {
+        val i = Crypto.hmac512(
+            ACCOUNT_TAG.encodeToByteArray(),
+            root.value.toByteArray() + chain.chainHash.value.toByteArray() + Pack.writeInt32BE(account.toInt())
+        )
+        val tweak = i.copyOfRange(0, 32)
+        require(Crypto.isPrivKeyValid(tweak)) { "the account step for account $account landed on an invalid scalar" }
+        return ByteVector32(tweak) to ByteVector32(i.copyOfRange(32, 64))
     }
 
     /**

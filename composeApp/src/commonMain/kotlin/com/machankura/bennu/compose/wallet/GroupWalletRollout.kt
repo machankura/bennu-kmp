@@ -43,4 +43,25 @@ object GroupWalletRollout {
     const val GUARDIANS_ON_MAINNET: Boolean = true
 
     fun offersGuardiansOn(chain: Chain): Boolean = GUARDIANS_ON_MAINNET || !chain.isMainnet()
+
+    /**
+     * Whether a member is offered a guarded wallet of their own on mainnet --
+     * `docs/member-guarded-wallets.md`, D8. Test networks are offered one from
+     * the start. Shut until a three-level hierarchy has watched one member's
+     * wallet on signet and its root has made a guardian spend from it: the
+     * member's own spend is the first single-signer path this app has.
+     *
+     * The entrances only. A device with it shut still accepts, shows and signs
+     * a certificate somebody else asked for.
+     */
+    const val MEMBER_WALLETS_ON_MAINNET: Boolean = false
+
+    fun offersMemberWalletsOn(chain: Chain): Boolean = MEMBER_WALLETS_ON_MAINNET || !chain.isMainnet()
+
+    /**
+     * The most a member's own spend from their guarded wallet may send on
+     * [chain]: [MAINNET_CAP] on mainnet until [MEMBER_WALLETS_ON_MAINNET] lifts,
+     * since the member's spend is signed by a path no group spend goes through.
+     */
+    fun memberCapFor(chain: Chain): Satoshi? = capFor(chain).takeIf { !MEMBER_WALLETS_ON_MAINNET }
 }
