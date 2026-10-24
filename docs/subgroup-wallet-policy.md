@@ -265,6 +265,10 @@ A *Wallet* section under the threshold stepper, two radio rows in one
 | guarded | Guarded wallet | This group and the `N` above it can spend its coins once they are 12 blocks old |
 | unguarded | Unguarded wallet | Only the subgroup can spend from its wallet. Groups above it cannot reach it or anything beneath it |
 
+Since [guardian-delay.md](./guardian-delay.md), the guarded row no longer quotes
+12: under it the coordinator chooses the delay on this group's own leaf, from 6 to
+65,535 blocks, and each group above keeps the delay it chose.
+
 `N` is the count of the parent's own guardians (`SubgroupManager.guardiansOf`),
 so the line names the reach the parent is actually granting rather than "the
 groups above". The second sentence of the unguarded line is D2's cost; drop it if

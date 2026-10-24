@@ -56,6 +56,11 @@ sealed interface ChatRoomDetailUIState {
          */
         val walletPolicy: WalletPolicyReading? = null,
         /**
+         * The delay [parentChatRoomId] gave its own leaf in this room's wallet,
+         * or null for a room whose certificate grants no keys.
+         */
+        val guardianDelay: Long? = null,
+        /**
          * The wallet this group has opened on the app's network, or null for one
          * it has not. The row says only whether it is open; the coins are read on
          * `GroupWalletScreen`.

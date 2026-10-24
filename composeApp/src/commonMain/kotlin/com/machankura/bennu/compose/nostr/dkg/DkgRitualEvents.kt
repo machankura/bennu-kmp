@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.nostr.dkg
 
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianDelayTag
 import com.machankura.bennu.compose.nostr.dkg.tags.DkgSessionIdTag
 import com.machankura.bennu.compose.nostr.dkg.tags.DkgThresholdTag
 import com.vitorpamplona.quartz.nip01Core.core.Kind
@@ -84,13 +85,15 @@ object DkgRitualEvents {
         threshold: Int? = null,
         parentChatRoomId: String? = null,
         subject: String? = null,
-        walletPolicy: SubgroupWalletPolicy? = null
+        walletPolicy: SubgroupWalletPolicy? = null,
+        guardianDelay: Long? = null
     ): Array<Array<String>> = buildList {
         add(DkgSessionIdTag.assemble(sessionId))
         threshold?.let { add(DkgThresholdTag.assemble(it)) }
         parentChatRoomId?.let { add(SubgroupParentTag.assemble(it)) }
         subject?.ifBlank { null }?.let { add(SubjectTag.assemble(it)) }
         walletPolicy?.let { add(WalletPolicyTag.assemble(it)) }
+        guardianDelay?.let { add(GuardianDelayTag.assemble(it)) }
     }.toTypedArray()
 
     fun parseSessionId(tags: Array<Array<String>>): String? =
@@ -146,4 +149,13 @@ object DkgRitualEvents {
      */
     fun parseWalletPolicy(tags: Array<Array<String>>): WalletPolicyTag.Result =
         WalletPolicyTag.parseOne(tags)
+
+    /**
+     * The delay the coordinator chose for the parent's own leaf, beside a
+     * guarded policy -- `docs/guardian-delay.md`. Authenticates nothing, as the
+     * policy does not: it is what the admins are shown, and what the certificate
+     * is proposed under.
+     */
+    fun parseGuardianDelay(tags: Array<Array<String>>): GuardianDelayTag.Result =
+        GuardianDelayTag.parseOne(tags)
 }

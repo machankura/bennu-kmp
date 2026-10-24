@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.only_coins_confirmed_for_can_be_spent
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.MutableState
 import fr.acinq.bitcoin.Satoshi
@@ -214,6 +216,7 @@ fun GroupSendScreen(
                         feerateField = groupSendViewModel.feerateField,
                         sendEverything = groupSendViewModel.sendEverything,
                         spendable = groupSendViewModel.spendable(),
+                        guardianDelay = groupSendViewModel.guardianDelay(),
                         cap = GroupWalletRollout.capFor(chain),
                         preview = preview,
                         amountProblem = preview?.takeIf { groupSendViewModel.isAboutTheAmount(it) },
@@ -280,6 +283,12 @@ internal fun SpendForm(
     /** The confirmed coins free to spend, or null before Electrum has answered. */
     spendable: Satoshi?,
     cap: Satoshi?,
+    /**
+     * A guardian's own leaf's delay, when the form spends a descendant's guarded
+     * wallet as its guardian -- what makes its balance lower than the wallet's.
+     * `docs/guardian-delay.md`.
+     */
+    guardianDelay: Long? = null,
     preview: GroupSpendBuilder.Result?,
     /** A problem with the amount, said on the amount field, beside what caused it. */
     amountProblem: GroupSpendBuilder.Result?,
@@ -334,6 +343,9 @@ internal fun SpendForm(
                         Text(problemWith(amountProblem, chain, ownWallet))
                     } else Column {
                         spendable?.let { Text(stringResource(Res.string.s_sats_confirmed_and_free_to_spend, it.grouped())) }
+                        // Why a guardian's balance can be lower than the wallet's:
+                        // only coins past its own leaf's lock.
+                        guardianDelay?.let { Text(stringResource(Res.string.only_coins_confirmed_for_can_be_spent, delayText(it, chain))) }
                         cap?.let { Text(stringResource(Res.string.while_the_wallet_is_new_at_most_s_sats, it.grouped())) }
                     }
                 }
@@ -395,9 +407,10 @@ private fun FundingDestination(funding: FundingTarget) {
                 else -> LoadingDataIndicator(fillScreen = false, text = stringResource(Res.string.finding_an_address_in_s_s_wallet, name))
             }
             // What funding a guarded wallet means for this group: the coins come
-            // back within its reach, through its leaf, after the lock.
+            // back within its reach, through its own leaf, after that leaf's
+            // lock -- which the group that granted it chose. docs/guardian-delay.md.
             Text(
-                text = stringResource(Res.string.this_group_can_spend_these_coins_again, GuardianDerivation.ANCESTOR_DELAY.toInt()),
+                text = stringResource(Res.string.this_group_can_spend_these_coins_again, delayText(funding.wallet.delay, funding.wallet.chain)),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

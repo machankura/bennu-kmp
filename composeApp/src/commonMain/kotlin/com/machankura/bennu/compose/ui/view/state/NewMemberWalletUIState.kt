@@ -20,6 +20,8 @@ sealed interface NewMemberWalletUIState {
         val room: LocalChatRoom,
         val refusal: MemberWalletManager.Refusal?,
         val reach: Int?,
+        /** Each guardian's delay, nearest first, as [reach] counts them; null while the group's key is unknown. */
+        val delays: List<Long>? = null,
         /** The member already asked the group for its key, and is waiting on an answer. */
         val askedForKey: Boolean = false,
     ) : NewMemberWalletUIState

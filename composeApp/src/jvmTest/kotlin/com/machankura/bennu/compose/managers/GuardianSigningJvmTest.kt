@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.ui.view.state.GuardedWalletRow
 import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import androidx.room3.Room
@@ -528,6 +529,60 @@ class GuardianSigningJvmTest {
         // What the builder charged for is what a signer weighs it at.
         val checked = assertIs<GroupSpend.Result.Ok>(GroupSpend.check(built.psbt, guarded.account, guarded.spender(thresholdPublicKey))).checked
         assertEquals(built.fee.sat, 2 * ((checked.weight + 3) / 4).toLong())
+    }
+
+    /**
+     * The builder and the check read each leaf's own delay, at the edges of its
+     * encoding: a coin one block short of the lock is the owner's alone, at the
+     * lock it is the guardian's too, and every input carries exactly that lock.
+     * docs/guardian-delay.md, Phase 2.
+     */
+    @Test
+    fun `the builder and the check follow a chosen delay, not the default`() {
+        val address = fr.acinq.bitcoin.Bitcoin.addressFromPublicKeyScript(chain.chainHash, elsewhere.toByteArray()).right!!
+        listOf(6L, 17L, 128L, 32_768L, 65_535L).forEach { delay ->
+            val guardians = GuardianDerivation.grant(thresholdPublicKey, roomId, emptyList(), guardedChildRoomId, delay = delay)
+            val guarded = assertNotNull(GuardianManager.verify(guardedStatement(guardians), roomId, thresholdPublicKey), "a delay of $delay")
+            val funding = fundingOf(guarded.account)
+
+            // Confirmed at height 100, so `delay` confirmations at tip 99 + delay.
+            val young = fundedState(guarded.account, funding, height = 100, tip = 98 + delay.toInt())
+            assertEquals(GroupSpendBuilder.Result.NothingToSpend, GroupSpendBuilder.sendAll(young, address, 2, emptySet(), guarded.spender()), "a delay of $delay")
+
+            val old = fundedState(guarded.account, funding, height = 100, tip = 99 + delay.toInt())
+            val built = assertIs<GroupSpendBuilder.Result.Built>(GroupSpendBuilder.sendAll(old, address, 2, emptySet(), guarded.spender()))
+            assertEquals(listOf(delay), built.psbt.global.tx.txIn.map { it.sequence })
+            assertIs<GroupSpend.Result.Ok>(GroupSpend.check(built.psbt, guarded.account, guarded.spender(thresholdPublicKey)))
+
+            // The default's lock on a leaf that chose another is refused.
+            val atDefault = built.psbt.global.tx.copy(txIn = built.psbt.global.tx.txIn.map { it.copy(sequence = GuardianDerivation.DEFAULT_DELAY) })
+            val refused = GroupSpend.check(built.psbt.copy(global = built.psbt.global.copy(tx = atDefault)), guarded.account, guarded.spender(thresholdPublicKey))
+            if (delay != GuardianDerivation.DEFAULT_DELAY) assertIs<GroupSpend.Result.Refused>(refused, "a delay of $delay")
+        }
+    }
+
+    /**
+     * Two ancestors who gave the same wallet different delays: a coin 100 blocks
+     * deep is within the reach of the one at 12 and not the one at 4,320.
+     * docs/guardian-delay.md, Phase 7.
+     */
+    @Test
+    fun `a guarded wallet's reach is each ancestor's own delay`() {
+        val farKey = PrivateKey(ByteVector32(ByteArray(32) { 0x5e })).publicKey().toString()
+        val farRoom = SharedKeyDerivation.marmotGroupId(farKey)
+        val inherited = GuardianDerivation.grant(farKey, farRoom, emptyList(), roomId, delay = 4_320)
+        val guardians = GuardianDerivation.grant(thresholdPublicKey, roomId, inherited, guardedChildRoomId, delay = 12)
+        val near = assertNotNull(GuardianManager.verify(guardedStatement(guardians), roomId, thresholdPublicKey))
+        val far = near.copy(ancestorChatRoomId = farRoom)
+        assertEquals(12L, near.delay)
+        assertEquals(4_320L, far.delay)
+
+        val state = fundedState(near.account, fundingOf(near.account), height = 100, tip = 199)
+        assertEquals(Satoshi(50_000), GuardedWalletRow(near, state).withinReach)
+        assertEquals(Satoshi(0), GuardedWalletRow(far, state).withinReach)
+        // And what is arriving is the rest of it, by the same leaf's lock.
+        assertEquals(Satoshi(0), GuardedWalletRow(near, state).arriving)
+        assertEquals(Satoshi(50_000), GuardedWalletRow(far, state).arriving)
     }
 
     @Test

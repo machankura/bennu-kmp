@@ -178,7 +178,7 @@ fun MemberWalletScreen(
                         item { Text(stringResource(Res.string.guarded_by_s, group), style = MaterialTheme.typography.titleMedium) }
                         item {
                             Text(
-                                reachText(group, state.reach),
+                                reachText(group, state.delays, wallet.account.chain),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

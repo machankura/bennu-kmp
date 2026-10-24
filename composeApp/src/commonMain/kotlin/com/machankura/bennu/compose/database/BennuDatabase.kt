@@ -158,7 +158,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 30,
+    version = 31,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -366,6 +366,10 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // New tables, and no foreign keys -- deleting a group's room must never
         // delete a key coins may sit behind.
         AutoMigration(from = 29, to = 30),
+        // v31 adds the nullable DkgSession.guardianDelay: the delay a guarded
+        // subgroup's ceremony was proposed under for the parent's own leaf
+        // (docs/guardian-delay.md, Phase 4). Null for every ceremony before it.
+        AutoMigration(from = 30, to = 31),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)

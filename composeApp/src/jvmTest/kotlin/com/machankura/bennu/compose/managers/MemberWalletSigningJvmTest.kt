@@ -192,6 +192,10 @@ class MemberWalletSigningJvmTest {
         val summary = ProposedEvent.summarize(proposed(request())) { if (it == memberPublicKey) "alice" else null }
         assertEquals("Guard a member's wallet", summary.label)
         assertTrue(summary.detail.startsWith("For @alice · Savings · on regtest"), summary.detail)
-        assertTrue(summary.detail.contains("this group and the one above it can take its coins once they are 12 blocks old"), summary.detail)
+        // Each guardian's own delay, nearest first: both are the default here.
+        assertTrue(
+            summary.detail.contains("this group can take its coins after 12 blocks, about 2 hours, and the one above it after 12 blocks, about 2 hours"),
+            summary.detail,
+        )
     }
 }

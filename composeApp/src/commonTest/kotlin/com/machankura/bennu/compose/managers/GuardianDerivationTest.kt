@@ -9,6 +9,7 @@ import fr.acinq.bitcoin.Script
 import fr.acinq.bitcoin.ScriptTree
 import fr.acinq.secp256k1.Hex
 import kotlin.test.Test
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
@@ -80,7 +81,7 @@ class GuardianDerivationTest {
             childGrant[1].publicKey,
             "the root's key in the grandchild is R_root / i(M) / i(C)"
         )
-        assertEquals(GuardianDerivation.ANCESTOR_DELAY, childGrant[1].delay)
+        assertEquals(GuardianDerivation.DEFAULT_DELAY, childGrant[1].delay)
     }
 
     @Test
@@ -154,13 +155,75 @@ class GuardianDerivationTest {
     @Test
     fun `a leaf is and_v(v_pk, older 12) and 36 bytes`() {
         val key = GuardianDerivation.leafKey(childGrant[0], Chain.Mainnet, 0, 0, 0)
-        val script = Script.write(GuardianDerivation.leafScript(key, GuardianDerivation.ANCESTOR_DELAY))
+        val script = Script.write(GuardianDerivation.leafScript(key, GuardianDerivation.DEFAULT_DELAY))
 
         assertEquals(36, script.size)
         assertEquals("20" + key.value.toHex() + "ad5cb2", Hex.encode(script))
         // Past sixteen the lock is a number push rather than an opcode.
         assertEquals("02e803", Hex.encode(Script.write(GuardianDerivation.leafScript(key, 1000).subList(2, 3))))
         assertFailsWith<IllegalArgumentException> { GuardianDerivation.leafScript(key, 0) }
+    }
+
+    /**
+     * Where a script number changes length, byte for byte. A lock pushed any
+     * other way is not minimal, and a leaf with a non-minimal push is a coin
+     * nobody can spend through it. docs/guardian-delay.md.
+     */
+    @Test
+    fun `a delay is pushed minimally at every edge of its encoding`() {
+        val key = GuardianDerivation.leafKey(childGrant[0], Chain.Mainnet, 0, 0, 0)
+        val encodings = mapOf(
+            6L to ("56" to 36),
+            16L to ("60" to 36),
+            17L to ("0111" to 37),
+            127L to ("017f" to 37),
+            128L to ("028000" to 38),
+            32_767L to ("02ff7f" to 38),
+            32_768L to ("03008000" to 39),
+            65_535L to ("03ffff00" to 39),
+        )
+        encodings.forEach { (delay, expected) ->
+            val (lock, size) = expected
+            val script = Script.write(GuardianDerivation.leafScript(key, delay))
+            assertEquals("20" + key.value.toHex() + "ad" + lock + "b2", Hex.encode(script), "a delay of $delay")
+            assertEquals(size, script.size, "a delay of $delay")
+        }
+    }
+
+    @Test
+    fun `a delay outside 6 to 65535 is refused everywhere it could enter`() {
+        val key = GuardianDerivation.leafKey(childGrant[0], Chain.Mainnet, 0, 0, 0)
+        listOf(5L, 65_536L).forEach { delay ->
+            assertFailsWith<IllegalArgumentException>("leafScript at $delay") { GuardianDerivation.leafScript(key, delay) }
+            assertFailsWith<IllegalArgumentException>("grant at $delay") {
+                GuardianDerivation.grant(middleKey, middleRoom, middleGrant, childRoom, delay = delay)
+            }
+            val tag = GuardianTag.assemble(childGrant[0].copy(delay = delay))
+            assertNull(GuardianTag.parse(tag), "a tag at $delay reads")
+        }
+        assertEquals(childGrant[0].copy(delay = 6), GuardianTag.parse(GuardianTag.assemble(childGrant[0].copy(delay = 6))))
+        assertEquals(childGrant[0].copy(delay = 65_535), GuardianTag.parse(GuardianTag.assemble(childGrant[0].copy(delay = 65_535))))
+    }
+
+    @Test
+    fun `a parent chooses its own leaf's delay, and an inherited key keeps the one its ancestor chose`() {
+        val rootChose = GuardianDerivation.grant(rootKey, rootRoom, emptyList(), middleRoom, delay = 26_280)
+        val middleChose = GuardianDerivation.grant(middleKey, middleRoom, rootChose, childRoom, delay = 144)
+
+        assertEquals(listOf(144L, 26_280L), middleChose.map { it.delay })
+        // Only the delay moved: the keys are the default grant's.
+        assertEquals(childGrant.map { it.publicKey }, middleChose.map { it.publicKey })
+        assertEquals(GuardianDerivation.DEFAULT_DELAY, GuardianDerivation.grant(rootKey, rootRoom, emptyList(), middleRoom).single().delay)
+    }
+
+    @Test
+    fun `the longest delay is a descriptor bitcoin-kmp can checksum`() {
+        val longest = GuardianDerivation.grant(middleKey, middleRoom, middleGrant, childRoom, delay = GuardianDerivation.MAX_DELAY)
+        val tree = GuardianDerivation.descriptorTree(longest, Chain.Mainnet, account = 0, change = 0)
+
+        assertTrue("older(65535)" in tree, tree)
+        assertTrue("older(12)" in tree, "the root's inherited leaf keeps its own")
+        assertEquals(8, Descriptor.checksum("tr(${longest[0].encoded(Chain.Mainnet)}/0/*,$tree)").length)
     }
 
     @Test

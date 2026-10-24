@@ -22,6 +22,8 @@ sealed interface MemberWalletUIState {
         val spends: List<MemberWalletSpend> = emptyList(),
         /** How many groups guard it, for the line under the title. */
         val reach: Int = wallet.account.guardians.size,
+        /** Each guardian's delay, nearest first: the leaves the wallet's addresses carry. */
+        val delays: List<Long> = wallet.account.guardians.map { it.delay },
     ) : MemberWalletUIState
 }
 

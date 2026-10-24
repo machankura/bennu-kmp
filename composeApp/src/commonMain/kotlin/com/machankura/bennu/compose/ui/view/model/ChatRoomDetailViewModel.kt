@@ -98,6 +98,7 @@ class ChatRoomDetailViewModel(
                     subgroups = chatRepository.subgroupsOf(chatRoomId),
                     parentChatRoomId = chatRepository.parentOf(chatRoomId),
                     walletPolicy = chatRepository.walletPolicyOf(chatRoomId),
+                    guardianDelay = chatRepository.guardiansOf(chatRoomId)?.firstOrNull()?.delay,
                     groupWallet = chatRepository.groupWallet(chatRoomId, NodeParamsManager.chain),
                     canAddSubgroup = canSign,
                     canGovern = canGovern,

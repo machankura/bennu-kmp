@@ -59,7 +59,7 @@ class GuardianSpendNoticeJvmTest {
     )
 
     private fun spending(funding: Transaction, witness: ScriptWitness) = Transaction(
-        2, listOf(TxIn(OutPoint(funding, 0), ByteVector.empty, GuardianDerivation.ANCESTOR_DELAY, witness)),
+        2, listOf(TxIn(OutPoint(funding, 0), ByteVector.empty, GuardianDerivation.DEFAULT_DELAY, witness)),
         listOf(TxOut(Satoshi(49_000), elsewhere)), 0,
     )
 

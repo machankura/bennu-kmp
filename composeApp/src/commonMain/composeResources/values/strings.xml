@@ -465,20 +465,20 @@
     <string name="opening_a_wallet_asks_the_group_to_agree">Opening a wallet asks the group to agree that it keeps coins here. Any quorum of members can then spend them together, and nobody can spend them alone.</string>
     <string name="each_member_s_share_is_stored_unencrypted">Each member's share of the group's key is stored unencrypted on their device. Anyone with an unlocked device, or a copy of its data, holds that member's share.</string>
     <string name="couldn_t_ask_the_group_to_open_a_wallet">Couldn't ask the group to open a wallet.</string>
-    <string name="the_groups_above_this_one_have_agreed_to_guard_it">The groups above this one have agreed to guard its wallet. In a guarded wallet each of them can spend any coin once it has %1$d confirmations, without this group agreeing.</string>
+    <string name="the_groups_above_this_one_have_agreed_to_guard_it">The groups above this one have agreed to guard its wallet. In a guarded wallet each of them can spend any coin that has waited as long as its own delay, without this group agreeing:</string>
     <string name="open_a_guarded_wallet">Open a guarded wallet</string>
     <string name="open_without_guardians">Open without guardians</string>
     <string name="guarded_wallets">Guarded wallets</string>
     <string name="spend">Spend</string>
     <string name="spend_from_s_s_guarded_wallet">Spend from %1$s's guarded wallet</string>
-    <string name="wallets_of_groups_below_this_one">Wallets of groups below this one. This group can spend a coin in them once it has %1$d confirmations.</string>
+    <string name="wallets_of_groups_below_this_one">Wallets of groups below this one. This group can spend a coin in each once the coin has waited as long as the delay that wallet gives this group.</string>
     <string name="s_sats_within_this_group_s_reach">%1$s sats within this group's reach</string>
     <string name="fund">Fund</string>
     <string name="fund_s_s_guarded_wallet">Fund %1$s's guarded wallet</string>
     <string name="s_sats_arriving">%1$s sats arriving</string>
     <string name="to">To</string>
     <string name="s_s_guarded_wallet">%1$s's guarded wallet</string>
-    <string name="this_group_can_spend_these_coins_again">This group can spend these coins again once they have %1$d confirmations.</string>
+    <string name="this_group_can_spend_these_coins_again">This group can spend these coins again once they have waited %1$s.</string>
     <string name="finding_an_address_in_s_s_wallet">Finding an address in %1$s's wallet…</string>
     <string name="wait_for_this_group_s_open_payments_to_s">Wait for this group's open payments to %1$s to confirm.</string>
     <string name="tell_the_groups_above">Tell the groups above</string>
@@ -486,7 +486,7 @@
     <string name="share">Share</string>
     <string name="shared_with_the_groups_above">Shared with the groups above</string>
     <string name="couldn_t_share_the_wallet">Couldn't share the wallet</string>
-    <string name="guarded_the_groups_above_this_one_can_spend">Guarded: the groups above this one can spend any coin here once it has %1$d confirmations.</string>
+    <string name="guarded_the_groups_above_this_one_can_spend">Guarded: the groups above this one can spend any coin here that has waited as long as their own delay:</string>
     <string name="balance">Balance</string>
     <string name="s_sats">%1$s sats</string>
     <string name="s_sats_on_the_way">%1$s sats on the way</string>
@@ -563,24 +563,68 @@
     <string name="the_subgroup_s_wallet">The subgroup's wallet</string>
     <string name="guarded_wallet">Guarded wallet</string>
     <string name="unguarded_wallet">Unguarded wallet</string>
-    <string name="this_group_can_spend_its_coins_once">This group can spend any coin in it once it has %1$d confirmations.</string>
-    <string name="this_group_and_the_d_above_it_can_spend">This group and the %1$d above it can spend any coin in it once it has %2$d confirmations.</string>
+    <string name="this_group_can_spend_its_coins_once">This group can spend any coin in it once it has waited as long as the delay below.</string>
+    <string name="this_group_and_the_d_above_it_can_spend">This group, after the delay below, and the %1$d above it, after the delays they chose, can spend any coin in it.</string>
     <string name="only_the_subgroup_can_spend_from_its_wallet">Only the subgroup can spend from its wallet. Groups above it can't reach it or anything beneath it.</string>
     <string name="this_group_is_guarded_so_its_subgroups_are_too">This group is guarded, so its subgroups are too.</string>
     <string name="this_group_s_guardian_keys_can_t_be_read">This group's own guardian keys can't be read, so it can't guard a subgroup.</string>
-    <string name="the_subgroup_s_wallet_will_be_guarded">The subgroup's wallet will be guarded: this group, and every group above it, can spend any coin in it once it has %1$d confirmations.</string>
+    <string name="the_subgroup_s_wallet_will_be_guarded">The subgroup's wallet will be guarded: this group can spend any coin in it once it has waited %1$s, and each group above it after the delay it chose.</string>
     <string name="the_subgroup_s_wallet_will_not_be_guarded">The subgroup's wallet will not be guarded: only the subgroup can spend from it.</string>
-    <string name="the_group_above_decided_this_wallet_is_guarded">The group above this one decided this group's wallet is guarded. Each group above it can spend any coin in it once it has %1$d confirmations, without this group agreeing.</string>
+    <string name="the_group_above_decided_this_wallet_is_guarded">The group above this one decided this group's wallet is guarded. Each group above it can spend any coin in it that has waited as long as its own delay, without this group agreeing:</string>
     <string name="the_group_above_decided_this_wallet_is_not_guarded">The group above this one decided this group's wallet is not guarded. Only this group can spend from it.</string>
+
+    <!-- A guardian's delay in blocks and roughly in time: docs/guardian-delay.md, D5 -->
+    <string name="blocks_and_about">%1$s, %2$s</string>
+    <string name="guardian_after">%1$s: after %2$s</string>
+    <string name="how_long_before_this_group_can_spend_a_coin">How long before this group can spend a coin</string>
+    <string name="delay_one_hour">1 hour</string>
+    <string name="delay_two_hours">2 hours</string>
+    <string name="delay_one_day">1 day</string>
+    <string name="delay_one_week">1 week</string>
+    <string name="delay_one_month">1 month</string>
+    <string name="delay_six_months">6 months</string>
+    <string name="delay_longest">Longest</string>
+    <string name="delay_custom">Custom</string>
+    <string name="delay_in_blocks">Delay in blocks</string>
+    <string name="a_coin_the_subgroup_moves_starts_waiting_again">A coin the subgroup moves starts waiting again, so a long delay lets it keep its coins out of reach by moving them.</string>
+    <string name="a_group_above_this_one">A group above this one</string>
+    <string name="this_group_s_delay_in_this_wallet">This group can spend a coin here after %1$s</string>
+    <string name="guarded_wallet_after">Guarded wallet, after %1$s</string>
+    <string name="only_coins_confirmed_for_can_be_spent">Only coins that have waited %1$s can be spent from this guarded wallet.</string>
+    <plurals name="n_blocks">
+        <item quantity="one">%1$s block</item>
+        <item quantity="other">%1$s blocks</item>
+    </plurals>
+    <plurals name="about_n_minutes">
+        <item quantity="one">about %1$d minute</item>
+        <item quantity="other">about %1$d minutes</item>
+    </plurals>
+    <plurals name="about_n_hours">
+        <item quantity="one">about %1$d hour</item>
+        <item quantity="other">about %1$d hours</item>
+    </plurals>
+    <plurals name="about_n_days">
+        <item quantity="one">about %1$d day</item>
+        <item quantity="other">about %1$d days</item>
+    </plurals>
+    <plurals name="about_n_months">
+        <item quantity="one">about %1$d month</item>
+        <item quantity="other">about %1$d months</item>
+    </plurals>
+    <plurals name="about_n_years">
+        <item quantity="one">about %1$d year</item>
+        <item quantity="other">about %1$d years</item>
+    </plurals>
+
     <!-- A member's guarded wallet: docs/member-guarded-wallets.md -->
     <string name="new_guarded_wallet">New guarded wallet</string>
     <string name="a_group">A group</string>
     <string name="choose_a_group_to_guard_it">Choose a group to guard it</string>
     <string name="you_are_in_no_groups_that_can_guard_a_wallet">You're in no groups that could guard a wallet for you.</string>
     <string name="a_wallet_only_you_can_spend_from_guarded_by_s">A wallet only you can spend from, guarded by %1$s</string>
-    <string name="s_can_take_any_coin_without_asking_you">%1$s can take any coin in it that has been confirmed for %2$d blocks, without asking you.</string>
-    <string name="s_and_the_group_above_it_can_take_any_coin_without_asking_you">%1$s and the group above it can take any coin in it that has been confirmed for %2$d blocks, without asking you.</string>
-    <string name="s_and_the_d_groups_above_it_can_take_any_coin_without_asking_you">%1$s and the %2$d groups above it can take any coin in it that has been confirmed for %3$d blocks, without asking you.</string>
+    <string name="s_can_take_any_coin_without_asking_you">%1$s can take any coin in it that has waited %2$s, without asking you.</string>
+    <string name="s_and_the_group_above_it_can_take_any_coin_without_asking_you">%1$s can take any coin in it that has waited %2$s, and the group above it any coin that has waited %3$s, without asking you.</string>
+    <string name="s_and_the_d_groups_above_it_can_take_any_coin_without_asking_you">%1$s can take any coin in it that has waited %2$s, and each of the %3$d groups above it after the delay it chose, the shortest %4$s, without asking you.</string>
     <string name="members_of_those_groups_will_see_this_wallet">Members of the groups that guard it will see its balance, and that it's yours.</string>
     <string name="if_you_lose_this_device_those_groups_can_still_move_your_coins">If you lose this device, those groups can still move your coins for you.</string>
     <string name="label_optional">Label (optional)</string>

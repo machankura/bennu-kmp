@@ -118,7 +118,8 @@ class CreateSharedKeyViewModelJvmTest {
                 parentChatRoomId: HexKey?,
                 participantPublicKeys: Set<HexKey>?,
                 subject: String?,
-                walletPolicy: SubgroupWalletPolicy?
+                walletPolicy: SubgroupWalletPolicy?,
+                guardianDelay: Long?
             ): DkgSession? {
                 proposed += threshold
                 return session("new".padEnd(64, '0'), DkgRitualStage.COLLECTING_HOST_KEYS)

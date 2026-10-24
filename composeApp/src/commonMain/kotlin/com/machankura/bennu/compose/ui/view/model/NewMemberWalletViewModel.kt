@@ -67,7 +67,12 @@ class NewMemberWalletViewModel(
 
     private suspend fun choose(chatRoomId: String): NewMemberWalletUIState.Chosen? {
         val room = memberWalletRepository.groupsOf(activeUserPublicKey).firstOrNull { it.chatRoom.id == chatRoomId } ?: return null
-        return NewMemberWalletUIState.Chosen(room = room, refusal = refusal(chatRoomId), reach = memberWalletRepository.reachOf(chatRoomId))
+        return NewMemberWalletUIState.Chosen(
+            room = room,
+            refusal = refusal(chatRoomId),
+            reach = memberWalletRepository.reachOf(chatRoomId),
+            delays = memberWalletRepository.delaysOf(chatRoomId),
+        )
     }
 
     private suspend fun refusal(chatRoomId: String): MemberWalletManager.Refusal? =

@@ -145,6 +145,9 @@ class MemberWalletRequestJvmTest {
 
         assertNull(MemberWalletManager.refusal(db, groupRoom, canSign = true, chain))
         assertEquals(2, MemberWalletManager.reachOf(db, groupRoom))
+        // The group's own leaf at the default, and the parent's at the delay it
+        // chose for the group -- the default too, here. docs/guardian-delay.md.
+        assertEquals(listOf(GuardianDerivation.DEFAULT_DELAY, GuardianDerivation.DEFAULT_DELAY), MemberWalletManager.delaysOf(db, groupRoom))
         val wallet = MemberWalletManager.request(db, groupRoom, member, chain, label = null)
         assertNotNull(MemberWalletRequestEvent.verified(Event.fromJson(wallet.requestJson)))
     }

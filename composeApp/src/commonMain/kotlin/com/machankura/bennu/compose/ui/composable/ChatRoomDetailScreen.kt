@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.guarded_wallet_after
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
 import com.machankura.bennu.compose.managers.MemberWalletManager
 import com.machankura.bennu.compose.repository.MemberWalletRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.NewMemberWalletRoute
@@ -327,7 +329,7 @@ fun ChatRoomDetailScreen(
                                                     // this room's wallet at its birth.
                                                     // Nothing for one that decided
                                                     // nothing, as before policies.
-                                                    walletPolicyLabel(chatRoomDetailUIState.walletPolicy)?.let { Text(it) }
+                                                    walletPolicyLabel(chatRoomDetailUIState.walletPolicy, chatRoomDetailUIState.guardianDelay)?.let { Text(it) }
                                                 }
                                             }
                                         )
@@ -1185,7 +1187,7 @@ private fun SubgroupCard(
                     )
                     // What the parent decided about its wallet, from the certificate:
                     // founding history, like the name the row falls back to.
-                    walletPolicyLabel(subgroup.walletPolicy)?.let { Text(it) }
+                    walletPolicyLabel(subgroup.walletPolicy, subgroup.guardianDelay)?.let { Text(it) }
                 }
             }
         )
@@ -1193,12 +1195,16 @@ private fun SubgroupCard(
 }
 
 /**
- * *Guarded wallet* or *Unguarded wallet* for a policy a parent decided, and
- * null for one it left to the subgroup -- `docs/subgroup-wallet-policy.md`.
+ * *Guarded wallet, after 144 blocks, about 1 day* or *Unguarded wallet* for a
+ * policy a parent decided, and null for one it left to the subgroup --
+ * `docs/subgroup-wallet-policy.md`. The delay is the parent's own leaf's,
+ * `docs/guardian-delay.md`.
  */
 @Composable
-private fun walletPolicyLabel(policy: WalletPolicyReading?): String? = when (policy) {
-    WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED) -> stringResource(Res.string.guarded_wallet)
+private fun walletPolicyLabel(policy: WalletPolicyReading?, guardianDelay: Long?): String? = when (policy) {
+    WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED) -> guardianDelay
+        ?.let { stringResource(Res.string.guarded_wallet_after, delayText(it)) }
+        ?: stringResource(Res.string.guarded_wallet)
     WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED) -> stringResource(Res.string.unguarded_wallet)
     else -> null
 }

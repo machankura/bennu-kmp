@@ -8,6 +8,9 @@ import bennu.composeapp.generated.resources.something_went_wrong
 import bennu.composeapp.generated.resources.recovered_of_still_unreadable
 import bennu.composeapp.generated.resources.sent_a_private_message_to
 import org.jetbrains.compose.resources.getString
+import org.jetbrains.compose.resources.getPluralString
+import bennu.composeapp.generated.resources.about_n_hours
+import bennu.composeapp.generated.resources.n_blocks
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -73,5 +76,15 @@ class StringCatalogueJvmTest {
             "Recovered 3 of 12 · 9 still unreadable",
             getString(Res.string.recovered_of_still_unreadable, "3", "12", "9", ""),
         )
+    }
+
+    @Test
+    fun `a plural picks its form by the count, and substitutes it`() = runBlocking {
+        // The catalogue's first plurals, for a guardian's delay. A plain
+        // `%1$d hours` reads "about 1 hours", and no audit catches that.
+        assertEquals("about 1 hour", getPluralString(Res.plurals.about_n_hours, 1, 1))
+        assertEquals("about 36 hours", getPluralString(Res.plurals.about_n_hours, 36, 36))
+        assertEquals("1 block", getPluralString(Res.plurals.n_blocks, 1, "1"))
+        assertEquals("65,535 blocks", getPluralString(Res.plurals.n_blocks, 65_535, "65,535"))
     }
 }

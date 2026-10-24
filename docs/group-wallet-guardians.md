@@ -39,8 +39,10 @@ cap as every other spend, `GroupWalletRollout.MAINNET_CAP`.
 The headline: **the parent puts a guardian key for the child into the child's
 birth certificate, beside the keys its own ancestors gave it, each derived one
 public step further for this child. Each becomes a leaf
-`<L> OP_CHECKSIGVERIFY 12 OP_CHECKSEQUENCEVERIFY` in every address of the child's
-wallet.** Every ancestor can take a coin once it has 12 confirmations. The
+`<L> OP_CHECKSIGVERIFY <d> OP_CHECKSEQUENCEVERIFY` in every address of the child's
+wallet.** Every ancestor can take a coin once it has `d` confirmations, where `d`
+is the delay that ancestor chose when it made the group below it — 12 unless it
+chose otherwise, see [guardian-delay.md](./guardian-delay.md). The
 ancestor's quorum signs for its leaf with the FROST session it already runs,
 under plain tweaks of its own threshold key.
 
@@ -131,16 +133,25 @@ anything the group did: a coin with 12 confirmations is the guardian's to take,
 and one that arrived or was moved within the last two hours is not. `12` is the
 single opcode `OP_12`, so the script is 36 bytes.
 
-**Why 12, and why for everybody.** It is `GuardianDerivation.ANCESTOR_DELAY`, one
-constant, the same at every distance. What it buys:
+**Why a delay, and who sets it.** This section was *Why 12, and why for
+everybody*: 12 was one constant, the same at every distance. Since
+[guardian-delay.md](./guardian-delay.md), each parent chooses its own leaf's delay
+when it makes a guarded subgroup, from `GuardianDerivation.MIN_DELAY` (6, about an
+hour) to `MAX_DELAY` (65,535, BIP68's block-based ceiling, about 15 months), with
+12 as `DEFAULT_DELAY`. Every inherited key keeps the delay its own ancestor chose,
+so each group's terms follow its key down the tree. What 12 buys, and what a floor
+of 6 keeps:
 
-- **Not autonomy.** Two hours is not long enough for a child to notice a coin
-  coming within reach and move it. In practice this is an override, and it is
-  meant as one: ancestors have control now, not as a last resort.
+- **Not autonomy, at 12.** Two hours is not long enough for a child to notice a
+  coin coming within reach and move it. In practice this is an override, and it
+  is meant as one: ancestors have control now, not as a last resort. A long delay
+  changes that: the clock is per coin and moving a coin restarts it, so a child
+  that moves its coins before a month-long lock runs out keeps them out of reach.
+  A long delay is a backstop for a group that falls silent, not an override.
 - **The child's own spends always go first.** A guardian cannot race the child
   for a payment that has only just arrived, nor take change from a spend the
   child made an hour ago.
-- **It is a relative lock**, so every guardian input carries `nSequence = 12` in
+- **It is a relative lock**, so every guardian input carries `nSequence = d` in
   a version-2 transaction. That is far below `GroupSpend.MAX_SEQUENCE`, so a
   guardian spend still signals replaceability and *Bump the fee* still works.
 
@@ -467,4 +478,4 @@ a guarded wallet is [guarded-wallet-funding.md](./guarded-wallet-funding.md).
 | passing inherited keys down unchanged | a grandchild's leaves would equal its parent's wallet's at the same index, and a guardian spend from one would link the two |
 | the whole certificate chain in the statement | nobody needs it to be safe — the parent's quorum vouches for the inherited keys and already holds more power than they give — and nesting signed events inside signed events escapes JSON once per level |
 | the tree in PSBT fields | bitcoin-kmp does not parse them; every signer rebuilds them anyway |
-| delays escalating with distance | asked for and replaced: every ancestor at 12 blocks, for now |
+| delays escalating with distance | asked for and replaced: every ancestor at 12 blocks, for now. Since [guardian-delay.md](./guardian-delay.md) each ancestor's delay is its own choice instead |

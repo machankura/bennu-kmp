@@ -4,7 +4,6 @@ import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.MemberWalletRequestEvent
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
@@ -77,6 +76,11 @@ object ProposedEvent {
                             else -> "this group and the ${count - 1} above it can spend from its wallet"
                         }
                     },
+                // How long this group's own leaf waits, which its coordinator
+                // chose; every inherited one keeps its own. docs/guardian-delay.md.
+                SubgroupBirthCertificateEvent.parseGuardians(event.tags)
+                    ?.firstOrNull()
+                    ?.let { "this group after ${BlockDuration.describe(it.delay)}" },
                 // The decision this certificate makes for the child, said in both
                 // directions: an absent line is not a decision anybody can be said
                 // to have read. An older certificate decides nothing and says so
@@ -103,18 +107,21 @@ object ProposedEvent {
 
         // The group agreeing to guard one member's wallet. What a signer weighs
         // is whose wallet, and what the group can do with it: take any coin that
-        // has sat for 12 blocks, alongside every group above it, while only the
-        // member can spend before then. The keys are their device's to check.
+        // has sat for its leaf's delay, alongside every group above it after
+        // theirs, while only the member can spend before then. The keys are their device's to check.
         MemberWalletCertificateEvent.KIND -> Summary(
             label = "Guard a member's wallet",
             detail = MemberWalletCertificateEvent.requestOf(event)
                 ?.let { MemberWalletRequestEvent.read(it) }
                 ?.let { reading ->
-                    val delay = GuardianDerivation.ANCESTOR_DELAY
-                    val reach = when (val count = reading.guardians.size) {
-                        1 -> "this group can take its coins once they are $delay blocks old"
-                        2 -> "this group and the one above it can take its coins once they are $delay blocks old"
-                        else -> "this group and the ${count - 1} above it can take its coins once they are $delay blocks old"
+                    // Each guardian's own delay, nearest first: the group's own
+                    // leaf, and every group above it at the delay it chose.
+                    // docs/guardian-delay.md.
+                    val delays = reading.guardians.map { BlockDuration.describe(it.delay) }
+                    val reach = when (delays.size) {
+                        1 -> "this group can take its coins after ${delays[0]}"
+                        2 -> "this group can take its coins after ${delays[0]}, and the one above it after ${delays[1]}"
+                        else -> "this group can take its coins after ${delays[0]}, and the ${delays.size - 1} above it after ${delays.drop(1).joinToString(", ")}"
                     }
                     listOfNotNull(
                         nameOf(reading.memberPublicKey)?.let { "For @$it" },

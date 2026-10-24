@@ -269,6 +269,16 @@ class GroupWalletViewModelJvmTest {
     }
 
     @Test
+    fun `each guardian is named by the room this device holds for it`() {
+        val state = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest), chain = Chain.Regtest).apply { initiate() }.settled()
+        )
+
+        // The fixture's repository answers every room id with the one room.
+        assertEquals(mapOf(guardians.single().chatRoomId to localChatRoom.chatRoom.subject!!), state.guardianNames)
+    }
+
+    @Test
     fun `a plain wallet is never proposed under a parent that decided guarded`() {
         val signing = RecordingSigning()
         val model = viewModel(

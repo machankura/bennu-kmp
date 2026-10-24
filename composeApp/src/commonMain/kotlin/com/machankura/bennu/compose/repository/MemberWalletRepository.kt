@@ -31,6 +31,9 @@ interface MemberWalletRepository {
     /** How many groups a wallet guarded by [chatRoomId] would be guarded by, or null while its key is unknown. */
     suspend fun reachOf(chatRoomId: String): Int?
 
+    /** Each guardian's delay for a wallet [chatRoomId] would guard, nearest first, or null while its key is unknown. */
+    suspend fun delaysOf(chatRoomId: String): List<Long>?
+
     /** Asks [chatRoomId] what it signs with, for a member who holds no key state. Whether it asked. */
     suspend fun askForGroupKey(chatRoomId: String): Boolean
 
@@ -78,6 +81,8 @@ interface MemberWalletRepository {
             override suspend fun groupsOf(ownerPublicKey: HexKey): List<LocalChatRoom> = emptyList()
             override suspend fun refusal(chatRoomId: String, chain: Chain): MemberWalletManager.Refusal? = MemberWalletManager.Refusal.CANNOT_SIGN
             override suspend fun reachOf(chatRoomId: String): Int? = null
+
+            override suspend fun delaysOf(chatRoomId: String): List<Long>? = null
             override suspend fun askForGroupKey(chatRoomId: String): Boolean = false
             override suspend fun request(chatRoomId: String, chain: Chain, label: String?): MemberWallet =
                 throw UnsupportedOperationException("no repository")

@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
@@ -60,6 +61,12 @@ class GuardedWalletCardJvmTest {
         PrivateKey(ByteVector32(Hex.decode(seed.padStart(64, '0')))).publicKey().toString(), Chain.Regtest,
     )
 
+    /** A descendant's wallet guarded by this room, at the default delay, as a verified statement would be. */
+    private fun guardedAccount(seed: String) = GroupWalletDerivation.account(
+        PrivateKey(ByteVector32(Hex.decode(seed.padStart(64, '0')))).publicKey().toString(), Chain.Regtest,
+        guardians = GuardianDerivation.grant(PrivateKey(ByteVector32(Hex.decode("a11ce".padStart(64, '0')))).publicKey().toString(), chatRoomId, emptyList(), descendantRoomId),
+    )
+
     private fun holding(account: GroupWalletDerivation.Account, sats: Long, height: Long, tip: Int): GroupWalletState {
         val derived = GroupWalletDerivation.derive(account, GroupWalletDerivation.RECEIVE, 0)
         val next = GroupWalletDerivation.derive(account, GroupWalletDerivation.RECEIVE, 1)
@@ -78,7 +85,7 @@ class GuardedWalletCardJvmTest {
 
     private fun loaded(name: String): GroupWalletUIState.Loaded {
         val own = account("1c0ffee")
-        val descendant = account("decaf")
+        val descendant = guardedAccount("decaf")
         val guarded = GuardianManager.GuardedWallet(
             ancestorChatRoomId = chatRoomId,
             descendantChatRoomId = descendantRoomId,

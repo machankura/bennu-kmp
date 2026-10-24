@@ -153,6 +153,16 @@ object MemberWalletManager {
         groupKeyFor(database, chatRoomId)?.let { it.guardians.size + 1 }
 
     /**
+     * How long a coin in a wallet [chatRoomId] guards would wait for each of its
+     * guardians, nearest first: the group's own leaf at the default, and every
+     * group above it at the delay it chose -- `docs/guardian-delay.md`. The same
+     * list the grant in [request] carries. Null when this device does not know
+     * the group's key.
+     */
+    suspend fun delaysOf(database: BennuDatabase, chatRoomId: String): List<Long>? =
+        groupKeyFor(database, chatRoomId)?.let { key -> listOf(GuardianDerivation.DEFAULT_DELAY) + key.guardians.map { it.delay } }
+
+    /**
      * Steps 1 and 2: makes a random key, works out every ancestor's leaf and
      * both descriptors, stores the key, and only then asks [chatRoomId] to
      * guard the wallet, as the member [memberPrivateKey] holds.

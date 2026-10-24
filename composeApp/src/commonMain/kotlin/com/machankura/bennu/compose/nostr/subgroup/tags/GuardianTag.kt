@@ -44,7 +44,10 @@ object GuardianTag {
         ensure(ROOM_ID.matches(tag[1])) { return null }
         ensure(KEY.matches(tag[2])) { return null }
         ensure(CHAIN_CODE.matches(tag[3])) { return null }
-        val delay = tag[4].toLongOrNull()?.takeIf { it in 1L..0xFFFFL } ?: return null
+        // Within the range a leaf may carry, so a delay a modified client wrote
+        // below the floor is a tag that does not read, rather than a leaf that
+        // lets a guardian race the child. Every tag before this said 12.
+        val delay = tag[4].toLongOrNull()?.takeIf { it in GuardianDerivation.DELAY_RANGE } ?: return null
 
         val publicKey = runCatching { PublicKey.fromHex(tag[2]) }.getOrNull()?.takeIf { it.isValid() } ?: return null
         return GuardianDerivation.Guardian(

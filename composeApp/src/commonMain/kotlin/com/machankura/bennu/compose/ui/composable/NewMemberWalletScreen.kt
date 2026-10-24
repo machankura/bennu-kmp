@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,7 +55,6 @@ import bennu.composeapp.generated.resources.this_group_s_guardian_keys_can_t_be_
 import bennu.composeapp.generated.resources.this_profile_cannot_sign_a_request
 import bennu.composeapp.generated.resources.this_profile_cannot_watch_its_own_coins
 import bennu.composeapp.generated.resources.you_are_in_no_groups_that_can_guard_a_wallet
-import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.managers.MemberWalletManager
 import com.machankura.bennu.compose.repository.MemberWalletRepository
 import com.machankura.bennu.compose.ui.composable.widgets.Decorative
@@ -173,7 +173,7 @@ fun NewMemberWalletScreen(
                         style = MaterialTheme.typography.titleLarge,
                     )
 
-                    state.reach?.let { reach -> Text(reachText(chosenName, reach), style = MaterialTheme.typography.bodyLarge) }
+                    state.delays?.let { delays -> Text(reachText(chosenName, delays, chain), style = MaterialTheme.typography.bodyLarge) }
                     Text(stringResource(Res.string.members_of_those_groups_will_see_this_wallet), style = MaterialTheme.typography.bodyLarge)
                     Text(
                         stringResource(Res.string.if_you_lose_this_device_those_groups_can_still_move_your_coins),
@@ -215,15 +215,24 @@ fun NewMemberWalletScreen(
     }
 }
 
-/** Who can take the member's coins: the group alone, the group and its parent, or the group and N above it. */
+/**
+ * Who can take the member's coins, and after how long: the group alone, the
+ * group and its parent, or the group and N above it, [delays] nearest first.
+ * Each guardian's own, since every group above chose its own --
+ * `docs/guardian-delay.md`.
+ */
 @Composable
-internal fun reachText(groupName: String, reach: Int): String {
-    val delay = GuardianDerivation.ANCESTOR_DELAY.toInt()
-    return when (reach) {
-        1 -> stringResource(Res.string.s_can_take_any_coin_without_asking_you, groupName, delay)
-        2 -> stringResource(Res.string.s_and_the_group_above_it_can_take_any_coin_without_asking_you, groupName, delay)
-        else -> stringResource(Res.string.s_and_the_d_groups_above_it_can_take_any_coin_without_asking_you, groupName, reach - 1, delay)
-    }
+internal fun reachText(groupName: String, delays: List<Long>, chain: Chain?): String = when (delays.size) {
+    0 -> ""
+    1 -> stringResource(Res.string.s_can_take_any_coin_without_asking_you, groupName, delayText(delays[0], chain))
+    2 -> stringResource(
+        Res.string.s_and_the_group_above_it_can_take_any_coin_without_asking_you,
+        groupName, delayText(delays[0], chain), delayText(delays[1], chain),
+    )
+    else -> stringResource(
+        Res.string.s_and_the_d_groups_above_it_can_take_any_coin_without_asking_you,
+        groupName, delayText(delays[0], chain), delays.size - 1, delayText(delays.drop(1).min(), chain),
+    )
 }
 
 @Composable

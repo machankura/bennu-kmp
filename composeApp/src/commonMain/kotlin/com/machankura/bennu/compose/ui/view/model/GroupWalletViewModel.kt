@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.nostr.subgroup.isDecided
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.model.GroupTransaction
@@ -103,7 +104,7 @@ class GroupWalletViewModel(
                     offersPlain = !policy.isDecided(SubgroupWalletPolicy.GUARDED),
                     guardedWallets = guardedRows,
                     shareable = shareable,
-                )
+                ).let { it.copy(guardianNames = namesOf(it.guarded?.account?.guardians.orEmpty())) }
                 groupWalletUIState = notOpened
                 if (guarded.isNotEmpty()) {
                     watching = viewModelScope.launch(Dispatchers.IO) {
@@ -121,6 +122,7 @@ class GroupWalletViewModel(
                 canSign = canSign,
                 guardedWallets = guardedRows,
                 shareable = shareable,
+                guardianNames = namesOf(wallet.account.guardians),
             )
             groupWalletUIState = loaded
 
@@ -147,6 +149,17 @@ class GroupWalletViewModel(
      * Each guarded wallet with what the chain says of it, on the identity's own
      * Electrum client -- or with nothing, for a profile that cannot watch.
      */
+    /**
+     * What this device calls each of [guardians]' rooms, for the ones it holds:
+     * the wallet screen lists each guardian with its own delay, and a room id is
+     * not a name. A guardian whose room this device does not have is left out,
+     * and the screen says *a group above this one*.
+     */
+    private suspend fun namesOf(guardians: List<GuardianDerivation.Guardian>): Map<String, String> =
+        guardians.mapNotNull { guardian ->
+            chatRepository.getChatRoomByIdentifier(guardian.chatRoomId)?.chatRoom?.subject?.let { guardian.chatRoomId to it }
+        }.toMap()
+
     private suspend fun guardedStates(guarded: List<GuardianManager.GuardedWallet>): Flow<List<GuardedWalletRow>> {
         val wallets = wallets
         if (wallets == null || guarded.isEmpty()) return flowOf(guarded.map { GuardedWalletRow(it, walletState = null) })

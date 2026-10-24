@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
@@ -115,7 +116,8 @@ class GroupSendScreenJvmTest {
         onNodeWithText("Savings's guarded wallet").assertIsDisplayed()
         onNodeWithText("Address").assertDoesNotExist()
         onNodeWithText("Address 2").assertIsDisplayed()
-        onNodeWithText("This group can spend these coins again once they have 12 confirmations.").assertIsDisplayed()
+        // This group's own leaf's delay in the funded wallet, in blocks alone on regtest.
+        onNodeWithText("This group can spend these coins again once they have waited 12 blocks.").assertIsDisplayed()
 
         onNodeWithText("Fee rate in sats per byte").performTextInput("4")
         onNodeWithText("Amount in sats").performTextInput("40000")
@@ -125,8 +127,10 @@ class GroupSendScreenJvmTest {
 
     private fun funding(chain: Chain): FundingTarget {
         val descendantRoomId = "c".repeat(64)
+        // Guarded by this room, at the default delay, as a verified statement would be.
         val descendant = GroupWalletDerivation.account(
             PrivateKey(ByteVector32(Hex.decode("decaf".padStart(64, '0')))).publicKey().toString(), chain,
+            guardians = GuardianDerivation.grant(PrivateKey(ByteVector32(Hex.decode("a11ce".padStart(64, '0')))).publicKey().toString(), chatRoomId, emptyList(), descendantRoomId),
         )
         val guarded = GuardianManager.GuardedWallet(
             ancestorChatRoomId = chatRoomId,

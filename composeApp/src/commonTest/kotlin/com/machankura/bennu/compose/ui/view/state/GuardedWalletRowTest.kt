@@ -29,8 +29,10 @@ import kotlin.test.assertNull
  */
 class GuardedWalletRowTest {
     private val descendantRoomId = "c".repeat(64)
+    /** Guarded by the ancestor below, at the default delay, as a verified statement would be. */
     private val account = GroupWalletDerivation.account(
         PrivateKey(ByteVector32(Hex.decode("decaf".padStart(64, '0')))).publicKey().toString(), Chain.Regtest,
+        guardians = GuardianDerivation.grant(PrivateKey(ByteVector32(Hex.decode("a11ce".padStart(64, '0')))).publicKey().toString(), "d".repeat(64), emptyList(), descendantRoomId),
     )
     private val wallet = GuardianManager.GuardedWallet(
         ancestorChatRoomId = "d".repeat(64),
@@ -56,7 +58,7 @@ class GuardedWalletRowTest {
 
     @Test
     fun `a coin is arriving until the lock lets it go, then within reach`() {
-        val lock = GuardianDerivation.ANCESTOR_DELAY.toInt()
+        val lock = GuardianDerivation.DEFAULT_DELAY.toInt()
 
         val mempool = GuardedWalletRow(wallet, holding(height = 0, tip = 100))
         assertEquals(Satoshi(50_000), mempool.arriving)

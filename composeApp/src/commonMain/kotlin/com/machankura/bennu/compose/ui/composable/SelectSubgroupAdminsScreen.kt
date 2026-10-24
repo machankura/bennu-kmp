@@ -1,9 +1,25 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.a_coin_the_subgroup_moves_starts_waiting_again
+import bennu.composeapp.generated.resources.delay_in_blocks
+import bennu.composeapp.generated.resources.delay_custom
+import bennu.composeapp.generated.resources.delay_longest
+import bennu.composeapp.generated.resources.delay_six_months
+import bennu.composeapp.generated.resources.delay_one_month
+import bennu.composeapp.generated.resources.delay_one_week
+import bennu.composeapp.generated.resources.delay_one_day
+import bennu.composeapp.generated.resources.delay_two_hours
+import bennu.composeapp.generated.resources.delay_one_hour
+import bennu.composeapp.generated.resources.how_long_before_this_group_can_spend_a_coin
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import com.machankura.bennu.compose.ui.view.state.onlyGuarded
 import com.machankura.bennu.compose.ui.view.state.canGuard
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
-import com.machankura.bennu.compose.managers.GuardianDerivation
 import bennu.composeapp.generated.resources.this_group_s_guardian_keys_can_t_be_read
 import bennu.composeapp.generated.resources.this_group_is_guarded_so_its_subgroups_are_too
 import bennu.composeapp.generated.resources.only_the_subgroup_can_spend_from_its_wallet
@@ -303,6 +319,22 @@ fun SelectSubgroupAdminsScreen(
                             onPolicyChange = viewModel::setWalletPolicy
                         )
                     }
+
+                    // The parent's own leaf's delay, and only for a guarded
+                    // subgroup: docs/guardian-delay.md.
+                    if (viewModel.walletPolicy.value == SubgroupWalletPolicy.GUARDED && state.canGuard) {
+                        item {
+                            GuardianDelayChooser(
+                                input = viewModel.guardianDelayInput.value,
+                                delay = viewModel.guardianDelay(),
+                                isCustom = viewModel.isCustomDelay.value,
+                                problem = viewModel.guardianDelayProblem(),
+                                onPreset = viewModel::setGuardianDelay,
+                                onCustom = viewModel::useCustomDelay,
+                                onInput = viewModel::setGuardianDelayInput,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -392,7 +424,6 @@ private fun WalletPolicyChooser(
             style = MaterialTheme.typography.titleSmall
         )
 
-        val delay = GuardianDerivation.ANCESTOR_DELAY.toInt()
         WalletPolicyRow(
             title = stringResource(Res.string.guarded_wallet),
             // Names the reach the parent is actually granting: itself, and each
@@ -400,9 +431,9 @@ private fun WalletPolicyChooser(
             description = if (!canGuard) {
                 stringResource(Res.string.this_group_s_guardian_keys_can_t_be_read)
             } else if (parentGuardianCount == 0) {
-                stringResource(Res.string.this_group_can_spend_its_coins_once, delay)
+                stringResource(Res.string.this_group_can_spend_its_coins_once)
             } else {
-                stringResource(Res.string.this_group_and_the_d_above_it_can_spend, parentGuardianCount, delay)
+                stringResource(Res.string.this_group_and_the_d_above_it_can_spend, parentGuardianCount)
             },
             isSelected = policy == SubgroupWalletPolicy.GUARDED,
             isEnabled = canGuard,
@@ -420,6 +451,81 @@ private fun WalletPolicyChooser(
             onSelect = { onPolicyChange(SubgroupWalletPolicy.UNGUARDED) }
         )
     }
+}
+
+/**
+ * How long a coin in the guarded subgroup's wallet waits before this group can
+ * take it -- the parent's own leaf, `docs/guardian-delay.md`. Presets for what
+ * people mean, and a field for the exact number of blocks, which says what it
+ * works out to while it is typed.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GuardianDelayChooser(
+    input: String,
+    delay: Long?,
+    isCustom: Boolean,
+    problem: String?,
+    onPreset: (Long) -> Unit,
+    onCustom: () -> Unit,
+    onInput: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
+    ) {
+        Text(
+            text = stringResource(Res.string.how_long_before_this_group_can_spend_a_coin),
+            style = MaterialTheme.typography.titleSmall
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)
+        ) {
+            SelectSubgroupAdminsViewModel.DELAY_PRESETS.forEach { preset ->
+                FilterChip(
+                    selected = !isCustom && delay == preset,
+                    onClick = { onPreset(preset) },
+                    label = { Text(presetLabel(preset)) }
+                )
+            }
+            FilterChip(
+                selected = isCustom,
+                onClick = onCustom,
+                label = { Text(stringResource(Res.string.delay_custom)) }
+            )
+        }
+        if (isCustom) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInput,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                label = { Text(stringResource(Res.string.delay_in_blocks)) },
+                isError = problem != null,
+                supportingText = { Text(problem ?: delay?.let { delayText(it) }.orEmpty()) }
+            )
+        } else if (delay != null && problem == null) {
+            Text(text = delayText(delay), style = MaterialTheme.typography.bodyMedium)
+        }
+        Text(
+            text = stringResource(Res.string.a_coin_the_subgroup_moves_starts_waiting_again),
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+/** What a preset chip calls its delay: the time it was chosen to be, not its estimate. */
+@Composable
+private fun presetLabel(blocks: Long): String = when (blocks) {
+    6L -> stringResource(Res.string.delay_one_hour)
+    12L -> stringResource(Res.string.delay_two_hours)
+    144L -> stringResource(Res.string.delay_one_day)
+    1_008L -> stringResource(Res.string.delay_one_week)
+    4_320L -> stringResource(Res.string.delay_one_month)
+    26_280L -> stringResource(Res.string.delay_six_months)
+    else -> stringResource(Res.string.delay_longest)
 }
 
 @Composable

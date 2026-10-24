@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianDelayTag
 import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
 import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
@@ -191,6 +192,11 @@ object ChillDkgRitualManager {
      * certificate proposes it under the same one. Only a subgroup's ceremony has
      * one. See `docs/subgroup-wallet-policy.md`.
      *
+     * [guardianDelay] is the delay, in blocks, the coordinator chose for the
+     * parent's own leaf in a guarded subgroup's wallet, carried the same way and
+     * for the same reasons. Only a guarded ceremony has one, and it is in
+     * `GuardianDerivation.DELAY_RANGE`. See `docs/guardian-delay.md`.
+     *
      * Throws when the group or the threshold cannot support one; the UI checks
      * both before offering the button, so reaching either is a bug rather than a
      * user error.
@@ -204,7 +210,8 @@ object ChillDkgRitualManager {
         parentChatRoomId: HexKey? = null,
         participantPublicKeys: Set<HexKey>? = null,
         subject: String? = null,
-        walletPolicy: SubgroupWalletPolicy? = null
+        walletPolicy: SubgroupWalletPolicy? = null,
+        guardianDelay: Long? = null
     ): DkgSession {
         // A policy is for a subgroup's wallet, and a ceremony with no parent makes
         // no subgroup. `acceptProposal` drops the same thing on the way in.
@@ -212,6 +219,13 @@ object ChillDkgRitualManager {
         // for a question this one should never have asked.
         require(walletPolicy == null || parentChatRoomId != null) {
             "Only a subgroup's ceremony carries a wallet policy"
+        }
+        // A delay is a guarded wallet's, and within what a leaf can carry.
+        require(guardianDelay == null || walletPolicy == SubgroupWalletPolicy.GUARDED) {
+            "Only a guarded subgroup's ceremony carries a guardian delay"
+        }
+        require(guardianDelay == null || guardianDelay in GuardianDerivation.DELAY_RANGE) {
+            "A guardian's delay is ${GuardianDerivation.MIN_DELAY} to ${GuardianDerivation.MAX_DELAY} blocks, not $guardianDelay"
         }
 
         // Built the way a receiver rebuilds it from the proposal — the p-tags
@@ -312,6 +326,7 @@ object ChillDkgRitualManager {
             participantPublicKeys = DkgSession.formatParticipants(members),
             subject = ceremonySubject,
             walletPolicy = walletPolicy?.tagValue,
+            guardianDelay = guardianDelay,
             hostPublicKey = deriveHostPublicKey(nostrPrivateKey).value.toHex(),
             // Fresh per session. Persisted because participantStep1/2 are pure in
             // it, which is what makes the whole ritual restart-safe.
@@ -506,6 +521,21 @@ object ChillDkgRitualManager {
             return null
         }
 
+        // The same for the delay: a guarded subgroup's only, and in range. An
+        // admin shown no delay must not be asked to sign a certificate under one.
+        val guardianDelay = when (val tag = DkgRitualEvents.parseGuardianDelay(innerEvent.tags)) {
+            GuardianDelayTag.Result.Absent -> null
+            GuardianDelayTag.Result.Unreadable -> {
+                logger.w("DKG proposal $sessionId carries a guardian delay that does not read; dropping")
+                return null
+            }
+            is GuardianDelayTag.Result.Present -> tag.delay
+        }
+        if (guardianDelay != null && walletPolicy != SubgroupWalletPolicy.GUARDED) {
+            logger.w("DKG proposal $sessionId carries a guardian delay for a subgroup that is not guarded; dropping")
+            return null
+        }
+
         val session = DkgSession(
             id = sessionId,
             chatRoomId = localChatRoom.chatRoom.id,
@@ -533,6 +563,7 @@ object ChillDkgRitualManager {
             // What the subgroup's wallet is to be, as claimed -- shown at the join
             // gate, so joining is agreeing to it. See the checks above.
             walletPolicy = walletPolicy?.tagValue,
+            guardianDelay = guardianDelay,
             hostPublicKey = deriveHostPublicKey(nostrPrivateKey).value.toHex(),
             round1Random = RandomInstance.bytes(32).toHex(),
             round2AuxRandom = RandomInstance.bytes(32).toHex(),
@@ -1504,7 +1535,8 @@ object ChillDkgRitualManager {
             parentChatRoomId = if (includeParent) session.parentChatRoomId else null,
             subject = subject,
             // With the parent, and for the same reason: only on the proposal.
-            walletPolicy = if (includeParent) session.subgroupWalletPolicy else null
+            walletPolicy = if (includeParent) session.subgroupWalletPolicy else null,
+            guardianDelay = if (includeParent) session.guardianDelay else null
         )
 
         val createdAt = Clock.System.now().epochSeconds

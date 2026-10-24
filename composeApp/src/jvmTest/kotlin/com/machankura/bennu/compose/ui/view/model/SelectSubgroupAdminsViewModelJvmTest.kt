@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
@@ -81,6 +83,7 @@ class SelectSubgroupAdminsViewModelJvmTest {
     private fun failed(
         parentChatRoomId: String? = this.parentChatRoomId,
         walletPolicy: SubgroupWalletPolicy? = null,
+        guardianDelay: Long? = null,
     ) = DkgSession(
         id = failedId,
         chatRoomId = this.parentChatRoomId,
@@ -96,6 +99,7 @@ class SelectSubgroupAdminsViewModelJvmTest {
         round2AuxRandom = "bb".repeat(32),
         parentChatRoomId = parentChatRoomId,
         walletPolicy = walletPolicy?.tagValue,
+        guardianDelay = guardianDelay,
     )
 
     private fun chatRepository(
@@ -269,5 +273,73 @@ class SelectSubgroupAdminsViewModelJvmTest {
             viewModel.refusal(),
             "refused here, not after a ceremony",
         )
+    }
+
+    // ---- the guardian delay: docs/guardian-delay.md, Phase 5 ---------------
+
+    private suspend fun loadedWithName(session: DkgSession? = null) = viewModel(session).apply {
+        initiate()
+        awaitLoaded()
+        setName("Tapscript")
+    }
+
+    @Test
+    fun `a guarded subgroup's delay starts at the default`(): Unit = runBlocking {
+        val viewModel = loadedWithName()
+
+        assertEquals(12L, viewModel.guardianDelay())
+        assertFalse(viewModel.isCustomDelay.value)
+        assertNull(viewModel.guardianDelayProblem())
+    }
+
+    @Test
+    fun `a preset and a typed delay are what refusal judges`(): Unit = runBlocking {
+        val viewModel = loadedWithName()
+
+        viewModel.setGuardianDelay(4_320)
+        assertEquals(4_320L, viewModel.guardianDelay())
+        assertNull(viewModel.refusal()?.takeIf { "delay" in it })
+
+        viewModel.useCustomDelay()
+        viewModel.setGuardianDelayInput("2,016")
+        assertEquals(2_016L, viewModel.guardianDelay(), "grouping is dropped as it is typed")
+        assertTrue(viewModel.isCustomDelay.value)
+    }
+
+    @Test
+    fun `a delay below six or above 65535 is refused with its reason`(): Unit = runBlocking {
+        val viewModel = loadedWithName()
+        viewModel.useCustomDelay()
+
+        viewModel.setGuardianDelayInput("5")
+        assertEquals("A delay is at least 6 blocks.", viewModel.refusal())
+
+        viewModel.setGuardianDelayInput("65536")
+        assertEquals(65_536L, viewModel.guardianDelay(), "kept as typed, so the field can say what is wrong with it")
+        assertEquals("A delay is at most 65,535 blocks.", viewModel.refusal())
+
+        viewModel.setGuardianDelayInput("")
+        assertEquals("Give the delay in blocks.", viewModel.refusal())
+    }
+
+    @Test
+    fun `an unguarded subgroup is not held to a delay`(): Unit = runBlocking {
+        val viewModel = loadedWithName()
+        viewModel.useCustomDelay()
+        viewModel.setGuardianDelayInput("5")
+        viewModel.setWalletPolicy(SubgroupWalletPolicy.UNGUARDED)
+
+        assertNull(viewModel.refusal()?.takeIf { "delay" in it })
+    }
+
+    @Test
+    fun `a retry starts from the failed ceremony's delay`(): Unit = runBlocking {
+        val preset = loadedWithName(failed(walletPolicy = SubgroupWalletPolicy.GUARDED, guardianDelay = 1_008))
+        assertEquals(1_008L, preset.guardianDelay())
+        assertFalse(preset.isCustomDelay.value, "a preset comes back as the preset")
+
+        val typed = loadedWithName(failed(walletPolicy = SubgroupWalletPolicy.GUARDED, guardianDelay = 2_016))
+        assertEquals(2_016L, typed.guardianDelay())
+        assertTrue(typed.isCustomDelay.value, "anything else comes back in the field")
     }
 }

@@ -50,7 +50,7 @@ class ProposedEventTest {
         )
 
         assertEquals(
-            "#Translation · run by 1 members · this group can spend from its wallet · its wallet must be guarded",
+            "#Translation · run by 1 members · this group can spend from its wallet · this group after 12 blocks, about 2 hours · its wallet must be guarded",
             ProposedEvent.summarize(certificate(SubgroupWalletPolicy.GUARDED, guarded = true)).detail,
         )
         // Not left to an absent line: a signer approving this is taking the
@@ -60,7 +60,7 @@ class ProposedEventTest {
             ProposedEvent.summarize(certificate(SubgroupWalletPolicy.UNGUARDED, guarded = false)).detail,
         )
         assertEquals(
-            "#Translation · run by 1 members · this group can spend from its wallet",
+            "#Translation · run by 1 members · this group can spend from its wallet · this group after 12 blocks, about 2 hours",
             ProposedEvent.summarize(certificate(null, guarded = true)).detail,
             "an older certificate decides nothing, and says nothing about it",
         )

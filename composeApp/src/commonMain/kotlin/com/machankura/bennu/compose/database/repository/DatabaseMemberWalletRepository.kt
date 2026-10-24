@@ -44,6 +44,13 @@ class DatabaseMemberWalletRepository(
         null
     }
 
+    override suspend fun delaysOf(chatRoomId: String): List<Long>? = try {
+        MemberWalletManager.delaysOf(database, chatRoomId)
+    } catch (e: Throwable) {
+        logger.e("Error reading how far $chatRoomId's guard reaches", e)
+        null
+    }
+
     override suspend fun askForGroupKey(chatRoomId: String): Boolean {
         val identity = activeIdentity.value ?: return false
         return MemberWalletManager.askForGroupKey(database, chatRoomId, identity.nostrPublicKey)

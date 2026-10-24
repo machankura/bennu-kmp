@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
@@ -73,9 +74,13 @@ fun DkgJoinApprovalScreen(
         session.subgroupWalletPolicy?.let { policy ->
             Text(
                 text = when (policy) {
+                    // The parent's own leaf's delay, as the coordinator chose it --
+                    // or the default an older build's ceremony is certified at.
+                    // An inherited ancestor's is not here: a member deciding
+                    // whether to join cannot check it. docs/guardian-delay.md.
                     SubgroupWalletPolicy.GUARDED -> stringResource(
                         Res.string.the_subgroup_s_wallet_will_be_guarded,
-                        GuardianDerivation.ANCESTOR_DELAY.toInt()
+                        delayText(session.guardianDelay ?: GuardianDerivation.DEFAULT_DELAY)
                     )
                     SubgroupWalletPolicy.UNGUARDED -> stringResource(Res.string.the_subgroup_s_wallet_will_not_be_guarded)
                 },
