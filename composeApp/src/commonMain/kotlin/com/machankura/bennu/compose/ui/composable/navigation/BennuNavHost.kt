@@ -1081,6 +1081,7 @@ fun BennuNavHost(
                     relayHint = route.relayHint,
                     nostrRepository = databaseNostrRepository,
                     chatRepository = databaseChatRepository,
+                    memberWalletRepository = databaseMemberWalletRepository,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(
                             route = actionRoute
@@ -1369,6 +1370,8 @@ fun BennuNavHost(
                     profilePublicKey = route.profilePublicKey,
                     nostrRepository = databaseNostrRepository,
                     chatRepository = databaseChatRepository,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    onNavigateToRoute = { actionRoute -> navController.navigate(route = actionRoute) },
                     // The room replaces the preview, as it replaces the profile detail
                     // above: back from a chat is the list, not the person it was started
                     // from.

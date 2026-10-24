@@ -547,6 +547,63 @@ object MemberWalletManager {
         )
     }
 
+    // ---- Shown from the group, and from the person -----------------------
+
+    /** A member's wallet as the guarding group's page lists it: certified, or asked for and not yet put to the group. */
+    data class GroupMemberWallet(
+        val walletId: String,
+        val ownerPublicKey: HexKey,
+        /** The member's profile name on this device, or null. */
+        val ownerName: String?,
+        val label: String?,
+        val request: Event,
+        val isCertified: Boolean,
+    )
+
+    /**
+     * The member wallets [chatRoomId] guards, and the requests still waiting for
+     * a signer to put them to it -- the group's page's *Members' guarded
+     * wallets*, which is never mixed into its subgroups: a row there is a
+     * person, not a room.
+     */
+    suspend fun memberWalletsOf(database: BennuDatabase, chatRoomId: String): List<GroupMemberWallet> {
+        suspend fun nameOf(publicKey: HexKey) = database.profileDao().getProfileByPublicKey(publicKey)?.humanReadableNameOrPubkey()
+        val certified = certificatesOf(database, chatRoomId).map {
+            GroupMemberWallet(it.walletId, it.memberPublicKey, nameOf(it.memberPublicKey), it.label, it.request, isCertified = true)
+        }
+        val waiting = awaitingSponsor(database, chatRoomId).map {
+            GroupMemberWallet(it.reading.walletId, it.reading.memberPublicKey, nameOf(it.reading.memberPublicKey), it.reading.label, it.request, isCertified = false)
+        }
+        return certified + waiting
+    }
+
+    /**
+     * Every guarded wallet of [ownerPublicKey]'s that a group [viewerPublicKey]
+     * is in on this device guards, as that group holds it -- the person's page's *Wallets your
+     * groups guard*. One entry per guarding group: a wallet guarded by a group
+     * and its parent, both here, is two ways in, each spending through its own
+     * leaf.
+     */
+    suspend fun guardedByGroupsHere(database: BennuDatabase, viewerPublicKey: HexKey, ownerPublicKey: HexKey): List<GuardedHere> =
+        database.chatRoomDao().getChatRoomListByUserPublicKey(viewerPublicKey)
+            .filter { it.chatRoom.mlsGroupState != null }
+            .flatMap { room ->
+                val wallets = runCatching { GuardianManager.guardedWalletsOf(database, room.chatRoom.id) }.getOrDefault(emptyList())
+                    .filter { (it.subject as? GuardianManager.GuardedSubject.Member)?.ownerPublicKey.equals(ownerPublicKey, ignoreCase = true) }
+                if (wallets.isEmpty()) return@flatMap emptyList()
+                val canSpend = FrostSigningManager.canSign(database, room.chatRoom.id)
+                wallets.map { GuardedHere(it, room.chatRoom.subject?.takeIf { name -> name.isNotBlank() }, canSpend) }
+            }
+
+    /** A member's wallet as one of the guarding groups on this device holds it. */
+    data class GuardedHere(
+        val wallet: GuardianManager.GuardedWallet,
+        /** The guarding group's room name here. */
+        val guardianName: String?,
+        /** Whether this device holds a share of that group's key, and so can propose a spend through its leaf. */
+        val canSpend: Boolean,
+    )
+
     private suspend fun noticesIn(database: BennuDatabase, chatRoomId: String): List<Event> =
         database.marmotInnerEventDao()
             .getByChatRoomAndKinds(chatRoomId, listOf(GroupKeyNoticeEvent.KIND))

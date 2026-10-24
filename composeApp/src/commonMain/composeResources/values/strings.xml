@@ -623,4 +623,10 @@
     <string name="sent_waiting_for_the_network">Sent, waiting for the network to report it</string>
     <string name="in_the_mempool">In the mempool</string>
     <string name="at_s">@%1$s</string>
+    <string name="members_guarded_wallets">Members' guarded wallets</string>
+    <string name="ask_this_group_to_guard_a_wallet_for_you">Ask this group to guard a wallet for you</string>
+    <string name="asked_by_s_not_yet_signed">Asked by %1$s, not yet signed</string>
+    <string name="put_to_the_group">Put to the group</string>
+    <string name="couldn_t_put_it_to_the_group">Couldn't put it to the group.</string>
+    <string name="wallets_your_groups_guard">Wallets your groups guard</string>
 </resources>

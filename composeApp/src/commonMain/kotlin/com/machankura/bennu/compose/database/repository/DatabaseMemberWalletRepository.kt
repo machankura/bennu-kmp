@@ -2,7 +2,10 @@ package com.machankura.bennu.compose.database.repository
 
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
+import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.MemberWallet
+import com.machankura.bennu.compose.managers.GuardianManager
+import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.machankura.bennu.compose.database.model.MemberWalletSpend
 import fr.acinq.bitcoin.Transaction
 import fr.acinq.bitcoin.psbt.Psbt
@@ -96,6 +99,27 @@ class DatabaseMemberWalletRepository(
         MemberWalletManager.recordChain(database, txid, confirmations, broadcastAt)
 
     override fun observeSpends(walletId: String): Flow<List<MemberWalletSpend>> = database.memberWalletDao().observeSpends(walletId)
+
+    override suspend fun memberWalletsOf(chatRoomId: String): List<MemberWalletManager.GroupMemberWallet> = try {
+        MemberWalletManager.memberWalletsOf(database, chatRoomId)
+    } catch (e: Throwable) {
+        logger.e("Error reading the member wallets $chatRoomId guards", e)
+        emptyList()
+    }
+
+    override suspend fun putToGroup(chatRoomId: String, request: Event): FrostSigningSession {
+        val identity = activeIdentity.value ?: throw IllegalStateException("No profile is active")
+        val room = database.chatRoomDao().findChatRoomById(chatRoomId) ?: throw IllegalStateException("No such group here")
+        return MemberWalletManager.putToGroup(database, room, identity.nostrPublicKey, request)
+    }
+
+    override suspend fun guardedByGroupsHere(ownerPublicKey: HexKey): List<MemberWalletManager.GuardedHere> = try {
+        val viewer = activeIdentity.value?.nostrPublicKey ?: return emptyList()
+        MemberWalletManager.guardedByGroupsHere(database, viewer, ownerPublicKey)
+    } catch (e: Throwable) {
+        logger.e("Error reading the wallets of $ownerPublicKey this profile's groups guard", e)
+        emptyList()
+    }
 
     companion object {
         private const val TAG = "DatabaseMemberWalletRepository"

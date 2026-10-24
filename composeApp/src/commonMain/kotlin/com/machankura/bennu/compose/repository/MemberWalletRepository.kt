@@ -1,6 +1,9 @@
 package com.machankura.bennu.compose.repository
 
+import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.MemberWallet
+import com.machankura.bennu.compose.managers.GuardianManager
+import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.machankura.bennu.compose.database.model.MemberWalletSpend
 import fr.acinq.bitcoin.Transaction
 import fr.acinq.bitcoin.psbt.Psbt
@@ -61,6 +64,15 @@ interface MemberWalletRepository {
     /** The spends the member signed from [walletId], newest first. */
     fun observeSpends(walletId: String): Flow<List<MemberWalletSpend>>
 
+    /** The member wallets [chatRoomId] guards, and the requests waiting for a signer to put them to it. */
+    suspend fun memberWalletsOf(chatRoomId: String): List<MemberWalletManager.GroupMemberWallet>
+
+    /** Puts a member's request to [chatRoomId]'s quorum as the active profile, which counts as its approval. */
+    suspend fun putToGroup(chatRoomId: String, request: Event): FrostSigningSession
+
+    /** Every wallet of [ownerPublicKey]'s a group the active profile is in guards. */
+    suspend fun guardedByGroupsHere(ownerPublicKey: HexKey): List<MemberWalletManager.GuardedHere>
+
     companion object {
         val NO_OP = object : MemberWalletRepository {
             override suspend fun groupsOf(ownerPublicKey: HexKey): List<LocalChatRoom> = emptyList()
@@ -78,6 +90,9 @@ interface MemberWalletRepository {
             override suspend fun signSpend(walletId: String, psbt: Psbt): Transaction = throw UnsupportedOperationException("no repository")
             override suspend fun recordChain(txid: String, confirmations: Int?, broadcastAt: Instant?) = Unit
             override fun observeSpends(walletId: String): Flow<List<MemberWalletSpend>> = flowOf(emptyList())
+            override suspend fun memberWalletsOf(chatRoomId: String): List<MemberWalletManager.GroupMemberWallet> = emptyList()
+            override suspend fun putToGroup(chatRoomId: String, request: Event): FrostSigningSession = throw UnsupportedOperationException("no repository")
+            override suspend fun guardedByGroupsHere(ownerPublicKey: HexKey): List<MemberWalletManager.GuardedHere> = emptyList()
         }
     }
 }
