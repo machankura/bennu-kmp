@@ -349,12 +349,18 @@ object GroupSpend {
      * The PSBT a proposer sends: [tx] with every input's spent output and
      * derivation, and every change output's derivation, so that a signer is
      * *told* what is change -- and [check] is how they decide whether to believe it.
+     *
+     * A [funding] output -- one paying a descendant's guarded wallet -- carries
+     * its derivation the same way, under the descendant's account rather than
+     * this one, so it is never mistaken for change and a signer holding that
+     * wallet can derive it again. See `docs/guarded-wallet-funding.md`.
      */
     fun psbtOf(
         tx: Transaction,
         spent: List<Pair<TxOut, GroupWalletDerivation.Derived>>,
         change: Map<Int, GroupWalletDerivation.Derived>,
         account: GroupWalletDerivation.Account,
+        funding: Map<Int, Pair<GroupWalletDerivation.Account, GroupWalletDerivation.Derived>> = emptyMap(),
     ): Psbt {
         require(spent.size == tx.txIn.size) { "one spent output per input" }
 
@@ -367,11 +373,13 @@ object GroupSpend {
             ).right ?: throw IllegalArgumentException("could not describe input $index")
         }
 
-        return change.entries.fold(withInputs) { psbt, (index, derivation) ->
+        val outputs = change.mapValues { (_, derivation) -> account to derivation } + funding
+        return outputs.entries.fold(withInputs) { psbt, (index, claim) ->
+            val (owner, derivation) = claim
             psbt.updateWitnessOutput(
                 outputIndex = index,
                 taprootInternalKey = derivation.internalKey,
-                taprootDerivationPaths = mapOf(derivation.internalKey to pathOf(derivation, account)),
+                taprootDerivationPaths = mapOf(derivation.internalKey to pathOf(derivation, owner)),
             ).right ?: throw IllegalArgumentException("could not describe output $index")
         }
     }
