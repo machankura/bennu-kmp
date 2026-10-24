@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.types.ChatRoomType
 import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
@@ -163,6 +164,28 @@ object MemberWalletManager {
 
         /** The group's newest policy closed it to new members' wallets. D9. */
         CLOSED,
+    }
+
+    /**
+     * The groups [ownerPublicKey] is in that could guard a wallet for them: Marmot
+     * rooms, whether or not their key is known yet -- but not a direct chat.
+     *
+     * A direct chat is a Marmot room too, of exactly two people, and it never has
+     * a key: a key ceremony needs at least `ChatRoomType.MINIMUM_ROBUST_GROUP_SIZE`
+     * participants. Listed, it would ask for a key nobody can ever answer with.
+     * So a room of fewer than three members is left out unless this device knows
+     * its key -- a real group can shrink to two after its ceremony, and still sign
+     * if the two make its quorum. The same "the two of us" the direct-message
+     * lookup uses (`ChatRepository.findDirectMessageRoom`).
+     */
+    suspend fun groupsOf(database: BennuDatabase, ownerPublicKey: HexKey): List<LocalChatRoom> =
+        database.chatRoomDao().getChatRoomListByUserPublicKey(ownerPublicKey).filter { couldGuard(database, it) }
+
+    /** Whether [room] is a group that could guard a member's wallet: [groupsOf]'s one rule, for a room on its own page too. */
+    suspend fun couldGuard(database: BennuDatabase, room: LocalChatRoom): Boolean {
+        if (room.chatRoom.mlsGroupState == null) return false
+        val members = room.localParticipants.map { it.participant.participantPublicKey.lowercase() }.toSet()
+        return members.size >= ChatRoomType.MINIMUM_ROBUST_GROUP_SIZE || groupKeyFor(database, room.chatRoom.id) != null
     }
 
     /** Why [chatRoomId] cannot guard a wallet for this profile on [chain], or null when it can. */

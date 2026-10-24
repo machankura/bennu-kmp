@@ -75,6 +75,9 @@ interface MemberWalletRepository {
     /** [chatRoomId]'s newest member-wallet policy this device holds, or null. See `MemberWalletManager.policyFor`. */
     suspend fun policyOf(chatRoomId: String): MemberWalletPolicyEvent.Policy?
 
+    /** Whether [chatRoomId] is a group that could guard a member's wallet -- not a direct chat. See `MemberWalletManager.couldGuard`. */
+    suspend fun couldGuard(chatRoomId: String): Boolean
+
     /** Puts a member's request to [chatRoomId]'s quorum as the active profile, which counts as its approval. */
     suspend fun putToGroup(chatRoomId: String, request: Event): FrostSigningSession
 
@@ -103,6 +106,8 @@ interface MemberWalletRepository {
             override suspend fun memberWalletsOf(chatRoomId: String): List<MemberWalletManager.GroupMemberWallet> = emptyList()
 
             override suspend fun policyOf(chatRoomId: String): MemberWalletPolicyEvent.Policy? = null
+
+            override suspend fun couldGuard(chatRoomId: String): Boolean = false
             override suspend fun putToGroup(chatRoomId: String, request: Event): FrostSigningSession = throw UnsupportedOperationException("no repository")
             override suspend fun guardedByGroupsHere(ownerPublicKey: HexKey): List<MemberWalletManager.GuardedHere> = emptyList()
         }
