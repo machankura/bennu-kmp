@@ -9,6 +9,7 @@ import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.ByteVector64
 import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.Crypto
+import fr.acinq.bitcoin.Descriptor
 import fr.acinq.bitcoin.DeterministicWallet
 import fr.acinq.bitcoin.KeyPath
 import fr.acinq.bitcoin.PrivateKey
@@ -102,6 +103,24 @@ object MemberWalletDerivation {
         require(change == GroupWalletDerivation.RECEIVE || change == GroupWalletDerivation.CHANGE) { "change must be 0 or 1, not $change" }
         require(index in 0L..GroupWalletDerivation.MAX_INDEX) { "index $index is not an unhardened index" }
         return accountPrivateKey(walletPrivateKey, chain).derivePrivateKey(listOf(change, index)).privateKey
+    }
+
+    /**
+     * The receive and change descriptors of [account] with the account's private
+     * key in place of its xpub -- what any wallet that imports taproot
+     * descriptors can sweep the coins with. The member's backup of last resort,
+     * shown only behind a confirmation: whoever holds these holds the coins.
+     */
+    fun privateDescriptors(walletPrivateKey: PrivateKey, account: GroupWalletDerivation.Account): Pair<String, String> {
+        val extended = accountPrivateKey(walletPrivateKey, account.chain)
+        require(extended.extendedPublicKey == account.extendedPublicKey) { "this key does not open this account" }
+        val xprv = extended.encode(if (account.chain.isMainnet()) DeterministicWallet.xprv else DeterministicWallet.tprv)
+
+        fun swap(descriptor: String): String {
+            val body = descriptor.substringBefore('#').replaceFirst(account.xpub, xprv)
+            return "$body#${Descriptor.checksum(body)}"
+        }
+        return swap(account.receiveDescriptor) to swap(account.changeDescriptor)
     }
 
     /**

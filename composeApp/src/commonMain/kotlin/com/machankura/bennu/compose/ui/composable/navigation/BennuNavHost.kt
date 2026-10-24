@@ -140,6 +140,8 @@ import kotlinx.coroutines.launch
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletAddressesRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.NewMemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.MemberWalletScreen
 import com.machankura.bennu.compose.ui.composable.NewMemberWalletScreen
 import com.machankura.bennu.compose.database.repository.DatabaseMemberWalletRepository
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
@@ -919,6 +921,8 @@ fun BennuNavHost(
                         )
                     },
                     signOut = signOutOfReadOnlyIdentity,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    wallets = groupOnchainWallets,
                 )
             }
             composable<ShareProfileRoute> { backStackEntry ->
@@ -1151,6 +1155,19 @@ fun BennuNavHost(
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
                     },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<MemberWalletRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<MemberWalletRoute>()
+
+                MemberWalletScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    walletId = route.walletId,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    wallets = groupOnchainWallets,
                     onNavigateBack = {
                         navController.popBackStack()
                     }

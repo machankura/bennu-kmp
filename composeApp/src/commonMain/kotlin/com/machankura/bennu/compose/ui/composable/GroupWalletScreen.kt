@@ -714,7 +714,7 @@ private fun LazyListScope.guardianItems(
 }
 
 @Composable
-private fun BalanceCard(walletState: GroupWalletState?) {
+internal fun BalanceCard(walletState: GroupWalletState?) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(MaterialTheme.spacing.containerPadding),
@@ -741,7 +741,7 @@ private fun BalanceCard(walletState: GroupWalletState?) {
 }
 
 @Composable
-private fun CoinRow(utxo: GroupUtxo, confirmations: Int) {
+internal fun CoinRow(utxo: GroupUtxo, confirmations: Int) {
     ListItem(
         leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
         headlineContent = { Text(stringResource(Res.string.s_sats, utxo.amount.grouped())) },

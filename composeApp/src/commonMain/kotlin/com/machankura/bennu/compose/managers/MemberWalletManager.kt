@@ -248,6 +248,105 @@ object MemberWalletManager {
             .onFailure { logger.w("Asked $chatRoomId, and could not put it to the group: ${it.message}") }
     }
 
+    /** Where a member's wallet has got to, as one fact the profile shows. */
+    enum class WalletState {
+        /** A key and a request here; nobody has put it to the group yet. */
+        ASKED,
+
+        /** A session is running over its certificate. */
+        SIGNING,
+
+        /** The session failed or was declined, and the group has not certified it. */
+        NOT_SIGNED,
+
+        /** Certified, and the key is on this device. */
+        OPEN,
+
+        /** Certified, and the key is on another device of this profile's. */
+        WATCH_ONLY,
+    }
+
+    /** One of a member's guarded wallets, as their profile lists it. */
+    data class MemberWalletRow(
+        val walletId: String,
+        val groupChatRoomId: String,
+        /** The guarding group's room on this device, or null when this device is not in it. */
+        val groupRoom: LocalChatRoom?,
+        val label: String?,
+        val chain: Chain,
+        /** The account the wallet opens: rederived from the request, guardians and all. */
+        val account: GroupWalletDerivation.Account,
+        val state: WalletState,
+        /** Whether the member is still a member of the guarding group, as far as this device can see. */
+        val isMember: Boolean,
+        /** The stored key's row, for a wallet whose key is here. Never handed to a screen. */
+        internal val stored: MemberWallet?,
+    ) {
+        val isCertified: Boolean get() = state == WalletState.OPEN || state == WalletState.WATCH_ONLY
+    }
+
+    /**
+     * Every guarded wallet of [ownerPublicKey]'s this device knows about, newest
+     * first: the ones whose key is here, and the ones a group this device is in
+     * has certified for this profile -- which includes wallets made on another
+     * of its devices.
+     */
+    suspend fun walletsOf(database: BennuDatabase, ownerPublicKey: HexKey): List<MemberWalletRow> {
+        val stored = database.memberWalletDao().getByOwner(ownerPublicKey)
+        val certified = database.groupSignedEventDao().getByKind(MemberWalletCertificateEvent.KIND)
+            .filter { MemberWalletCertificateEvent.memberOf(it.toEvent()).equals(ownerPublicKey, ignoreCase = true) }
+            .mapNotNull { MemberWalletCertificateEvent.verify(it.toEvent(), it.chatRoomId) }
+            .distinctBy { it.walletId }
+            .associateBy { it.walletId }
+
+        val fromKeys = stored.mapNotNull { wallet ->
+            val request = Event.fromJsonOrNull(wallet.requestJson) ?: return@mapNotNull null
+            val verified = MemberWalletRequestEvent.verified(request) ?: return@mapNotNull null
+            val state = when {
+                certified.containsKey(wallet.walletId) -> WalletState.OPEN
+                openSessionFor(database, wallet.guardingChatRoomId, request) != null -> WalletState.SIGNING
+                wasNotSigned(database, wallet.guardingChatRoomId, request) -> WalletState.NOT_SIGNED
+                else -> WalletState.ASKED
+            }
+            row(database, wallet.walletId, wallet.guardingChatRoomId, wallet.label, verified.account, state, ownerPublicKey, wallet)
+        }
+        val elsewhere = certified.values
+            .filter { cert -> stored.none { it.walletId == cert.walletId } }
+            .map { row(database, it.walletId, it.groupChatRoomId, it.label, it.account, WalletState.WATCH_ONLY, ownerPublicKey, null) }
+
+        return (fromKeys + elsewhere).sortedByDescending { it.stored?.createdAt?.epochSeconds ?: 0L }
+    }
+
+    private suspend fun row(
+        database: BennuDatabase,
+        walletId: String,
+        groupChatRoomId: String,
+        label: String?,
+        account: GroupWalletDerivation.Account,
+        state: WalletState,
+        ownerPublicKey: HexKey,
+        stored: MemberWallet?,
+    ): MemberWalletRow {
+        val room = database.chatRoomDao().findChatRoomById(groupChatRoomId)
+        val isMember = room == null || database.participantDao().findParticipantsByChatRoomId(groupChatRoomId)
+            .any { it.participantPublicKey.equals(ownerPublicKey, ignoreCase = true) }
+        return MemberWalletRow(walletId, groupChatRoomId, room, label, account.chain, account, state, isMember, stored)
+    }
+
+    /** [ownerPublicKey]'s wallet [walletId], or null when this device knows of none. */
+    suspend fun walletOf(database: BennuDatabase, ownerPublicKey: HexKey, walletId: String): MemberWalletRow? =
+        walletsOf(database, ownerPublicKey).firstOrNull { it.walletId == walletId }
+
+    /**
+     * [walletId]'s descriptors with its private key in them, or null when the key
+     * is not on this device. See `MemberWalletDerivation.privateDescriptors`.
+     */
+    suspend fun exportKey(database: BennuDatabase, ownerPublicKey: HexKey, walletId: String): Pair<String, String>? {
+        val row = walletOf(database, ownerPublicKey, walletId) ?: return null
+        val key = row.stored?.walletPrivateKey?.let { PrivateKey.fromHex(it) } ?: return null
+        return MemberWalletDerivation.privateDescriptors(key, row.account)
+    }
+
     // ---- The group's side ------------------------------------------------
 
     /**

@@ -152,4 +152,17 @@ class MemberWalletDerivationTest {
             assertEquals(GuardianDerivation.leafKey(grant[position], chain, MemberWalletDerivation.ACCOUNT, 0, 4), signing.leafKey)
         }
     }
+
+    @Test
+    fun `the exported descriptors carry the private key and nothing else changes`() {
+        val (receive, change) = MemberWalletDerivation.privateDescriptors(walletPrivateKey, account)
+        for ((exported, public) in listOf(receive to account.receiveDescriptor, change to account.changeDescriptor)) {
+            val (body, checksum) = exported.split('#')
+            assertEquals(Descriptor.checksum(body), checksum)
+            assertTrue(body.contains("tprv"), "a test network's private key")
+            assertTrue(!body.contains(account.xpub), "the account xpub is gone")
+            assertEquals(public.substringBefore('#').replace(account.xpub, ""), body.replace(Regex("tprv[1-9A-HJ-NP-Za-km-z]+"), ""))
+        }
+        assertFails { MemberWalletDerivation.privateDescriptors(privateKey(0xb0b), account) }
+    }
 }

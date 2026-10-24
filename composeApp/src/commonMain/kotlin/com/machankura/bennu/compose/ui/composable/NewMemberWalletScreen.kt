@@ -217,7 +217,7 @@ fun NewMemberWalletScreen(
 
 /** Who can take the member's coins: the group alone, the group and its parent, or the group and N above it. */
 @Composable
-private fun reachText(groupName: String, reach: Int): String {
+internal fun reachText(groupName: String, reach: Int): String {
     val delay = GuardianDerivation.ANCESTOR_DELAY.toInt()
     return when (reach) {
         1 -> stringResource(Res.string.s_can_take_any_coin_without_asking_you, groupName, delay)

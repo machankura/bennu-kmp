@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.repository.MemberWalletRepository
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
+import com.machankura.bennu.compose.ui.view.model.MemberWalletsViewModel
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.NewMemberWalletRoute
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -99,6 +104,11 @@ fun ActiveProfileScreen(
     // an identity to sign out of (previews, tests), in which case the button keeps its
     // pending route for every kind.
     signOut: SignOutDependencies? = null,
+    // The member's guarded wallets (docs/member-guarded-wallets.md). The no-op
+    // repository lists none, for previews and tests; null wallets is a profile
+    // that cannot watch the chain, whose rows show no balance.
+    memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
+    wallets: GroupOnchainWallets? = null,
 ) {
 
     // Whether this identity can sign, which decides which rows below exist.
@@ -129,6 +139,16 @@ fun ActiveProfileScreen(
     LaunchedEffect(signOutState) {
         if (signOutState is SignOutViewModel.State.Failed) notify(couldNotSignOut)
     }
+
+    val memberWalletsViewModel: MemberWalletsViewModel = viewModel(
+        factory = MemberWalletsViewModel.factory(
+            ownerPublicKey = activeUserPublicKey,
+            memberWalletRepository = memberWalletRepository,
+            wallets = wallets,
+        ),
+    )
+    // Each time the profile is shown: a certificate can arrive while it is not.
+    LaunchedEffect(true) { memberWalletsViewModel.refresh() }
 
     val activeProfileViewModel: ActiveProfileViewModel = viewModel(
         factory = ActiveProfileViewModel.factory(
@@ -271,6 +291,17 @@ fun ActiveProfileScreen(
                                     )
                                 }
                             }
+
+                            memberWalletItems(
+                                rows = memberWalletsViewModel.rows,
+                                onOpen = { walletId ->
+                                    onNavigateToRoute.invoke(MemberWalletRoute(activeUserPublicKey = activeUserPublicKey, walletId = walletId))
+                                },
+                                // A read-only identity cannot sign a request, so it is not offered one.
+                                onNew = if (canSign) {
+                                    { onNavigateToRoute.invoke(NewMemberWalletRoute(activeUserPublicKey = activeUserPublicKey)) }
+                                } else null,
+                            )
 
                             // Key packages are signed, and there is nothing to recover for
                             // an identity the device holds no secret for: neither row for a

@@ -471,6 +471,11 @@ abstract class BennuDatabase: RoomDatabase() {
         useWriterConnection { transactor ->
             transactor.immediateTransaction {
                 // TODO: Actually delete the data...
+                //
+                // When this does: MemberWallet holds the only copy of keys that
+                // coins may sit behind (docs/member-guarded-wallets.md, D6). A
+                // caller wiping a profile that holds an open member wallet has to
+                // say so first and offer the key's export, before anything goes.
             }
         }
     }

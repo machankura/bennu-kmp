@@ -28,6 +28,24 @@ interface MemberWalletRepository {
     /** Makes the key, works out the leaves, stores the key, and asks [chatRoomId] to guard it. */
     suspend fun request(chatRoomId: String, chain: Chain, label: String?): MemberWallet
 
+    /** Every guarded wallet of [ownerPublicKey]'s this device knows about, newest first. */
+    suspend fun walletsOf(ownerPublicKey: HexKey): List<MemberWalletManager.MemberWalletRow>
+
+    /** One of them, or null. */
+    suspend fun walletOf(ownerPublicKey: HexKey, walletId: String): MemberWalletManager.MemberWalletRow?
+
+    /** Asks the group again, with the request the wallet was first asked with. */
+    suspend fun askAgain(walletId: String)
+
+    /** Forgets a wallet's key -- refused once a group guards it. */
+    suspend fun discard(walletId: String)
+
+    /** The wallet's receive and change descriptors with its private key in them, or null when the key is not here. */
+    suspend fun exportKey(walletId: String): Pair<String, String>?
+
+    /** What [chatRoomId] is called on this device, or null when it has no room for it. */
+    suspend fun roomName(chatRoomId: String): String?
+
     companion object {
         val NO_OP = object : MemberWalletRepository {
             override suspend fun groupsOf(ownerPublicKey: HexKey): List<LocalChatRoom> = emptyList()
@@ -36,6 +54,12 @@ interface MemberWalletRepository {
             override suspend fun askForGroupKey(chatRoomId: String): Boolean = false
             override suspend fun request(chatRoomId: String, chain: Chain, label: String?): MemberWallet =
                 throw UnsupportedOperationException("no repository")
+            override suspend fun walletsOf(ownerPublicKey: HexKey): List<MemberWalletManager.MemberWalletRow> = emptyList()
+            override suspend fun walletOf(ownerPublicKey: HexKey, walletId: String): MemberWalletManager.MemberWalletRow? = null
+            override suspend fun askAgain(walletId: String) = Unit
+            override suspend fun discard(walletId: String) = Unit
+            override suspend fun exportKey(walletId: String): Pair<String, String>? = null
+            override suspend fun roomName(chatRoomId: String): String? = null
         }
     }
 }

@@ -46,6 +46,42 @@ class DatabaseMemberWalletRepository(
         return MemberWalletManager.request(database, chatRoomId, key, chain, label)
     }
 
+    override suspend fun walletsOf(ownerPublicKey: HexKey): List<MemberWalletManager.MemberWalletRow> = try {
+        MemberWalletManager.walletsOf(database, ownerPublicKey)
+    } catch (e: Throwable) {
+        // A profile that lists no wallets is wrong and survivable; one that will
+        // not open because reading them threw is neither.
+        logger.e("Error reading $ownerPublicKey's guarded wallets", e)
+        emptyList()
+    }
+
+    override suspend fun walletOf(ownerPublicKey: HexKey, walletId: String): MemberWalletManager.MemberWalletRow? = try {
+        MemberWalletManager.walletOf(database, ownerPublicKey, walletId)
+    } catch (e: Throwable) {
+        logger.e("Error reading guarded wallet $walletId", e)
+        null
+    }
+
+    override suspend fun askAgain(walletId: String) {
+        val wallet = database.memberWalletDao().getById(walletId) ?: throw IllegalStateException("No key for $walletId here")
+        check(wallet.ownerPublicKey == activeIdentity.value?.nostrPublicKey) { "Not this profile's wallet" }
+        MemberWalletManager.askAgain(database, wallet)
+    }
+
+    override suspend fun discard(walletId: String) {
+        val wallet = database.memberWalletDao().getById(walletId) ?: return
+        check(wallet.ownerPublicKey == activeIdentity.value?.nostrPublicKey) { "Not this profile's wallet" }
+        MemberWalletManager.discard(database, walletId)
+    }
+
+    override suspend fun exportKey(walletId: String): Pair<String, String>? {
+        val owner = activeIdentity.value?.nostrPublicKey ?: return null
+        return MemberWalletManager.exportKey(database, owner, walletId)
+    }
+
+    override suspend fun roomName(chatRoomId: String): String? =
+        database.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom?.subject?.takeIf { it.isNotBlank() }
+
     companion object {
         private const val TAG = "DatabaseMemberWalletRepository"
     }
