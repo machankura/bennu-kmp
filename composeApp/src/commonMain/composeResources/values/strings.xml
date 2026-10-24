@@ -703,4 +703,5 @@
     <string name="put_to_the_group">Put to the group</string>
     <string name="couldn_t_put_it_to_the_group">Couldn't put it to the group.</string>
     <string name="wallets_your_groups_guard">Wallets your groups guard</string>
+    <string name="this_device_shares_these_on_its_own_when_it_can">This device tells the groups above about these on its own when it can. Share now if a group above hasn't heard.</string>
 </resources>

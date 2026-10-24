@@ -438,7 +438,11 @@ class GuardianSigningJvmTest {
         assertEquals(listOf(first.id), held.map { it.statement.id })
         assertEquals(
             "Shared the guarded wallet of Translation team with this group.",
-            GuardianManager.describeNotice(ancestor.db, roomId, Event("1".repeat(64), members[2], 1, GuardedWalletNoticeEvent.KIND, emptyArray(), first.toJson(), ""))
+            // The notice as it was filed: a second notice of the same statement
+            // would be filed and silent (docs/guarded-wallet-forwarding.md, D6).
+            ancestor.db.marmotInnerEventDao().getByChatRoomAndKinds(roomId, listOf(GuardedWalletNoticeEvent.KIND))
+                .first { Event.fromJsonOrNull(it.content)?.id == first.id }
+                .let { GuardianManager.describeNotice(ancestor.db, roomId, Event(it.id, it.publicKey, it.createdAt.epochSeconds, it.kind, it.tags, it.content, "")) }
         )
     }
 

@@ -18,6 +18,7 @@ silent, or a decision that looked arbitrary and was not.
 | [member-wallet-delay.md](./member-wallet-delay.md) | a group deciding whether it guards members' wallets, at what delay, and closing again -- why a group-signed event of its own rather than the birth certificate, why no event means not offered, why the request carries the policy it was built under, and why closing never releases a wallet already guarded |
 | [guardian-delay.md](./guardian-delay.md) | a parent choosing how long a coin waits before a guardian can take it, from 6 blocks to BIP68's 65,535 -- why each ancestor keeps the delay it chose as its key goes down the tree, what a long delay gives the child, and how a number of blocks is said in time |
 | [member-guarded-wallets.md](./member-guarded-wallets.md) | a guarded wallet a group keeps for one member — why the member makes the key and the leaves before asking, why the group signs a certificate of its own kind rather than a birth certificate, and why a member's wallet shows as `@name` and opens their profile |
+| [guarded-wallet-forwarding.md](./guarded-wallet-forwarding.md) | telling the groups above about a guarded wallet without anybody pressing *Share* — why it goes upward only, why one device sends at once and the rest catch up, and the two bugs in the button it fixes on the way |
 | [guarded-wallet-funding.md](./guarded-wallet-funding.md) | a group paying into a descendant's guarded wallet — why the address is the first unreserved one from `current + 2`, why the claim rides in the PSBT output's derivation and every signer rederives it, and how the guarded wallet row makes room for *Fund* beside *Spend* |
 | [group-wallet-addresses.md](./group-wallet-addresses.md) | listing the group wallet's receive addresses as Phoenix lists its swap-in ones — why the list stops at the current address plus two, why a paid address past that still shows, and why a used address can be copied but never shown as a QR code |
 | [frost-session-resend.md](./frost-session-resend.md) | asking the members who never got a signing proposal to look again — why a proposer can repeat only what it wrote, why a member's availability signal needs no repeating, and the one half that has to come from the silent member's own device |
@@ -76,6 +77,11 @@ reads as the guardian-delay note's last build-table row answered: read the
 member-wallets note and the guardian-delay note first, then its table of where
 the delay should live, then its Phase 0, and its table of where the build chose
 differently before the code.
+The guarded-wallet-forwarding note is a phased plan that has been built.
+It changes who sends a 30333 notice and when, and no format: read the guardians
+note's *How an ancestor finds the coins* and the member-guarded-wallets note's
+Phase 10 first, then its two bugs, its Phase 0, and its table of where the build
+chose differently before the code.
 The guarded-wallet-funding note is a phased plan that has been built. It
 reads as the guardians note run the other way, coins in rather than out: read
 that note and the address note's *Why `+ 2`* first, then its seven decisions
