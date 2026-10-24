@@ -46,6 +46,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.junit.Assume.assumeTrue
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
@@ -195,9 +197,27 @@ class GroupLightningRegtestJvmTest {
         }
     }
 
+    /**
+     * Fails at once, naming what is missing, when the network `regtest.sh up` builds is not there: every
+     * service listening, and the payer's channel to the LSP open. Without this a missing network shows up
+     * as a connection error deep in the first call, or a three-minute timeout.
+     */
+    private fun requireNetwork() {
+        val up = "Start it with testing/regtest/regtest.sh up; testing/regtest/README.md has the details."
+        listOf("bitcoind" to 28443, "electrs" to 28001, "the LSP's API" to 28080, "the payer's API" to 28081).forEach { (what, port) ->
+            val listening = runCatching { Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 2_000) } }.isSuccess
+            if (!listening) throw AssertionError("The regtest network is not running: nothing answers for $what on 127.0.0.1:$port. $up")
+        }
+        val channels = runCatching { payer("channels").jsonArray }.getOrElse { throw AssertionError("The payer's API on 127.0.0.1:28081 does not answer (${it.message}). Restart the network with testing/regtest/regtest.sh down, then up.", it) }
+        if (channels.none { it.jsonObject["state"]?.jsonPrimitive?.content == "NORMAL" }) {
+            throw AssertionError("The regtest network is up but the payer has no open channel to the LSP, so `regtest.sh up` did not finish. Tear it down with testing/regtest/regtest.sh down, then run up again.")
+        }
+    }
+
     @Test
     fun `four devices open, receive, pay, close and sweep on regtest`() = runBlocking<Unit> {
         assumeTrue("set BENNU_REGTEST=1 with testing/regtest up", enabled)
+        requireNetwork()
         val lspId = lsp("getinfo").jsonObject["nodeId"]!!.jsonPrimitive.content
 
         // Open: the onchain wallet, the key, the Lightning wallet, and its operator.

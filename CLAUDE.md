@@ -198,6 +198,18 @@ tween(300)                                                   // no
 ./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:jvmTest
 ```
 
+A change to the group Lightning wallet's node, co-signing or sweeps also has an end-to-end run against
+a regtest network with a real LSP, which `jvmTest` reports as skipped unless asked for.
+[testing/regtest/README.md](testing/regtest/README.md) has the prerequisites and what a failure means:
+
+```bash
+testing/regtest/regtest.sh up
+```
+
+```bash
+BENNU_REGTEST=1 ./gradlew :composeApp:jvmTest --tests '*GroupLightningRegtestJvmTest'
+```
+
 `docs/scripts/` also holds the tools each phase was done with —
 `m3-spacing-positions.py`, `m3-touch-targets.py`, `m3-title-case.py` and the two string
 extractors — each of which takes `--list` to show the sites rather than the count.
