@@ -80,7 +80,10 @@ object MemberWalletManager {
         MemberWalletPolicyEvent.newestAmong(
             database.groupSignedEventDao()
                 .getByChatRoomIdAndKind(chatRoomId, MemberWalletPolicyEvent.KIND)
-                .map { it.toEvent() },
+                .map { it.toEvent() } +
+                // A late member's only way to it: carried in a key answer, and
+                // checked again here as the room's own signature.
+                noticesIn(database, chatRoomId).mapNotNull { GroupKeyNoticeEvent.read(it, chatRoomId)?.policy?.event },
             chatRoomId,
         )
 
@@ -121,6 +124,9 @@ object MemberWalletManager {
             chatRoomId = state.chatRoomId,
             thresholdPublicKey = state.thresholdPublicKey,
             certificate = state.birthCertificateJson?.let { Event.fromJsonOrNull(it) },
+            // The other thing a late member cannot read for themselves.
+            // docs/member-wallet-delay.md, Phase 3.
+            policy = policyFor(database, chatRoomId),
         )
         queue(database, chatRoomId, userPublicKey, GroupKeyNoticeEvent.answeringTags(request.id, groupKey, path), content = state.thresholdPublicKey)
         logger.i("Answered ${request.pubKey.take(8)}'s request for $chatRoomId's key")
