@@ -112,6 +112,9 @@ Several flows publish in bursts, and each of them is a reliable trigger:
 | `MantraDao.addArtifact` | the artifact, then its first version |
 | `MantraDao.addChapter` | the chapter, then one per paragraph chunk |
 
+*The two `MantraDao` rows are history: the documents were removed
+([ceremony-creation.md](./ceremony-creation.md)).*
+
 `addChapter` is the worst of these: a chapter with twenty paragraphs publishes
 twenty-one events at once, and only the ones that happen to arrive in ascending
 generation order survive.

@@ -13,6 +13,7 @@ import fr.acinq.bitcoin.KeyPath
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.bitcoin.PublicKey
 import fr.acinq.bitcoin.Script
+import fr.acinq.bitcoin.ScriptTree
 import fr.acinq.bitcoin.XonlyPublicKey
 import fr.acinq.bitcoin.crypto.Pack
 import fr.acinq.bitcoin.crypto.frost.TweakCache
@@ -54,6 +55,15 @@ import fr.acinq.bitcoin.utils.Either
  * key for any address recovers the group's threshold key -- the room, every
  * address of every account, and every event the group can sign. Nothing here or
  * anywhere else reconstructs one. The only export is the account xpub.
+ *
+ * ### A guarded account
+ *
+ * An account opened with guardians -- the keys a subgroup's birth certificate
+ * grants it, see `GuardianDerivation` -- is the same account with one change at
+ * the very end: each address commits to a tree of one leaf per guardian, so the
+ * last tweak is BIP341's script-path tweak over that tree rather than BIP86's
+ * empty one. The internal key, and so the group's own key-path spend, is
+ * untouched. `docs/group-wallet-guardians.md` says why.
  */
 object GroupWalletDerivation {
     /** BIP44's external chain: addresses handed out to be paid. */
@@ -71,7 +81,7 @@ object GroupWalletDerivation {
     private const val ACCOUNT_TAG = "bennu/group-wallet/account/v1"
 
     /** The largest unhardened BIP32 index. Hardened ones cannot be walked here. */
-    private const val MAX_INDEX: Long = 0x7FFFFFFFL
+    internal const val MAX_INDEX: Long = 0x7FFFFFFFL
 
     /**
      * One account of one group on one network: the extended public key every
@@ -86,7 +96,16 @@ object GroupWalletDerivation {
         val extendedPublicKey: DeterministicWallet.ExtendedPublicKey,
         /** The threshold key tweaked to [extendedPublicKey]'s key: what the account's sessions start from. */
         internal val cache: TweakCache,
+        /**
+         * The ancestors that can spend from every address of this account, nearest
+         * first -- empty for an account nobody guards, which is every account a
+         * group that is nobody's subgroup opens.
+         */
+        val guardians: List<GuardianDerivation.Guardian> = emptyList(),
     ) {
+        /** Whether its addresses carry guardian leaves. */
+        val isGuarded: Boolean get() = guardians.isNotEmpty()
+
         /** The account key's own fingerprint, as a descriptor's key origin and a PSBT's derivation name it. */
         val fingerprint: Long get() = extendedPublicKey.fingerprint()
 
@@ -109,14 +128,20 @@ object GroupWalletDerivation {
         val changeDescriptor: String get() = descriptor(CHANGE)
 
         private fun descriptor(change: Long): String {
-            val body = "tr([$fingerprintHex]$xpub/$change/*)"
+            val tree = if (isGuarded) "," + GuardianDerivation.descriptorTree(guardians, chain, account, change) else ""
+            val body = "tr([$fingerprintHex]$xpub/$change/*$tree)"
             return "$body#${Descriptor.checksum(body)}"
         }
 
-        override fun equals(other: Any?): Boolean =
-            other is Account && chain == other.chain && account == other.account && extendedPublicKey == other.extendedPublicKey
+        /** The same account with [guardians] in every address. */
+        fun guardedBy(guardians: List<GuardianDerivation.Guardian>): Account =
+            Account(chain, account, extendedPublicKey, cache, guardians)
 
-        override fun hashCode(): Int = extendedPublicKey.hashCode()
+        override fun equals(other: Any?): Boolean =
+            other is Account && chain == other.chain && account == other.account &&
+                extendedPublicKey == other.extendedPublicKey && guardians == other.guardians
+
+        override fun hashCode(): Int = extendedPublicKey.hashCode() * 31 + guardians.hashCode()
     }
 
     /**
@@ -134,12 +159,22 @@ object GroupWalletDerivation {
         /** BIP86's output key `Q`: the key in the output script, and the key a spend's signature verifies against. */
         val outputKey: XonlyPublicKey,
         val cache: TweakCache,
+        /** The guardian leaves this address commits to, or null for BIP86's empty tree. */
+        val tree: ScriptTree? = null,
     ) {
+        /** The tweak from [internalKey] to [outputKey]: over [tree] when there is one, BIP86's otherwise. */
+        val taprootTweak: Crypto.TaprootTweak
+            get() = tree?.let { Crypto.TaprootTweak.ScriptPathTweak(it.hash()) } ?: Crypto.TaprootTweak.KeyPathTweak
+
         /** `OP_1 <Q>`. */
         val pubkeyScript: ByteVector
-            get() = ByteVector(Script.write(Script.pay2tr(internalKey, Crypto.TaprootTweak.KeyPathTweak)))
+            get() = ByteVector(Script.write(Script.pay2tr(internalKey, taprootTweak)))
 
-        fun address(chain: Chain): String = Bitcoin.computeBIP86Address(internalKey, chain.chainHash)
+        fun address(chain: Chain): String = when (tree) {
+            null -> Bitcoin.computeBIP86Address(internalKey, chain.chainHash)
+            else -> Bitcoin.addressFromPublicKeyScript(chain.chainHash, pubkeyScript.toByteArray()).right
+                ?: throw IllegalStateException("a taproot output always has an address")
+        }
 
         /** The path below the account, as a PSBT's `tap_bip32_derivation` carries it. */
         val keyPath: KeyPath get() = KeyPath(listOf(change, index))
@@ -153,22 +188,21 @@ object GroupWalletDerivation {
      * or the HMAC lands on an invalid scalar -- around 2^-127, and BIP32 throws at
      * the same place.
      */
-    fun account(thresholdPublicKey: HexKey, chain: Chain, account: Long = 0L): Account {
+    fun account(
+        thresholdPublicKey: HexKey,
+        chain: Chain,
+        account: Long = 0L,
+        guardians: List<GuardianDerivation.Guardian> = emptyList(),
+    ): Account {
         require(account in 0L..MAX_INDEX) { "account $account is not an unhardened index" }
 
         val root = PublicKey(ByteVector(thresholdPublicKey.hexToByteArray()))
         require(root.isValid()) { "the threshold key is not a valid point" }
 
-        val i = Crypto.hmac512(
-            ACCOUNT_TAG.encodeToByteArray(),
-            root.value.toByteArray() + chain.chainHash.value.toByteArray() + Pack.writeInt32BE(account.toInt())
-        )
-        val tweak = i.copyOfRange(0, 32)
-        val chainCode = i.copyOfRange(32, 64)
-        require(Crypto.isPrivKeyValid(tweak)) { "the account step for account $account landed on an invalid scalar" }
+        val (tweak, chainCode) = accountStep(root, chain, account)
 
         val accountKey = root + PrivateKey(tweak).publicKey()
-        val cache = plainTweak(TweakCache.create(root), ByteVector32(tweak), "the account step")
+        val cache = plainTweak(TweakCache.create(root), tweak, "the account step")
         // The cache tracks the full point; the point arithmetic above is the
         // reference it has to agree with, or every session for this account signs
         // for a key nobody's coins are at.
@@ -179,13 +213,32 @@ object GroupWalletDerivation {
             account = account,
             extendedPublicKey = DeterministicWallet.ExtendedPublicKey(
                 publickeybytes = accountKey.value,
-                chaincode = ByteVector32(chainCode),
+                chaincode = chainCode,
                 depth = 0,
                 path = KeyPath.empty,
                 parent = 0L,
             ),
             cache = cache,
+            guardians = guardians,
         )
+    }
+
+    /**
+     * The account step's tweak and chain code for [root]: `I[0:32]` and
+     * `I[32:64]` of the tagged HMAC over the key, the network and the account.
+     *
+     * Split out for the one holder of a key path who has its private key -- a
+     * member wallet, `MemberWalletDerivation` -- which adds the same tweak to
+     * the scalar that [account] adds to the point.
+     */
+    internal fun accountStep(root: PublicKey, chain: Chain, account: Long): Pair<ByteVector32, ByteVector32> {
+        val i = Crypto.hmac512(
+            ACCOUNT_TAG.encodeToByteArray(),
+            root.value.toByteArray() + chain.chainHash.value.toByteArray() + Pack.writeInt32BE(account.toInt())
+        )
+        val tweak = i.copyOfRange(0, 32)
+        require(Crypto.isPrivKeyValid(tweak)) { "the account step for account $account landed on an invalid scalar" }
+        return ByteVector32(tweak) to ByteVector32(i.copyOfRange(32, 64))
     }
 
     /**
@@ -197,19 +250,27 @@ object GroupWalletDerivation {
      * a parity mistake in the cache and a wallet whose signatures do not verify.
      */
     fun derive(account: Account, change: Long, index: Long): Derived =
-        deriveBelow(account.extendedPublicKey, account.cache, change, index)
+        deriveBelow(
+            account.extendedPublicKey,
+            account.cache,
+            change,
+            index,
+            tree = GuardianDerivation.treeAt(account.guardians, account.chain, account.account, change, index),
+        )
 
     /**
-     * The tail on its own: BIP32 public derivation and the BIP341 key-path tweak,
-     * from any account-level key and the cache that signs as it. Split out so the
-     * tail can be tested against BIP86's published vectors, which start from a
-     * seed's account key rather than from a threshold key.
+     * The tail on its own: BIP32 public derivation and the BIP341 tweak -- over
+     * [tree] when there is one, BIP86's key-path tweak otherwise -- from any
+     * account-level key and the cache that signs as it. Split out so the tail can
+     * be tested against BIP86's published vectors, which start from a seed's
+     * account key rather than from a threshold key.
      */
     internal fun deriveBelow(
         accountKey: DeterministicWallet.ExtendedPublicKey,
         accountCache: TweakCache,
         change: Long,
         index: Long,
+        tree: ScriptTree? = null,
     ): Derived {
         require(change == RECEIVE || change == CHANGE) { "change must be $RECEIVE or $CHANGE, not $change" }
         require(index in 0L..MAX_INDEX) { "index $index is not an unhardened index" }
@@ -224,19 +285,20 @@ object GroupWalletDerivation {
         val internalKey = childKey.publicKey.xOnly()
         require(cache.tweakedPublicKey == internalKey) { "the cache does not reach the internal key at $change/$index" }
 
-        cache = when (val tweaked = cache.tweak(internalKey.tweak(Crypto.TaprootTweak.KeyPathTweak), isXonly = true)) {
-            is Either.Left -> throw IllegalArgumentException("Could not apply the key-path tweak at $change/$index", tweaked.value)
+        val taprootTweak = tree?.let { Crypto.TaprootTweak.ScriptPathTweak(it.hash()) } ?: Crypto.TaprootTweak.KeyPathTweak
+        cache = when (val tweaked = cache.tweak(internalKey.tweak(taprootTweak), isXonly = true)) {
+            is Either.Left -> throw IllegalArgumentException("Could not apply the taproot tweak at $change/$index", tweaked.value)
             is Either.Right -> tweaked.value.first
         }
 
-        val outputKey = internalKey.outputKey(Crypto.TaprootTweak.KeyPathTweak).first
+        val outputKey = internalKey.outputKey(taprootTweak).first
         require(cache.tweakedPublicKey == outputKey) { "the cache does not reach the output key at $change/$index" }
 
-        return Derived(change = change, index = index, internalKey = internalKey, outputKey = outputKey, cache = cache)
+        return Derived(change = change, index = index, internalKey = internalKey, outputKey = outputKey, cache = cache, tree = tree)
     }
 
     /** BIP32's `I_L` for one unhardened step: the scalar CKDpub adds, which a FROST cache takes as a plain tweak. */
-    private fun childTweak(parent: DeterministicWallet.ExtendedPublicKey, index: Long): ByteVector32 =
+    internal fun childTweak(parent: DeterministicWallet.ExtendedPublicKey, index: Long): ByteVector32 =
         ByteVector32(
             Crypto.hmac512(
                 parent.chaincode.toByteArray(),
@@ -244,7 +306,7 @@ object GroupWalletDerivation {
             ).copyOfRange(0, 32)
         )
 
-    private fun plainTweak(cache: TweakCache, tweak: ByteVector32, step: String): TweakCache =
+    internal fun plainTweak(cache: TweakCache, tweak: ByteVector32, step: String): TweakCache =
         when (val tweaked = cache.tweak(tweak, isXonly = false)) {
             is Either.Left -> throw IllegalArgumentException("Could not apply $step to the group's key", tweaked.value)
             is Either.Right -> tweaked.value.first

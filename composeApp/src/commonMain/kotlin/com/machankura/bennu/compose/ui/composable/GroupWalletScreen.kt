@@ -1,6 +1,43 @@
 package com.machankura.bennu.compose.ui.composable
 
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import bennu.composeapp.generated.resources.a_group_below_s
+import bennu.composeapp.generated.resources.a_group_below_this_one
+import bennu.composeapp.generated.resources.fund_s_s_guarded_wallet_s
+import bennu.composeapp.generated.resources.fund_s_s_wallet_guarded_by_s
+import bennu.composeapp.generated.resources.guarded_by_n_groups
+import bennu.composeapp.generated.resources.guarded_by_s
+import bennu.composeapp.generated.resources.guarded_by_s_below_s
+import bennu.composeapp.generated.resources.members_wallets
+import bennu.composeapp.generated.resources.n_wallets
+import bennu.composeapp.generated.resources.s_comma_s
+import bennu.composeapp.generated.resources.spend_from_s_s_guarded_wallet_s
+import bennu.composeapp.generated.resources.spend_from_s_s_wallet_guarded_by_s
+import bennu.composeapp.generated.resources.this_group
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.unit.dp
+import com.machankura.bennu.compose.ui.composable.navigation.routes.ProfilePreviewRoute
+import com.machankura.bennu.compose.ui.composable.widgets.profile.ProfileAvatar
+import com.machankura.bennu.compose.ui.view.state.PersonGuardedWallets
+import com.machankura.bennu.compose.ui.view.state.byPerson
+import org.jetbrains.compose.resources.pluralStringResource
+import bennu.composeapp.generated.resources.this_group_s_delay_in_this_wallet
+import bennu.composeapp.generated.resources.a_group_above_this_one
+import bennu.composeapp.generated.resources.guardian_after
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
+import bennu.composeapp.generated.resources.the_group_above_decided_this_wallet_is_not_guarded
+import bennu.composeapp.generated.resources.the_group_above_decided_this_wallet_is_guarded
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import bennu.composeapp.generated.resources.fund
+import bennu.composeapp.generated.resources.fund_s_s_guarded_wallet
+import bennu.composeapp.generated.resources.s_sats_arriving
+import bennu.composeapp.generated.resources.spend_from_s_s_guarded_wallet
 import androidx.compose.foundation.layout.Row
 import com.machankura.bennu.compose.text.ProposedSpend
 import com.machankura.bennu.compose.ui.view.state.SpendRow
@@ -37,6 +74,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -71,8 +109,29 @@ import bennu.composeapp.generated.resources.each_member_s_share_is_stored_unencr
 import bennu.composeapp.generated.resources.export_watch_only
 import bennu.composeapp.generated.resources.finding_the_group_s_coins
 import bennu.composeapp.generated.resources.group_wallet
+import bennu.composeapp.generated.resources.s_onchain_wallet
 import bennu.composeapp.generated.resources.nothing_has_been_sent_to_this_wallet_yet
 import bennu.composeapp.generated.resources.open_a_group_wallet
+import bennu.composeapp.generated.resources.open_a_guarded_wallet
+import bennu.composeapp.generated.resources.a_subgroup
+import bennu.composeapp.generated.resources.at_s
+import bennu.composeapp.generated.resources.couldn_t_share_the_wallet
+import bennu.composeapp.generated.resources.guarded_wallets
+import bennu.composeapp.generated.resources.not_yet_shared_with_the_groups_above
+import bennu.composeapp.generated.resources.s_sats_within_this_group_s_reach
+import bennu.composeapp.generated.resources.share
+import bennu.composeapp.generated.resources.spend
+import bennu.composeapp.generated.resources.shared_with_the_groups_above
+import bennu.composeapp.generated.resources.tell_the_groups_above
+import bennu.composeapp.generated.resources.this_device_shares_these_on_its_own_when_it_can
+import bennu.composeapp.generated.resources.wallets_of_groups_below_this_one
+import com.machankura.bennu.compose.managers.GuardianManager
+import com.machankura.bennu.compose.ui.view.state.GuardedWalletRow
+import androidx.compose.foundation.lazy.LazyListScope
+import bennu.composeapp.generated.resources.open_without_guardians
+import bennu.composeapp.generated.resources.the_groups_above_this_one_have_agreed_to_guard_it
+import bennu.composeapp.generated.resources.guarded_the_groups_above_this_one_can_spend
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import bennu.composeapp.generated.resources.opening_a_wallet_asks_the_group_to_agree
 import bennu.composeapp.generated.resources.receive_address
 import bennu.composeapp.generated.resources.received
@@ -160,8 +219,50 @@ fun GroupWalletScreen(
     val couldNotOpen = stringResource(Res.string.couldn_t_ask_the_group_to_open_a_wallet)
     val sentAgain = stringResource(Res.string.sent_again)
     val couldNotBump = stringResource(Res.string.couldn_t_bump_the_fee)
+    val shared = stringResource(Res.string.shared_with_the_groups_above)
+    val couldNotShare = stringResource(Res.string.couldn_t_share_the_wallet)
+    // Behind the same two gates as the room's own send: a share to propose
+    // with, and a node to see the descendant's coins with.
+    val toGuardianSpend = { row: GuardedWalletRow ->
+        onNavigateToRoute(
+            GroupSendRoute(
+                activeUserPublicKey = activeUserPublicKey,
+                chatRoomId = chatRoomId,
+                relayHint = null,
+                guardedChatRoomId = row.wallet.descendantChatRoomId,
+            )
+        )
+    }
+    // Behind the room's own send's gates, since a funding is one: a share to
+    // propose with, and a node to see this group's coins with.
+    val toGuardianFund = { row: GuardedWalletRow ->
+        onNavigateToRoute(
+            GroupSendRoute(
+                activeUserPublicKey = activeUserPublicKey,
+                chatRoomId = chatRoomId,
+                relayHint = null,
+                fundChatRoomId = row.wallet.descendantChatRoomId,
+            )
+        )
+    }
+    // A member's wallets are gathered under them, and their header opens them:
+    // a person is someone to look at, not a room to go into.
+    val toPerson = { publicKey: HexKey ->
+        onNavigateToRoute(ProfilePreviewRoute(activeUserPublicKey = activeUserPublicKey, profilePublicKey = publicKey))
+    }
+    val onShare = { shareable: GuardianManager.Shareable ->
+        groupWalletViewModel.share(shareable, onShared = { notify(shared) }, onFailure = { notify(couldNotShare) })
+    }
     val toSession = { sessionId: String ->
         onNavigateToRoute(FrostSigningRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId, sessionId = sessionId))
+    }
+
+    // Named for its group once the room is known; a room with no subject, and
+    // the moment before it loads, fall back to the generic name.
+    val groupName = when (val state = groupWalletViewModel.groupWalletUIState) {
+        is GroupWalletUIState.NotOpened -> state.localChatRoom.chatRoom.subject
+        is GroupWalletUIState.Loaded -> state.localChatRoom.chatRoom.subject
+        else -> null
     }
 
     Scaffold(
@@ -170,7 +271,8 @@ fun GroupWalletScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = stringResource(Res.string.group_wallet),
+                        text = groupName?.let { stringResource(Res.string.s_onchain_wallet, it) }
+                            ?: stringResource(Res.string.group_wallet),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -195,19 +297,26 @@ fun GroupWalletScreen(
                 }
 
                 is GroupWalletUIState.NotOpened -> {
-                    EmptyState(
-                        modifier = Modifier.padding(padding).readableContent(),
+                    val notOpened = @Composable { modifier: Modifier -> EmptyState(
+                        modifier = modifier,
                         message = stringResource(Res.string.this_group_has_not_opened_a_wallet),
                         icon = Icons.Default.AccountBalanceWallet,
                         // Hidden rather than disabled, the way every gated way in
                         // on the group's screens is: a device with no share cannot
                         // propose, and a room with no key has nothing to open.
-                        action = if (state.canSign && state.account != null) {
+                        action = if (state.canSign && state.account != null && (state.offersPlain || state.guarded != null)) {
                             {
                                 OpenWalletAction(
                                     isPending = groupWalletViewModel.isActionPending.value,
-                                    onOpen = {
+                                    guardedOffered = state.guarded != null,
+                                    plainOffered = state.offersPlain,
+                                    decided = (state.policy as? WalletPolicyReading.Decided)?.policy,
+                                    guardians = state.guarded?.account?.guardians.orEmpty(),
+                                    guardianNames = state.guardianNames,
+                                    chain = chain,
+                                    onOpen = { guarded ->
                                         groupWalletViewModel.openWallet(
+                                            guarded = guarded,
                                             onSuccess = { sessionId ->
                                                 // Onto the session: the wallet does
                                                 // not exist until a quorum signs.
@@ -225,7 +334,31 @@ fun GroupWalletScreen(
                                 )
                             }
                         } else null
-                    )
+                    ) }
+
+                    if (state.guardedWallets.isEmpty() && state.shareable.isEmpty()) {
+                        notOpened(Modifier.padding(padding).readableContent())
+                    } else {
+                        // A group with no wallet of its own can still guard others',
+                        // and still carry a descendant's upward.
+                        LazyColumn(
+                            modifier = Modifier.padding(padding).readableContent().fillMaxSize()
+                                .padding(MaterialTheme.spacing.screenMargin),
+                            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
+                        ) {
+                            item { notOpened(Modifier) }
+                            guardianItems(
+                                guardedWallets = state.guardedWallets,
+                                shareable = state.shareable,
+                                isPending = groupWalletViewModel.isActionPending.value,
+                                onShare = onShare,
+                                onSpend = if (state.canSign && wallets != null) toGuardianSpend else null,
+                                // A group with no wallet of its own has nothing to fund with.
+                                onFund = null,
+                                onOpenPerson = toPerson,
+                            )
+                        }
+                    }
                 }
 
                 is GroupWalletUIState.Loaded -> {
@@ -265,6 +398,11 @@ fun GroupWalletScreen(
                                 groupWalletViewModel.bumpFee(sessionId, onSuccess = toSession, onFailure = { notify(couldNotBump) })
                             }
                         } else null,
+                        isPending = groupWalletViewModel.isActionPending.value,
+                        onShare = onShare,
+                        onSpend = if (state.canSign && state.canWatch) toGuardianSpend else null,
+                        onFund = if (state.canSign && state.canWatch) toGuardianFund else null,
+                        onOpenPerson = toPerson,
                     )
                 }
             }
@@ -278,7 +416,18 @@ fun GroupWalletScreen(
  * an unencrypted share on a member's device means once there are coins behind it.
  */
 @Composable
-private fun OpenWalletAction(isPending: Boolean, onOpen: () -> Unit) {
+private fun OpenWalletAction(
+    isPending: Boolean,
+    guardedOffered: Boolean,
+    plainOffered: Boolean,
+    /** What the room's parent decided at its birth, or null when it left it to the room. */
+    decided: SubgroupWalletPolicy?,
+    /** The guardians a guarded wallet would name, nearest first, each with its own delay. */
+    guardians: List<GuardianDerivation.Guardian>,
+    guardianNames: Map<String, String>,
+    chain: Chain,
+    onOpen: (guarded: Boolean) -> Unit,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
@@ -292,10 +441,51 @@ private fun OpenWalletAction(isPending: Boolean, onOpen: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Button(onClick = onOpen, enabled = !isPending) {
-            Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
-            Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
-            Text(stringResource(Res.string.open_a_group_wallet))
+        if (decided != null) {
+            // The parent decided at the room's birth, and its quorum signed it:
+            // one way in, and the line says whose decision it was. Every other
+            // member refuses the other statement, so offering it would only
+            // strand a quorum. See docs/subgroup-wallet-policy.md.
+            Text(
+                text = when (decided) {
+                    SubgroupWalletPolicy.GUARDED -> stringResource(Res.string.the_group_above_decided_this_wallet_is_guarded)
+                    SubgroupWalletPolicy.UNGUARDED -> stringResource(Res.string.the_group_above_decided_this_wallet_is_not_guarded)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (decided == SubgroupWalletPolicy.GUARDED) GuardianDelays(guardians, guardianNames, chain)
+            val guarded = decided == SubgroupWalletPolicy.GUARDED
+            if (guarded && guardedOffered || !guarded && plainOffered) {
+                Button(onClick = { onOpen(guarded) }, enabled = !isPending) {
+                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
+                    Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                    Text(stringResource(if (guarded) Res.string.open_a_guarded_wallet else Res.string.open_a_group_wallet))
+                }
+            }
+        } else if (guardedOffered) {
+            // Undecided: a subgroup certified before parents decided. The default
+            // for one whose parent agreed to guard it, and the plain wallet beside
+            // it rather than hidden: being guarded is then the group's own choice,
+            // and its quorum signing the statement is it making that choice.
+            Text(
+                text = stringResource(Res.string.the_groups_above_this_one_have_agreed_to_guard_it),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            GuardianDelays(guardians, guardianNames, chain)
+            Button(onClick = { onOpen(true) }, enabled = !isPending) {
+                Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
+                Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                Text(stringResource(Res.string.open_a_guarded_wallet))
+            }
+            OutlinedButton(onClick = { onOpen(false) }, enabled = !isPending) {
+                Text(stringResource(Res.string.open_without_guardians))
+            }
+        } else {
+            Button(onClick = { onOpen(false) }, enabled = !isPending) {
+                Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
+                Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                Text(stringResource(Res.string.open_a_group_wallet))
+            }
         }
     }
 }
@@ -310,6 +500,11 @@ private fun OpenWallet(
     onOpenSpend: (sessionId: String) -> Unit,
     onSendAgain: ((sessionId: String) -> Unit)?,
     onBump: ((sessionId: String) -> Unit)?,
+    isPending: Boolean,
+    onShare: (GuardianManager.Shareable) -> Unit,
+    onSpend: ((GuardedWalletRow) -> Unit)?,
+    onFund: ((GuardedWalletRow) -> Unit)?,
+    onOpenPerson: (HexKey) -> Unit,
 ) {
     val clipboardManager = LocalClipboardManager.current
     val addressCopied = stringResource(Res.string.address_copied)
@@ -322,6 +517,19 @@ private fun OpenWallet(
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
     ) {
         item { BalanceCard(walletState) }
+
+        if (state.wallet.account.isGuarded) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+                    Text(
+                        text = stringResource(Res.string.guarded_the_groups_above_this_one_can_spend),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    GuardianDelays(state.wallet.account.guardians, state.guardianNames, state.wallet.chain)
+                }
+            }
+        }
 
         onSend?.let { send ->
             item {
@@ -455,6 +663,16 @@ private fun OpenWallet(
                 )
             }
         }
+
+        guardianItems(
+            guardedWallets = state.guardedWallets,
+            shareable = state.shareable,
+            isPending = isPending,
+            onShare = onShare,
+            onSpend = onSpend,
+            onFund = onFund,
+            onOpenPerson = onOpenPerson,
+        )
     }
 }
 
@@ -500,8 +718,266 @@ private fun SpendStatus.label() = when (this) {
 }
 
 /** Confirmed and on-the-way said apart: only the first can be spent by a send-all. */
+/**
+ * The guarded wallets of groups below this one, and the guarded statements this
+ * device can still carry to the groups above. Both under the room's own wallet,
+ * or in place of it for a group that has none.
+ */
+private fun LazyListScope.guardianItems(
+    guardedWallets: List<GuardedWalletRow>,
+    shareable: List<GuardianManager.Shareable>,
+    isPending: Boolean,
+    onShare: (GuardianManager.Shareable) -> Unit,
+    onSpend: ((GuardedWalletRow) -> Unit)?,
+    onFund: ((GuardedWalletRow) -> Unit)?,
+    onOpenPerson: (HexKey) -> Unit,
+) {
+    if (guardedWallets.isNotEmpty()) {
+        item {
+            Text(text = stringResource(Res.string.guarded_wallets), style = MaterialTheme.typography.titleMedium)
+        }
+        item {
+            Text(
+                text = stringResource(Res.string.wallets_of_groups_below_this_one),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // Subgroups' wallets, each a room; then members', gathered by person, so
+        // that one member's wallets under different groups below read as one
+        // person's. docs/member-wallet-guarding-group.md, D6.
+        val subgroups = guardedWallets.filter { it.wallet.subject is GuardianManager.GuardedSubject.Subgroup }
+        items(subgroups, key = { "guarded-" + it.wallet.statement.id }) { row ->
+            GuardedWalletCard(row = row, onSpend = onSpend, onFund = onFund)
+        }
+        val people = guardedWallets.byPerson()
+        if (people.isNotEmpty()) {
+            item {
+                Text(text = stringResource(Res.string.members_wallets), style = MaterialTheme.typography.titleSmall)
+            }
+            people.forEach { person ->
+                item(key = "person-" + person.ownerPublicKey) {
+                    PersonHeader(person = person, onOpen = { onOpenPerson(person.ownerPublicKey) })
+                }
+                items(person.rows, key = { "guarded-" + it.wallet.statement.id }) { row ->
+                    GuardedWalletCard(
+                        row = row,
+                        onSpend = onSpend,
+                        onFund = onFund,
+                        // Under the header, so the cards read as the person's.
+                        modifier = Modifier.padding(start = MaterialTheme.spacing.containerPadding),
+                    )
+                }
+            }
+        }
+    }
+
+    if (shareable.isNotEmpty()) {
+        item {
+            Text(text = stringResource(Res.string.tell_the_groups_above), style = MaterialTheme.typography.titleMedium)
+        }
+        // What is left here is what the automatic forwarding could not send --
+        // a notice lost on the wire, most often -- so the section says so, once.
+        // docs/guarded-wallet-forwarding.md, Phase 6.
+        item {
+            Text(
+                text = stringResource(Res.string.this_device_shares_these_on_its_own_when_it_can),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        items(shareable, key = { "shareable-" + it.statement.id }) { candidate ->
+            ListItem(
+                headlineContent = {
+                    Text(
+                        text = candidate.ownerPublicKey?.let { stringResource(Res.string.at_s, candidate.ownerName ?: it.take(8)) }
+                            ?: candidate.name
+                            ?: stringResource(Res.string.a_subgroup),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                supportingContent = { Text(stringResource(Res.string.not_yet_shared_with_the_groups_above)) },
+                trailingContent = {
+                    TextButton(onClick = { onShare(candidate) }, enabled = !isPending) {
+                        Text(stringResource(Res.string.share))
+                    }
+                },
+            )
+        }
+    }
+}
+
+/**
+ * Each guardian of a guarded wallet with its own delay, nearest first:
+ * *#Council: after 144 blocks, about 1 day*. One sentence with one number in it
+ * stopped being true once each group chose its own -- `docs/guardian-delay.md`.
+ */
 @Composable
-private fun BalanceCard(walletState: GroupWalletState?) {
+private fun GuardianDelays(
+    guardians: List<GuardianDerivation.Guardian>,
+    names: Map<String, String>,
+    chain: Chain,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+        guardians.forEach { guardian ->
+            Text(
+                text = stringResource(
+                    Res.string.guardian_after,
+                    names[guardian.chatRoomId] ?: stringResource(Res.string.a_group_above_this_one),
+                    delayText(guardian.delay, chain),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+/**
+ * One descendant's guarded wallet: its name and what is within reach, and under
+ * them the actions, in the card's own row rather than the list item's trailing
+ * slot. Two buttons there would leave the name -- the one thing that says which
+ * wallet this is -- a few characters at large text sizes, and a flow row wraps
+ * them instead. Each button names its wallet, since a screen reader hears every
+ * row's *Fund* and *Spend* alike. See `docs/guarded-wallet-funding.md`, Phase 5.
+ */
+@Composable
+private fun GuardedWalletCard(
+    row: GuardedWalletRow,
+    onSpend: ((GuardedWalletRow) -> Unit)?,
+    onFund: ((GuardedWalletRow) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val name = guardedName(row.wallet.subject)
+    val member = row.wallet.subject as? GuardianManager.GuardedSubject.Member
+    val guardedBy = member?.let { guardedByLine(row.wallet, it) }
+    // A member's card sits under their header, so it is named by its label --
+    // or, with none, by the group that guards it, which still tells two of one
+    // person's wallets apart.
+    val headline = when {
+        member == null -> name
+        else -> member.label ?: guardedBy.orEmpty()
+    }
+    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+        ListItem(
+            leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
+            // Two lines, since the name is what says which wallet the buttons act on.
+            headlineContent = { Text(headline, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            supportingContent = {
+                val reach = row.withinReach?.let { stringResource(Res.string.s_sats_within_this_group_s_reach, it.grouped()) }
+                val arriving = row.arriving?.takeIf { it.sat > 0 }?.let { stringResource(Res.string.s_sats_arriving, it.grouped()) }
+                val amounts = when {
+                    reach == null -> stringResource(Res.string.balance_not_known_yet)
+                    arriving == null -> reach
+                    else -> stringResource(Res.string.s_dot_s, reach, arriving)
+                }
+                Column {
+                    // Which group below guards it, where the headline does not say.
+                    if (member?.label != null && guardedBy != null) Text(guardedBy)
+                    Text(amounts)
+                    // This group's own leaf, which two of its descendants can have
+                    // set differently. docs/guardian-delay.md.
+                    Text(stringResource(Res.string.this_group_s_delay_in_this_wallet, delayText(row.wallet.delay, row.wallet.chain)))
+                }
+            },
+        )
+        if (onFund != null || onSpend != null) {
+            // Each names its wallet and not only its person: one member can have
+            // several here, and a screen reader hears every one's *Fund* alike.
+            val fundLabel = when {
+                member == null -> stringResource(Res.string.fund_s_s_guarded_wallet, name)
+                member.label != null -> stringResource(Res.string.fund_s_s_guarded_wallet_s, name, member.label)
+                else -> stringResource(Res.string.fund_s_s_wallet_guarded_by_s, name, guardianPhrase(row.wallet, member))
+            }
+            val spendLabel = when {
+                member == null -> stringResource(Res.string.spend_from_s_s_guarded_wallet, name)
+                member.label != null -> stringResource(Res.string.spend_from_s_s_guarded_wallet_s, name, member.label)
+                else -> stringResource(Res.string.spend_from_s_s_wallet_guarded_by_s, name, guardianPhrase(row.wallet, member))
+            }
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(
+                    start = MaterialTheme.spacing.containerPadding,
+                    end = MaterialTheme.spacing.containerPadding,
+                    bottom = MaterialTheme.spacing.compactPadding,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.targetGap, Alignment.End),
+            ) {
+                // Money in before money out, at equal weight: neither is the one
+                // every member wants, and a filled button would say it was.
+                onFund?.let { fund ->
+                    TextButton(onClick = { fund(row) }, modifier = Modifier.semantics { contentDescription = fundLabel }) {
+                        Text(stringResource(Res.string.fund))
+                    }
+                }
+                onSpend?.let { spend ->
+                    TextButton(onClick = { spend(row) }, modifier = Modifier.semantics { contentDescription = spendLabel }) {
+                        Text(stringResource(Res.string.spend))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One member, heading their wallets in an ancestor's list: how many this group
+ * guards, and under how many groups below it -- the summary that shows a person
+ * with wallets in more than one branch. Opens their profile.
+ */
+@Composable
+private fun PersonHeader(person: PersonGuardedWallets, onOpen: () -> Unit) {
+    val name = stringResource(Res.string.at_s, person.ownerName ?: person.ownerPublicKey.take(8))
+    val wallets = pluralStringResource(Res.plurals.n_wallets, person.rows.size, person.rows.size)
+    val groups = pluralStringResource(Res.plurals.guarded_by_n_groups, person.guardianCount, person.guardianCount)
+    ListItem(
+        modifier = Modifier.clickable(onClick = onOpen).minimumInteractiveComponentSize(),
+        // 40dp is the avatar's size, a dimension: M3's list item leading avatar.
+        leadingContent = { ProfileAvatar(size = 40.dp, publicKey = person.ownerPublicKey, picture = null, name = person.ownerName) },
+        headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = { Text(stringResource(Res.string.s_comma_s, wallets, groups)) },
+    )
+}
+
+/**
+ * The group that directly guards a member's wallet, as a phrase inside a
+ * sentence: *this group*, its name, or -- with no name this device can check --
+ * where it sits, *a group below #P*. `docs/member-wallet-guarding-group.md`, D2.
+ */
+@Composable
+internal fun guardianPhrase(wallet: GuardianManager.GuardedWallet, member: GuardianManager.GuardedSubject.Member): String = when {
+    wallet.isGuardedHere -> stringResource(Res.string.this_group)
+    member.guardianName != null -> member.guardianName
+    member.branchName != null -> stringResource(Res.string.a_group_below_s, member.branchName)
+    else -> stringResource(Res.string.a_group_below_this_one)
+}
+
+/**
+ * *Guarded by #N*, or *Guarded by #M, below #P* where the group is further down
+ * than this one's own child -- the branch, so wallets from one part of the tree
+ * read as being from there. `docs/member-wallet-guarding-group.md`, D6.
+ */
+@Composable
+internal fun guardedByLine(wallet: GuardianManager.GuardedWallet, member: GuardianManager.GuardedSubject.Member): String =
+    if (wallet.position >= 2 && member.guardianName != null && member.branchName != null) {
+        stringResource(Res.string.guarded_by_s_below_s, member.guardianName, member.branchName)
+    } else {
+        stringResource(Res.string.guarded_by_s, guardianPhrase(wallet, member))
+    }
+
+/**
+ * A guarded wallet as an ancestor's list names it: a subgroup by the name its
+ * parent certified -- `#Translation` -- and a member by their profile's name --
+ * `@alice` -- falling back to the start of their key. A person's name is theirs
+ * and live; the certificate fixes who they are, not what they are called.
+ */
+@Composable
+internal fun guardedName(subject: GuardianManager.GuardedSubject): String = when (subject) {
+    is GuardianManager.GuardedSubject.Subgroup -> subject.name ?: stringResource(Res.string.a_subgroup)
+    is GuardianManager.GuardedSubject.Member -> stringResource(Res.string.at_s, subject.ownerName ?: subject.ownerPublicKey.take(8))
+}
+
+@Composable
+internal fun BalanceCard(walletState: GroupWalletState?) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(MaterialTheme.spacing.containerPadding),
@@ -528,7 +1004,7 @@ private fun BalanceCard(walletState: GroupWalletState?) {
 }
 
 @Composable
-private fun CoinRow(utxo: GroupUtxo, confirmations: Int) {
+internal fun CoinRow(utxo: GroupUtxo, confirmations: Int) {
     ListItem(
         leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
         headlineContent = { Text(stringResource(Res.string.s_sats, utxo.amount.grouped())) },

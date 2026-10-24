@@ -19,6 +19,7 @@ import com.machankura.bennu.compose.database.model.IcebergParticipantMessage
 import com.machankura.bennu.compose.database.model.IcebergKeySession
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.database.dao.GroupTransactionDao
+import com.machankura.bennu.compose.database.dao.MemberWalletDao
 import androidx.room3.ColumnTypeConverters
 import androidx.room3.AutoMigration
 import androidx.room3.ConstructedBy
@@ -43,19 +44,6 @@ import com.machankura.bennu.compose.database.dao.GiftWrapSealDao
 import com.machankura.bennu.compose.database.dao.GroupKeyStateDao
 import com.machankura.bennu.compose.database.dao.GroupSignedEventDao
 import com.machankura.bennu.compose.database.dao.InReplyToRelationDao
-import com.machankura.bennu.compose.database.dao.MantraArtifactDao
-import com.machankura.bennu.compose.database.dao.MantraArtifactVersionDao
-import com.machankura.bennu.compose.database.dao.MantraChapterDao
-import com.machankura.bennu.compose.database.dao.MantraChunkDao
-import com.machankura.bennu.compose.database.dao.MantraDao
-import com.machankura.bennu.compose.database.dao.MantraDialectDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationArtifactVersionDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationArtifactVersionContributorDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationChapterDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationChapterContributorDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationChunkDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationDao
-import com.machankura.bennu.compose.database.dao.MantraTranslationContributorDao
 import com.machankura.bennu.compose.database.dao.MarmotCommitResultDao
 import com.machankura.bennu.compose.database.dao.MarmotOutboundDao
 import com.machankura.bennu.compose.database.dao.MarmotGroupEventDao
@@ -98,18 +86,6 @@ import com.machankura.bennu.compose.database.model.GiftWrapSeal
 import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.database.model.InReplyToRelation
-import com.machankura.bennu.compose.database.model.MantraArtifact
-import com.machankura.bennu.compose.database.model.MantraArtifactVersion
-import com.machankura.bennu.compose.database.model.MantraChapter
-import com.machankura.bennu.compose.database.model.MantraChunk
-import com.machankura.bennu.compose.database.model.MantraDialect
-import com.machankura.bennu.compose.database.model.MantraTranslation
-import com.machankura.bennu.compose.database.model.MantraTranslationArtifactVersion
-import com.machankura.bennu.compose.database.model.MantraTranslationArtifactVersionContributor
-import com.machankura.bennu.compose.database.model.MantraTranslationChapter
-import com.machankura.bennu.compose.database.model.MantraTranslationChapterContributor
-import com.machankura.bennu.compose.database.model.MantraTranslationChunk
-import com.machankura.bennu.compose.database.model.MantraTranslationContributor
 import com.machankura.bennu.compose.database.model.MarmotCommitResult
 import com.machankura.bennu.compose.database.model.MarmotGroupEvent
 import com.machankura.bennu.compose.database.model.MarmotInnerEvent
@@ -120,6 +96,8 @@ import com.machankura.bennu.compose.database.model.MarmotPublishObligation
 import com.machankura.bennu.compose.database.model.MarmotOutboundGate
 import com.machankura.bennu.compose.managers.MarmotEngine
 import com.machankura.bennu.compose.database.model.MarmotRetainedEpochSecret
+import com.machankura.bennu.compose.database.model.MemberWallet
+import com.machankura.bennu.compose.database.model.MemberWalletSpend
 import com.machankura.bennu.compose.database.model.Mention
 import com.machankura.bennu.compose.database.model.NegentropySynchronizeRequest
 import com.machankura.bennu.compose.database.model.NegentropySynchronizeResult
@@ -181,18 +159,6 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         IcebergParticipantMessage::class,
         IcebergShareRow::class,
         InReplyToRelation::class,
-        MantraArtifact::class,
-        MantraArtifactVersion::class,
-        MantraChapter::class,
-        MantraChunk::class,
-        MantraDialect::class,
-        MantraTranslation::class,
-        MantraTranslationArtifactVersion::class,
-        MantraTranslationArtifactVersionContributor::class,
-        MantraTranslationChapter::class,
-        MantraTranslationChapterContributor::class,
-        MantraTranslationChunk::class,
-        MantraTranslationContributor::class,
         MarmotCommitResult::class,
         MarmotGroupEvent::class,
         MarmotInnerEvent::class,
@@ -202,6 +168,8 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         MarmotPublishObligation::class,
         MarmotOutboundGate::class,
         MarmotRetainedEpochSecret::class,
+        MemberWallet::class,
+        MemberWalletSpend::class,
         Mention::class,
         NegentropySynchronizeRequest::class,
         NegentropySynchronizeResult::class,
@@ -220,7 +188,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 30,
+    version = 32,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -408,19 +376,38 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // nothing is rebuilt; a rebuild of either signing table would fire the
         // cascades from FrostSigningSession, see docs/frost-batch-signing.md.
         AutoMigration(from = 25, to = 26),
-        // v27 is the group Lightning wallet's key ceremony (docs/group-lightning-wallet.md,
-        // Phase 5): the IcebergKeySession and IcebergParticipantMessage tables. Two new
-        // tables and nothing else, which Room migrates itself.
-        AutoMigration(from = 26, to = 27),
-        // v28 is the Lightning wallet's node seed (docs/group-lightning-wallet.md, Phase 6):
-        // the GroupLightningSeed table, keyed by the node id each seed produces.
+        // v27 drops the nip30303 document tables and MarmotInnerEvent's
+        // payloadEventId, and deletes the chat lines nothing renders any more
+        // (docs/ceremony-creation.md, Phase 8). Manual -- it deletes rows --
+        // so it is MIGRATION_26_27 in `getRoomDatabase`, not an entry here.
+        //
+        // v28 adds the nullable GroupTransaction.guardedChatRoomId: the descendant
+        // whose guarded wallet a guardian's spend draws from
+        // (docs/group-wallet-guardians.md, Phase 7). Every spend before it was the
+        // room's own, which is what null means.
         AutoMigration(from = 27, to = 28),
-        // v29 is the co-signing protocol (docs/group-lightning-wallet.md, Phase 9): seven new
-        // tables, from the round-one pool to the per-channel ledger. Nothing existing changes.
+        // v29 adds the nullable DkgSession.walletPolicy: the wallet policy a
+        // subgroup's ceremony was proposed under (docs/subgroup-wallet-policy.md,
+        // Phase 2). Every ceremony before it chose none, which is what null means.
         AutoMigration(from = 28, to = 29),
-        // v30 is what members keep of the operator's reports (docs/group-lightning-wallet.md,
-        // Phases 10 and 11): the newest snapshot, the payments, the invoices. Three new tables.
+        // v30 adds MemberWallet and MemberWalletSpend: the random key of a
+        // guarded wallet one member holds and a group guards, and the spends the
+        // member signed alone from it (docs/member-guarded-wallets.md, Phase 5).
+        // New tables, and no foreign keys -- deleting a group's room must never
+        // delete a key coins may sit behind.
         AutoMigration(from = 29, to = 30),
+        // v31 adds the nullable DkgSession.guardianDelay: the delay a guarded
+        // subgroup's ceremony was proposed under for the parent's own leaf
+        // (docs/guardian-delay.md, Phase 4). Null for every ceremony before it.
+        AutoMigration(from = 30, to = 31),
+        // v32 is the group Lightning wallet (docs/group-lightning-wallet.md): the Iceberg key
+        // ceremony (IcebergKeySession, IcebergParticipantMessage), the node seed
+        // (GroupLightningSeed), the co-signing protocol (seven Iceberg tables, from the round-one
+        // pool to the per-channel ledger), and what members keep of the operator's reports
+        // (GroupLightningSnapshotRow, GroupLightningPaymentRow, GroupLightningInvoiceRow). New
+        // tables and nothing else. They were four versions on the branch that built them, before
+        // it merged after v31; no installed database ever had those, so they are one step here.
+        AutoMigration(from = 31, to = 32),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)
@@ -457,6 +444,8 @@ abstract class BennuDatabase: RoomDatabase() {
 
     abstract fun groupTransactionDao(): GroupTransactionDao
 
+    abstract fun memberWalletDao(): MemberWalletDao
+
     abstract fun connectionDao(): ConnectionDao
 
     abstract fun giftWrapMessageDao(): GiftWrapMessageDao
@@ -467,31 +456,6 @@ abstract class BennuDatabase: RoomDatabase() {
 
     abstract fun inReplyToRelationDao(): InReplyToRelationDao
 
-    abstract fun mantraDao(): MantraDao
-
-    abstract fun mantraArtifactDao(): MantraArtifactDao
-
-    abstract fun mantraArtifactVersionDao(): MantraArtifactVersionDao
-
-    abstract fun mantraChapterDao(): MantraChapterDao
-
-    abstract fun mantraChunkDao(): MantraChunkDao
-
-    abstract fun mantraDialectDao(): MantraDialectDao
-
-    abstract fun mantraTranslationArtifactVersionDao(): MantraTranslationArtifactVersionDao
-
-    abstract fun mantraTranslationArtifactVersionContributorDao(): MantraTranslationArtifactVersionContributorDao
-
-    abstract fun mantraTranslationChapterDao(): MantraTranslationChapterDao
-
-    abstract fun mantraTranslationChapterContributorDao(): MantraTranslationChapterContributorDao
-
-    abstract fun mantraTranslationChunkDao(): MantraTranslationChunkDao
-
-    abstract fun mantraTranslationDao(): MantraTranslationDao
-
-    abstract fun mantraTranslationContributorDao(): MantraTranslationContributorDao
 
     abstract fun icebergKeySessionDao(): IcebergKeySessionDao
 
@@ -558,6 +522,11 @@ abstract class BennuDatabase: RoomDatabase() {
         useWriterConnection { transactor ->
             transactor.immediateTransaction {
                 // TODO: Actually delete the data...
+                //
+                // When this does: MemberWallet holds the only copy of keys that
+                // coins may sit behind (docs/member-guarded-wallets.md, D6). A
+                // caller wiping a profile that holds an open member wallet has to
+                // say so first and offer the key's export, before anything goes.
             }
         }
     }

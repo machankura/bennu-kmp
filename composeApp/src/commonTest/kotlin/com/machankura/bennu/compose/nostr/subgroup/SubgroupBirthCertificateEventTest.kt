@@ -17,7 +17,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import com.machankura.bennu.compose.extensions.toHex
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
 
 /**
  * What a birth certificate is allowed to convince a member of.
@@ -350,6 +353,98 @@ class SubgroupBirthCertificateEventTest {
      * way to test that both are checked. [signature] replaces the real one
      * outright, for the cases where what arrives is not a signature at all.
      */
+    @Test
+    fun `guardian keys ride on a certificate without touching what it certifies`() {
+        val parentKey = parentMaterial.thresholdPublicKey.value.toHex()
+        val guardians = GuardianDerivation.grant(parentKey, parentChatRoomId, emptyList(), subgroupChatRoomId)
+        val tags = SubgroupBirthCertificateEvent.assembleTags(
+            subgroupChatRoomId = subgroupChatRoomId,
+            parentChatRoomId = parentChatRoomId,
+            thresholdPublicKey = childKey,
+            adminPublicKeys = admins,
+            name = name,
+            path = path,
+            guardians = guardians,
+        )
+
+        assertTrue(SubgroupBirthCertificateEvent.certifies(certificate(tags = tags), subgroupChatRoomId, parentChatRoomId))
+        assertEquals(guardians, SubgroupBirthCertificateEvent.parseGuardians(tags))
+        assertEquals(emptyList(), SubgroupBirthCertificateEvent.parseGuardians(certificate().tags))
+
+        // One unreadable entry makes the list unreadable, rather than shorter.
+        val broken = tags.map { if (it[0] == GuardianTag.TAG_NAME) it.copyOf().also { tag -> tag[2] = "04" + tag[2].drop(2) } else it }
+        assertNull(SubgroupBirthCertificateEvent.parseGuardians(broken.toTypedArray()))
+    }
+
+    @Test
+    fun `a guarded certificate carries its keys and reads as guarded`() {
+        val tags = policyTags(SubgroupWalletPolicy.GUARDED, guardians = grant())
+
+        assertEquals(WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED), SubgroupBirthCertificateEvent.parseWalletPolicy(tags))
+        assertEquals(grant(), SubgroupBirthCertificateEvent.parseGuardians(tags))
+    }
+
+    @Test
+    fun `an unguarded certificate carries no keys and reads as unguarded`() {
+        val tags = policyTags(SubgroupWalletPolicy.UNGUARDED, guardians = emptyList())
+
+        assertEquals(WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED), SubgroupBirthCertificateEvent.parseWalletPolicy(tags))
+        assertEquals(emptyList(), SubgroupBirthCertificateEvent.parseGuardians(tags))
+    }
+
+    @Test
+    fun `a certificate from before policies reads as undecided, with keys or without`() {
+        assertEquals(WalletPolicyReading.Undecided, SubgroupBirthCertificateEvent.parseWalletPolicy(certificate().tags))
+        assertEquals(WalletPolicyReading.Undecided, SubgroupBirthCertificateEvent.parseWalletPolicy(policyTags(null, guardians = grant())))
+    }
+
+    @Test
+    fun `a policy that contradicts its keys, or does not read, reads as nothing`() {
+        // Each of these must not fall back to undecided: that would hand the
+        // child the choice its parent took away.
+        val contradictions = mapOf(
+            "guarded with no keys" to policyTags(SubgroupWalletPolicy.GUARDED, guardians = emptyList()),
+            "unguarded with keys" to policyTags(SubgroupWalletPolicy.UNGUARDED, guardians = grant()),
+            "two policies" to policyTags(SubgroupWalletPolicy.UNGUARDED, guardians = emptyList()) + WalletPolicyTag.assemble(SubgroupWalletPolicy.UNGUARDED),
+            "an unknown policy" to policyTags(null, guardians = emptyList()) + arrayOf(WalletPolicyTag.TAG_NAME, "maybe"),
+            "an empty policy" to policyTags(null, guardians = emptyList()) + arrayOf(WalletPolicyTag.TAG_NAME),
+        )
+
+        contradictions.forEach { (what, tags) ->
+            assertNull(SubgroupBirthCertificateEvent.parseWalletPolicy(tags), "a certificate with $what was read")
+        }
+    }
+
+    @Test
+    fun `a policy does not touch what a certificate certifies`() {
+        // Lineage stays six questions. A certificate whose policy reads as nothing
+        // is still the parent's word that the child is its child.
+        listOf(
+            policyTags(SubgroupWalletPolicy.GUARDED, guardians = grant()),
+            policyTags(SubgroupWalletPolicy.UNGUARDED, guardians = emptyList()),
+            policyTags(SubgroupWalletPolicy.GUARDED, guardians = emptyList()),
+        ).forEach { tags ->
+            assertTrue(SubgroupBirthCertificateEvent.certifies(certificate(tags = tags), subgroupChatRoomId, parentChatRoomId))
+        }
+    }
+
+    private fun grant(): List<GuardianDerivation.Guardian> =
+        GuardianDerivation.grant(parentMaterial.thresholdPublicKey.value.toHex(), parentChatRoomId, emptyList(), subgroupChatRoomId)
+
+    private fun policyTags(
+        policy: SubgroupWalletPolicy?,
+        guardians: List<GuardianDerivation.Guardian>,
+    ): Array<Array<String>> = SubgroupBirthCertificateEvent.assembleTags(
+        subgroupChatRoomId = subgroupChatRoomId,
+        parentChatRoomId = parentChatRoomId,
+        thresholdPublicKey = childKey,
+        adminPublicKeys = admins,
+        name = name,
+        path = path,
+        guardians = guardians,
+        walletPolicy = policy,
+    )
+
     private fun certificate(
         content: String = subgroupChatRoomId,
         tags: Array<Array<String>> = SubgroupBirthCertificateEvent.assembleTags(

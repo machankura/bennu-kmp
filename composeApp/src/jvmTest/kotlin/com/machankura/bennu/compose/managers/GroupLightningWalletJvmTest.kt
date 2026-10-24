@@ -5,7 +5,6 @@ import com.machankura.bennu.compose.network.serialization.CommonJson
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
-import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import fr.acinq.bitcoin.ByteVector
@@ -95,14 +94,13 @@ class GroupLightningWalletJvmTest {
     }
 
     @Test
-    fun `there is no Lightning wallet on mainnet, and no wallet statement leaves the group`() = runBlocking {
+    // That no statement leaves the group needs no test of its own: nothing in the app sends a
+    // group-signed event to a relay any more.
+    fun `there is no Lightning wallet on mainnet`() = runBlocking {
         val all = fixture.group()
         fixture.runCeremony(all)
         val refused = runCatching { GroupLightningWalletManager.proposeWallet(all[0].db, all[0].room, all[0].publicKey, all[0].privateKey, Chain.Mainnet, lsp) }
         assertTrue(refused.isFailure)
-        assertTrue(GroupLightningEvents.WALLET_STATEMENT in GroupWalletStatementEvent.NEVER_BROADCAST)
-        assertTrue(GroupLightningEvents.OPERATOR_STATEMENT in GroupWalletStatementEvent.NEVER_BROADCAST)
-        assertTrue(GroupLightningEvents.AUTHORISATION in GroupWalletStatementEvent.NEVER_BROADCAST)
     }
 
     @Test

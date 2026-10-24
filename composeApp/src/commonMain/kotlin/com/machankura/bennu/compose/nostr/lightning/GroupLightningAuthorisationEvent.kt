@@ -8,7 +8,7 @@ import fr.acinq.lightning.payment.Bolt11Invoice
 import kotlin.time.Clock
 
 /**
- * Something the group lets its Lightning wallet do: kind 30346, FROST-signed, never broadcast
+ * Something the group lets its Lightning wallet do: kind 30363, FROST-signed, never broadcast
  * (`docs/group-lightning-wallet.md`, Phase 12).
  *
  * The operator's node acts on an authorisation, and every co-signer reads it as a budget: an HTLC the

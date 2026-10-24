@@ -4,7 +4,10 @@ import androidx.room3.Room
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
+import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip01Core.signers.EventTemplate
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.bitcoin.PrivateKey
@@ -27,26 +30,21 @@ import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.builder.getRoomDatabase
 import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.database.model.ChatRoom
+import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.database.model.MarmotInnerEvent
 import com.machankura.bennu.compose.database.model.MarmotKeyPackage
 import com.machankura.bennu.compose.database.model.NostrEvent
 import com.machankura.bennu.compose.database.model.Profile
 import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.nostr.chronicle.ChronicleEvent
+import com.machankura.bennu.compose.nostr.chronicle.ChronicleKinds
 import com.machankura.bennu.compose.nostr.chronicle.ChronicleRequestEvent
+import com.machankura.bennu.compose.nostr.chronicle.TEST_KINDS
 import com.machankura.bennu.compose.nostr.chronicle.tags.ChronicleIdTag
 import com.machankura.bennu.compose.nostr.chronicle.tags.ChroniclePageTag
 import com.machankura.bennu.compose.nostr.chronicle.tags.ChronicleRecipientTag
 import com.vitorpamplona.quartz.marmot.mip02Welcome.WelcomeEvent
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChunkEvent
-import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
 
 /**
  * Two devices, two databases: one that did the work and one that arrived after
@@ -54,14 +52,18 @@ import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
  *
  * This is the claim the whole feature is: a member who holds no share, took part
  * in no signing session and cannot decrypt a word of the room's history ends up
- * with the same rows as everybody else, and gets there without trusting the
- * member who sent them.
+ * holding what the group signed, and gets there without trusting the member who
+ * sent it.
  *
  * The negative cases matter more than the positive one. Verification is what
  * makes a chronicle safe to accept from anybody, so what has to be proved is that
  * it refuses -- a forged payload beside honest ones, and a genuine key state
  * replayed out of its epoch, which passes every signature check there is and is
  * stopped by nothing but the allowlist.
+ *
+ * The app's own list of kinds is empty, so everything here runs on [TEST_KINDS]
+ * except the last section, which is about the app's list and holds it to
+ * carrying nothing in either direction.
  */
 class ChronicleApplyJvmTest {
     /** The member who did the work. */
@@ -174,6 +176,9 @@ class ChronicleApplyJvmTest {
 
     private fun signed(template: EventTemplate<*>) = signedBy(keyMaterial, template)
 
+    private fun template(kind: Int, createdAt: Long, content: String, tags: Array<Array<String>> = emptyArray()) =
+        EventTemplate<Event>(createdAt = createdAt, kind = kind, tags = tags, content = content)
+
     private suspend fun seedRoom(db: BennuDatabase, user: String) {
         val nostrEventId = "c".repeat(63) + if (user == newMember) "1" else "2"
         db.nostrEventDao().upsert(
@@ -198,7 +203,19 @@ class ChronicleApplyJvmTest {
         )
     }
 
-    private suspend fun apply(db: BennuDatabase, event: Event) {
+    /**
+     * What `FrostSigningManager.complete` does with a finished batch: file the
+     * events as the group signed them, then apply them.
+     */
+    private suspend fun recordAndApply(db: BennuDatabase, event: Event) {
+        db.groupSignedEventDao().record(
+            GroupSignedEvent.fromEvent(
+                event = event,
+                chatRoomId = chatRoomId,
+                derivationPath = SharedKeyDerivation.formatPath(),
+                frostSigningSessionId = "session-1",
+            )
+        )
         ChatMessage.applyInnerEvent(
             database = db,
             groupId = chatRoomId,
@@ -207,106 +224,24 @@ class ChronicleApplyJvmTest {
             marmotInnerEventId = null,
             senderPublicKey = chatRoomId,
             isUserMessage = false,
-            createdAt = Instant.fromEpochSeconds(event.createdAt)
+            createdAt = Instant.fromEpochSeconds(event.createdAt),
+            groupSignedEventId = event.id,
         )
     }
 
-    /** The sender's room, with a full artifact and one translation scaffolded. */
+    /** The sender's room, holding one signed event of every test kind and two of one. */
     private suspend fun seedSenderWork() {
         seedRoom(sender, oldMember)
 
-        val dialect = signed(
-            DialectEvent.build(name = "isiZulu", country = "ZA", language = "zu", createdAt = 1_700_000_000L)
-        ).also { apply(sender, it) }
-
-        val artifact = signed(
-            ArtifactEvent.build(
-                name = "In Detention",
-                url = "https://example.com/in-detention",
-                visibility = "private",
-                license = "cc",
-                dialectId = dialect.id,
-                versionLabel = "1.0",
-                createdAt = 1_700_000_010L
-            )
-        ).also { apply(sender, it) }
-
-        // The second item of the artifact's own signing batch, not a row derived
-        // on arrival -- which is what makes it chroniclable at all.
-        val version = signed(ArtifactVersionEvent.initialVersionOf(artifact).single())
-            .also { apply(sender, it) }
-
-        val chapter = signed(
-            ChapterEvent.build(
-                artifactVersionId = version.id,
-                name = "Chapter One",
-                originalText = "He was a man of parts. He had many.",
-                index = 0,
-                wordCount = 8,
-                characterCount = 35,
-                createdAt = 1_700_000_020L
-            )
-        ).also { apply(sender, it) }
-
-        val chunk = signed(
-            ChunkEvent.build(
-                chapterId = chapter.id,
-                text = "He was a man of parts.",
-                index = 0,
-                wordCount = 6,
-                characterCount = 22,
-                createdAt = 1_700_000_030L
-            )
-        ).also { apply(sender, it) }
-        apply(
-            sender,
-            signed(
-                ChunkEvent.build(
-                    chapterId = chapter.id,
-                    text = "He had many.",
-                    index = 1,
-                    wordCount = 3,
-                    characterCount = 12,
-                    createdAt = 1_700_000_031L
-                )
-            )
-        )
-
-        val translationVersion = signed(
-            TranslationArtifactVersionEvent.build(
-                artifactVersionId = version.id,
-                dialectId = dialect.id,
-                name = "isiZulu",
-                visibility = "private",
-                license = "cc",
-                createdAt = 1_700_000_040L
-            )
-        ).also { apply(sender, it) }
-
-        val translationChapter = signed(
-            TranslationChapterEvent.build(
-                translationArtifactVersionId = translationVersion.id,
-                chapterId = chapter.id,
-                index = 0,
-                createdAt = 1_700_000_050L
-            )
-        ).also { apply(sender, it) }
-
-        // The translated text. Group-signed now, so it can travel and be checked
-        // -- until it was, a chronicle handed a new member the whole structure and
-        // none of the prose.
-        apply(
-            sender,
-            signed(
-                TranslationChunkEvent.build(
-                    translationChapterId = translationChapter.id,
-                    chunkId = chunk.id,
-                    index = 0,
-                    text = "Wayeyindoda enezingxenye.",
-                    createdAt = 1_700_000_060L
-                )
-            )
-        )
+        listOf(
+            template(
+                AdvertisedRelayListEvent.KIND, 1_700_000_000L, "",
+                tags = arrayOf(arrayOf("r", "wss://relay.example.com")),
+            ),
+            template(MetadataEvent.KIND, 1_700_000_010L, "{\"name\":\"Ekklesia\"}"),
+            template(TextNoteEvent.KIND, 1_700_000_020L, "The group says hello."),
+            template(TextNoteEvent.KIND, 1_700_000_021L, "And says it again."),
+        ).forEach { recordAndApply(sender, signed(it)) }
     }
 
     /**
@@ -318,6 +253,7 @@ class ChronicleApplyJvmTest {
         template: EventTemplate<ChronicleEvent>,
         to: String = newMember,
         from: String = oldMember,
+        kinds: ChronicleKinds = TEST_KINDS,
     ): ChronicleManager.Outcome {
         val page = Event(
             id = EventHasher.hashId(
@@ -349,79 +285,46 @@ class ChronicleApplyJvmTest {
             )
         )
 
-        return ChronicleManager.receive(receiver, chatRoomId, to, page)
+        return ChronicleManager.receive(receiver, chatRoomId, to, page, kinds)
     }
 
-    private suspend fun senderChronicle() = ChronicleManager.assemble(sender, chatRoomId, newMember)
+    private suspend fun senderChronicle() =
+        ChronicleManager.assemble(sender, chatRoomId, newMember, kinds = TEST_KINDS)
 
-    private suspend fun rowCounts(db: BennuDatabase): Map<String, Int> {
-        val dialects = db.mantraDialectDao().getDialectsByChatRoomId(chatRoomId)
-        val artifacts = db.mantraArtifactDao().getArtifactsByChatRoomId(chatRoomId)
-        val versions = artifacts.flatMap {
-            db.mantraArtifactVersionDao().getArtifactVersionsByArtifactId(it.id)
-        }
-        val chapters = versions.flatMap { db.mantraChapterDao().getChaptersByArtifactVersionId(it.id) }
-        val chunks = chapters.flatMap { db.mantraChunkDao().getChunksByChapterId(it.id) }
-        val translationVersions = versions.flatMap {
-            db.mantraTranslationArtifactVersionDao().getTranslationsByArtifactVersionId(it.id)
-        }
-        val translationChapters = translationVersions.flatMap {
-            db.mantraTranslationChapterDao()
-                .getTranslationChaptersByTranslationArtifactVersionId(it.id)
-        }
-        val translationChunks = translationChapters.flatMap {
-            db.mantraTranslationChunkDao().getTranslationChunksByTranslationChapterId(it.id)
-        }
+    /** Every payload of the sender's chronicle, one page each, numbered as [chronicleId]. */
+    private suspend fun onePagePerPayload(chronicleId: String = "e".repeat(64)): List<EventTemplate<ChronicleEvent>> {
+        val payloads = senderChronicle()
+            .flatMap { assertNotNull(ChronicleEvent.decodePage(it.content)) }
 
-        return mapOf(
-            "dialects" to dialects.size,
-            "artifacts" to artifacts.size,
-            "versions" to versions.size,
-            "chapters" to chapters.size,
-            "chunks" to chunks.size,
-            "translationVersions" to translationVersions.size,
-            "translationChapters" to translationChapters.size,
-            "translationChunks" to translationChunks.size,
-        )
+        return payloads.mapIndexed { index, payload ->
+            ChronicleEvent.build(
+                payloads = listOf(payload),
+                chronicleId = chronicleId,
+                index = index,
+                count = payloads.size,
+                recipient = newMember,
+                createdAt = 1_700_000_100L + index,
+                kinds = TEST_KINDS,
+            )
+        }
     }
 
     /**
-     * Every chronicled row as (id, author, signature), sorted.
+     * Every group-signed event on file as (id, author, signature), sorted.
      *
-     * Counting is not the claim. Two databases can hold the same number of
-     * artifacts and disagree about every one of them, and a rebuild that lost the
-     * group's signature -- or re-authored a row as whoever sent it -- would pass a
-     * count and fail the only thing the chronicle is for.
+     * None of the test kinds' arms writes a row of its own, so this table is the
+     * whole of what a chronicle restores. Compared rather than counted: two
+     * databases can hold the same number of events and disagree about every one,
+     * and a chronicle that re-authored each as whoever sent it would pass a count
+     * and fail the only thing it is for.
      */
-    private suspend fun rowFingerprints(db: BennuDatabase): List<Triple<String, String, String>> {
-        val artifacts = db.mantraArtifactDao().getArtifactsByChatRoomId(chatRoomId)
-        val versions = artifacts.flatMap {
-            db.mantraArtifactVersionDao().getArtifactVersionsByArtifactId(it.id)
-        }
-        val chapters = versions.flatMap { db.mantraChapterDao().getChaptersByArtifactVersionId(it.id) }
-        val translationVersions = versions.flatMap {
-            db.mantraTranslationArtifactVersionDao().getTranslationsByArtifactVersionId(it.id)
-        }
+    private suspend fun fingerprints(db: BennuDatabase): List<Triple<String, String, String>> =
+        db.groupSignedEventDao().getByChatRoomId(chatRoomId)
+            .map { Triple(it.id, it.publicKey, it.signature) }
+            .sortedBy { it.first }
 
-        return buildList {
-            db.mantraDialectDao().getDialectsByChatRoomId(chatRoomId)
-                .forEach { add(Triple(it.id, it.publicKey, it.signature)) }
-            artifacts.forEach { add(Triple(it.id, it.publicKey, it.signature)) }
-            versions.forEach { add(Triple(it.id, it.publicKey, it.signature)) }
-            chapters.forEach { add(Triple(it.id, it.publicKey, it.signature)) }
-            chapters.flatMap { db.mantraChunkDao().getChunksByChapterId(it.id) }
-                .forEach { add(Triple(it.id, it.publicKey, it.signature)) }
-            translationVersions.forEach { add(Triple(it.id, it.publicKey, it.signature)) }
-            val translationChapters = translationVersions.flatMap {
-                db.mantraTranslationChapterDao()
-                    .getTranslationChaptersByTranslationArtifactVersionId(it.id)
-            }
-            translationChapters.forEach { add(Triple(it.id, it.publicKey, it.signature)) }
-            translationChapters
-                .flatMap { db.mantraTranslationChunkDao().getTranslationChunksByTranslationChapterId(it.id) }
-                .forEach { add(Triple(it.id, it.publicKey, it.signature)) }
-        }.sortedBy { it.first }
-    }
+    private suspend fun lines(db: BennuDatabase) =
+        db.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId).map { it.chatMessage.messageType }
 
     @Test
     fun `a member who was never there ends up holding what the group signed`() = runBlocking {
@@ -429,78 +332,62 @@ class ChronicleApplyJvmTest {
         seedRoom(receiver, newMember)
 
         assertEquals(
-            mapOf(
-                "dialects" to 0, "artifacts" to 0, "versions" to 0, "chapters" to 0,
-                "chunks" to 0, "translationVersions" to 0, "translationChapters" to 0,
-                "translationChunks" to 0,
-            ),
-            rowCounts(receiver),
+            emptyList(),
+            fingerprints(receiver),
             "the new member starts with nothing, which is the whole problem"
         )
 
         senderChronicle().forEach { deliver(it) }
 
-        assertEquals(rowCounts(sender), rowCounts(receiver))
+        val fingerprints = fingerprints(receiver)
+        assertTrue(fingerprints.isNotEmpty())
 
-        // Not merely the same shape: the same rows, each with the group's own
-        // signature on it. A chronicle that produced look-alike rows authored by
-        // the member who sent them would pass a count and fail the only thing
-        // this is for.
-        val fingerprints = rowFingerprints(receiver)
-        assertEquals(rowFingerprints(sender), fingerprints)
+        // Not merely the same number: the same events, each with the group's own
+        // signature on it.
+        assertEquals(fingerprints(sender), fingerprints)
 
-        // And every one of them is the room's own work, with no exception left.
-        // The artifact version used to be one -- derived on arrival, so authored
-        // by the group and carrying no signature to show for it -- and is signed
-        // in the artifact's own batch now, which is what let it into the chronicle.
         fingerprints.forEach { (id, author, signature) ->
-            assertEquals(chatRoomId, author, "row $id is not authored by the room")
-            assertTrue(signature.isNotBlank(), "row $id came across without a signature")
+            assertEquals(chatRoomId, author, "event $id is not authored by the room")
+            assertTrue(signature.isNotBlank(), "event $id came across without a signature")
         }
     }
 
     /**
      * The member who was handed history can hand it on.
      *
-     * Rows are a reading of what the group signed; the events are the thing
-     * itself, and until they are kept the recipient of a chronicle is a dead end
-     * -- holding the work, unable to prove any of it, and unable to build a page
-     * for the next member to arrive. The path is the room's, read from the key
-     * state when the recipient has one.
+     * The events are the thing itself, and until they are kept the recipient of
+     * a chronicle is a dead end -- holding the work, unable to prove any of it,
+     * and unable to build a page for the next member to arrive.
      */
     @Test
-    fun `the chronicle leaves the receiver holding the events, not only the rows`() = runBlocking {
+    fun `the chronicle leaves the receiver holding the events as the group signed them`() = runBlocking {
         seedSenderWork()
         seedRoom(receiver, newMember)
 
         senderChronicle().forEach { deliver(it) }
 
-        val signed = receiver.groupSignedEventDao().getByChatRoomId(chatRoomId)
+        val held = receiver.groupSignedEventDao().getByChatRoomId(chatRoomId)
+        val original = sender.groupSignedEventDao().getByChatRoomId(chatRoomId).associateBy { it.id }
 
-        assertEquals(
-            senderChronicle()
-                .flatMap { assertNotNull(ChronicleEvent.decodePage(it.content)) }
-                .map { it.id }
-                .toSet(),
-            signed.map { it.id }.toSet(),
-            "every payload that applied should be on file as the group signed it"
-        )
-        assertTrue(signed.isNotEmpty())
+        assertEquals(original.keys, held.map { it.id }.toSet())
 
-        signed.forEach { event ->
-            assertEquals(chatRoomId, event.publicKey, "${event.id} is not authored by the room")
+        held.forEach { event ->
             assertTrue(event.verifies(), "${event.id} does not read back as the room's")
+            assertEquals(
+                assertNotNull(original[event.id]).toEvent().toJson(),
+                event.toEvent().toJson(),
+                "${event.id} did not arrive as the group signed it"
+            )
             // Nothing on this device ran a session for any of it.
             assertNull(event.frostSigningSessionId)
         }
-
-        // The rows the payloads became point back at them, which is the only
-        // provenance a group-signed row has: no group event, no inner event.
-        val dialects = receiver.mantraDialectDao().getDialectsByChatRoomId(chatRoomId)
-        assertTrue(dialects.isNotEmpty())
-        dialects.forEach { assertEquals(it.id, it.groupSignedEventId) }
     }
 
+    /**
+     * Every test kind's arm in `applyInnerEvent` hands back a line -- "the group
+     * posted in its own name" and the like -- so this is a real refusal and not
+     * an absence.
+     */
     @Test
     fun `a chronicle files no chat lines`() = runBlocking {
         seedSenderWork()
@@ -510,9 +397,7 @@ class ChronicleApplyJvmTest {
 
         assertEquals(
             emptyList(),
-            receiver.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId)
-                .map { it.chatMessage.messageType }
-                .filterNot { it in ChatMessage.CHRONICLE_TYPES },
+            lines(receiver).filterNot { it in ChatMessage.CHRONICLE_TYPES },
             "the chronicle restores the work; the conversation is forward secret and stays gone"
         )
     }
@@ -522,87 +407,90 @@ class ChronicleApplyJvmTest {
         seedSenderWork()
         seedRoom(receiver, newMember)
 
-        // One page per payload, delivered backwards -- a translation chapter
-        // before the chapter it names, chunks before their chapter, the artifact
-        // last. Relays give no ordering guarantee, so this is the ordinary case
-        // rather than the adversarial one.
-        val payloads = senderChronicle()
-            .flatMap { assertNotNull(ChronicleEvent.decodePage(it.content)) }
-        val chronicleId = "e".repeat(64)
+        // One page per payload, delivered backwards. Relays give no ordering
+        // guarantee, so this is the ordinary case rather than the adversarial
+        // one. Nothing in the test list hangs off anything else, so no payload
+        // has to wait here; the retry that waiting needs is the next test's.
+        val outcomes = onePagePerPayload().reversed().map { deliver(it) }
 
-        val outcomes = payloads.reversed().mapIndexed { index, payload ->
-            deliver(
-                ChronicleEvent.build(
-                    payloads = listOf(payload),
-                    chronicleId = chronicleId,
-                    index = index,
-                    count = payloads.size,
-                    recipient = newMember,
-                    createdAt = 1_700_000_100L + index,
-                )
-            )
-        }
+        assertEquals(0, outcomes.sumOf { it.failed })
+        assertEquals(fingerprints(sender), fingerprints(receiver))
+    }
 
-        // Without this the test could pass for the wrong reason -- if nothing
-        // ever failed to apply, the pages were not really out of order and the
-        // sweep was never the thing that saved them.
-        assertTrue(
-            outcomes.any { it.failed > 0 },
-            "delivering backwards should have left payloads waiting on rows they depend on"
-        )
-        assertEquals(
-            0,
-            outcomes.last().failed,
-            "the last page completes the chronicle, so the pass it triggers should leave nothing"
-        )
+    /**
+     * The sweep's reason to exist: a payload that threw is run again when the
+     * next page arrives, because the pages are on disk and the sweep takes all of
+     * them.
+     *
+     * In the app the missing dependency is another payload's row; nothing in the
+     * test list depends on another, so here it is the room row itself, the one
+     * foreign key every recorded event has. What is under test is the retry, not
+     * the reason for it.
+     */
+    @Test
+    fun `a payload that could not apply yet is retried when the next page arrives`() = runBlocking {
+        seedSenderWork()
 
-        assertEquals(rowCounts(sender), rowCounts(receiver))
+        val pages = onePagePerPayload()
+        assertTrue(pages.size >= 2, "this needs a second page to arrive after the first fails")
+
+        // No room on file yet: the first page's payload has nowhere to go.
+        val first = deliver(pages.first())
+        assertEquals(1, first.failed, "the first payload should have been left waiting")
+        assertEquals(0, first.applied)
+        assertEquals(emptyList(), fingerprints(receiver))
+
+        // The room appears, and the next page's sweep takes the first one with it.
+        seedRoom(receiver, newMember)
+        val second = deliver(pages[1])
+
+        assertEquals(0, second.failed)
+        assertEquals(2, second.applied, "the waiting payload and the new one")
+
+        pages.drop(2).forEach { deliver(it) }
+        assertEquals(fingerprints(sender), fingerprints(receiver))
     }
 
     @Test
     fun `one forged payload costs itself and nothing else`() = runBlocking {
-        seedSenderWork()
         seedRoom(receiver, newMember)
 
-        val honest = signed(
-            DialectEvent.build(name = "isiZulu", country = "ZA", language = "zu", createdAt = 1_700_000_000L)
-        )
+        val honest = signed(template(MetadataEvent.KIND, 1_700_000_000L, "{\"name\":\"Ekklesia\"}"))
 
         // Four ways to be a dishonest member, in one page beside one honest
-        // dialect. Every one of them is well-formed and would file a row without
-        // the check.
+        // profile. Every one of them is well-formed and of a kind the list admits.
         val forgeries = listOf(
             // The room's id as author -- everybody knows it -- and a made-up
             // signature.
             Event(
                 id = EventHasher.hashId(
-                    pubKey = chatRoomId, createdAt = 1_700_000_001L, kind = DialectEvent.KIND,
-                    tags = honest.tags, content = "forged"
+                    pubKey = chatRoomId, createdAt = 1_700_000_001L, kind = MetadataEvent.KIND,
+                    tags = honest.tags, content = "{\"name\":\"forged\"}"
                 ),
-                pubKey = chatRoomId, createdAt = 1_700_000_001L, kind = DialectEvent.KIND,
-                tags = honest.tags, content = "forged", sig = "9".repeat(128)
+                pubKey = chatRoomId, createdAt = 1_700_000_001L, kind = MetadataEvent.KIND,
+                tags = honest.tags, content = "{\"name\":\"forged\"}", sig = "9".repeat(128)
             ),
             // A real quorum, of another group.
             signedBy(
                 otherKeyMaterial,
-                DialectEvent.build(name = "seSotho", country = "ZA", language = "st", createdAt = 1_700_000_002L)
+                template(MetadataEvent.KIND, 1_700_000_002L, "{\"name\":\"Elsewhere\"}")
             ),
             // Edited after the group signed it.
             Event(
                 id = honest.id, pubKey = honest.pubKey, createdAt = honest.createdAt,
                 kind = honest.kind,
-                tags = arrayOf(arrayOf("alt", "Dialect"), arrayOf("name", "tampered")),
+                tags = arrayOf(arrayOf("name", "tampered")),
                 content = honest.content, sig = honest.sig
             ),
             // A member's own rumor, which is what everything on the wire looks
             // like today.
             Event(
                 id = EventHasher.hashId(
-                    pubKey = oldMember, createdAt = 1_700_000_003L, kind = DialectEvent.KIND,
-                    tags = honest.tags, content = "unsigned"
+                    pubKey = oldMember, createdAt = 1_700_000_003L, kind = MetadataEvent.KIND,
+                    tags = honest.tags, content = "{\"name\":\"unsigned\"}"
                 ),
-                pubKey = oldMember, createdAt = 1_700_000_003L, kind = DialectEvent.KIND,
-                tags = honest.tags, content = "unsigned", sig = ""
+                pubKey = oldMember, createdAt = 1_700_000_003L, kind = MetadataEvent.KIND,
+                tags = honest.tags, content = "{\"name\":\"unsigned\"}", sig = ""
             ),
         )
 
@@ -614,28 +502,25 @@ class ChronicleApplyJvmTest {
                 count = 1,
                 recipient = newMember,
                 createdAt = 1_700_000_100L,
+                kinds = TEST_KINDS,
             )
         )
 
         assertEquals(4, outcome.skipped)
         assertEquals(1, outcome.applied)
 
-        val dialects = receiver.mantraDialectDao().getDialectsByChatRoomId(chatRoomId)
-        assertEquals(1, dialects.size, "exactly the honest one")
-        assertEquals(honest.id, dialects.single().id)
-
-        // And nothing forged was kept as an event either. The record is what a
-        // later chronicle is built from, so a forgery filed here would be one this
-        // member goes on to hand to everybody else.
+        // Nothing forged was kept. The record is what a later chronicle is built
+        // from, so a forgery filed here would be one this member goes on to hand
+        // to everybody else.
         assertEquals(
             listOf(honest.id),
-            receiver.groupSignedEventDao().getByChatRoomId(chatRoomId).map { it.id }
+            receiver.groupSignedEventDao().getByChatRoomId(chatRoomId).map { it.id },
+            "exactly the honest one"
         )
     }
 
     @Test
     fun `a key state the room really signed cannot be replayed through a chronicle`() = runBlocking {
-        seedSenderWork()
         seedRoom(receiver, newMember)
 
         // Signed by the room, verifying perfectly, and refused: the allowlist is
@@ -676,6 +561,7 @@ class ChronicleApplyJvmTest {
         assertEquals(1, outcome.skipped)
         assertEquals(0, outcome.applied)
         assertNull(receiver.groupKeyStateDao().getByChatRoomId(chatRoomId))
+        assertEquals(emptyList(), fingerprints(receiver))
     }
 
     @Test
@@ -687,12 +573,8 @@ class ChronicleApplyJvmTest {
 
         assertEquals(0, outcome.sumOf { it.applied })
         assertEquals(
-            mapOf(
-                "dialects" to 0, "artifacts" to 0, "versions" to 0, "chapters" to 0,
-                "chunks" to 0, "translationVersions" to 0, "translationChapters" to 0,
-                "translationChunks" to 0,
-            ),
-            rowCounts(receiver),
+            emptyList(),
+            fingerprints(receiver),
             "a bystander already holds the work; re-applying would only rewrite its provenance"
         )
     }
@@ -704,17 +586,12 @@ class ChronicleApplyJvmTest {
 
         val chronicle = senderChronicle()
         chronicle.forEach { deliver(it) }
-        val afterFirst = rowCounts(receiver)
+        val afterFirst = fingerprints(receiver)
 
         chronicle.forEach { deliver(it) }
 
-        assertEquals(afterFirst, rowCounts(receiver))
-        assertEquals(
-            emptyList(),
-            receiver.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId)
-                .map { it.chatMessage.messageType }
-                .filterNot { it in ChatMessage.CHRONICLE_TYPES },
-        )
+        assertEquals(afterFirst, fingerprints(receiver))
+        assertEquals(emptyList(), lines(receiver).filterNot { it in ChatMessage.CHRONICLE_TYPES })
     }
 
     // ---- Asking for one --------------------------------------------------
@@ -727,7 +604,7 @@ class ChronicleApplyJvmTest {
     fun `a device holding none of the room's work asks for it`() = runBlocking {
         seedRoom(receiver, newMember)
 
-        assertTrue(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember))
+        assertTrue(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember, kinds = TEST_KINDS))
 
         // Queued with no chat line, the way a signing message travels. Broadcast
         // does not depend on one, and a row of envelopes in the transcript is not
@@ -736,19 +613,15 @@ class ChronicleApplyJvmTest {
 
         // One line saying so, and nothing else. Asking is a thing this device did
         // and the room would otherwise sit empty with no explanation.
-        assertEquals(
-            listOf(ChatMessage.TYPE_CHRONICLE_REQUESTED),
-            receiver.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId)
-                .map { it.chatMessage.messageType }
-        )
+        assertEquals(listOf(ChatMessage.TYPE_CHRONICLE_REQUESTED), lines(receiver))
     }
 
     @Test
     fun `a device does not ask twice while an answer is in flight`() = runBlocking {
         seedRoom(receiver, newMember)
 
-        assertTrue(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember))
-        assertFalse(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember))
+        assertTrue(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember, kinds = TEST_KINDS))
+        assertFalse(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember, kinds = TEST_KINDS))
 
         assertEquals(1, queued(receiver, ChronicleRequestEvent.KIND).size)
     }
@@ -757,8 +630,37 @@ class ChronicleApplyJvmTest {
     fun `a device holding the work does not ask for it`() = runBlocking {
         seedSenderWork()
 
-        assertFalse(ChronicleManager.requestIfEmpty(sender, chatRoomId, oldMember))
+        assertFalse(ChronicleManager.requestIfEmpty(sender, chatRoomId, oldMember, kinds = TEST_KINDS))
         assertEquals(0, queued(sender, ChronicleRequestEvent.KIND).size)
+    }
+
+    /**
+     * "Holds the work" means holds something a chronicle would carry. A device
+     * whose only signed event is one the list refuses is as far behind as one
+     * holding nothing, and has to ask like one.
+     */
+    @Test
+    fun `a device holding only signed kinds off the list still asks`() = runBlocking {
+        seedRoom(receiver, newMember)
+
+        receiver.groupSignedEventDao().record(
+            GroupSignedEvent.fromEvent(
+                event = signed(
+                    EventTemplate<Event>(
+                        createdAt = 1_700_000_060L,
+                        kind = GroupKeyStateEvent.KIND,
+                        tags = GroupKeyStateEvent.assembleTags(
+                            chatRoomId = chatRoomId,
+                            dkgSessionId = "the-ceremony",
+                        ),
+                        content = keyMaterial.thresholdPublicKey.value.toHex(),
+                    )
+                ),
+                chatRoomId = chatRoomId,
+            )
+        )
+
+        assertTrue(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember, kinds = TEST_KINDS))
     }
 
     @Test
@@ -766,7 +668,7 @@ class ChronicleApplyJvmTest {
         seedSenderWork()
         seedRoom(receiver, newMember)
 
-        ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember)
+        ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember, kinds = TEST_KINDS)
         assertNotNull(receiver.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom?.chronicleRequestedAt)
 
         senderChronicle().forEach { deliver(it) }
@@ -782,7 +684,7 @@ class ChronicleApplyJvmTest {
     fun `answering a request queues the chronicle for whoever asked`() = runBlocking {
         seedSenderWork()
 
-        val pages = ChronicleManager.sendTo(sender, chatRoomId, oldMember, recipient = newMember)
+        val pages = ChronicleManager.sendTo(sender, chatRoomId, oldMember, recipient = newMember, kinds = TEST_KINDS)
 
         assertEquals(1, pages)
 
@@ -798,21 +700,20 @@ class ChronicleApplyJvmTest {
             sig = "",
         )
         assertEquals(newMember, page.recipient())
-        assertEquals(ChronicleEvent.CHRONICLABLE_KINDS, page.payloads()?.map { it.kind }?.toSet())
+        assertEquals(TEST_KINDS.all, page.payloads()?.map { it.kind }?.toSet())
 
         // One line about the chronicle, and no line per page.
-        assertEquals(
-            listOf(ChatMessage.TYPE_CHRONICLE_SENT),
-            sender.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId)
-                .map { it.chatMessage.messageType }
-        )
+        assertEquals(listOf(ChatMessage.TYPE_CHRONICLE_SENT), lines(sender))
     }
 
     @Test
     fun `a member with nothing signed answers nothing rather than an empty chronicle`() = runBlocking {
         seedRoom(receiver, newMember)
 
-        assertEquals(0, ChronicleManager.sendTo(receiver, chatRoomId, newMember, recipient = oldMember))
+        assertEquals(
+            0,
+            ChronicleManager.sendTo(receiver, chatRoomId, newMember, recipient = oldMember, kinds = TEST_KINDS)
+        )
         assertEquals(0, queued(receiver, ChronicleEvent.KIND).size)
     }
 
@@ -820,7 +721,10 @@ class ChronicleApplyJvmTest {
     fun `a member does not answer their own request`() = runBlocking {
         seedSenderWork()
 
-        assertEquals(0, ChronicleManager.sendTo(sender, chatRoomId, oldMember, recipient = oldMember))
+        assertEquals(
+            0,
+            ChronicleManager.sendTo(sender, chatRoomId, oldMember, recipient = oldMember, kinds = TEST_KINDS)
+        )
         assertEquals(0, queued(sender, ChronicleEvent.KIND).size)
     }
 
@@ -830,10 +734,10 @@ class ChronicleApplyJvmTest {
         seedRoom(receiver, newMember)
 
         // The joiner asks.
-        assertTrue(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember))
+        assertTrue(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember, kinds = TEST_KINDS))
 
         // A member holding the work answers it, addressed to whoever asked.
-        ChronicleManager.sendTo(sender, chatRoomId, oldMember, recipient = newMember)
+        ChronicleManager.sendTo(sender, chatRoomId, oldMember, recipient = newMember, kinds = TEST_KINDS)
 
         // The pages reach the joiner, who applies them.
         queued(sender, ChronicleEvent.KIND).forEach { queuedPage ->
@@ -847,7 +751,7 @@ class ChronicleApplyJvmTest {
             )
         }
 
-        assertEquals(rowCounts(sender), rowCounts(receiver))
+        assertEquals(fingerprints(sender), fingerprints(receiver))
         assertNull(receiver.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom?.chronicleRequestedAt)
     }
 
@@ -885,57 +789,30 @@ class ChronicleApplyJvmTest {
         return keyPackageId
     }
 
-    @Test
-    fun `inviting a member offers them the group's work alongside the welcome`() = runBlocking {
-        seedSenderWork()
+    private suspend fun invite() = sender.marmotOutboundDao().deliveryWelcome(
+        chatRoomId = chatRoomId,
+        userPublicKey = oldMember,
+        welcomeBytes = ByteArray(8),
+        peerKeyPackageEventId = seedInviteeKeyPackage(),
+        relays = listOf("wss://relay.example.com"),
+        createdAt = Clock.System.now(),
+    )
 
-        sender.marmotOutboundDao().deliveryWelcome(
-            chatRoomId = chatRoomId,
-            userPublicKey = oldMember,
-            welcomeBytes = ByteArray(8),
-            peerKeyPackageEventId = seedInviteeKeyPackage(),
-            relays = listOf("wss://relay.example.com"),
-            createdAt = Clock.System.now(),
-        )
-
-        val page = queued(sender, ChronicleEvent.KIND).single()
-
-        assertEquals(
-            newMember,
-            ChronicleEvent(
-                id = page.id,
-                pubKey = page.publicKey,
-                createdAt = page.createdAt.epochSeconds,
-                tags = page.tags,
-                content = page.content,
-                sig = "",
-            ).recipient()
-        )
-    }
+    private suspend fun welcomesSent() = sender.giftWrapPayloadDao()
+        .getByChatRoomAndKinds(chatRoomId, listOf(WelcomeEvent.KIND))
+        .size
 
     @Test
     fun `inviting into a room with nothing signed offers nothing, and still invites`() = runBlocking {
         seedRoom(sender, oldMember)
 
-        sender.marmotOutboundDao().deliveryWelcome(
-            chatRoomId = chatRoomId,
-            userPublicKey = oldMember,
-            welcomeBytes = ByteArray(8),
-            peerKeyPackageEventId = seedInviteeKeyPackage(),
-            relays = listOf("wss://relay.example.com"),
-            createdAt = Clock.System.now(),
-        )
+        invite()
 
         assertEquals(0, queued(sender, ChronicleEvent.KIND).size)
         // The Welcome itself still went out. A push that has nothing to say is
         // not a failed invite, and nothing about the chronicle may report one:
         // the invitee asks for themselves on their first open regardless.
-        assertEquals(
-            1,
-            sender.giftWrapPayloadDao()
-                .getByChatRoomAndKinds(chatRoomId, listOf(WelcomeEvent.KIND))
-                .size
-        )
+        assertEquals(1, welcomesSent())
     }
 
     @Test
@@ -943,25 +820,11 @@ class ChronicleApplyJvmTest {
         seedSenderWork()
         seedRoom(receiver, newMember)
 
-        ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember)
+        ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember, kinds = TEST_KINDS)
 
         // Delivered a page at a time and out of order, so the sweep runs several
         // times over several pages. The transcript is not a log of that.
-        val payloads = senderChronicle()
-            .flatMap { assertNotNull(ChronicleEvent.decodePage(it.content)) }
-
-        payloads.reversed().forEachIndexed { index, payload ->
-            deliver(
-                ChronicleEvent.build(
-                    payloads = listOf(payload),
-                    chronicleId = "e".repeat(64),
-                    index = index,
-                    count = payloads.size,
-                    recipient = newMember,
-                    createdAt = 1_700_000_100L + index,
-                )
-            )
-        }
+        onePagePerPayload().reversed().forEach { deliver(it) }
 
         // Newest first, which is the transcript's order: the answer is the line above
         // the composer and the ask sits over it. Both land in the same second, so what
@@ -969,8 +832,7 @@ class ChronicleApplyJvmTest {
         // without it this read whichever way SQLite happened to hand the tie back.
         assertEquals(
             listOf(ChatMessage.TYPE_CHRONICLE_RECEIVED, ChatMessage.TYPE_CHRONICLE_REQUESTED),
-            receiver.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId)
-                .map { it.chatMessage.messageType }
+            lines(receiver)
         )
     }
 
@@ -983,10 +845,93 @@ class ChronicleApplyJvmTest {
         // "caught up on work you have not seen yet" is a line about nothing.
         senderChronicle().forEach { deliver(it) }
 
-        assertEquals(
-            emptyList(),
-            receiver.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId)
-                .map { it.chatMessage.messageType }
+        assertEquals(emptyList(), lines(receiver))
+    }
+
+    // ---- The app's own list ----------------------------------------------
+    //
+    // Everything above names its kinds. The app's call sites do not, so these hold
+    // the default -- ChronicleEvent.KINDS -- to what its comment promises: with
+    // nothing on the list, a device asks for nothing, sends nothing, and applies
+    // nothing an older build sends it.
+
+    /**
+     * The decision itself, pinned. Adding a kind back is meant to be made on
+     * purpose, with the reason it is safe to replay, and this is the line that
+     * has to change when it is.
+     */
+    @Test
+    fun `the app's own list carries nothing`() {
+        assertTrue(ChronicleEvent.KINDS.isEmpty())
+        assertTrue(ChronicleEvent.CHRONICLABLE_KINDS.isEmpty())
+    }
+
+    /**
+     * Asking while nothing could answer would put a request on the wire and a
+     * line in the transcript on every room a member opens, for a reply that can
+     * only ever be silence.
+     */
+    @Test
+    fun `under the app's own list a device asks for nothing`() = runBlocking {
+        seedRoom(receiver, newMember)
+
+        assertFalse(ChronicleManager.requestIfEmpty(receiver, chatRoomId, newMember))
+
+        assertEquals(0, queued(receiver, ChronicleRequestEvent.KIND).size)
+        assertNull(
+            receiver.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom?.chronicleRequestedAt,
+            "a stamp would hold back a real request on the day the list grows"
         )
+        assertEquals(emptyList(), lines(receiver))
+    }
+
+    /**
+     * Both ways a chronicle goes out -- the reply to a request and the push
+     * behind a Welcome -- from a room that holds plenty the group signed. The
+     * table holds every kind the group ever signed, so this is the filter on the
+     * way out doing its job, not an empty room.
+     */
+    @Test
+    fun `under the app's own list a device sends nothing, even holding signed work`() = runBlocking {
+        seedSenderWork()
+        assertTrue(sender.groupSignedEventDao().getByChatRoomId(chatRoomId).isNotEmpty())
+
+        // Answering a request.
+        assertEquals(0, ChronicleManager.sendTo(sender, chatRoomId, oldMember, recipient = newMember))
+
+        // The push behind a Welcome, which calls the same thing with no kinds.
+        invite()
+
+        assertEquals(0, queued(sender, ChronicleEvent.KIND).size)
+        assertEquals(emptyList(), lines(sender).filter { it in ChatMessage.CHRONICLE_TYPES })
+        // And the invite itself still went out.
+        assertEquals(1, welcomesSent())
+    }
+
+    /**
+     * A member on an older build still chronicles, and its pages are genuine:
+     * events the room really signed, of kinds that build still lists. Arriving
+     * here they are refused by the list, not by the signature -- every payload
+     * counts as skipped, none as failed, so nothing waits to be retried.
+     */
+    @Test
+    fun `under the app's own list a page from an older build applies nothing`() = runBlocking {
+        seedSenderWork()
+        seedRoom(receiver, newMember)
+
+        val pages = senderChronicle()
+        val payloadCount = pages.sumOf { assertNotNull(ChronicleEvent.decodePage(it.content)).size }
+
+        pages.forEach { deliver(it, kinds = ChronicleEvent.KINDS) }
+
+        // And a sweep of everything stored, the way the next arrival would run it.
+        val outcome = ChronicleManager.sweep(receiver, chatRoomId, newMember)
+
+        assertEquals(0, outcome.applied)
+        assertEquals(0, outcome.failed)
+        assertEquals(payloadCount, outcome.skipped)
+
+        assertEquals(emptyList(), fingerprints(receiver))
+        assertEquals(emptyList(), lines(receiver))
     }
 }

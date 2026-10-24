@@ -81,7 +81,7 @@ say — marks itself once at the top:
 ```
 
 **Budget: 0 title-case strings.** Literals in composables are reported without a budget —
-39 remain, all of them terms of a `+` concatenation.
+19 remain, all of them terms of a `+` concatenation.
 
 ## Every target is 48dp, and every icon has a decided description
 

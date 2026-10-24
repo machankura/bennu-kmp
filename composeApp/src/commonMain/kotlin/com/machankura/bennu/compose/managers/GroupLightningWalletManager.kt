@@ -144,7 +144,7 @@ object GroupLightningWalletManager {
 
     /**
      * Proposes the wallet: makes its node seed, sends it to every other participant encrypted to them
-     * (kind 30340), and opens a signing session over the statement. The wallet exists once a quorum signs.
+     * (kind 30357), and opens a signing session over the statement. The wallet exists once a quorum signs.
      */
     suspend fun proposeWallet(
         database: BennuDatabase,

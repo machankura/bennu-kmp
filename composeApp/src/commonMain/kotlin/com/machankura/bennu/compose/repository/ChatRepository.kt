@@ -1,7 +1,11 @@
 package com.machankura.bennu.compose.repository
 
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import fr.acinq.bitcoin.Chain
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.managers.GroupWalletManager
+import com.machankura.bennu.compose.managers.GuardianManager
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.GiftWrapPayload
@@ -13,9 +17,6 @@ import com.machankura.bennu.compose.nostr.MarmotProfile
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
 import com.machankura.bennu.compose.managers.MarmotGroupCreation
 import com.machankura.bennu.compose.managers.SubgroupManager
-import com.machankura.bennu.compose.nostr.GroupNostrProfile
-import com.machankura.bennu.compose.nostr.GroupPost
-import com.machankura.bennu.compose.nostr.GroupRelayList
 import com.machankura.bennu.compose.database.model.Participant
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatMessage
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
@@ -87,25 +88,17 @@ interface ChatRepository {
     suspend fun parentOf(chatRoomId: String): HexKey?
 
     /**
-     * The kind:0 this group signed about itself, or null while it has signed
-     * none.
-     *
-     * The group's identity on nostr is the room's own id, so it has one to
-     * describe whether or not it ever has. Read off the group's signed events and
-     * verified there -- see `GroupNostrProfile` -- so a room shows the profile its
-     * own key signed or shows that it has none.
+     * What this room's own birth certificate says of its wallet, or null for a
+     * room with none. See `SubgroupManager.walletPolicyOf`.
      */
-    suspend fun groupNostrProfile(chatRoomId: String): GroupNostrProfile?
+    suspend fun walletPolicyOf(chatRoomId: String): WalletPolicyReading?
 
     /**
-     * Where this group has said it lives on nostr: one entry per relay set, always
-     * all of them.
-     *
-     * A set the group has never agreed comes back unsigned and empty rather than
-     * missing, because "never said" is a state the screen has to show and a gap in
-     * a list is not one. See `GroupRelayList.isAgreed`.
+     * The guardian keys this room's own certificate grants it, nearest first --
+     * empty for a room with none, null when they do not read. See
+     * `SubgroupManager.guardiansOf`.
      */
-    suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList>
+    suspend fun guardiansOf(chatRoomId: String): List<GuardianDerivation.Guardian>?
 
     /**
      * The wallet this group has opened on [chain], or null when it has not --
@@ -126,25 +119,30 @@ interface ChatRepository {
     suspend fun groupWalletAccount(chatRoomId: String, chain: Chain): GroupWalletDerivation.Account?
 
     /**
-     * The kind:1s this group signed, newest first.
-     *
-     * The group speaking as itself, which is a different thing from a member
-     * speaking in the room -- the transcript is the second. Unlike the profile and
-     * the relay lists these accumulate rather than replace, so this is a list and
-     * an empty one means the group has said nothing publicly.
+     * The guarded account this group could open on [chain] instead, and the
+     * certificate granting its guardians -- or null for a group whose birth
+     * certificate grants it none.
      */
-    suspend fun groupPosts(chatRoomId: String): List<GroupPost>
+    suspend fun groupWalletGuardedOpening(chatRoomId: String, chain: Chain): GroupWalletManager.GuardedOpening?
+
+    /** The guarded wallets of groups below this one that it has been told about and can sign for. */
+    suspend fun guardedWallets(chatRoomId: String): List<GuardianManager.GuardedWallet>
+
+    /** The guarded statements this device can carry from this group to the groups above it, with where to. */
+    suspend fun shareableGuardedWallets(chatRoomId: String, chain: Chain): List<GuardianManager.Shareable>
+
+    /** Tells the groups in [shareable] about its statement, as [userPublicKey]. Returns how many were told. */
+    suspend fun shareGuardedWallet(shareable: GuardianManager.Shareable, userPublicKey: HexKey): Int
 
     /**
-     * One event the group signed, as the group signed it, or null when this
-     * device does not hold it or it was signed in some other room.
-     *
-     * Scoped to the room rather than looked up by id alone, because the id
-     * arrives as a navigation argument and the screen it opens names a room in
-     * its title: an event from one room shown under another room's name would
-     * be a lie the signature check cannot catch, since both rooms' events verify.
+     * Tells the groups above this one about every guarded wallet it holds that
+     * they have not heard of -- the catch-up of `docs/guarded-wallet-forwarding.md`.
+     * Returns how many groups were told. Nothing, by default.
      */
-    suspend fun groupSignedEvent(chatRoomId: String, id: HexKey): GroupSignedEvent?
+    suspend fun forwardGuardedWallets(chatRoomId: String): Int = 0
+
+    /** Writes a transcript line for each guardian spend from this group's wallet it has none for yet. */
+    suspend fun recordGuardianSpends(chatRoomId: String, taken: List<GuardianManager.Taken>): Int
 
     /**
      * Whether this device holds a share of the group's key, and so could take
@@ -372,10 +370,9 @@ interface ChatRepository {
 
             override suspend fun parentOf(chatRoomId: String): HexKey? = null
 
-            override suspend fun groupNostrProfile(chatRoomId: String): GroupNostrProfile? = null
+            override suspend fun walletPolicyOf(chatRoomId: String): WalletPolicyReading? = null
 
-            override suspend fun groupRelayLists(chatRoomId: String): List<GroupRelayList> =
-                GroupRelayList.allAmong(emptyList(), chatRoomId)
+            override suspend fun guardiansOf(chatRoomId: String): List<GuardianDerivation.Guardian>? = emptyList()
 
             override suspend fun groupWallet(chatRoomId: String, chain: Chain): GroupWallet? = null
 
@@ -384,12 +381,27 @@ interface ChatRepository {
                 chain: Chain
             ): GroupWalletDerivation.Account? = null
 
-            override suspend fun groupPosts(chatRoomId: String): List<GroupPost> = emptyList()
-
-            override suspend fun groupSignedEvent(
+            override suspend fun groupWalletGuardedOpening(
                 chatRoomId: String,
-                id: HexKey
-            ): GroupSignedEvent? = null
+                chain: Chain
+            ): GroupWalletManager.GuardedOpening? = null
+
+            override suspend fun guardedWallets(chatRoomId: String): List<GuardianManager.GuardedWallet> = emptyList()
+
+            override suspend fun shareableGuardedWallets(
+                chatRoomId: String,
+                chain: Chain
+            ): List<GuardianManager.Shareable> = emptyList()
+
+            override suspend fun shareGuardedWallet(
+                shareable: GuardianManager.Shareable,
+                userPublicKey: HexKey
+            ): Int = 0
+
+            override suspend fun recordGuardianSpends(
+                chatRoomId: String,
+                taken: List<GuardianManager.Taken>
+            ): Int = 0
 
             override suspend fun canSign(chatRoomId: String): Boolean = false
 

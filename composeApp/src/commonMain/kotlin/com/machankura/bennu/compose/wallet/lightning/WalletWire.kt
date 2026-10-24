@@ -34,7 +34,7 @@ object WalletWire {
     )
 
     /**
-     * Kind 30345: the operator's claim about the wallet, sent when something changes and every few
+     * Kind 30362: the operator's claim about the wallet, sent when something changes and every few
      * minutes while the node runs. [assignments] is the round-one pool's assignments, so an operator
      * elected after this one can sign under the verification nonces this one published.
      */
@@ -55,11 +55,11 @@ object WalletWire {
         val inboundMsat: Long get() = channels.sumOf { it.theirsMsat }
     }
 
-    /** Kind 30347: a member asks the operator for an invoice. */
+    /** Kind 30364: a member asks the operator for an invoice. */
     @Serializable
     data class InvoiceRequest(val wallet: String, val requestId: String, val amountMsat: Long? = null, val description: String)
 
-    /** Kind 30348: the operator's answer, addressed to the whole room by [requestId]. */
+    /** Kind 30365: the operator's answer, addressed to the whole room by [requestId]. */
     @Serializable
     data class InvoiceReply(val wallet: String, val requestId: String, val bolt11: String)
 }

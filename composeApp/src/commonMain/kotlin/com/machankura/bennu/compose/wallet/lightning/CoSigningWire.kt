@@ -92,7 +92,7 @@ object CoSigningWire {
     @Serializable
     data class Input(val txid: String, val index: Long, val amountSat: Long, val script: String)
 
-    /** Kind 30341, from the operator. [kind] is a [fr.acinq.lightning.crypto.IcebergRoundTwoRequest.Kind] name. */
+    /** Kind 30358, from the operator. [kind] is a [fr.acinq.lightning.crypto.IcebergRoundTwoRequest.Kind] name. */
     @Serializable
     data class SigningRequest(
         val wallet: String,
@@ -111,15 +111,15 @@ object CoSigningWire {
         val context: Context? = null,
     )
 
-    /** Kind 30342: a co-signer saw [messageHash] under [label], and will sign nothing else under it. */
+    /** Kind 30359: a co-signer saw [messageHash] under [label], and will sign nothing else under it. */
     @Serializable
     data class Echo(val wallet: String, val requestId: String, val label: String, val messageHash: String)
 
-    /** Kind 30343: round-one contributions for consecutive pool counters from [from]. */
+    /** Kind 30360: round-one contributions for consecutive pool counters from [from]. */
     @Serializable
     data class NonceBatch(val wallet: String, val from: Long, val contributions: List<String>)
 
-    /** Kind 30344: one co-signer's round-two answer. */
+    /** Kind 30361: one co-signer's round-two answer. */
     @Serializable
     data class SignatureShareMessage(val wallet: String, val requestId: String, val label: String, val share: String)
 

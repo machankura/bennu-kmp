@@ -5,11 +5,14 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nip01Core.tags.dTag.DTag
 import com.vitorpamplona.quartz.nip01Core.tags.people.PTag
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.frost.tags.FrostDerivationPathTag
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
 import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupKeyTag
 import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupParentTag
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
 
 /**
  * A group saying, with a quorum, that another group is its child.
@@ -49,6 +52,28 @@ import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupParentTag
  * The one that earns its place is [SubgroupKeyTag]: with it a signer's device
  * can check `marmotGroupId(key, path) == content` for itself, which is the
  * difference between approving a hash and approving a group.
+ *
+ * ### Guardian keys
+ *
+ * A certificate may also carry [GuardianTag]s: the parent's own guardian key for
+ * this child, and behind it every key the parent's ancestors granted the parent,
+ * each one public step further -- `GuardianDerivation.grant`. Carrying them is
+ * the parent agreeing to guard the child's wallet, if the child ever opens a
+ * guarded one; it delegates nothing on its own. They are not among the checks in
+ * [certifies], which is about lineage. Whether they are the keys the parent
+ * grants is checked by every parent signer before the certificate is signed --
+ * `SubgroupManager.refuseCertificate` -- and nowhere after, because nobody else holds
+ * the key that check needs and nobody else needs it: the parent's quorum can
+ * already spend through its own leaf whatever the others would let it.
+ *
+ * ### The wallet policy
+ *
+ * A certificate may carry a [WalletPolicyTag]: the parent deciding whether the
+ * child's wallet is guarded or unguarded, rather than leaving it to the child --
+ * `docs/subgroup-wallet-policy.md`. A guarded certificate carries the guardian
+ * keys and an unguarded one carries none, and [parseWalletPolicy] refuses one
+ * whose policy and keys disagree. Like the keys, the policy is not among the
+ * checks in [certifies]: it is read where it is used.
  *
  * ### What [certifies] deliberately does not check
  *
@@ -95,14 +120,53 @@ object SubgroupBirthCertificateEvent {
         thresholdPublicKey: HexKey,
         adminPublicKeys: List<HexKey>,
         name: String,
-        path: List<Long> = SharedKeyDerivation.MARMOT_ADMIN_GROUP_PATH
+        path: List<Long> = SharedKeyDerivation.MARMOT_ADMIN_GROUP_PATH,
+        guardians: List<GuardianDerivation.Guardian> = emptyList(),
+        walletPolicy: SubgroupWalletPolicy? = null
     ): Array<Array<String>> = arrayOf(
         DTag.assemble(subgroupChatRoomId),
         SubgroupParentTag.assemble(parentChatRoomId),
         SubgroupKeyTag.assemble(thresholdPublicKey),
         FrostDerivationPathTag.assemble(path),
         arrayOf(NAME_TAG_NAME, name)
-    ) + adminPublicKeys.distinct().map { PTag.assemble(it, null) }
+    ) + adminPublicKeys.distinct().map { PTag.assemble(it, null) } +
+        guardians.map(GuardianTag::assemble) +
+        listOfNotNull(walletPolicy?.let(WalletPolicyTag::assemble))
+
+    /**
+     * What the certificate says about the child's wallet: [WalletPolicyReading.Undecided]
+     * when it carries no policy, as every certificate from before policies does,
+     * and null when the reading cannot be used --
+     *
+     *  - a `wallet` tag that does not read, or two of them;
+     *  - guardian keys that do not read;
+     *  - a policy that contradicts the keys beside it: `guarded` with none, or
+     *    `unguarded` with some.
+     *
+     * A certificate that says one thing in its policy and another in its keys is
+     * not a thing to guess the meaning of, and a policy present and unreadable
+     * must never read as absent -- that would hand the child the choice the
+     * parent took away.
+     */
+    fun parseWalletPolicy(tags: Array<Array<String>>): WalletPolicyReading? {
+        val guardians = parseGuardians(tags) ?: return null
+        return when (val tag = WalletPolicyTag.parseOne(tags)) {
+            WalletPolicyTag.Result.Absent -> WalletPolicyReading.Undecided
+            WalletPolicyTag.Result.Unreadable -> null
+            is WalletPolicyTag.Result.Present -> when (tag.policy) {
+                SubgroupWalletPolicy.GUARDED -> WalletPolicyReading.Decided(tag.policy).takeIf { guardians.isNotEmpty() }
+                SubgroupWalletPolicy.UNGUARDED -> WalletPolicyReading.Decided(tag.policy).takeIf { guardians.isEmpty() }
+            }
+        }
+    }
+
+    /**
+     * The guardian keys the parent grants the child, nearest first -- empty for a
+     * certificate that carries none, and null when one is unreadable, so that a
+     * list with an entry quietly dropped is never mistaken for the list.
+     */
+    fun parseGuardians(tags: Array<Array<String>>): List<GuardianDerivation.Guardian>? =
+        GuardianTag.parseAll(tags)
 
     /** The child this certificate is about, or null if it names none. */
     fun parseSubgroupChatRoomId(tags: Array<Array<String>>): String? =

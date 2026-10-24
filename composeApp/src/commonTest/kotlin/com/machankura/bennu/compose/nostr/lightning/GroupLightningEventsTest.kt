@@ -7,7 +7,12 @@ import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.GroupKeyNoticeEvent
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.nostr.wallet.GuardedWalletNoticeEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletRequestEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -26,7 +31,14 @@ class GroupLightningEventsTest {
         SubgroupBirthCertificateEvent.KIND,
         MarmotDirectMessage.ENVELOPE_KIND,
         GroupWalletStatementEvent.KIND,
-    ) + (30300..30312).toSet()   // the nip30303 document kinds
+        // The guarded-wallet family, which took 30333-30337 while this one was being built under
+        // those numbers: the reason it moved.
+        GuardedWalletNoticeEvent.KIND,
+        MemberWalletCertificateEvent.KIND,
+        MemberWalletRequestEvent.KIND,
+        GroupKeyNoticeEvent.KIND,
+        MemberWalletPolicyEvent.KIND,
+    ) + (30300..30312).toSet()   // the nip30303 document kinds, gone but not to be reused
 
     @Test
     fun `no lightning kind is a kind the app already routes`() {
@@ -34,8 +46,13 @@ class GroupLightningEventsTest {
     }
 
     @Test
-    fun `the family is one unbroken run from 30333 to 30349`() {
-        assertEquals((30333..30349).toSet(), GroupLightningEvents.ALL)
+    fun `the family starts past every kind the app uses, so the next family can follow it`() {
+        assertTrue(GroupLightningEvents.ALL.min() > taken.max(), "a Lightning kind sits inside another family's range")
+    }
+
+    @Test
+    fun `the family is one unbroken run from 30350 to 30366`() {
+        assertEquals((30350..30366).toSet(), GroupLightningEvents.ALL)
     }
 
     @Test

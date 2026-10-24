@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountTree
 import bennu.composeapp.generated.resources.open
 import bennu.composeapp.generated.resources.the_group_has_its_key_finish_setting_it_up
@@ -110,7 +111,7 @@ import com.machankura.bennu.compose.ui.composable.widgets.ErrorState
 @Composable
 fun ChatTranscript(
     viewModel: ChatMessageListViewModel,
-    onOpenSharedKey: (dkgSessionId: String?) -> Unit,
+    onOpenSharedKey: (dkgSessionId: String) -> Unit,
     /** Opens the Lightning wallet key ceremony an [ChatMessage.ICEBERG_TYPES] line is about. */
     onOpenIcebergCeremony: (sessionId: String?) -> Unit = {},
     /**
@@ -267,9 +268,13 @@ fun ChatTranscript(
                                         // The line knows which ceremony it is
                                         // about; the room does not. Passing it is
                                         // what stops a subgroup's request opening
-                                        // the group's own finished ceremony.
-                                        onClick = {
-                                            onOpenSharedKey(localChatMessage.chatMessage.dkgSessionId)
+                                        // the group's own finished ceremony. A
+                                        // line that names none opens nothing: the
+                                        // ceremony screen shows the ceremony it is
+                                        // named, and guessing one is how a
+                                        // subgroup's got buried under another.
+                                        onClick = localChatMessage.chatMessage.dkgSessionId?.let { dkgSessionId ->
+                                            { onOpenSharedKey(dkgSessionId) }
                                         }
                                     )
                                     return@items
@@ -356,15 +361,11 @@ fun ChatTranscript(
                                     return@items
                                 }
 
-                                // The group's own profile, signed. Same treatment
-                                // and for the same reason: nobody said it. Answered
-                                // and settled because it reports rather than asks --
-                                // a quorum has already signed by the time this line
-                                // exists.
-                                //
-                                // It leads nowhere. What a reader wants from one is
-                                // the profile, and the nostr profile section of the
-                                // group's detail screen is where that lives.
+                                // Something the group signed. Same treatment and for
+                                // the same reason: nobody said it. Answered and
+                                // settled because it reports rather than asks -- a
+                                // quorum has already signed by the time this line
+                                // exists. It leads nowhere.
                                 if (localChatMessage.chatMessage.messageType in ChatMessage.GROUP_IDENTITY_TYPES) {
                                     RitualNotice(
                                         localChatMessage = localChatMessage,
@@ -806,7 +807,8 @@ private fun RitualNotice(
     localChatMessage: LocalChatMessage,
     isAnswered: Boolean,
     isSettled: Boolean,
-    onClick: () -> Unit,
+    /** Null for a line that names no ceremony, which then opens nothing. */
+    onClick: (() -> Unit)?,
 ) {
     val chatMessage = localChatMessage.chatMessage
 
@@ -861,6 +863,7 @@ private fun RitualNotice(
         // path, so they get separate icons -- the whole reason both lines exist is
         // to be able to see that the first happened and the second did not.
         ChatMessage.TYPE_SUBGROUP_CERTIFIED -> Icons.Default.AccountTree
+        ChatMessage.TYPE_MEMBER_WALLET_REQUESTED, ChatMessage.TYPE_MEMBER_WALLET_GUARDED -> Icons.Default.AccountBalanceWallet
         ChatMessage.TYPE_MEMBER_INVITED -> Icons.Default.PersonAdd
         ChatMessage.TYPE_MEMBER_INVITE_SENT -> Icons.Default.Upload
         ChatMessage.TYPE_MEMBER_INVITE_FAILED -> Icons.Default.ErrorOutline
@@ -898,7 +901,7 @@ private fun RitualNotice(
         modifier = Modifier
             .fillMaxWidth()
             .minimumInteractiveComponentSize()
-            .clickable(onClick = onClick)
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
             .padding(horizontal = MaterialTheme.spacing.space250, vertical = MaterialTheme.spacing.space125),
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space125),
         verticalAlignment = Alignment.CenterVertically

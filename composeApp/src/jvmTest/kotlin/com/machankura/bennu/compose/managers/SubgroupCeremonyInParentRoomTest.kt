@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianDelayTag
 import androidx.room3.Room
 import com.vitorpamplona.quartz.marmot.mip01Groups.MarmotGroupData
 import com.vitorpamplona.quartz.marmot.mls.crypto.Ed25519
@@ -35,6 +36,9 @@ import com.machankura.bennu.compose.database.model.types.DkgRitualStage
 import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.nostr.Relays
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
+import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
 
 /**
  * A subgroup's key ceremony, held in the room of the group making it.
@@ -111,7 +115,11 @@ class SubgroupCeremonyInParentRoomTest {
 
     private val quorum = 2
 
-    private suspend fun openCeremony(room: LocalChatRoom) = ChillDkgRitualManager.proposeRitual(
+    private suspend fun openCeremony(
+        room: LocalChatRoom,
+        walletPolicy: SubgroupWalletPolicy? = null,
+        guardianDelay: Long? = null,
+    ) = ChillDkgRitualManager.proposeRitual(
         database = parent,
         localChatRoom = room,
         userPublicKey = user,
@@ -119,7 +127,9 @@ class SubgroupCeremonyInParentRoomTest {
         threshold = quorum,
         parentChatRoomId = parentRoomId,
         participantPublicKeys = admins,
-        subject = "Translation"
+        subject = "Translation",
+        walletPolicy = walletPolicy,
+        guardianDelay = guardianDelay
     )
 
     private suspend fun innerEvents(database: BennuDatabase) = database.marmotInnerEventDao()
@@ -220,6 +230,196 @@ class SubgroupCeremonyInParentRoomTest {
         innerEvents(parent).filterNot { it.kind == DkgRitualEvents.PROPOSAL }.forEach {
             assertNull(DkgRitualEvents.parseSubject(it.tags), "kind ${it.kind} repeats the name")
         }
+    }
+
+    /**
+     * The coordinator's choice of wallet policy reaches every admin before they
+     * join -- docs/subgroup-wallet-policy.md, Phase 2. It is what the join screen
+     * shows and what the certificate is later proposed under, so it has to be on
+     * every admin's session, not only the coordinator's.
+     */
+    @Test
+    fun `the wallet policy travels on the proposal and lands on every admin's session`(): Unit = runBlocking {
+        val room = parentRoom()
+        val session = openCeremony(room, SubgroupWalletPolicy.GUARDED)
+        assertEquals(SubgroupWalletPolicy.GUARDED, session.subgroupWalletPolicy)
+
+        val proposal = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL }
+        )
+        assertEquals(
+            WalletPolicyTag.Result.Present(SubgroupWalletPolicy.GUARDED),
+            DkgRitualEvents.parseWalletPolicy(proposal.tags),
+        )
+        innerEvents(parent).filterNot { it.kind == DkgRitualEvents.PROPOSAL }.forEach {
+            assertEquals(WalletPolicyTag.Result.Absent, DkgRitualEvents.parseWalletPolicy(it.tags), "kind ${it.kind} repeats the policy")
+        }
+
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = receiverRoom(),
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+        assertEquals(
+            SubgroupWalletPolicy.GUARDED,
+            receiver.dkgSessionDao().getSessionById(session.id)?.subgroupWalletPolicy,
+        )
+    }
+
+    /** docs/guardian-delay.md, Phase 4: the delay travels as the policy does, one field further. */
+    @Test
+    fun `the guardian delay travels on the proposal and lands on every admin's session`(): Unit = runBlocking {
+        val session = openCeremony(parentRoom(), SubgroupWalletPolicy.GUARDED, guardianDelay = 4_320)
+        assertEquals(4_320L, session.guardianDelay)
+
+        val proposal = assertNotNull(innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL })
+        assertEquals(GuardianDelayTag.Result.Present(4_320), DkgRitualEvents.parseGuardianDelay(proposal.tags))
+        innerEvents(parent).filterNot { it.kind == DkgRitualEvents.PROPOSAL }.forEach {
+            assertEquals(GuardianDelayTag.Result.Absent, DkgRitualEvents.parseGuardianDelay(it.tags), "kind ${it.kind} repeats the delay")
+        }
+
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = receiverRoom(),
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+        assertEquals(4_320L, receiver.dkgSessionDao().getSessionById(session.id)?.guardianDelay)
+    }
+
+    @Test
+    fun `a guarded proposal with no delay files none`(): Unit = runBlocking {
+        val session = openCeremony(parentRoom(), SubgroupWalletPolicy.GUARDED)
+        val proposal = assertNotNull(innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL })
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = receiverRoom(),
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+        val joined = assertNotNull(receiver.dkgSessionDao().getSessionById(session.id))
+        assertNull(joined.guardianDelay, "certified later at the default")
+    }
+
+    @Test
+    fun `a proposal whose delay is out of range, unreadable, or unguarded is dropped`(): Unit = runBlocking {
+        val receiving = receiverRoom()
+        val cases = mapOf(
+            "five blocks" to (SubgroupWalletPolicy.GUARDED to arrayOf(GuardianDelayTag.TAG_NAME, "5")),
+            "a word" to (SubgroupWalletPolicy.GUARDED to arrayOf(GuardianDelayTag.TAG_NAME, "twelve")),
+            "an unguarded subgroup" to (SubgroupWalletPolicy.UNGUARDED to arrayOf(GuardianDelayTag.TAG_NAME, "144")),
+        )
+        cases.entries.forEachIndexed { index, (name, case) ->
+            val (policy, delayTag) = case
+            val sessionId = "a${index}".padEnd(64, '0')
+            val proposal = Event(
+                id = "b${index}".padEnd(64, '0'),
+                pubKey = user,
+                createdAt = 1,
+                kind = DkgRitualEvents.PROPOSAL,
+                tags = admins.map { arrayOf("p", it) }.toTypedArray() +
+                    DkgRitualEvents.assembleTags(
+                        sessionId = sessionId,
+                        threshold = quorum,
+                        parentChatRoomId = parentRoomId,
+                        subject = "Translation",
+                        walletPolicy = policy,
+                    ) + arrayOf(delayTag),
+                content = "",
+                sig = ""
+            )
+            ChillDkgRitualManager.processRitualPayload(
+                database = receiver,
+                localChatRoom = receiving,
+                innerEvent = proposal,
+                userPublicKey = alice,
+                nostrPrivateKey = aliceKeys.privKey!!
+            )
+            assertNull(receiver.dkgSessionDao().getSessionById(sessionId), "a proposal with $name was joined")
+        }
+    }
+
+    @Test
+    fun `only a guarded subgroup's ceremony can carry a delay, and only one in range`(): Unit = runBlocking {
+        val room = parentRoom()
+        listOf(SubgroupWalletPolicy.UNGUARDED to 144L, SubgroupWalletPolicy.GUARDED to 5L, SubgroupWalletPolicy.GUARDED to 65_536L)
+            .forEach { (policy, delay) ->
+                assertTrue(runCatching { openCeremony(room, policy, guardianDelay = delay) }.isFailure, "$policy at $delay")
+            }
+        assertTrue(innerEvents(parent).isEmpty(), "and nothing goes out")
+    }
+
+    @Test
+    fun `a subgroup proposal from a build before policies carries none`(): Unit = runBlocking {
+        val session = openCeremony(parentRoom())
+        assertNull(session.walletPolicy)
+
+        val proposal = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL }
+        )
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = receiverRoom(),
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+        val joined = assertNotNull(receiver.dkgSessionDao().getSessionById(session.id))
+        assertNull(joined.walletPolicy, "joined, with nothing to show at the gate")
+    }
+
+    @Test
+    fun `a proposal whose wallet policy does not read is dropped`(): Unit = runBlocking {
+        val proposal = Event(
+            id = "cc".repeat(32),
+            pubKey = user,
+            createdAt = 1,
+            kind = DkgRitualEvents.PROPOSAL,
+            tags = admins.map { arrayOf("p", it) }.toTypedArray() +
+                DkgRitualEvents.assembleTags(
+                    sessionId = "ab".repeat(32),
+                    threshold = quorum,
+                    parentChatRoomId = parentRoomId,
+                    subject = "Translation",
+                ) + arrayOf(arrayOf(WalletPolicyTag.TAG_NAME, "maybe")),
+            content = "",
+            sig = ""
+        )
+
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = receiverRoom(),
+            innerEvent = proposal,
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        assertNull(
+            receiver.dkgSessionDao().getSessionById("ab".repeat(32)),
+            "an admin is not enrolled in a ceremony whose policy they could not be shown",
+        )
+    }
+
+    @Test
+    fun `only a subgroup's ceremony can carry a wallet policy`(): Unit = runBlocking {
+        val refused = runCatching {
+            ChillDkgRitualManager.proposeRitual(
+                database = parent,
+                localChatRoom = parentRoom(),
+                userPublicKey = user,
+                nostrPrivateKey = coordinator.privKey!!,
+                threshold = quorum,
+                participantPublicKeys = admins,
+                walletPolicy = SubgroupWalletPolicy.UNGUARDED,
+            )
+        }
+
+        assertTrue(refused.isFailure)
+        assertTrue(innerEvents(parent).isEmpty(), "and nothing goes out")
     }
 
     /**
@@ -367,6 +567,171 @@ class SubgroupCeremonyInParentRoomTest {
             receiver.dkgSessionDao().getMessage(session.id, DkgRitualEvents.HOST_KEY, bob),
             "the message that lost the race is not lost",
         )
+    }
+
+    /**
+     * A Marmot room hosts its subgroups' ceremonies and never one of its own.
+     *
+     * Its id is derived from the key it already has, so a key of its own is one
+     * the room could never answer to. This is what opened a whole-room ceremony
+     * beside a subgroup's when the shared-key screen offered "Start key ceremony"
+     * in the parent's room -- see docs/ceremony-creation.md.
+     */
+    @Test
+    fun `a Marmot room refuses a ceremony of its own`(): Unit = runBlocking {
+        val room = parentRoom(withOwnKey = false)
+
+        val refused = runCatching {
+            ChillDkgRitualManager.proposeRitual(
+                database = parent,
+                localChatRoom = room,
+                userPublicKey = user,
+                nostrPrivateKey = coordinator.privKey!!,
+                threshold = quorum,
+            )
+        }
+
+        assertTrue(refused.isFailure, "a ceremony with no parent is refused in a Marmot room")
+        assertNull(
+            parent.dkgSessionDao().getLatestSessionForChatRoom(parentRoomId),
+            "and no session is recorded",
+        )
+        assertTrue(innerEvents(parent).isEmpty(), "and nothing goes out")
+
+        // A subgroup's, in the same room, is still what the room is for.
+        openCeremony(room)
+        assertNotNull(parent.dkgSessionDao().getLatestSessionForChatRoom(parentRoomId))
+    }
+
+    /**
+     * The receiving half: a build from before the refusal can still send one.
+     */
+    @Test
+    fun `a proposal naming no parent in a Marmot room is dropped`(): Unit = runBlocking {
+        val theirRoom = receiverRoom()
+
+        val proposal = Event(
+            id = "dd".repeat(32),
+            pubKey = user,
+            createdAt = 1,
+            kind = DkgRitualEvents.PROPOSAL,
+            // The shape `broadcast` gives a group's own proposal: the roster as
+            // p-tags, a threshold, a name, and no parent.
+            tags = admins.map { arrayOf("p", it) }.toTypedArray() +
+                DkgRitualEvents.assembleTags(
+                    sessionId = "ff".repeat(32),
+                    threshold = quorum,
+                    subject = "Ekklesia",
+                ),
+            content = "",
+            sig = ""
+        )
+
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = proposal,
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        assertNull(
+            receiver.dkgSessionDao().getSessionById("ff".repeat(32)),
+            "a whole-room ceremony is not recorded in a Marmot room",
+        )
+        assertTrue(innerEvents(receiver).isEmpty(), "and nothing is published")
+    }
+
+    /**
+     * A participant can end a ceremony for everyone in it.
+     *
+     * There is no "no" in ChillDKG short of this, and without it a ceremony
+     * opened by mistake could only be left running -- see
+     * docs/ceremony-creation.md, finding F8.
+     */
+    @Test
+    fun `a participant who abandons ends the ceremony on every device`(): Unit = runBlocking {
+        val room = parentRoom()
+        val session = openCeremony(room)
+
+        val theirRoom = receiverRoom()
+        val proposal = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL }
+        )
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        assertTrue(ChillDkgRitualManager.abandon(parent, room, session.id))
+        assertEquals(DkgRitualStage.FAILED, parent.dkgSessionDao().getSessionById(session.id)?.stage)
+
+        val failure = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.FAILURE },
+            "the other participants are told",
+        )
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = failure.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        assertEquals(
+            DkgRitualStage.FAILED,
+            receiver.dkgSessionDao().getSessionById(session.id)?.stage,
+            "and it ends for them too",
+        )
+
+        assertTrue(
+            !ChillDkgRitualManager.abandon(parent, room, session.id),
+            "a ceremony that is over cannot be abandoned again",
+        )
+    }
+
+    /**
+     * Every member of the parent can read a subgroup's proposal, and so can name
+     * its session. Only the people in it can end it (finding F9).
+     */
+    @Test
+    fun `a parent member outside the subgroup cannot end its ceremony`(): Unit = runBlocking {
+        val room = parentRoom()
+        val session = openCeremony(room)
+
+        val theirRoom = receiverRoom()
+        val proposal = assertNotNull(
+            innerEvents(parent).firstOrNull { it.kind == DkgRitualEvents.PROPOSAL }
+        )
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = proposal.asEvent(),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        ChillDkgRitualManager.processRitualPayload(
+            database = receiver,
+            localChatRoom = theirRoom,
+            innerEvent = Event(
+                id = "ab".repeat(32),
+                pubKey = malloryPublicKey,
+                createdAt = 2,
+                kind = DkgRitualEvents.FAILURE,
+                tags = DkgRitualEvents.assembleTags(sessionId = session.id),
+                content = "not mine to end",
+                sig = ""
+            ),
+            userPublicKey = alice,
+            nostrPrivateKey = aliceKeys.privKey!!
+        )
+
+        val stillRunning = assertNotNull(receiver.dkgSessionDao().getSessionById(session.id))
+        assertTrue(stillRunning.stage != DkgRitualStage.FAILED, "a non-participant's FAILURE is ignored")
     }
 
     /**

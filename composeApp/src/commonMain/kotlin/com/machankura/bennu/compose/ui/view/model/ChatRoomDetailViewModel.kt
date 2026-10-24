@@ -14,7 +14,6 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.repository.ChatRepository
-import com.machankura.bennu.compose.repository.MantraRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.HomeRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
@@ -26,6 +25,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import com.machankura.bennu.compose.database.model.types.MarmotReindexReport
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import com.machankura.bennu.compose.repository.MemberWalletRepository
+import com.vitorpamplona.quartz.nip01Core.core.Event
 
 class ChatRoomDetailViewModel(
     val chatRoomId: String,
@@ -34,7 +36,8 @@ class ChatRoomDetailViewModel(
     initialChatRoomDetailUIState: ChatRoomDetailUIState,
     val nostrRepository: NostrRepository,
     val chatRepository: ChatRepository,
-    val mantraRepository: MantraRepository,
+    /** The member wallets this group guards -- `docs/member-guarded-wallets.md`. The no-op lists none. */
+    val memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
 ): ViewModel() {
 
     var chatRoomDetailUIState: ChatRoomDetailUIState by mutableStateOf(initialChatRoomDetailUIState)
@@ -89,25 +92,59 @@ class ChatRoomDetailViewModel(
                 val isDisbanded = group?.currentGroupState()?.isDisbanded == true
                 val canGovern = group != null && group.isLocalAdmin() && !isDisbanded && localChatRoom.chatRoom.leftGroupAt == null
 
+                // A direct chat is a Marmot room of two with no key, and not a group
+                // that guards anybody's wallet: no section, no button.
+                // docs/member-wallet-delay.md.
+                val couldGuard = memberWalletRepository.couldGuard(chatRoomId)
+
                 ChatRoomDetailUIState.Loaded(
                     localChatRoom = localChatRoom,
                     groupKeyState = chatRepository.groupKeyState(chatRoomId),
                     signedGroupKeyStateEvent = chatRepository.signedGroupKeyStateEvent(chatRoomId),
                     subgroups = chatRepository.subgroupsOf(chatRoomId),
                     parentChatRoomId = chatRepository.parentOf(chatRoomId),
-                    groupNostrProfile = chatRepository.groupNostrProfile(chatRoomId),
-                    groupRelayLists = chatRepository.groupRelayLists(chatRoomId),
-                    groupPosts = chatRepository.groupPosts(chatRoomId),
+                    walletPolicy = chatRepository.walletPolicyOf(chatRoomId),
+                    guardianDelay = chatRepository.guardiansOf(chatRoomId)?.firstOrNull()?.delay,
                     groupWallet = chatRepository.groupWallet(chatRoomId, NodeParamsManager.chain),
                     testNetworkWallet = if (GroupLightningRollout.ENABLED && GroupLightningRollout.NETWORK != NodeParamsManager.chain) {
                         chatRepository.groupWallet(chatRoomId, GroupLightningRollout.NETWORK)
                     } else null,
                     lightningParticipants = if (GroupLightningRollout.ENABLED) chatRepository.lightningParticipants(chatRoomId, GroupLightningRollout.NETWORK) else emptySet(),
-                    canEditNostrProfile = canSign,
                     canAddSubgroup = canSign,
                     canGovern = canGovern,
                     isDisbanded = isDisbanded,
+                    memberWallets = memberWalletRepository.memberWalletsOf(chatRoomId),
+                    // Offered wherever the new-wallet screen could get somewhere:
+                    // a group, a profile that signs, a network it is open on. A key
+                    // this device does not know yet is that screen's to ask for.
+                    canAskForMemberWallet = !isDisbanded && couldGuard && memberWalletRepository.refusal(chatRoomId, NodeParamsManager.chain).let {
+                        it == null || it == MemberWalletManager.Refusal.KEY_UNKNOWN
+                    },
+                    canSponsor = canSign,
+                    memberWalletPolicy = memberWalletRepository.policyOf(chatRoomId),
+                    // Everybody in a Marmot group sees whether it guards members'
+                    // wallets; only a signer is offered to change it.
+                    showsMemberWalletPolicy = !isDisbanded && couldGuard,
                 )
+            }
+        }
+    }
+
+    /**
+     * Puts a member's request for a guarded wallet to the group, as this device:
+     * a signing session over the certificate it asks for, which proposing counts
+     * as approving. [onSuccess] gets the session, for the screen to move onto.
+     */
+    fun putToGroup(request: Event, onSuccess: (sessionId: String) -> Unit, onFailure: () -> Unit) {
+        if (isActionPending.value) return
+        isActionPending.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val session = runCatching { memberWalletRepository.putToGroup(chatRoomId, request) }
+                .onFailure { logger.e("Couldn't put a member's wallet to $chatRoomId", it) }
+                .getOrNull()
+            viewModelScope.launch(Dispatchers.Main) {
+                isActionPending.value = false
+                if (session != null) onSuccess(session.id) else onFailure()
             }
         }
     }
@@ -224,7 +261,7 @@ class ChatRoomDetailViewModel(
             initialChatRoomDetailUIState: ChatRoomDetailUIState = ChatRoomDetailUIState.Loading,
             nostrRepository: NostrRepository,
             chatRepository: ChatRepository,
-            mantraRepository: MantraRepository,
+            memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ChatRoomDetailViewModel(
@@ -234,7 +271,7 @@ class ChatRoomDetailViewModel(
                     initialChatRoomDetailUIState = initialChatRoomDetailUIState,
                     nostrRepository = nostrRepository,
                     chatRepository = chatRepository,
-                    mantraRepository = mantraRepository,
+                    memberWalletRepository = memberWalletRepository,
                 )
             }
         }

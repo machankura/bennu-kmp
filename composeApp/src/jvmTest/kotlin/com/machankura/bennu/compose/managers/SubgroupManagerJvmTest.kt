@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupParentage
+import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import androidx.room3.Room
 import com.vitorpamplona.quartz.marmot.mip01Groups.MarmotGroupData
 import com.vitorpamplona.quartz.marmot.mls.crypto.Ed25519
@@ -34,7 +39,9 @@ import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
 import com.machankura.bennu.compose.database.model.DkgSession
 import com.machankura.bennu.compose.database.model.types.DkgRitualStage
+import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
 import com.machankura.bennu.compose.database.model.NostrEvent
 import com.machankura.bennu.compose.database.model.Participant
 import com.machankura.bennu.compose.database.model.Profile
@@ -128,6 +135,30 @@ class SubgroupManagerJvmTest {
         assertNull(subgroup.room)
         assertFalse(subgroup.isJoined)
         assertNull(subgroup.keyState)
+    }
+
+    @Test
+    fun `a listed child carries what its parent decided about its wallet`(): Unit = runBlocking {
+        seedRoom(parentRoomId)
+        record(
+            certificate(
+                tags = SubgroupBirthCertificateEvent.assembleTags(
+                    subgroupChatRoomId = childRoomId,
+                    parentChatRoomId = parentRoomId,
+                    thresholdPublicKey = childMaterial.thresholdPublicKey.value.toHex(),
+                    adminPublicKeys = listOf(user, alice, bob),
+                    name = "Translation team",
+                    path = path,
+                    walletPolicy = SubgroupWalletPolicy.UNGUARDED,
+                )
+            )
+        )
+        record(certificate(subgroupMaterial = siblingMaterial))
+
+        val subgroups = SubgroupManager.subgroupsOf(db, parentRoomId).associateBy { it.chatRoomId }
+
+        assertEquals(WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED), subgroups.getValue(childRoomId).walletPolicy)
+        assertEquals(WalletPolicyReading.Undecided, subgroups.getValue(siblingRoomId).walletPolicy, "a certificate from before policies")
     }
 
     @Test
@@ -494,7 +525,358 @@ class SubgroupManagerJvmTest {
         }
     }
 
+    @Test
+    fun `a certificate grants the child the parent's guardian key`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+
+        val proposed = proposedCertificate(parentRoom)
+
+        // A parent with no parent of its own grants one key: its own, one step on.
+        assertEquals(
+            GuardianDerivation.grant(parentMaterial.thresholdPublicKey.value.toHex(), parentRoomId, emptyList(), childRoomId),
+            SubgroupBirthCertificateEvent.parseGuardians(proposed.tags)
+        )
+        assertNull(SubgroupManager.refuseCertificate(db, parentRoomId, parentMaterial.thresholdPublicKey.value.toHex(), proposed))
+    }
+
+    @Test
+    fun `a subgroup passes on the keys its own parent granted it, one step further`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        // The parent is itself a subgroup of a grandparent, whose key reached it
+        // through the parent's own certificate.
+        val grandparentKey = strangerMaterial.thresholdPublicKey.value.toHex()
+        val grandparentRoomId = roomOf(strangerMaterial)
+        val inherited = GuardianDerivation.grant(grandparentKey, grandparentRoomId, emptyList(), parentRoomId)
+        fileParentage(inherited)
+
+        val granted = assertNotNull(SubgroupBirthCertificateEvent.parseGuardians(proposedCertificate(parentRoom).tags))
+
+        assertEquals(listOf(parentRoomId, grandparentRoomId), granted.map { it.chatRoomId })
+        assertEquals(inherited[0].grantedTo(childRoomId), granted[1])
+        assertEquals(
+            GuardianDerivation.root(grandparentKey).extendedPublicKey
+                .derivePublicKey(GuardianDerivation.childIndex(parentRoomId))
+                .derivePublicKey(GuardianDerivation.childIndex(childRoomId))
+                .publicKey,
+            granted[1].publicKey,
+            "the grandparent's key in the grandchild is R / i(parent) / i(child)"
+        )
+    }
+
+    @Test
+    fun `a signer refuses guardian keys the group does not grant`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val parentKey = parentMaterial.thresholdPublicKey.value.toHex()
+        val proposed = proposedCertificate(parentRoom)
+        val granted = assertNotNull(SubgroupBirthCertificateEvent.parseGuardians(proposed.tags))
+        val coordinators = GuardianDerivation.grant(strangerMaterial.thresholdPublicKey.value.toHex(), parentRoomId, emptyList(), childRoomId)
+
+        fun withGuardians(guardians: List<GuardianDerivation.Guardian>) = certificate(
+            tags = proposed.tags.filterNot { it[0] == GuardianTag.TAG_NAME }.toTypedArray() +
+                guardians.map(GuardianTag::assemble)
+        )
+
+        val refusals = mapOf(
+            "a key of the coordinator's own" to withGuardians(coordinators),
+            "an extra ancestor" to withGuardians(granted + coordinators),
+            "the key not stepped for this child" to withGuardians(listOf(granted[0].copy(publicKey = GuardianDerivation.root(parentKey).publicKey))),
+            "a shorter delay" to withGuardians(listOf(granted[0].copy(delay = 1))),
+        )
+        refusals.forEach { (name, certificate) ->
+            assertNotNull(SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, certificate), name)
+        }
+
+        // An older proposer's certificate carries none, and grants nothing.
+        assertNull(SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, certificate()))
+    }
+
+    // ---- the wallet policy: docs/subgroup-wallet-policy.md -----------------
+
+    /** The parent made a subgroup of a grandparent, under [policy]. */
+    private suspend fun parentIs(policy: SubgroupWalletPolicy?) {
+        val grandparentRoomId = roomOf(strangerMaterial)
+        val inherited = if (policy == SubgroupWalletPolicy.UNGUARDED) {
+            emptyList()
+        } else {
+            GuardianDerivation.grant(strangerMaterial.thresholdPublicKey.value.toHex(), grandparentRoomId, emptyList(), parentRoomId)
+        }
+        fileParentage(inherited, policy)
+    }
+
+    private fun ceremonyUnder(policy: SubgroupWalletPolicy?) =
+        completedChildCeremony().copy(walletPolicy = policy?.tagValue)
+
+    private val guardedReading = WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED)
+    private val unguardedReading = WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED)
+
+    @Test
+    fun `a guarded ceremony is certified guarded, with the grant`(): Unit = runBlocking {
+        val proposed = proposedCertificate(parentWith(listOf(alice, bob)), ceremonyUnder(SubgroupWalletPolicy.GUARDED))
+
+        assertEquals(guardedReading, SubgroupBirthCertificateEvent.parseWalletPolicy(proposed.tags))
+        assertEquals(1, SubgroupBirthCertificateEvent.parseGuardians(proposed.tags)?.size)
+    }
+
+    @Test
+    fun `an unguarded ceremony is certified unguarded, with no keys`(): Unit = runBlocking {
+        val proposed = proposedCertificate(parentWith(listOf(alice, bob)), ceremonyUnder(SubgroupWalletPolicy.UNGUARDED))
+
+        assertEquals(unguardedReading, SubgroupBirthCertificateEvent.parseWalletPolicy(proposed.tags))
+        assertEquals(emptyList(), SubgroupBirthCertificateEvent.parseGuardians(proposed.tags))
+    }
+
+    @Test
+    fun `an older build's ceremony is certified as it always was`(): Unit = runBlocking {
+        val proposed = proposedCertificate(parentWith(listOf(alice, bob)), ceremonyUnder(null))
+
+        assertEquals(WalletPolicyReading.Undecided, SubgroupBirthCertificateEvent.parseWalletPolicy(proposed.tags))
+        assertEquals(1, SubgroupBirthCertificateEvent.parseGuardians(proposed.tags)?.size)
+    }
+
+    @Test
+    fun `under a guarded parent an older build's ceremony is certified guarded`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        parentIs(SubgroupWalletPolicy.GUARDED)
+
+        val proposed = proposedCertificate(parentRoom, ceremonyUnder(null))
+
+        assertEquals(guardedReading, SubgroupBirthCertificateEvent.parseWalletPolicy(proposed.tags))
+        assertEquals(2, SubgroupBirthCertificateEvent.parseGuardians(proposed.tags)?.size, "its own key and the grandparent's")
+    }
+
+    @Test
+    fun `under a guarded parent an unguarded ceremony is refused, and nothing is proposed`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        parentIs(SubgroupWalletPolicy.GUARDED)
+
+        val refused = runCatching { proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.UNGUARDED)) }
+
+        assertTrue(refused.exceptionOrNull() is IllegalStateException)
+        assertTrue("Start the subgroup again" in refused.exceptionOrNull()?.message.orEmpty(), "the remedy is in the reason")
+        assertTrue(db.frostSigningSessionDao().getSessionsForChatRoom(parentRoomId).isEmpty())
+    }
+
+    @Test
+    fun `under an unguarded parent an unguarded ceremony is certified`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        parentIs(SubgroupWalletPolicy.UNGUARDED)
+
+        val proposed = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.UNGUARDED))
+
+        assertEquals(unguardedReading, SubgroupBirthCertificateEvent.parseWalletPolicy(proposed.tags))
+    }
+
+    @Test
+    fun `a signer refuses a certificate whose policy does not read or contradicts its keys`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val parentKey = parentMaterial.thresholdPublicKey.value.toHex()
+        val guarded = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED))
+        val withoutPolicy = guarded.tags.filterNot { it[0] == WalletPolicyTag.TAG_NAME }.toTypedArray()
+
+        val refusals = mapOf(
+            "unguarded with keys" to certificate(tags = withoutPolicy + WalletPolicyTag.assemble(SubgroupWalletPolicy.UNGUARDED)),
+            "guarded with no keys" to certificate(
+                tags = withoutPolicy.filterNot { it[0] == GuardianTag.TAG_NAME }.toTypedArray() +
+                    WalletPolicyTag.assemble(SubgroupWalletPolicy.GUARDED)
+            ),
+            "a policy that does not read" to certificate(tags = withoutPolicy + arrayOf(WalletPolicyTag.TAG_NAME, "maybe")),
+        )
+        refusals.forEach { (name, certificate) ->
+            assertNotNull(SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, certificate), name)
+        }
+
+        assertNull(SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, guarded))
+        assertNull(
+            SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.UNGUARDED))),
+            "an unguarded certificate of a root group's child is signable",
+        )
+    }
+
+    @Test
+    fun `an older proposer's certificate is still signable under any parent but a guarded one`(): Unit = runBlocking {
+        val parentKey = parentMaterial.thresholdPublicKey.value.toHex()
+        parentWith(listOf(alice, bob))
+
+        // No keys and no policy: what a build before guardians proposed.
+        assertNull(SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, certificate()), "under a root group")
+
+        listOf(SubgroupWalletPolicy.UNGUARDED, null).forEach { policy ->
+            parentIs(policy)
+            assertNull(SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, certificate()), "under a parent decided $policy")
+        }
+    }
+
+    /**
+     * D4, at the signers. The picker stops a coordinator choosing this; the
+     * signers are what stop one who skipped the picker. The undecided case is the
+     * one a reviewer will want to loosen -- an older proposer's certificate, keys
+     * and all -- and is here to fail if anybody does: an undecided child is
+     * offered the plain wallet a guarded parent's subgroups may not have.
+     */
+    @Test
+    fun `a guarded group's signers refuse anything but a guarded certificate`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val parentKey = parentMaterial.thresholdPublicKey.value.toHex()
+        // Proposed while this device still read the parent as a root group -- the
+        // coordinator's device that saw no parent certificate.
+        val unguarded = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.UNGUARDED))
+        val undecided = proposedCertificate(parentRoom, ceremonyUnder(null))
+
+        // The signer's own device holds the parent's certificate.
+        parentIs(SubgroupWalletPolicy.GUARDED)
+
+        assertEquals(
+            "would make an unguarded subgroup of a guarded group",
+            SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, unguarded),
+        )
+        assertEquals(
+            "would make an unguarded subgroup of a guarded group",
+            SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, undecided),
+        )
+        assertNull(
+            SubgroupManager.refuseCertificate(
+                db, parentRoomId, parentKey,
+                proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED).copy(id = "second-child-ceremony", thresholdPublicKey = siblingMaterial.thresholdPublicKey.value.toHex())),
+            ),
+            "a guarded one, with the parent's keys passed on, is signable",
+        )
+    }
+
+    /** A child key state carrying [certificate], unsigned -- the refusal reads its tags and nothing else. */
+    private fun keyStateCarrying(certificate: Event) = Event(
+        id = "e".repeat(64),
+        pubKey = childRoomId,
+        createdAt = 1_700_000_000,
+        kind = GroupKeyStateEvent.KIND,
+        tags = GroupKeyStateEvent.assembleTags(
+            chatRoomId = childRoomId,
+            dkgSessionId = "child-ceremony",
+            path = path,
+            parent = SubgroupParentage(parentRoomId, certificate),
+        ),
+        content = "",
+        sig = "",
+    )
+
+    @Test
+    fun `a child signer refuses a certificate under a policy its ceremony did not announce`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val unguarded = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.UNGUARDED))
+        val guarded = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED))
+        val undecided = proposedCertificate(parentRoom, ceremonyUnder(null))
+
+        // The admins joined a guarded subgroup.
+        val ceremony = ceremonyUnder(SubgroupWalletPolicy.GUARDED)
+        assertNotNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(unguarded)))
+        assertNotNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(undecided)), "undecided is not what they agreed to either")
+        assertNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(guarded)))
+
+        // An older build's ceremony announced nothing, and has nothing to hold a certificate to.
+        assertNull(SubgroupManager.refuseKeyState(ceremonyUnder(null), keyStateCarrying(unguarded)))
+    }
+
+    // ---- the guardian delay: docs/guardian-delay.md, Phase 6 --------------
+
+    @Test
+    fun `a guarded ceremony's delay is the parent's own leaf's in the certificate`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        parentIs(SubgroupWalletPolicy.GUARDED)
+
+        val proposed = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED).copy(guardianDelay = 4_320))
+
+        val granted = assertNotNull(SubgroupBirthCertificateEvent.parseGuardians(proposed.tags))
+        assertEquals(listOf(4_320L, GuardianDerivation.DEFAULT_DELAY), granted.map { it.delay }, "the grandparent's keeps its own")
+        assertNull(SubgroupManager.refuseCertificate(db, parentRoomId, parentMaterial.thresholdPublicKey.value.toHex(), proposed))
+    }
+
+    @Test
+    fun `an older guarded ceremony is certified at the default delay`(): Unit = runBlocking {
+        val proposed = proposedCertificate(parentWith(listOf(alice, bob)), ceremonyUnder(SubgroupWalletPolicy.GUARDED))
+
+        assertEquals(GuardianDerivation.DEFAULT_DELAY, SubgroupBirthCertificateEvent.parseGuardians(proposed.tags)?.single()?.delay)
+    }
+
+    @Test
+    fun `a signer refuses a certificate that changes an ancestor's delay`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val parentKey = parentMaterial.thresholdPublicKey.value.toHex()
+        parentIs(SubgroupWalletPolicy.GUARDED)
+        val proposed = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED).copy(guardianDelay = 144))
+        val granted = assertNotNull(SubgroupBirthCertificateEvent.parseGuardians(proposed.tags))
+
+        // The grandparent's leaf brought closer, which was never this group's to do.
+        val shortened = certificate(
+            tags = proposed.tags.filterNot { it[0] == GuardianTag.TAG_NAME }.toTypedArray() +
+                listOf(granted[0], granted[1].copy(delay = 6)).map(GuardianTag::assemble)
+        )
+        assertEquals("grants guardian keys this group does not", SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, shortened))
+    }
+
+    @Test
+    fun `a child signer refuses a certificate under a delay its ceremony did not announce`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val atDefault = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED))
+        val atMonth = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED).copy(guardianDelay = 4_320))
+
+        val ceremony = ceremonyUnder(SubgroupWalletPolicy.GUARDED).copy(guardianDelay = 4_320)
+        assertNotNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(atDefault)))
+        assertNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(atMonth)))
+        // A ceremony that announced none holds the certificate to no delay.
+        assertNull(SubgroupManager.refuseKeyState(ceremonyUnder(SubgroupWalletPolicy.GUARDED), keyStateCarrying(atMonth)))
+    }
+
     // ---- fixtures ----------------------------------------------------------
+
+    /** The certificate [parentRoom] is asked to sign for the child, as the session holds it. */
+    private suspend fun proposedCertificate(
+        parentRoom: LocalChatRoom,
+        key: DkgSession = completedChildCeremony(),
+    ): Event {
+        val session = SubgroupManager.proposeBirthCertificate(
+            database = db,
+            parentRoom = parentRoom,
+            userPublicKey = user,
+            key = key,
+            adminPublicKeys = listOf(user, alice, bob),
+            name = "Translation team",
+        )
+        return Event.fromJson(assertNotNull(db.frostSigningSessionDao().getItems(session.id).firstOrNull()).unsignedEventJson)
+    }
+
+    /**
+     * The parent's own key state, naming a grandparent through a certificate
+     * that grants [guardians]. Filed as `stateFrom` would leave it; nothing here
+     * re-checks the certificate, which is what having passed `stateFrom` means.
+     */
+    private suspend fun fileParentage(
+        guardians: List<GuardianDerivation.Guardian>,
+        walletPolicy: SubgroupWalletPolicy? = null,
+    ) {
+        val grandparentRoomId = roomOf(strangerMaterial)
+        val tags = SubgroupBirthCertificateEvent.assembleTags(
+            subgroupChatRoomId = parentRoomId,
+            parentChatRoomId = grandparentRoomId,
+            thresholdPublicKey = parentMaterial.thresholdPublicKey.value.toHex(),
+            adminPublicKeys = listOf(user, alice, bob),
+            name = "Ekklesia",
+            path = path,
+            guardians = guardians,
+            walletPolicy = walletPolicy,
+        )
+        val parentCertificate = certificate(subgroupMaterial = parentMaterial, tags = tags, author = strangerMaterial)
+        db.groupKeyStateDao().upsert(
+            GroupKeyState(
+                chatRoomId = parentRoomId,
+                dkgSessionId = "parent-ceremony",
+                thresholdPublicKey = parentMaterial.thresholdPublicKey.value.toHex(),
+                derivationPath = SharedKeyDerivation.formatPath(path),
+                announcedBy = parentRoomId,
+                announcedAt = Instant.fromEpochSeconds(1_700_000_000),
+                parentChatRoomId = grandparentRoomId,
+                birthCertificateJson = parentCertificate.toJson(),
+            )
+        )
+    }
 
     /**
      * The NIP-17 room a ceremony runs in, stood up the way the picker does it --

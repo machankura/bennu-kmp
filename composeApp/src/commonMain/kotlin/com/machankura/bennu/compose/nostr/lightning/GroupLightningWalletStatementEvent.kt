@@ -8,7 +8,7 @@ import fr.acinq.bitcoin.Chain
 import kotlin.time.Clock
 
 /**
- * The group's statement that it keeps a Lightning wallet: kind 30338, FROST-signed by the room through
+ * The group's statement that it keeps a Lightning wallet: kind 30355, FROST-signed by the room through
  * the ordinary proposal flow, never broadcast (`docs/group-lightning-wallet.md`, Phase 6).
  *
  * It binds together everything a co-signer checks before it answers for a channel: which onchain wallet

@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.repository
 
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
 import com.machankura.bennu.compose.database.model.DkgSession
 import com.machankura.bennu.compose.database.model.FrostSigningSession
@@ -85,7 +86,9 @@ interface DkgRepository {
         threshold: Int,
         parentChatRoomId: HexKey? = null,
         participantPublicKeys: Set<HexKey>? = null,
-        subject: String? = null
+        subject: String? = null,
+        walletPolicy: SubgroupWalletPolicy? = null,
+        guardianDelay: Long? = null
     ): DkgSession?
 
     /** What the ritual is waiting on this device's owner for, if anything. */
@@ -110,6 +113,12 @@ interface DkgRepository {
      * room has no standing to propose one -- both of which mean there is nothing
      * true to propose.
      */
+    /**
+     * Ends a ceremony this device is in, for everyone in it -- see
+     * `ChillDkgRitualManager.abandon`. Returns whether it was ended.
+     */
+    suspend fun abandon(localChatRoom: LocalChatRoom, sessionId: String): Boolean
+
     suspend fun proposeGroupKeyState(
         localChatRoom: LocalChatRoom,
         userPublicKey: HexKey,
@@ -220,7 +229,9 @@ interface DkgRepository {
                 threshold: Int,
                 parentChatRoomId: HexKey?,
                 participantPublicKeys: Set<HexKey>?,
-                subject: String?
+                subject: String?,
+                walletPolicy: SubgroupWalletPolicy?,
+                guardianDelay: Long?
             ): DkgSession? = null
 
             override suspend fun pendingApproval(session: DkgSession): DkgApprovalStep? = null
@@ -231,6 +242,8 @@ interface DkgRepository {
                 step: DkgApprovalStep,
                 nostrPrivateKey: ByteArray
             ) = Unit
+
+            override suspend fun abandon(localChatRoom: LocalChatRoom, sessionId: String): Boolean = false
 
             override suspend fun proposeGroupKeyState(
                 localChatRoom: LocalChatRoom,

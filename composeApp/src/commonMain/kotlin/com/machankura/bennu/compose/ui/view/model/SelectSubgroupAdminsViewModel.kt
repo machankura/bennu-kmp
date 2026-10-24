@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.ui.view.state.canGuard
+import com.machankura.bennu.compose.ui.view.state.onlyGuarded
+import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
+import com.machankura.bennu.compose.nostr.subgroup.isDecided
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -16,6 +21,7 @@ import com.machankura.bennu.compose.identity.Identity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.machankura.bennu.compose.database.model.types.ChatRoomType
@@ -27,9 +33,12 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
 import com.machankura.bennu.compose.ui.view.state.SelectSubgroupAdminsUIState
 
 /**
- * Who runs a subgroup, what it is called, and on what quorum.
+ * Who runs a subgroup, what it is called, on what quorum, and whether its wallet
+ * is guarded.
  *
- * All three are settled here and nowhere else. The name and the admin set are
+ * All four are settled here and nowhere else. The wallet policy rides the
+ * proposal like the threshold and is signed into the birth certificate by the
+ * parent's quorum -- `docs/subgroup-wallet-policy.md`. The name and the admin set are
  * carried into the birth certificate, so they are what the parent's admins will
  * be asked to approve; the threshold cannot move afterwards at all, because
  * ChillDKG hashes it and the host keys into the session identity, so `t` is fixed
@@ -49,6 +58,8 @@ import com.machankura.bennu.compose.ui.view.state.SelectSubgroupAdminsUIState
 class SelectSubgroupAdminsViewModel(
     val activeUserPublicKey: HexKey,
     val parentChatRoomId: String,
+    /** A failed subgroup ceremony to start from; see `SelectSubgroupAdminsRoute.retrying`. */
+    val retrying: String? = null,
     initialUIState: SelectSubgroupAdminsUIState,
     val activeIdentityStateFlow: StateFlow<Identity?>,
     val chatRepository: ChatRepository,
@@ -78,6 +89,30 @@ class SelectSubgroupAdminsViewModel(
 
     val threshold: MutableState<Int> = mutableStateOf(ChatRoomType.MINIMUM_QUORUM)
 
+    /**
+     * What the subgroup's wallet is to be -- `docs/subgroup-wallet-policy.md`.
+     * Guarded unless the coordinator says otherwise, and only ever guarded under a
+     * parent that is guarded itself: [setWalletPolicy] will not move it, so the
+     * state never holds a choice the screen shows as disabled.
+     */
+    val walletPolicy: MutableState<SubgroupWalletPolicy> = mutableStateOf(SubgroupWalletPolicy.GUARDED)
+
+    /**
+     * How long a coin in a guarded subgroup's wallet waits before this group can
+     * take it -- `docs/guardian-delay.md`. The parent's own leaf only: each
+     * ancestor above keeps the delay it chose.
+     */
+    private val delay = GuardianDelayInput()
+
+    /** The delay as typed; see [GuardianDelayInput]. */
+    val guardianDelayInput: MutableState<String> get() = delay.input
+
+    /** Whether the delay is being typed rather than picked from a preset. */
+    val isCustomDelay: MutableState<Boolean> get() = delay.isCustom
+
+    /** Whether [retrying] has been read into the form, which happens once. */
+    private var prefilled = false
+
     fun initiate() {
         viewModelScope.launch(Dispatchers.IO) {
             val parentRoom = chatRepository.getChatRoomByIdentifier(parentChatRoomId)
@@ -92,13 +127,64 @@ class SelectSubgroupAdminsViewModel(
                 .distinctBy { it.participant.participantPublicKey }
                 .filterNot { it.participant.participantPublicKey == activeUserPublicKey }
 
+            // The parent's own wallet policy and guardians, read once: whether it
+            // may make an unguarded child at all, and whether it can grant a
+            // guarded one anything.
+            val parentPolicy = chatRepository.walletPolicyOf(parentChatRoomId)
+            val parentGuardians = chatRepository.guardiansOf(parentChatRoomId)
+
             uiState = SelectSubgroupAdminsUIState.Loaded(
                 parentRoom = parentRoom,
                 candidates = candidates,
+                parentPolicy = parentPolicy,
+                parentGuardians = parentGuardians,
             )
+
+            // A parent that cannot grant keys can only make an unguarded child,
+            // and one that is guarded can only make a guarded one.
+            if (parentGuardians == null) walletPolicy.value = SubgroupWalletPolicy.UNGUARDED
+            if (parentPolicy.isDecided(SubgroupWalletPolicy.GUARDED)) walletPolicy.value = SubgroupWalletPolicy.GUARDED
+
+            // Before the key-package lookup, so anybody who can no longer be
+            // welcomed is unpicked by the same rule as a fresh pick would be.
+            prefillFromRetry(candidates.map { it.participant.participantPublicKey }.toSet())
 
             resolveKeyPackages(candidates.map { it.participant.participantPublicKey })
         }
+    }
+
+    /**
+     * Starts the form from the failed ceremony this is trying again.
+     *
+     * Only from one that was this parent's subgroup, and only admins who are
+     * still in the parent: the ceremony recorded who it was with, and the
+     * parent's membership may have moved since. Once, because the screen asks
+     * to start again every time it comes back into view and a member's edits
+     * must not be put back.
+     */
+    private suspend fun prefillFromRetry(candidates: Set<HexKey>) {
+        val sessionId = retrying ?: return
+        if (prefilled) return
+        prefilled = true
+
+        val failed = dkgRepository.observeSessionById(sessionId).first() ?: return
+        if (failed.parentChatRoomId != parentChatRoomId) return
+
+        name.value = failed.subject.orEmpty()
+
+        selectedPublicKeys.clear()
+        selectedPublicKeys.addAll(
+            failed.participantPublicKeySet().orEmpty()
+                .filter { it != activeUserPublicKey && it in candidates }
+        )
+
+        threshold.value = failed.threshold.coerceIn(quorumRange())
+
+        // Through the setter, so a policy the parent no longer allows -- the
+        // failed ceremony can predate the parent's own certificate -- is pulled
+        // back the way the threshold is pulled into its range.
+        failed.subgroupWalletPolicy?.let(::setWalletPolicy)
+        failed.guardianDelay?.let(delay::reset)
     }
 
     /**
@@ -150,6 +236,44 @@ class SelectSubgroupAdminsViewModel(
         name.value = value
     }
 
+    /**
+     * Chooses the subgroup's wallet policy. *Unguarded* under a guarded parent is
+     * ignored -- D4 -- and so is *guarded* under a parent that cannot grant keys.
+     */
+    fun setWalletPolicy(value: SubgroupWalletPolicy) {
+        if (isActionPending.value) return
+
+        val loaded = uiState as? SelectSubgroupAdminsUIState.Loaded ?: return
+        if (value == SubgroupWalletPolicy.UNGUARDED && loaded.onlyGuarded) return
+        if (value == SubgroupWalletPolicy.GUARDED && !loaded.canGuard) return
+
+        walletPolicy.value = value
+    }
+
+    /** Picks a preset delay. */
+    fun setGuardianDelay(blocks: Long) {
+        if (isActionPending.value) return
+        delay.pick(blocks)
+    }
+
+    /** Switches to typing a delay, starting from the one already chosen. */
+    fun useCustomDelay() {
+        if (isActionPending.value) return
+        delay.useCustom()
+    }
+
+    /** What was typed as the delay, kept as typed. */
+    fun setGuardianDelayInput(value: String) {
+        if (isActionPending.value) return
+        delay.type(value)
+    }
+
+    /** The delay typed or picked, or null while the field holds no number. */
+    fun guardianDelay(): Long? = delay.delay()
+
+    /** Why the delay cannot be used, or null when it can. */
+    fun guardianDelayProblem(): String? = delay.problem()
+
     /** The subgroup's admins: everyone ticked, plus the coordinator. */
     fun adminCount(): Int = selectedPublicKeys.size + 1
 
@@ -172,6 +296,19 @@ class SelectSubgroupAdminsViewModel(
         val loaded = uiState as? SelectSubgroupAdminsUIState.Loaded ?: return "Still loading"
 
         if (name.value.isBlank()) return "Give the subgroup a name."
+
+        // The policy before the admins and before the key-package lookup, which it
+        // does not wait on: an answer here sends the coordinator back
+        // to a choice, not to a person. Checked again on confirm, so a state that
+        // got past the screen is stopped before a ceremony is proposed.
+        if (walletPolicy.value == SubgroupWalletPolicy.UNGUARDED && loaded.onlyGuarded) {
+            return "This group is guarded, so its subgroups are too."
+        }
+        if (walletPolicy.value == SubgroupWalletPolicy.GUARDED && !loaded.canGuard) {
+            return "This group's own guardian keys can't be read, so it can't guard a subgroup."
+        }
+        if (walletPolicy.value == SubgroupWalletPolicy.GUARDED) guardianDelayProblem()?.let { return it }
+
 
         if (loaded.isResolvingKeyPackages) return "Checking who can be added…"
 
@@ -245,7 +382,14 @@ class SelectSubgroupAdminsViewModel(
                 // coordinator is added by `proposeRitual`: opening a ceremony is
                 // being in it, and is not theirs to tick.
                 participantPublicKeys = selectedPublicKeys.toSet(),
-                subject = name.value.trim()
+                subject = name.value.trim(),
+                // Carried on the proposal so every admin is told at the join gate,
+                // and on the session so whoever proposes the certificate proposes
+                // it under the same one.
+                walletPolicy = walletPolicy.value,
+                // The parent's own leaf, and only for a guarded subgroup.
+                // docs/guardian-delay.md.
+                guardianDelay = guardianDelay().takeIf { walletPolicy.value == SubgroupWalletPolicy.GUARDED }
             )
 
             isActionPending.value = false
@@ -265,14 +409,6 @@ class SelectSubgroupAdminsViewModel(
                 // arrive -- which is now literally the same place every other
                 // admin answers from, through the ritual notices that name their
                 // own ceremony.
-                //
-                // Sending them to the shared-key screen instead was actively
-                // harmful: that screen's job is to *offer* a ceremony to a room
-                // that has none, so the coordinator arrived at a "Start key
-                // ceremony" button seconds after starting one, and pressing it
-                // opened a second -- for no subgroup, so `proposeRitual`'s guard
-                // did not recognise it as a duplicate -- which then buried the
-                // subgroup's under the room's newest.
                 onNavigateToRoute(
                     ChatRoomMessagingRoute(
                         activeUserPublicKey = activeUserPublicKey,
@@ -285,11 +421,15 @@ class SelectSubgroupAdminsViewModel(
     }
 
     companion object {
+        /** The delays the picker offers: [GuardianDelayInput.PRESETS]. */
+        val DELAY_PRESETS: List<Long> get() = GuardianDelayInput.PRESETS
+
         private const val TAG = "SelectSubgroupAdminsViewModel"
 
         fun factory(
             activeUserPublicKey: HexKey,
             parentChatRoomId: String,
+            retrying: String? = null,
             initialUIState: SelectSubgroupAdminsUIState = SelectSubgroupAdminsUIState.Loading,
             activeIdentityStateFlow: StateFlow<Identity?>,
             chatRepository: ChatRepository,
@@ -299,6 +439,7 @@ class SelectSubgroupAdminsViewModel(
                 SelectSubgroupAdminsViewModel(
                     activeUserPublicKey = activeUserPublicKey,
                     parentChatRoomId = parentChatRoomId,
+                    retrying = retrying,
                     initialUIState = initialUIState,
                     activeIdentityStateFlow = activeIdentityStateFlow,
                     chatRepository = chatRepository,

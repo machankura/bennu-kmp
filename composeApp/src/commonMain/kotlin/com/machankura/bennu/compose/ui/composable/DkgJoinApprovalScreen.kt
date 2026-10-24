@@ -1,5 +1,13 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
+import org.jetbrains.compose.resources.stringResource
+import bennu.composeapp.generated.resources.the_subgroup_s_wallet_will_not_be_guarded
+import bennu.composeapp.generated.resources.the_subgroup_s_wallet_will_be_guarded
+import bennu.composeapp.generated.resources.Res
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,7 +40,7 @@ import com.machankura.bennu.compose.ui.theme.spacing
 fun DkgJoinApprovalScreen(
     activeUserPublicKey: HexKey,
     chatRoomId: String,
-    dkgSessionId: String? = null,
+    dkgSessionId: String,
     activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
@@ -55,9 +63,30 @@ fun DkgJoinApprovalScreen(
 
         Text(
             text = "$group is creating a shared key that takes " +
-                "${session?.threshold ?: 0} of ${state.participantCount} members to sign with.",
+                "${session.threshold} of ${state.participantCount} members to sign with.",
             style = MaterialTheme.typography.bodyLarge
         )
+
+        // What the subgroup's wallet will be, as the coordinator chose it and the
+        // parent's quorum will sign it -- the one place an admin is told before
+        // joining is agreeing to it. A ceremony with no policy says nothing.
+        // See docs/subgroup-wallet-policy.md.
+        session.subgroupWalletPolicy?.let { policy ->
+            Text(
+                text = when (policy) {
+                    // The parent's own leaf's delay, as the coordinator chose it --
+                    // or the default an older build's ceremony is certified at.
+                    // An inherited ancestor's is not here: a member deciding
+                    // whether to join cannot check it. docs/guardian-delay.md.
+                    SubgroupWalletPolicy.GUARDED -> stringResource(
+                        Res.string.the_subgroup_s_wallet_will_be_guarded,
+                        delayText(session.guardianDelay ?: GuardianDerivation.DEFAULT_DELAY)
+                    )
+                    SubgroupWalletPolicy.UNGUARDED -> stringResource(Res.string.the_subgroup_s_wallet_will_not_be_guarded)
+                },
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
 
         Column(
             modifier = Modifier.fillMaxWidth(),

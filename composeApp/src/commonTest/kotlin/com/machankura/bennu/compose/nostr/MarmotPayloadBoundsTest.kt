@@ -11,8 +11,8 @@ import com.vitorpamplona.quartz.nip01Core.tags.people.PTag
 import com.vitorpamplona.quartz.nip17Dm.messages.ChatMessageEvent
 import com.vitorpamplona.quartz.nip59Giftwrap.rumors.RumorAssembler
 import com.machankura.bennu.compose.nostr.chronicle.ChronicleEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChunkEvent
-import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
+import com.machankura.bennu.compose.nostr.chronicle.TEST_KINDS
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -52,6 +52,10 @@ class MarmotPayloadBoundsTest {
             count = 1,
             recipient = recipient,
             createdAt = at,
+            // The app's own list carries nothing at the moment, so the page is
+            // built over the chronicle tests' list: what is under test is the
+            // envelope's size, not which kinds fill it.
+            kinds = TEST_KINDS,
         )
         // From the template's fields, as the outbound queue assembles every rumor from
         // the row's: the typed template is not what goes through RumorAssembler.
@@ -74,7 +78,7 @@ class MarmotPayloadBoundsTest {
     @Test
     fun `a chronicle page of the most smallest payloads is a conformant app event`() {
         val payloads = (0 until ChronicleEvent.MAX_PAGE_EVENTS).map {
-            signedPayload(DialectEvent.KIND, content = "d", id = it.toString().padStart(64, '0'))
+            signedPayload(TextNoteEvent.KIND, content = "d", id = it.toString().padStart(64, '0'))
         }
 
         assertConformant(chronicleAppEvent(payloads))
@@ -90,7 +94,7 @@ class MarmotPayloadBoundsTest {
             while (length < 4_096) append("{\"k\":\"v\",\"n\":[\"a\",\"b\"]}")
         }
         val payloads = (0 until ChronicleEvent.MAX_PAGE_EVENTS).map {
-            signedPayload(ChunkEvent.KIND, content = dense, id = it.toString().padStart(64, '0'))
+            signedPayload(TextNoteEvent.KIND, content = dense, id = it.toString().padStart(64, '0'))
         }
         // As many dense payloads as the byte cap admits, measured the way the packer
         // measures them: by the bytes the page occupies once escaped into the app

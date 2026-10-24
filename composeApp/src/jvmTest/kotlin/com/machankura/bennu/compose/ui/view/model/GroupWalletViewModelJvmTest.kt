@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import kotlin.test.assertTrue
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
@@ -11,6 +14,7 @@ import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.FrostSigningRepository
 import com.machankura.bennu.compose.ui.view.state.GroupWalletUIState
 import com.machankura.bennu.compose.ui.view.state.SpendStatus
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import com.machankura.bennu.compose.database.model.types.FrostSigningStage
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.Kind
@@ -106,11 +110,11 @@ class GroupWalletViewModelJvmTest {
         }
     }
 
-    private fun viewModel(chat: ChatRepository, signing: FrostSigningRepository = RecordingSigning()) =
+    private fun viewModel(chat: ChatRepository, signing: FrostSigningRepository = RecordingSigning(), chain: Chain = Chain.Mainnet) =
         GroupWalletViewModel(
             activeUserPublicKey = me,
             chatRoomId = chatRoomId,
-            chain = Chain.Mainnet,
+            chain = chain,
             initialGroupWalletUIState = GroupWalletUIState.Loading,
             chatRepository = chat,
             frostSigningRepository = signing,
@@ -167,6 +171,126 @@ class GroupWalletViewModelJvmTest {
             PrivateKey(ByteVector32(Hex.decode("1c0ffee".padStart(64, '0')))).publicKey().toString()
         ))
         runBlocking { withTimeout(5_000) { while (!failed) delay(10) } }
+    }
+
+    // ---- a guarded wallet ---------------------------------------------------
+
+    /** What the repository would hand a subgroup whose certificate grants it guardians; the checks behind it are `GroupWalletStatementEventTest`'s. */
+    private val certificate = com.vitorpamplona.quartz.nip01Core.core.Event(
+        "c".repeat(64), "b".repeat(64), 1_700_000_000, 30329, emptyArray(), chatRoomId, "f".repeat(128)
+    )
+    private val guardians = com.machankura.bennu.compose.managers.GuardianDerivation.grant(
+        PrivateKey(ByteVector32(Hex.decode("9a4e47".padStart(64, '0')))).publicKey().toString(),
+        "b".repeat(64), emptyList(), chatRoomId,
+    )
+
+    private fun guardedRepository(
+        chain: Chain,
+        policy: WalletPolicyReading? = WalletPolicyReading.Undecided,
+    ) = object : ChatRepository by repository(opened = null) {
+        override suspend fun walletPolicyOf(chatRoomId: String): WalletPolicyReading? = policy
+
+        override suspend fun groupWalletGuardedOpening(chatRoomId: String, chain: Chain) =
+            com.machankura.bennu.compose.managers.GroupWalletManager.GuardedOpening(
+                GroupWalletDerivation.account(
+                    PrivateKey(ByteVector32(Hex.decode("1c0ffee".padStart(64, '0')))).publicKey().toString(),
+                    chain, guardians = guardians,
+                ),
+                certificate,
+            )
+    }
+
+    @Test
+    fun `a subgroup is offered a guarded wallet on a test network and on mainnet`() {
+        val regtest = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest), chain = Chain.Regtest).apply { initiate() }.settled()
+        )
+        assertEquals(guardians, regtest.guarded?.account?.guardians)
+
+        // Mainnet follows GroupWalletRollout.GUARDIANS_ON_MAINNET, which is on.
+        val mainnet = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Mainnet)).apply { initiate() }.settled()
+        )
+        assertEquals(GroupWalletRollout.GUARDIANS_ON_MAINNET, mainnet.guarded != null)
+        assertEquals(guardians, mainnet.guarded?.account?.guardians)
+    }
+
+    @Test
+    fun `opening a guarded wallet proposes a statement naming the guardians and carrying the certificate`() {
+        val signing = RecordingSigning()
+        val model = viewModel(guardedRepository(Chain.Regtest), signing, chain = Chain.Regtest).apply { initiate() }
+        model.settled()
+
+        model.openWallet(guarded = true, onSuccess = {}, onFailure = {})
+        runBlocking { withTimeout(5_000) { while (signing.proposed == null || model.isActionPending.value) delay(10) } }
+
+        val (_, tags, content) = assertNotNull(signing.proposed)
+        val reading = assertNotNull(GroupWalletStatementEvent.read(tags, content))
+        assertEquals(guardians, reading.guardians)
+        assertEquals(certificate.id, reading.certificate?.id)
+    }
+
+    // ---- the parent's decision: docs/subgroup-wallet-policy.md -------------
+
+    @Test
+    fun `a subgroup whose parent decided guarded is offered the guarded wallet alone`() {
+        val state = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest, WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED)), chain = Chain.Regtest)
+                .apply { initiate() }.settled()
+        )
+
+        assertNotNull(state.guarded)
+        assertFalse(state.offersPlain)
+    }
+
+    @Test
+    fun `a subgroup whose parent decided unguarded is offered the plain wallet alone`() {
+        val state = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest, WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED)), chain = Chain.Regtest)
+                .apply { initiate() }.settled()
+        )
+
+        assertNull(state.guarded)
+        assertTrue(state.offersPlain)
+        assertEquals(account, state.account)
+    }
+
+    @Test
+    fun `an undecided subgroup is offered both, and a root group the plain one`() {
+        val undecided = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest), chain = Chain.Regtest).apply { initiate() }.settled()
+        )
+        assertNotNull(undecided.guarded)
+        assertTrue(undecided.offersPlain)
+
+        val root = assertIs<GroupWalletUIState.NotOpened>(viewModel(repository(opened = null)).apply { initiate() }.settled())
+        assertNull(root.guarded)
+        assertTrue(root.offersPlain)
+    }
+
+    @Test
+    fun `each guardian is named by the room this device holds for it`() {
+        val state = assertIs<GroupWalletUIState.NotOpened>(
+            viewModel(guardedRepository(Chain.Regtest), chain = Chain.Regtest).apply { initiate() }.settled()
+        )
+
+        // The fixture's repository answers every room id with the one room.
+        assertEquals(mapOf(guardians.single().chatRoomId to localChatRoom.chatRoom.subject!!), state.guardianNames)
+    }
+
+    @Test
+    fun `a plain wallet is never proposed under a parent that decided guarded`() {
+        val signing = RecordingSigning()
+        val model = viewModel(
+            guardedRepository(Chain.Regtest, WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED)), signing, chain = Chain.Regtest
+        ).apply { initiate() }
+        model.settled()
+
+        model.openWallet(guarded = false, onSuccess = {}, onFailure = {})
+        runBlocking { delay(200) }
+
+        assertNull(signing.proposed)
+        assertFalse(model.isActionPending.value)
     }
 
     // ---- spends ------------------------------------------------------------

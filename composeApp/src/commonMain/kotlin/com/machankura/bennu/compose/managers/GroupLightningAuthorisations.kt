@@ -18,7 +18,7 @@ import kotlin.time.Instant
  * What the group has authorised its Lightning wallet to spend, as a co-signer reads it and the operator's
  * node acts on it (`docs/group-lightning-wallet.md`, Phases 12 and 13).
  *
- * An authorisation is a group-signed event (kind 30346, [GroupLightningAuthorisationEvent]). The group
+ * An authorisation is a group-signed event (kind 30363, [GroupLightningAuthorisationEvent]). The group
  * may sign two for one invoice -- once more after the first expired, say. They are one payment: the
  * budget is the larger, and it is open while either is. A close or force close names one channel, and
  * lasts [CHANNEL_ACTION_LIFETIME].

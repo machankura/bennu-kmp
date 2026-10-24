@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.database.repository
 
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
 import com.machankura.bennu.compose.database.model.DkgSession
@@ -64,7 +65,9 @@ class DatabaseDkgRepository(
         threshold: Int,
         parentChatRoomId: HexKey?,
         participantPublicKeys: Set<HexKey>?,
-        subject: String?
+        subject: String?,
+        walletPolicy: SubgroupWalletPolicy?,
+        guardianDelay: Long?
     ): DkgSession? = try {
         ChillDkgRitualManager.proposeRitual(
             database = database,
@@ -74,7 +77,9 @@ class DatabaseDkgRepository(
             threshold = threshold,
             parentChatRoomId = parentChatRoomId,
             participantPublicKeys = participantPublicKeys,
-            subject = subject
+            subject = subject,
+            walletPolicy = walletPolicy,
+            guardianDelay = guardianDelay
         )
     } catch (e: Throwable) {
         logger.e("Error proposing DKG ritual for ${localChatRoom.chatRoom.id}", e)
@@ -212,6 +217,17 @@ class DatabaseDkgRepository(
     } catch (e: Throwable) {
         logger.e("Error proposing the subgroup key state from ${ceremonyRoom.chatRoom.id}", e)
         null
+    }
+
+    override suspend fun abandon(localChatRoom: LocalChatRoom, sessionId: String): Boolean = try {
+        ChillDkgRitualManager.abandon(
+            database = database,
+            localChatRoom = localChatRoom,
+            sessionId = sessionId,
+        )
+    } catch (e: Throwable) {
+        logger.e("Error abandoning DKG ritual $sessionId", e)
+        false
     }
 
     override suspend fun approve(

@@ -21,6 +21,8 @@ import com.machankura.bennu.compose.ui.composable.IcebergCeremonyScreen
 import com.machankura.bennu.compose.database.repository.DatabaseGroupLightningRepository
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.wallet.GroupChainClients
+import com.machankura.bennu.compose.ui.composable.MemberWalletPolicyScreen
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberWalletPolicyRoute
 import com.machankura.bennu.compose.ui.composable.GroupSendScreen
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupSendRoute
 import androidx.compose.foundation.layout.fillMaxSize
@@ -61,19 +63,12 @@ import com.machankura.bennu.compose.ui.composable.ChatRoomDetailScreen
 import com.machankura.bennu.compose.ui.composable.ChatRoomMessagingScreen
 import com.machankura.bennu.compose.ui.composable.CreateProfileScreen
 import com.machankura.bennu.compose.ui.composable.DkgJoinApprovalScreen
+import com.machankura.bennu.compose.ui.composable.CreateSharedKeyScreen
 import com.machankura.bennu.compose.ui.composable.DkgRitualScreen
 import com.machankura.bennu.compose.ui.composable.DkgRound1ApprovalScreen
 import com.machankura.bennu.compose.ui.composable.DkgRound2ApprovalScreen
-import com.machankura.bennu.compose.ui.composable.EditGroupNostrProfileScreen
-import com.machankura.bennu.compose.ui.composable.AddGroupPostScreen
-import com.machankura.bennu.compose.ui.composable.BroadcastGroupSignedEventScreen
-import com.machankura.bennu.compose.ui.composable.ProposeGroupEventScreen
-import com.machankura.bennu.compose.ui.composable.EditGroupRelaysScreen
-import com.machankura.bennu.compose.ui.composable.GroupNostrProfileScreen
-import com.machankura.bennu.compose.ui.composable.GroupRelaysScreen
 import com.machankura.bennu.compose.ui.composable.GroupWalletScreen
 import com.machankura.bennu.compose.ui.composable.GroupWalletAddressesScreen
-import com.machankura.bennu.compose.ui.composable.GroupPostsScreen
 import com.machankura.bennu.compose.ui.composable.HomeScreen
 import com.machankura.bennu.compose.ui.composable.ImplementationPendingScreen
 import com.machankura.bennu.compose.ui.composable.KeyPackageManagementScreen
@@ -107,6 +102,7 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.ChatRoomDeta
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ChatRoomMessagingRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateProfileRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgJoinApprovalRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateSharedKeyRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRitualRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRound1ApprovalRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRound2ApprovalRoute
@@ -164,42 +160,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import com.machankura.bennu.compose.database.repository.DatabaseMantraRepository
-import com.machankura.bennu.compose.ui.composable.AddArtifactScreen
-import com.machankura.bennu.compose.ui.composable.navigation.routes.AddArtifactRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.AddDialectRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.EditGroupNostrProfileRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.AddGroupPostRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.BroadcastGroupSignedEventRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.EditGroupRelaysRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletAddressesRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.NewMemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberSendRoute
+import com.machankura.bennu.compose.ui.composable.MemberSendScreen
+import com.machankura.bennu.compose.ui.composable.MemberWalletScreen
+import com.machankura.bennu.compose.ui.composable.NewMemberWalletScreen
+import com.machankura.bennu.compose.database.repository.DatabaseMemberWalletRepository
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
 import fr.acinq.phoenix.managers.NodeParamsManager
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupPostsRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.FrostSigningRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposalListRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.AddChapterRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.AddTranslationRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.ArtifactDetailRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.ChapterDetailRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.TranslateChunkRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.TranslationChapterRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.TranslationArtifactVersionDetailRoute
-import com.machankura.bennu.compose.ui.composable.ArtifactDetailScreen
-import com.machankura.bennu.compose.ui.composable.AddChapterScreen
-import com.machankura.bennu.compose.ui.composable.AddDialectScreen
 import com.machankura.bennu.compose.ui.composable.FrostSigningScreen
 import com.machankura.bennu.compose.ui.composable.ProposalListScreen
-import com.machankura.bennu.compose.ui.composable.AddTranslationArtifactVersionScreen
-import com.machankura.bennu.compose.ui.composable.ChapterDetailScreen
-import com.machankura.bennu.compose.ui.composable.TranslateChunkScreen
-import com.machankura.bennu.compose.ui.composable.TranslationChapterScreen
-import com.machankura.bennu.compose.ui.composable.TranslationArtifactVersionDetailScreen
 
 @Composable
 fun BennuNavHost(
@@ -266,14 +242,15 @@ fun BennuNavHost(
         )
     }
 
-    val databaseMarmotRepository = remember {
-        DatabaseMarmotRepository(
+    val databaseMemberWalletRepository = remember {
+        DatabaseMemberWalletRepository(
             database = auxDatabaseManager.auxDatabase,
-            applicationIOScope
+            activeIdentity = sovereignWalletViewModel.activeIdentity,
         )
     }
-    val databaseMantraRepository = remember {
-        DatabaseMantraRepository(
+
+    val databaseMarmotRepository = remember {
+        DatabaseMarmotRepository(
             database = auxDatabaseManager.auxDatabase,
             applicationIOScope
         )
@@ -703,6 +680,7 @@ fun BennuNavHost(
                 SelectSubgroupAdminsScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     parentChatRoomId = route.parentChatRoomId,
+                    retrying = route.retrying,
                     activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
                     chatRepository = databaseChatRepository,
                     dkgRepository = databaseDkgRepository,
@@ -773,6 +751,32 @@ fun BennuNavHost(
                     onNavigateBack = {
                         navController.popBackStack()
                     }
+                )
+            }
+            composable<CreateSharedKeyRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<CreateSharedKeyRoute>()
+
+                CreateSharedKeyScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    activeIdentityStateFlow = sovereignWalletViewModel.activeIdentity,
+                    chatRepository = databaseChatRepository,
+                    dkgRepository = databaseDkgRepository,
+                    // Replaces this screen with the ceremony, whether it was just
+                    // opened or was already there, so back from the ceremony goes
+                    // wherever the member came from rather than to a second offer.
+                    onCeremonyOpened = { dkgSessionId ->
+                        navController.navigate(
+                            DkgRitualRoute(
+                                activeUserPublicKey = route.activeUserPublicKey,
+                                chatRoomId = route.chatRoomId,
+                                dkgSessionId = dkgSessionId
+                            )
+                        ) {
+                            popUpTo<CreateSharedKeyRoute> { inclusive = true }
+                        }
+                    },
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
             composable<DkgRitualRoute> { backStackEntry ->
@@ -1048,6 +1052,8 @@ fun BennuNavHost(
                         )
                     },
                     signOut = signOutOfReadOnlyIdentity,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    wallets = groupOnchainWallets,
                 )
             }
             composable<ShareProfileRoute> { backStackEntry ->
@@ -1204,7 +1210,7 @@ fun BennuNavHost(
                     relayHint = route.relayHint,
                     nostrRepository = databaseNostrRepository,
                     chatRepository = databaseChatRepository,
-                    mantraRepository = databaseMantraRepository,
+                    memberWalletRepository = databaseMemberWalletRepository,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(
                             route = actionRoute
@@ -1267,99 +1273,6 @@ fun BennuNavHost(
                     },
                 )
             }
-            composable<AddArtifactRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<AddArtifactRoute>()
-
-                AddArtifactScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    nostrRepository = databaseNostrRepository,
-                    chatRepository = databaseChatRepository,
-                    mantraRepository = databaseMantraRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace this add screen so back returns to the group rather
-                        // than to a form whose proposal has already gone out.
-                        navController.navigate(
-                            route = signingRoute
-                        ) {
-                            popUpTo(route) {
-                                inclusive = true
-                            }
-                        }
-                    },
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(
-                            route = actionRoute
-                        )
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<AddDialectRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<AddDialectRoute>()
-
-                AddDialectScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    nostrRepository = databaseNostrRepository,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace this add screen so back returns to the group rather
-                        // than to a form whose proposal has already gone out.
-                        navController.navigate(route = signingRoute) {
-                            popUpTo<AddDialectRoute> {
-                                inclusive = true
-                            }
-                        }
-                    },
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(
-                            route = actionRoute
-                        )
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<GroupNostrProfileRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<GroupNostrProfileRoute>()
-
-                GroupNostrProfileScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    chatRepository = databaseChatRepository,
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(route = actionRoute)
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<GroupRelaysRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<GroupRelaysRoute>()
-
-                GroupRelaysScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    chatRepository = databaseChatRepository,
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(route = actionRoute)
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
             composable<GroupWalletRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<GroupWalletRoute>()
 
@@ -1374,6 +1287,67 @@ fun BennuNavHost(
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
                     },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<MemberWalletRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<MemberWalletRoute>()
+
+                MemberWalletScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    walletId = route.walletId,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    wallets = groupOnchainWallets,
+                    onSend = { walletId ->
+                        navController.navigate(route = MemberSendRoute(activeUserPublicKey = route.activeUserPublicKey, walletId = walletId))
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<MemberSendRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<MemberSendRoute>()
+
+                MemberSendScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    walletId = route.walletId,
+                    chain = NodeParamsManager.chain,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    wallets = groupOnchainWallets,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<MemberWalletPolicyRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<MemberWalletPolicyRoute>()
+
+                MemberWalletPolicyScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    chatRepository = databaseChatRepository,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    frostSigningRepository = databaseFrostSigningRepository,
+                    onNavigateToRoute = { actionRoute ->
+                        navController.navigate(route = actionRoute)
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<NewMemberWalletRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<NewMemberWalletRoute>()
+
+                NewMemberWalletScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    chain = NodeParamsManager.chain,
+                    canWatch = groupOnchainWallets != null,
+                    memberWalletRepository = databaseMemberWalletRepository,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
@@ -1402,139 +1376,13 @@ fun BennuNavHost(
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
                     wallets = groupOnchainWallets,
+                    guardedChatRoomId = route.guardedChatRoomId,
+                    fundChatRoomId = route.fundChatRoomId,
                     onNavigateToRouteAndPopUpInclusive = { signingRoute ->
                         // Replace the form so back returns to the wallet rather
                         // than to a spend that has already been proposed.
                         navController.navigate(route = signingRoute) {
                             popUpTo<GroupSendRoute> { inclusive = true }
-                        }
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<GroupPostsRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<GroupPostsRoute>()
-
-                GroupPostsScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    chatRepository = databaseChatRepository,
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(route = actionRoute)
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<EditGroupNostrProfileRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<EditGroupNostrProfileRoute>()
-
-                EditGroupNostrProfileScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace the form so back returns to the group rather than
-                        // to an edit whose proposal has already gone out.
-                        navController.navigate(route = signingRoute) {
-                            popUpTo<EditGroupNostrProfileRoute> {
-                                inclusive = true
-                            }
-                        }
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<EditGroupRelaysRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<EditGroupRelaysRoute>()
-
-                EditGroupRelaysScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace the editor so back returns to the group rather
-                        // than to lists whose proposal has already gone out.
-                        navController.navigate(route = signingRoute) {
-                            popUpTo<EditGroupRelaysRoute> {
-                                inclusive = true
-                            }
-                        }
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<AddGroupPostRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<AddGroupPostRoute>()
-
-                AddGroupPostScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace the composer so back returns to the group rather
-                        // than to a draft whose proposal has already gone out.
-                        navController.navigate(route = signingRoute) {
-                            popUpTo<AddGroupPostRoute> {
-                                inclusive = true
-                            }
-                        }
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<BroadcastGroupSignedEventRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<BroadcastGroupSignedEventRoute>()
-
-                BroadcastGroupSignedEventScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    signedEventId = route.signedEventId,
-                    chatRepository = databaseChatRepository,
-                    // Handed the pool itself rather than a queue to write to,
-                    // as the entries screen is for its "Broadcast all": a
-                    // group-signed event must not become a `NostrEvent` row, and
-                    // the queue hangs off one. See
-                    // `BroadcastGroupSignedEventViewModel`.
-                    publishTransport = synchronizationViewModel.relaysSocketManager,
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<ProposeGroupEventRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<ProposeGroupEventRoute>()
-
-                ProposeGroupEventScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace the paste so back returns to the group rather
-                        // than to an event whose proposal has already gone out.
-                        navController.navigate(route = signingRoute) {
-                            popUpTo<ProposeGroupEventRoute> {
-                                inclusive = true
-                            }
                         }
                     },
                     onNavigateBack = {
@@ -1571,170 +1419,6 @@ fun BennuNavHost(
                         navController.navigate(route = signingRoute)
                     },
                     initialFilter = route.filter
-                )
-            }
-            composable<ArtifactDetailRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<ArtifactDetailRoute>()
-
-                ArtifactDetailScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    artifactId = route.artifactId,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    mantraRepository = databaseMantraRepository,
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(
-                            route = actionRoute
-                        )
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<ChapterDetailRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<ChapterDetailRoute>()
-
-                ChapterDetailScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    chapterId = route.chapterId,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    mantraRepository = databaseMantraRepository,
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<TranslationArtifactVersionDetailRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<TranslationArtifactVersionDetailRoute>()
-
-                TranslationArtifactVersionDetailScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    translationArtifactVersionId = route.translationArtifactVersionId,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    mantraRepository = databaseMantraRepository,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(
-                            route = actionRoute
-                        )
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<TranslationChapterRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<TranslationChapterRoute>()
-
-                TranslationChapterScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    translationChapterId = route.translationChapterId,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    mantraRepository = databaseMantraRepository,
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(
-                            route = actionRoute
-                        )
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<TranslateChunkRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<TranslateChunkRoute>()
-
-                TranslateChunkScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    translationChapterId = route.translationChapterId,
-                    chunkId = route.chunkId,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    mantraRepository = databaseMantraRepository,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace this editor so back returns to the chapter table
-                        // rather than to a form whose proposal has already gone out.
-                        // The table itself is left alone: nothing is translated until
-                        // the group signs, so there is nothing new for it to show.
-                        navController.navigate(route = signingRoute) {
-                            popUpTo<TranslateChunkRoute> {
-                                inclusive = true
-                            }
-                        }
-                    },
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(route = actionRoute)
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<AddTranslationRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<AddTranslationRoute>()
-
-                AddTranslationArtifactVersionScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    artifactId = route.artifactId,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    mantraRepository = databaseMantraRepository,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace this screen so back returns to the artifact rather
-                        // than to a form whose proposal has already gone out.
-                        navController.navigate(route = signingRoute) {
-                            popUpTo<AddTranslationRoute> {
-                                inclusive = true
-                            }
-                        }
-                    },
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(
-                            route = actionRoute
-                        )
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
-                )
-            }
-            composable<AddChapterRoute> { backStackEntry ->
-                val route = backStackEntry.toRoute<AddChapterRoute>()
-
-                AddChapterScreen(
-                    activeUserPublicKey = route.activeUserPublicKey,
-                    artifactId = route.artifactId,
-                    chatRoomId = route.chatRoomId,
-                    relayHint = route.relayHint,
-                    mantraRepository = databaseMantraRepository,
-                    chatRepository = databaseChatRepository,
-                    frostSigningRepository = databaseFrostSigningRepository,
-                    onNavigateToRouteAndPopUpInclusive = { signingRoute ->
-                        // Replace this add screen so back returns to the artifact
-                        // rather than to a form whose proposal has already gone out.
-                        navController.navigate(route = signingRoute) {
-                            popUpTo<AddChapterRoute> {
-                                inclusive = true
-                            }
-                        }
-                    },
-                    onNavigateToRoute = { actionRoute ->
-                        navController.navigate(
-                            route = actionRoute
-                        )
-                    },
-                    onNavigateBack = {
-                        navController.popBackStack()
-                    }
                 )
             }
             composable<SearchRoute> { backStackEntry ->
@@ -1833,6 +1517,8 @@ fun BennuNavHost(
                     profilePublicKey = route.profilePublicKey,
                     nostrRepository = databaseNostrRepository,
                     chatRepository = databaseChatRepository,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    onNavigateToRoute = { actionRoute -> navController.navigate(route = actionRoute) },
                     // The room replaces the preview, as it replaces the profile detail
                     // above: back from a chat is the list, not the person it was started
                     // from.

@@ -1,24 +1,19 @@
 package com.machankura.bennu.compose.text
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletRequestEvent
 import com.machankura.bennu.compose.managers.SharedKeyDerivation
-import com.machankura.bennu.compose.nostr.GroupRelaySet
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
-import com.machankura.bennu.compose.text.grouped
-import com.vitorpamplona.quartz.nip01Core.core.Event
-import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
-import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import fr.acinq.bitcoin.Satoshi
 import fr.acinq.lightning.payment.Bolt11Invoice
 
@@ -26,8 +21,8 @@ import fr.acinq.lightning.payment.Bolt11Invoice
  * An event a group is being asked to sign, said in words.
  *
  * Shown as the thing rather than as an event: a member deciding whether to sign
- * is deciding about a dialect or an artifact, and "kind 30304" answers a
- * question nobody asked. The raw kind stays for anything not recognised, since
+ * is deciding about a wallet or a subgroup, and "kind 30331" answers a question
+ * nobody asked. The raw kind stays for anything not recognised, since
  * refusing to describe an event is better than describing it wrongly.
  *
  * Not a composable, and deliberately: the same words appear on the signing
@@ -41,100 +36,12 @@ object ProposedEvent {
      */
     data class Summary(val label: String, val detail: String)
 
-    fun summarize(event: Event): Summary = when (event.kind) {
-        DialectEvent.KIND -> Summary(
-            label = "New dialect",
-            detail = DialectEvent(
-                event.id, event.pubKey, event.createdAt, event.tags, event.content, event.sig
-            ).let { dialect ->
-                listOfNotNull(dialect.name(), dialect.country(), dialect.language())
-                    .joinToString(" · ")
-            }
-        )
-
-        ArtifactEvent.KIND -> Summary(
-            label = "New artifact",
-            detail = ArtifactEvent(
-                event.id, event.pubKey, event.createdAt, event.tags, event.content, event.sig
-            ).let { artifact ->
-                // The url is the substance of an artifact -- signing one is putting
-                // the group's name to what it points at -- so it goes next to the
-                // name rather than being left for the detail screen afterwards.
-                listOfNotNull(event.content, artifact.versionLabel(), artifact.url())
-                    .joinToString(" · ")
-            }
-        )
-
-        // Signed alongside the artifact it belongs to rather than on its own,
-        // so this is almost always read as the second line of a batch of two.
-        // Named after the artifact rather than the label, because the label is
-        // the whole of the content and would otherwise be said twice.
-        ArtifactVersionEvent.KIND -> Summary(
-            label = "Version of the artifact",
-            detail = event.content.ifBlank { "Unlabelled" }
-        )
-
-        ChapterEvent.KIND -> Summary(
-            label = "New chapter",
-            detail = ChapterEvent(
-                event.id, event.pubKey, event.createdAt, event.tags, event.content, event.sig
-            ).let { chapter ->
-                // The text is the substance of a chapter -- signing one is putting
-                // the group's name to what everybody will translate from -- but it
-                // is a whole chapter, so its size stands in for it here. The chunk
-                // count says how many of the batch's other items came out of this
-                // text, which is the rest of what is being signed.
-                val chunkCount = chapter.originalText()?.let { Markdown.splitParagraphs(it).size }
-
-                listOfNotNull(
-                    chapter.name(),
-                    chapter.wordCount()?.let { "$it words" },
-                    chunkCount?.let { "$it ${if (it == 1) "chunk" else "chunks"}" }
-                ).joinToString(" · ")
-            }
-        )
-
-        TranslationArtifactVersionEvent.KIND -> Summary(
-            label = "New translation",
-            detail = TranslationArtifactVersionEvent(
-                event.id, event.pubKey, event.createdAt, event.tags, event.content, event.sig
-            ).let { translation ->
-                // Named after the dialect it is into, which is the whole of what is
-                // being decided: everything else in the batch follows from it.
-                listOfNotNull(translation.name(), translation.visibility(), translation.license())
-                    .joinToString(" · ")
-            }
-        )
-
-        TranslationChapterEvent.KIND -> Summary(
-            label = "Chapter of the translation",
-            detail = TranslationChapterEvent(
-                event.id, event.pubKey, event.createdAt, event.tags, event.content, event.sig
-            ).let { chapter ->
-                // A translation chapter is a place for translated chunks to hang
-                // off, so there is nothing in it to read -- only where in the work
-                // it sits. Counted from one, the way the chapter list reads.
-                chapter.index()?.let { "Chapter ${it + 1}" } ?: "Position unknown"
-            }
-        )
-
-        TranslationChunkEvent.KIND -> Summary(
-            label = "Translated passage",
-            detail = TranslationChunkEvent(
-                event.id, event.pubKey, event.createdAt, event.tags, event.content, event.sig
-            ).let { chunk ->
-                // The translation itself is the whole of what is being decided --
-                // a member signing this is agreeing that these words say what the
-                // original said -- so it is the detail rather than a count of it.
-                // Where in the chapter it sits comes first, since that is what
-                // says which passage to read it against.
-                listOfNotNull(
-                    chunk.index()?.let { "Passage ${it + 1}" },
-                    event.content
-                ).joinToString(" · ")
-            }
-        )
-
+    /**
+     * [nameOf] names a member by public key, for the one summary that is about a
+     * person: a caller with profiles to hand passes them, and one without gets
+     * the summary without a name rather than a wrong one.
+     */
+    fun summarize(event: Event, nameOf: (HexKey) -> String? = { null }): Summary = when (event.kind) {
         // The one thing a group signs that is about the group rather than about
         // its work, and the only one a member sees before the room has done
         // anything. Shown as the path and the ceremony rather than as the key:
@@ -161,42 +68,36 @@ object ProposedEvent {
                 SubgroupBirthCertificateEvent.parseAdminPublicKeys(event.tags)
                     .size
                     .takeIf { it > 0 }
-                    ?.let { "run by $it members" }
+                    ?.let { "run by $it members" },
+                // The promise this certificate makes on the group's behalf, said
+                // as one: a guardian key is this group, and every group above it,
+                // able to spend from the subgroup's wallet if it opens a guarded one.
+                SubgroupBirthCertificateEvent.parseGuardians(event.tags)
+                    ?.size
+                    ?.takeIf { it > 0 }
+                    ?.let { count ->
+                        when (count) {
+                            1 -> "this group can spend from its wallet"
+                            2 -> "this group and the one above it can spend from its wallet"
+                            else -> "this group and the ${count - 1} above it can spend from its wallet"
+                        }
+                    },
+                // How long this group's own leaf waits, which its coordinator
+                // chose; every inherited one keeps its own. docs/guardian-delay.md.
+                SubgroupBirthCertificateEvent.parseGuardians(event.tags)
+                    ?.firstOrNull()
+                    ?.let { "this group after ${BlockDuration.describe(it.delay)}" },
+                // The decision this certificate makes for the child, said in both
+                // directions: an absent line is not a decision anybody can be said
+                // to have read. An older certificate decides nothing and says so
+                // by saying nothing, as it always has.
+                when (SubgroupBirthCertificateEvent.parseWalletPolicy(event.tags)) {
+                    WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED) -> "its wallet must be guarded"
+                    WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED) -> "its wallet will not be guarded"
+                    else -> null
+                }
             ).joinToString(" · ")
         )
-
-        // The group's own profile. Named by what the group would be called and
-        // what it would say about itself, which is the whole of what is being
-        // decided; the JSON in the content is the one thing a signer should not
-        // have to read to find that out.
-        MetadataEvent.KIND -> Summary(
-            label = "Nostr profile",
-            detail = MetadataEvent(
-                event.id, event.pubKey, event.createdAt, event.tags, event.content, event.sig
-            ).contactMetaData()?.let { metadata ->
-                listOfNotNull(
-                    metadata.anyName()?.takeIf { it.isNotBlank() },
-                    metadata.about?.takeIf { it.isNotBlank() }
-                ).joinToString(" · ").ifEmpty { "An empty profile" }
-            } ?: "Unreadable profile"
-        )
-
-        // A post in the group's name. The words are what is being decided, so
-        // they are the detail rather than a count of them -- the same call the
-        // translated-passage arm makes.
-        TextNoteEvent.KIND -> Summary(label = "Post", detail = event.content)
-
-        // One of the group's relay lists, shown as hosts: every entry in one
-        // starts wss://, so the scheme is the part that never tells two apart.
-        // An empty one is a list the group is withdrawing, and says so.
-        in GroupRelaySet.KINDS -> {
-            val set = GroupRelaySet.entries.first { it.kind == event.kind }
-
-            Summary(
-                label = "${set.name} relay list",
-                detail = set.parse(event.tags).joinToString { it.displayUrl() }.ifEmpty { "No relays" }
-            )
-        }
 
         // The group opening a wallet. What a member is agreeing to is that the
         // group keeps coins here, so the summary names the network -- the one
@@ -251,6 +152,50 @@ object ProposedEvent {
                 detail = "Channel ${action.channelId.take(16)}: its money goes to the group's onchain wallet",
             )
         } ?: Summary(label = "Authorise the Lightning wallet", detail = "An authorisation this device cannot read")
+
+        // The group agreeing to guard one member's wallet. What a signer weighs
+        // is whose wallet, and what the group can do with it: take any coin that
+        // has sat for its leaf's delay, alongside every group above it after
+        // theirs, while only the member can spend before then. The keys are their device's to check.
+        // The group deciding whether it guards its members' wallets, and at what
+        // delay. A signer weighs the delay, and that it reaches only wallets
+        // asked for from now on; closing leaves every guarded wallet guarded.
+        // docs/member-wallet-delay.md.
+        MemberWalletPolicyEvent.KIND -> Summary(
+            label = "Members' guarded wallets",
+            detail = when (val policy = MemberWalletPolicyEvent.read(event)) {
+                is MemberWalletPolicyEvent.Policy.Open ->
+                    "this group after ${BlockDuration.describe(policy.delay)} · for wallets asked for from now on"
+                is MemberWalletPolicyEvent.Policy.Closed ->
+                    "no new ones · wallets already guarded stay guarded"
+                null -> "A policy this device cannot read"
+            }
+        )
+
+        MemberWalletCertificateEvent.KIND -> Summary(
+            label = "Guard a member's wallet",
+            detail = MemberWalletCertificateEvent.requestOf(event)
+                ?.let { MemberWalletRequestEvent.read(it) }
+                ?.let { reading ->
+                    // Each guardian's own delay, nearest first: the group's own
+                    // leaf, and every group above it at the delay it chose.
+                    // docs/guardian-delay.md.
+                    val delays = reading.guardians.map { BlockDuration.describe(it.delay) }
+                    val reach = when (delays.size) {
+                        1 -> "this group can take its coins after ${delays[0]}"
+                        2 -> "this group can take its coins after ${delays[0]}, and the one above it after ${delays[1]}"
+                        else -> "this group can take its coins after ${delays[0]}, and the ${delays.size - 1} above it after ${delays.drop(1).joinToString(", ")}"
+                    }
+                    listOfNotNull(
+                        nameOf(reading.memberPublicKey)?.let { "For @$it" },
+                        reading.label,
+                        "on ${GroupWalletStatementEvent.chainName(reading.chain)}",
+                        reach,
+                        "only the member can spend from it before then",
+                    ).joinToString(" · ")
+                }
+                ?: "A member wallet this device cannot read"
+        )
 
         else -> Summary(label = "Event of kind ${event.kind}", detail = event.content)
     }

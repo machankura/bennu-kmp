@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
@@ -19,6 +20,9 @@ import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.managers.GuardianManager
+import com.machankura.bennu.compose.ui.view.state.FundingTarget
+import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
@@ -106,6 +110,43 @@ class GroupSendScreenJvmTest {
         onNodeWithText("Ask the group to send").assertIsNotEnabled()
     }
 
+    @Test
+    fun `funding a guarded wallet names it, shows where it pays, and takes no address`() = render(Chain.Regtest, funded = true) {
+        onNodeWithText("Fund Savings's guarded wallet").assertIsDisplayed()
+        onNodeWithText("Savings's guarded wallet").assertIsDisplayed()
+        onNodeWithText("Address").assertDoesNotExist()
+        onNodeWithText("Address 2").assertIsDisplayed()
+        // This group's own leaf's delay in the funded wallet, in blocks alone on regtest.
+        onNodeWithText("This group can spend these coins again once they have waited 12 blocks.").assertIsDisplayed()
+
+        onNodeWithText("Fee rate in sats per byte").performTextInput("4")
+        onNodeWithText("Amount in sats").performTextInput("40000")
+        onNodeWithText("Sends 40,000 sats to Savings's guarded wallet", substring = true).assertIsDisplayed()
+        onNodeWithText("Ask the group to send").assertIsEnabled()
+    }
+
+    private fun funding(chain: Chain): FundingTarget {
+        val descendantRoomId = "c".repeat(64)
+        // Guarded by this room, at the default delay, as a verified statement would be.
+        val descendant = GroupWalletDerivation.account(
+            PrivateKey(ByteVector32(Hex.decode("decaf".padStart(64, '0')))).publicKey().toString(), chain,
+            guardians = GuardianDerivation.grant(PrivateKey(ByteVector32(Hex.decode("a11ce".padStart(64, '0')))).publicKey().toString(), chatRoomId, emptyList(), descendantRoomId),
+        )
+        val guarded = GuardianManager.GuardedWallet(
+            ancestorChatRoomId = chatRoomId,
+            descendantChatRoomId = descendantRoomId,
+            statement = Event("1".repeat(64), descendantRoomId, 1_700_000_000, GroupWalletStatementEvent.KIND, emptyArray(), "", ""),
+            account = descendant,
+            certificate = Event("2".repeat(64), chatRoomId, 1_700_000_000, 0, arrayOf(arrayOf("name", "Savings")), "", ""),
+            lineage = listOf(descendantRoomId),
+        )
+        val receive = (0 until 10).associate { index ->
+            GroupWalletDerivation.derive(descendant, GroupWalletDerivation.RECEIVE, index.toLong()).address(chain) to
+                WalletState.AddressState(WalletState.AddressMeta.Derived(index), alreadyUsed = false, utxos = emptyList())
+        }
+        return FundingTarget(guarded, GroupWalletState(descendant, WalletState(receive), WalletState.empty, tipHeight = 110))
+    }
+
     private fun ComposeUiTest.fill(address: String, amount: String) {
         onNodeWithText("Address").performTextInput(address)
         onNodeWithText("Fee rate in sats per byte").performTextInput("4")
@@ -146,7 +187,7 @@ class GroupSendScreenJvmTest {
         return GroupSendUIState.Ready(room, wallet, walletState, reserved = emptySet())
     }
 
-    private fun render(chain: Chain, assertions: ComposeUiTest.() -> Unit) =
+    private fun render(chain: Chain, funded: Boolean = false, assertions: ComposeUiTest.() -> Unit) =
         runDesktopComposeUiTest(width = 400, height = 1200) {
             setContent {
                 BennuTheme {
@@ -156,7 +197,7 @@ class GroupSendScreenJvmTest {
                                 activeUserPublicKey = "a".repeat(64),
                                 chatRoomId = chatRoomId,
                                 chain = chain,
-                                initialGroupSendUIState = ready(chain),
+                                initialGroupSendUIState = ready(chain).let { if (funded) it.copy(funding = funding(chain)) else it },
                                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
                                 wallets = null,

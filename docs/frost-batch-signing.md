@@ -13,6 +13,11 @@ implementation chose differently from the first draft the section says so.
 chapter is the first caller, and needed a second form of them; see
 [The first caller](#the-first-caller-a-chapter-and-its-chunks).
 
+*The chapter, the dialect and the artifact screens this note cites have since
+been removed, with the rest of the nip30303 documents
+([ceremony-creation.md](./ceremony-creation.md)). The batch machinery stays; the
+group wallet's spends are its callers now.*
+
 The headline: **there is no such thing as one FROST signature over many
 messages, and no way to reuse a nonce across them.** What can be batched is the
 ceremony — the rounds, the group events, and the approval a human is asked for.

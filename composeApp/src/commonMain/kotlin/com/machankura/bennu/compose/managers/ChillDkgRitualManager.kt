@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianDelayTag
+import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
@@ -106,6 +110,9 @@ object ChillDkgRitualManager {
      */
     const val MINIMUM_PARTICIPANTS = 2
 
+    /** Why a ceremony a participant walked away from ended, as every device records it. */
+    private const val ABANDONED = "Abandoned by a participant"
+
     /**
      * This device's long-term ChillDKG host secret key.
      *
@@ -137,6 +144,14 @@ object ChillDkgRitualManager {
      */
     fun canRunRitual(localChatRoom: LocalChatRoom): Boolean =
         memberPublicKeys(localChatRoom).size >= MINIMUM_PARTICIPANTS
+
+    /**
+     * Whether [localChatRoom] is a Marmot room, and so can host a subgroup's
+     * ceremony but never one of its own. The same reading [broadcast] makes to
+     * pick a transport.
+     */
+    fun isMarmotRoom(localChatRoom: LocalChatRoom): Boolean =
+        localChatRoom.chatRoom.mlsGroupState != null
 
     /**
      * Everyone a ceremony is being run with — which is not the same question as
@@ -171,6 +186,17 @@ object ChillDkgRitualManager {
      * and is carried to the other admins on the proposal because there is no
      * longer a room of its own for them to read it off.
      *
+     * [walletPolicy] is what the subgroup's wallet is to be, as the coordinator
+     * chose it on the picker -- carried on the proposal so every admin is told
+     * before joining, and on the session so whoever proposes the birth
+     * certificate proposes it under the same one. Only a subgroup's ceremony has
+     * one. See `docs/subgroup-wallet-policy.md`.
+     *
+     * [guardianDelay] is the delay, in blocks, the coordinator chose for the
+     * parent's own leaf in a guarded subgroup's wallet, carried the same way and
+     * for the same reasons. Only a guarded ceremony has one, and it is in
+     * `GuardianDerivation.DELAY_RANGE`. See `docs/guardian-delay.md`.
+     *
      * Throws when the group or the threshold cannot support one; the UI checks
      * both before offering the button, so reaching either is a bug rather than a
      * user error.
@@ -183,8 +209,25 @@ object ChillDkgRitualManager {
         threshold: Int,
         parentChatRoomId: HexKey? = null,
         participantPublicKeys: Set<HexKey>? = null,
-        subject: String? = null
+        subject: String? = null,
+        walletPolicy: SubgroupWalletPolicy? = null,
+        guardianDelay: Long? = null
     ): DkgSession {
+        // A policy is for a subgroup's wallet, and a ceremony with no parent makes
+        // no subgroup. `acceptProposal` drops the same thing on the way in.
+        // Before the running check, which would otherwise hand back a ceremony
+        // for a question this one should never have asked.
+        require(walletPolicy == null || parentChatRoomId != null) {
+            "Only a subgroup's ceremony carries a wallet policy"
+        }
+        // A delay is a guarded wallet's, and within what a leaf can carry.
+        require(guardianDelay == null || walletPolicy == SubgroupWalletPolicy.GUARDED) {
+            "Only a guarded subgroup's ceremony carries a guardian delay"
+        }
+        require(guardianDelay == null || guardianDelay in GuardianDerivation.DELAY_RANGE) {
+            "A guardian's delay is ${GuardianDerivation.MIN_DELAY} to ${GuardianDerivation.MAX_DELAY} blocks, not $guardianDelay"
+        }
+
         // Built the way a receiver rebuilds it from the proposal — the p-tags
         // `broadcast` writes, plus this device — so both sides count the same `n`
         // even if the room's own rows have drifted.
@@ -245,6 +288,15 @@ object ChillDkgRitualManager {
                 "${(members - room).joinToString { it.take(8) }}, who are not in it"
         }
 
+        // A Marmot room's id is derived from the key it already has, so a ceremony
+        // of its own would make a key the room could never answer to. It hosts its
+        // subgroups' ceremonies and nothing else. The screens stopped offering one
+        // here, and this is what makes that a rule rather than a screen not drawing
+        // a button -- see docs/ceremony-creation.md.
+        require(parentChatRoomId != null || !isMarmotRoom(localChatRoom)) {
+            "${localChatRoom.chatRoom.id} is a Marmot room; it can only host a subgroup's ceremony"
+        }
+
         require(members.size >= MINIMUM_PARTICIPANTS) {
             "A shared key needs at least $MINIMUM_PARTICIPANTS members, this ceremony has ${members.size}"
         }
@@ -273,6 +325,8 @@ object ChillDkgRitualManager {
             // subgroup's ceremony runs in the parent's room over a subset of it.
             participantPublicKeys = DkgSession.formatParticipants(members),
             subject = ceremonySubject,
+            walletPolicy = walletPolicy?.tagValue,
+            guardianDelay = guardianDelay,
             hostPublicKey = deriveHostPublicKey(nostrPrivateKey).value.toHex(),
             // Fresh per session. Persisted because participantStep1/2 are pure in
             // it, which is what makes the whole ritual restart-safe.
@@ -375,7 +429,7 @@ object ChillDkgRitualManager {
             return
         }
 
-        if (!record(database, session, innerEvent)) return
+        if (!record(database, localChatRoom, session, innerEvent)) return
 
         advance(
             database = database,
@@ -398,6 +452,20 @@ object ChillDkgRitualManager {
         nostrPrivateKey: ByteArray
     ): DkgSession? {
         database.dkgSessionDao().getSessionById(sessionId)?.let { return it }
+
+        // The receiving half of `proposeRitual`'s refusal. A build from before it
+        // can still put a group's own ceremony on the wire in a Marmot room, and
+        // recording it would show every member a ceremony whose key the room can
+        // never use -- which is how a second ceremony ended up beside a subgroup's.
+        if (isMarmotRoom(localChatRoom) &&
+            DkgRitualEvents.parseParentChatRoomId(innerEvent.tags) == null
+        ) {
+            logger.w(
+                "DKG proposal $sessionId names no parent in Marmot room " +
+                    "${localChatRoom.chatRoom.id}; dropping"
+            )
+            return null
+        }
 
         // The participant set is the proposal's own p-tags plus its sender, NOT
         // this device's view of the room. `n` is hashed into the session identity,
@@ -437,6 +505,37 @@ object ChillDkgRitualManager {
             return null
         }
 
+        // A policy is only for a subgroup's wallet, and one that does not read is
+        // not one to join on the assumption it says nothing: an admin would be
+        // shown no policy and then asked to sign a key state under one.
+        val walletPolicy = when (val tag = DkgRitualEvents.parseWalletPolicy(innerEvent.tags)) {
+            WalletPolicyTag.Result.Absent -> null
+            WalletPolicyTag.Result.Unreadable -> {
+                logger.w("DKG proposal $sessionId carries a wallet policy that does not read; dropping")
+                return null
+            }
+            is WalletPolicyTag.Result.Present -> tag.policy
+        }
+        if (walletPolicy != null && DkgRitualEvents.parseParentChatRoomId(innerEvent.tags) == null) {
+            logger.w("DKG proposal $sessionId carries a wallet policy and names no parent; dropping")
+            return null
+        }
+
+        // The same for the delay: a guarded subgroup's only, and in range. An
+        // admin shown no delay must not be asked to sign a certificate under one.
+        val guardianDelay = when (val tag = DkgRitualEvents.parseGuardianDelay(innerEvent.tags)) {
+            GuardianDelayTag.Result.Absent -> null
+            GuardianDelayTag.Result.Unreadable -> {
+                logger.w("DKG proposal $sessionId carries a guardian delay that does not read; dropping")
+                return null
+            }
+            is GuardianDelayTag.Result.Present -> tag.delay
+        }
+        if (guardianDelay != null && walletPolicy != SubgroupWalletPolicy.GUARDED) {
+            logger.w("DKG proposal $sessionId carries a guardian delay for a subgroup that is not guarded; dropping")
+            return null
+        }
+
         val session = DkgSession(
             id = sessionId,
             chatRoomId = localChatRoom.chatRoom.id,
@@ -461,6 +560,10 @@ object ChillDkgRitualManager {
             // on it, and the certificate the parent's quorum signs is over this
             // name, so an admin who dislikes it declines that.
             subject = DkgRitualEvents.parseSubject(innerEvent.tags),
+            // What the subgroup's wallet is to be, as claimed -- shown at the join
+            // gate, so joining is agreeing to it. See the checks above.
+            walletPolicy = walletPolicy?.tagValue,
+            guardianDelay = guardianDelay,
             hostPublicKey = deriveHostPublicKey(nostrPrivateKey).value.toHex(),
             round1Random = RandomInstance.bytes(32).toHex(),
             round2AuxRandom = RandomInstance.bytes(32).toHex(),
@@ -550,7 +653,7 @@ object ChillDkgRitualManager {
         logger.i("Replaying ${stored.size} stored message(s) for ritual ${session.id}")
 
         stored.forEach { payload ->
-            if (!record(database, session, payload)) return
+            if (!record(database, localChatRoom, session, payload)) return
         }
     }
 
@@ -564,6 +667,7 @@ object ChillDkgRitualManager {
      */
     private suspend fun record(
         database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
         session: DkgSession,
         innerEvent: Event
     ): Boolean {
@@ -634,6 +738,18 @@ object ChillDkgRitualManager {
             }
 
             DkgRitualEvents.FAILURE -> {
+                // Only somebody in the ceremony can end it. In a parent's room every
+                // member can read a subgroup's proposal, and so could name its
+                // session -- but a member who was never in it walking away is not
+                // the ceremony failing.
+                if (innerEvent.pubKey !in participantsOf(session, localChatRoom)) {
+                    logger.w(
+                        "Ritual ${session.id}: FAILURE from ${innerEvent.pubKey.take(8)}, " +
+                            "who is not in it; ignoring"
+                    )
+                    return true
+                }
+
                 fail(
                     database = database,
                     session = session,
@@ -1089,6 +1205,49 @@ object ChillDkgRitualManager {
     }
 
     /**
+     * Ends a ceremony this device is in, for everyone in it.
+     *
+     * ChillDKG has no "no" short of this: a participant who never approves stalls
+     * the ceremony for good, and the others are left waiting on a key that will
+     * not come. Saying so lets them stop. It is the same FAILURE message a fault
+     * sends, and every device files it the same way -- no key is created, and the
+     * group can start again.
+     *
+     * Returns whether it was ended. Refuses, rather than throws, a ceremony this
+     * device is not in or one that is already over: a stale screen may ask.
+     */
+    suspend fun abandon(
+        database: BennuDatabase,
+        localChatRoom: LocalChatRoom,
+        sessionId: String,
+    ): Boolean {
+        val session = database.dkgSessionDao().getSessionById(sessionId) ?: return false
+
+        if (session.stage == DkgRitualStage.COMPLETE || session.stage == DkgRitualStage.FAILED) {
+            logger.i("Ritual $sessionId is already over; nothing to abandon")
+            return false
+        }
+
+        if (session.userPublicKey !in participantsOf(session, localChatRoom)) {
+            logger.w("Ritual $sessionId does not include this device; not abandoning it")
+            return false
+        }
+
+        logger.i("Abandoning ritual $sessionId")
+
+        fail(database, session, ABANDONED)
+        broadcast(
+            database = database,
+            localChatRoom = localChatRoom,
+            session = session,
+            kind = DkgRitualEvents.FAILURE,
+            content = ABANDONED
+        )
+
+        return true
+    }
+
+    /**
      * Records that this device's owner agreed to [step], then lets the ritual run as
      * far as the next thing it is waiting on.
      *
@@ -1374,7 +1533,10 @@ object ChillDkgRitualManager {
             sessionId = session.id,
             threshold = if (includeThreshold) session.threshold else null,
             parentChatRoomId = if (includeParent) session.parentChatRoomId else null,
-            subject = subject
+            subject = subject,
+            // With the parent, and for the same reason: only on the proposal.
+            walletPolicy = if (includeParent) session.subgroupWalletPolicy else null,
+            guardianDelay = if (includeParent) session.guardianDelay else null
         )
 
         val createdAt = Clock.System.now().epochSeconds

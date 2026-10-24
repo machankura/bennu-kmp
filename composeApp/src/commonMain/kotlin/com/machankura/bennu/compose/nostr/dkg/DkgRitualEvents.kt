@@ -1,19 +1,27 @@
 package com.machankura.bennu.compose.nostr.dkg
 
+import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianDelayTag
 import com.machankura.bennu.compose.nostr.dkg.tags.DkgSessionIdTag
 import com.machankura.bennu.compose.nostr.dkg.tags.DkgThresholdTag
 import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nip14Subject.SubjectTag
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupParentTag
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
 
 /**
  * The nostr kinds a ChillDKG ritual is carried on.
  *
- * These are **rumor** kinds: they only ever exist inside a NIP-17 gift wrap
- * addressed to the group, so no relay sees them unencrypted and the replaceable
- * semantics normally implied by the 3xxxx range never apply. They sit next to
- * the app's other private kinds (30300-30309) deliberately — the transport,
- * sealing and broadcast pipeline is the same one chat messages ride.
+ * These are **rumor** kinds: they only ever travel encrypted -- inside a NIP-17
+ * gift wrap for a group's own ceremony, and as a Marmot inner event in the
+ * parent's room for a subgroup's -- so no relay sees them in the clear and the
+ * replaceable semantics normally implied by the 3xxxx range never apply. The
+ * transport, sealing and broadcast pipeline is the one chat messages ride.
+ *
+ * 30310-30312 used to be nip30303 document kinds too, and a round 1 read as a
+ * document submission once reached a parent's chat as raw hex. `ChatMessage`
+ * recognises these before any content kind for that reason, and the document
+ * kinds are gone. See docs/ceremony-creation.md.
  *
  * Who talks to whom, in order:
  *
@@ -76,12 +84,16 @@ object DkgRitualEvents {
         sessionId: String,
         threshold: Int? = null,
         parentChatRoomId: String? = null,
-        subject: String? = null
+        subject: String? = null,
+        walletPolicy: SubgroupWalletPolicy? = null,
+        guardianDelay: Long? = null
     ): Array<Array<String>> = buildList {
         add(DkgSessionIdTag.assemble(sessionId))
         threshold?.let { add(DkgThresholdTag.assemble(it)) }
         parentChatRoomId?.let { add(SubgroupParentTag.assemble(it)) }
         subject?.ifBlank { null }?.let { add(SubjectTag.assemble(it)) }
+        walletPolicy?.let { add(WalletPolicyTag.assemble(it)) }
+        guardianDelay?.let { add(GuardianDelayTag.assemble(it)) }
     }.toTypedArray()
 
     fun parseSessionId(tags: Array<Array<String>>): String? =
@@ -124,4 +136,26 @@ object DkgRitualEvents {
      */
     fun parseSubject(tags: Array<Array<String>>): String? =
         tags.firstNotNullOfOrNull(SubjectTag::parse)
+
+    /**
+     * The wallet policy the coordinator chose for the subgroup this ceremony
+     * makes -- `docs/subgroup-wallet-policy.md`.
+     *
+     * Authenticates nothing, as [parseParentChatRoomId] does not: it is what the
+     * admins are shown before they join, and what the certificate is later
+     * proposed under. Absent for an ordinary ceremony and for one from an older
+     * build; unreadable is told apart from absent, because a proposal whose
+     * policy cannot be read is not one to join on the assumption it has none.
+     */
+    fun parseWalletPolicy(tags: Array<Array<String>>): WalletPolicyTag.Result =
+        WalletPolicyTag.parseOne(tags)
+
+    /**
+     * The delay the coordinator chose for the parent's own leaf, beside a
+     * guarded policy -- `docs/guardian-delay.md`. Authenticates nothing, as the
+     * policy does not: it is what the admins are shown, and what the certificate
+     * is proposed under.
+     */
+    fun parseGuardianDelay(tags: Array<Array<String>>): GuardianDelayTag.Result =
+        GuardianDelayTag.parseOne(tags)
 }

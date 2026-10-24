@@ -66,7 +66,7 @@ import kotlinx.coroutines.launch
  * transport ([GroupIcebergTransport]) reaches the members through the room. It runs only while this
  * device is the elected operator and has heard from the room recently ([GroupLightningOperatorManager.mayRunNode]),
  * and it stops itself the moment a newer term names somebody else -- telling the room where its
- * channels were as it goes (kind 30349).
+ * channels were as it goes (kind 30366).
  *
  * The node itself is behind [PeerHandle], so the life cycle can be tested without an LSP to connect to.
  */

@@ -8,6 +8,7 @@ import com.machankura.bennu.compose.database.model.traits.LocalStoreEntity
 import com.machankura.bennu.compose.database.model.traits.TimestampedEntity
 import com.machankura.bennu.compose.database.model.types.DkgApprovalStep
 import com.machankura.bennu.compose.database.model.types.DkgRitualStage
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
 import fr.acinq.bitcoin.ByteVector
@@ -98,6 +99,33 @@ data class DkgSession(
      * before agreeing to it.
      */
     val subject: String? = null,
+
+    /**
+     * The wallet policy the coordinator chose for the subgroup this ceremony
+     * makes, as `SubgroupWalletPolicy.tagValue` -- or null for a ceremony that
+     * makes no subgroup, or one proposed by a build from before policies.
+     * `docs/subgroup-wallet-policy.md`.
+     *
+     * A claim on a proposal, like [subject], and read for two things only: the
+     * join screen, which tells an admin what they are agreeing to, and the
+     * certificate rung, which proposes the certificate under it. What makes it
+     * binding is the parent's quorum signing it into the certificate, and every
+     * child signer then refusing a key state whose certificate says otherwise.
+     */
+    val walletPolicy: String? = null,
+
+    /**
+     * The delay, in blocks, the coordinator chose for the parent's own leaf in
+     * the guarded subgroup this ceremony makes -- or null for an unguarded one,
+     * one that makes no subgroup, or one from a build before parents chose.
+     * `docs/guardian-delay.md`.
+     *
+     * A claim on a proposal like [walletPolicy], read for the join screen and for
+     * the certificate rung. A guarded ceremony with none is certified at
+     * `GuardianDerivation.DEFAULT_DELAY`, which is what its build would have
+     * written.
+     */
+    val guardianDelay: Long? = null,
 
     val stage: DkgRitualStage = DkgRitualStage.COLLECTING_HOST_KEYS,
 
@@ -232,3 +260,7 @@ data class DkgSession(
             publicKeys.takeIf { it.isNotEmpty() }?.sorted()?.joinToString(",")
     }
 }
+
+/** [DkgSession.walletPolicy], read; null for none or one this build does not know. */
+val DkgSession.subgroupWalletPolicy: SubgroupWalletPolicy?
+    get() = walletPolicy?.let(SubgroupWalletPolicy::fromTagValue)

@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.nostr.wallet
 
+import com.machankura.bennu.compose.nostr.subgroup.allows
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -15,9 +17,8 @@ import kotlin.time.Instant
  * threshold key -- [account] is what [GroupWalletStatementEvent.Reading.verifiedAgainst]
  * returned, never what the statement said.
  *
- * Read off [GroupSignedEvent] and gated on [GroupSignedEvent.verifies], the way
- * `GroupRelayList` is: only an event the room itself authored is the group
- * speaking.
+ * Read off [GroupSignedEvent] and gated on [GroupSignedEvent.verifies]: only an
+ * event the room itself authored is the group speaking.
  */
 data class GroupWallet(
     val signedEvent: GroupSignedEvent,
@@ -51,20 +52,43 @@ data class GroupWallet(
          * The newest wallet the group opened on [chain] at [account], or null for
          * one it never has.
          *
-         * Newest by the group's own timestamp with the id breaking a tie, for the
-         * reason `GroupRelayList.newestAmong` gives: two devices reading the same
-         * events in different orders have to agree.
+         * Newest by the group's own timestamp with the id breaking a tie, because
+         * two devices reading the same events in different orders have to agree.
+         *
+         * Two rules first, for a guarded account, each of which keeps a later
+         * statement from moving every address of one already holding coins:
+         *
+         *  1. a guarded statement outranks a plain one -- an account opened guarded
+         *     stays guarded, whatever a client that predates guardians signs later;
+         *  2. among guarded ones the earliest decides the guardians, and a later one
+         *     naming others is ignored. Changing who guards a wallet is another
+         *     account.
+         *
+         * And before either, a statement [policy] does not allow is no wallet at
+         * all -- `docs/subgroup-wallet-policy.md`. Under a parent that decided
+         * *guarded* a plain statement is ignored even with no guarded one beside
+         * it, which is stronger than rule 1: an older client's plain wallet then
+         * opens nothing on this device, no addresses derived and no coins
+         * watched, rather than a wallet the rest of the group refuses to spend.
          */
         fun newestAmong(
             signedEvents: List<GroupSignedEvent>,
             thresholdPublicKey: HexKey,
             chain: Chain,
             account: Long = 0L,
-        ): GroupWallet? =
-            signedEvents
-                .asSequence()
+            policy: WalletPolicyReading? = null,
+        ): GroupWallet? {
+            val order = compareBy<GroupWallet>({ it.openedAt }, { it.signedEvent.id })
+            val opened = signedEvents
                 .mapNotNull { of(it, thresholdPublicKey) }
                 .filter { it.chain == chain && it.account.account == account }
-                .maxWithOrNull(compareBy({ it.openedAt }, { it.signedEvent.id }))
+                .filter { policy.allows(it.account.isGuarded) }
+
+            val guarded = opened.filter { it.account.isGuarded }
+            val first = guarded.minWithOrNull(order)
+                ?: return opened.maxWithOrNull(order)
+
+            return guarded.filter { it.account.guardians == first.account.guardians }.maxWithOrNull(order)
+        }
     }
 }

@@ -14,54 +14,58 @@ import com.vitorpamplona.quartz.nip01Core.core.Kind
  * apply.
  *
  * ```
- *  proposer    --[ 30333 ceremony proposal ]-> everyone   "let's make a t-of-n Iceberg key"
- *  participant --[ 30334 DKG round 1       ]-> everyone   commitments to seed contributions
- *  participant --[ 30335 DKG round 2       ]-> everyone   contributions, each encrypted to its holder
- *  participant --[ 30336 DKG round 3       ]-> everyone   public share + transcript signature
- *  anyone      --[ 30337 ceremony failure  ]-> everyone   abort + blame
- *  group       --[ 30338 wallet statement  ]   FROST-signed, never broadcast
- *  group       --[ 30339 operator statement]   FROST-signed, never broadcast
- *  opener      --[ 30340 node seed         ]-> each participant, encrypted to them
- *  operator    --[ 30341 signing request   ]-> everyone
- *  participant --[ 30342 echo              ]-> everyone   (label, message hash)
- *  participant --[ 30343 nonce batch       ]-> everyone   round-one contributions
- *  participant --[ 30344 signature share   ]-> everyone   round two
- *  operator    --[ 30345 snapshot          ]-> everyone   balance, channels, payments
- *  group       --[ 30346 authorisation     ]   FROST-signed: pay, close, force-close, splice-out
- *  member      --[ 30347 invoice request   ]-> everyone
- *  operator    --[ 30348 invoice           ]-> everyone
- *  old operator--[ 30349 stopped           ]-> everyone   its last commitment numbers
+ *  proposer    --[ 30350 ceremony proposal ]-> everyone   "let's make a t-of-n Iceberg key"
+ *  participant --[ 30351 DKG round 1       ]-> everyone   commitments to seed contributions
+ *  participant --[ 30352 DKG round 2       ]-> everyone   contributions, each encrypted to its holder
+ *  participant --[ 30353 DKG round 3       ]-> everyone   public share + transcript signature
+ *  anyone      --[ 30354 ceremony failure  ]-> everyone   abort + blame
+ *  group       --[ 30355 wallet statement  ]   FROST-signed, never broadcast
+ *  group       --[ 30356 operator statement]   FROST-signed, never broadcast
+ *  opener      --[ 30357 node seed         ]-> each participant, encrypted to them
+ *  operator    --[ 30358 signing request   ]-> everyone
+ *  participant --[ 30359 echo              ]-> everyone   (label, message hash)
+ *  participant --[ 30360 nonce batch       ]-> everyone   round-one contributions
+ *  participant --[ 30361 signature share   ]-> everyone   round two
+ *  operator    --[ 30362 snapshot          ]-> everyone   balance, channels, payments
+ *  group       --[ 30363 authorisation     ]   FROST-signed: pay, close, force-close, splice-out
+ *  member      --[ 30364 invoice request   ]-> everyone
+ *  operator    --[ 30365 invoice           ]-> everyone
+ *  old operator--[ 30366 stopped           ]-> everyone   its last commitment numbers
  * ```
  *
- * ### Why 30333
+ * ### Why 30350
  *
- * 30330-30332 were the highest kinds in use when this family was reserved, and
- * the note on `FrostSigningEvents` asks the next family not to rely on routing
- * to keep it apart from the others. So this one is a fresh run with nothing
- * else in it, and `GroupLightningEventsTest` asserts that none of it overlaps any
- * kind the app already dispatches on.
+ * This family was first reserved at 30333-30349, the run after the highest
+ * kinds then in use. The guarded-wallet family took 30333-30337 on the main
+ * branch while this one was being built, and the two met at the merge, where
+ * nothing would have failed: each reads the other's events by kind. Rumor kinds
+ * are never published and nothing had shipped, so this family moved to a fresh
+ * run past the guarded wallets' with room before it. The note on
+ * `FrostSigningEvents` asks the next family not to rely on routing to keep it
+ * apart from the others; `GroupLightningEventsTest` asserts both that none of it
+ * overlaps a kind the app uses and that it starts past all of them.
  */
 object GroupLightningEvents {
-    val CEREMONY_PROPOSAL: Kind = 30333
-    val DKG_ROUND_1: Kind = 30334
-    val DKG_ROUND_2: Kind = 30335
-    val DKG_ROUND_3: Kind = 30336
-    val CEREMONY_FAILURE: Kind = 30337
+    val CEREMONY_PROPOSAL: Kind = 30350
+    val DKG_ROUND_1: Kind = 30351
+    val DKG_ROUND_2: Kind = 30352
+    val DKG_ROUND_3: Kind = 30353
+    val CEREMONY_FAILURE: Kind = 30354
 
-    val WALLET_STATEMENT: Kind = 30338
-    val OPERATOR_STATEMENT: Kind = 30339
-    val NODE_SEED: Kind = 30340
+    val WALLET_STATEMENT: Kind = 30355
+    val OPERATOR_STATEMENT: Kind = 30356
+    val NODE_SEED: Kind = 30357
 
-    val SIGNING_REQUEST: Kind = 30341
-    val ECHO: Kind = 30342
-    val NONCE_BATCH: Kind = 30343
-    val SIGNATURE_SHARE: Kind = 30344
+    val SIGNING_REQUEST: Kind = 30358
+    val ECHO: Kind = 30359
+    val NONCE_BATCH: Kind = 30360
+    val SIGNATURE_SHARE: Kind = 30361
 
-    val SNAPSHOT: Kind = 30345
-    val AUTHORISATION: Kind = 30346
-    val INVOICE_REQUEST: Kind = 30347
-    val INVOICE: Kind = 30348
-    val STOPPED: Kind = 30349
+    val SNAPSHOT: Kind = 30362
+    val AUTHORISATION: Kind = 30363
+    val INVOICE_REQUEST: Kind = 30364
+    val INVOICE: Kind = 30365
+    val STOPPED: Kind = 30366
 
     /** The Iceberg ceremony's kinds, for routing to its ritual manager. */
     val CEREMONY: Set<Kind> = setOf(CEREMONY_PROPOSAL, DKG_ROUND_1, DKG_ROUND_2, DKG_ROUND_3, CEREMONY_FAILURE)

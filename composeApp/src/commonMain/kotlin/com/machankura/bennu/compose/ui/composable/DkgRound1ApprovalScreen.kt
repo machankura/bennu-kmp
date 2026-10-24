@@ -36,7 +36,7 @@ import bennu.composeapp.generated.resources.you
 fun DkgRound1ApprovalScreen(
     activeUserPublicKey: HexKey,
     chatRoomId: String,
-    dkgSessionId: String? = null,
+    dkgSessionId: String,
     activeIdentityStateFlow: StateFlow<Identity?>,
     chatRepository: ChatRepository,
     dkgRepository: DkgRepository,
@@ -58,7 +58,7 @@ fun DkgRound1ApprovalScreen(
 
         Text(
             text = "Everyone has joined. ${state.participantCount} members are making a key that " +
-                "takes ${session?.threshold ?: 0} of them to sign with.",
+                "takes ${session.threshold} of them to sign with.",
             style = MaterialTheme.typography.bodyLarge
         )
 

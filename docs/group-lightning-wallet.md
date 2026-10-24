@@ -34,13 +34,13 @@ build chose differently, this table says so.
 | 2 | done, in the fork (`4bc973df`): the three signing methods suspend, `RemoteIcebergFundingSigner`, pings answered outside the channel loop. lightning-kmp's JVM suite, 985 tests, passes |
 | 3 | done: in the fork (`e15e31ba`), `withGroupBasepoints`, `GroupHeldOutputs` and `KeyManager.defaultFinalScriptPubKey`, 991 tests passing. In the app, `GroupLightningDerivation`, pinned, with a FROST quorum spending `to_remote` and `to_local` |
 | 4 | done: `GroupChainClients`, one Electrum connection per network for the wallets and the watcher; the wallet routes carry a chain; a second wallet row for testnet3 behind `GroupLightningRollout`, which is off |
-| 5 | done: `IcebergRitualManager`, schema 27 (`IcebergKeySession`, `IcebergParticipantMessage`), the ceremony screen and its transcript lines. Seven four-device tests, and the app's 1,391 JVM tests pass |
-| 6, 7 | done together, as their screen and summaries are one piece: the wallet and operator statements, the node seed (schema 28), `GroupLightningWalletManager`, `GroupLightningOperatorManager` and the Lightning wallet screen. Twelve new tests; the app's 1,403 JVM tests pass |
-| 9 | done before 8, because the node's transport is half of it: `GroupLightningCoSigner`, `CoSignerPolicy`, `GroupIcebergTransport`, schema 29, and the fork's `SigningContext` (`bd78ed62`). A four-device test co-signs a real commitment that spends its funding output beside a stock counterparty, and five refusals hold. The app's 1,415 JVM tests and the fork's 993 pass |
+| 5 | done: `IcebergRitualManager`, schema 27, now part of 32 (`IcebergKeySession`, `IcebergParticipantMessage`), the ceremony screen and its transcript lines. Seven four-device tests, and the app's 1,391 JVM tests pass |
+| 6, 7 | done together, as their screen and summaries are one piece: the wallet and operator statements, the node seed (schema 28, now part of 32), `GroupLightningWalletManager`, `GroupLightningOperatorManager` and the Lightning wallet screen. Twelve new tests; the app's 1,403 JVM tests pass |
+| 9 | done before 8, because the node's transport is half of it: `GroupLightningCoSigner`, `CoSignerPolicy`, `GroupIcebergTransport`, schema 29, now part of 32, and the fork's `SigningContext` (`bd78ed62`). A four-device test co-signs a real commitment that spends its funding output beside a stock counterparty, and five refusals hold. The app's 1,415 JVM tests and the fork's 993 pass |
 | 8 | done: `GroupLightningNode`, `GroupNodeKeyManager` and `GroupLightningNodes`, wired into the app behind `GroupLightningRollout`. Four tests with a stand-in peer cover the keys, the start gate and the handover. The node has not connected to an LSP: that needs Phase 0's testnet3 run |
-| 10 | done: `GroupLightningReports`, the node's reporting loop, schema 30 (`GroupLightningSnapshotRow`, `GroupLightningPaymentRow`, `GroupLightningInvoiceRow`), and balance, channels and payments on the wallet screen, each channel checked against the device's own co-signing ledger. Four new tests |
+| 10 | done: `GroupLightningReports`, the node's reporting loop, schema 30, now part of 32 (`GroupLightningSnapshotRow`, `GroupLightningPaymentRow`, `GroupLightningInvoiceRow`), and balance, channels and payments on the wallet screen, each channel checked against the device's own co-signing ledger. Four new tests |
 | 11 | done: invoice requests and answers through `GroupLightningReports`, the running node answering each request once, and the receive screen (`GroupLightningReceiveScreen`). A member files an invoice only from the operator, and only if it pays the node the statement names. Three new tests |
-| 12 | done: `GroupLightningAuthorisationEvent` (kind 30346, `pay`), budgets read from the signed authorisations, the node paying each once, its summary and transcript line, and the send screen (`GroupLightningSendScreen`). The co-signers now hold offered HTLCs under the statement's in-flight cap. Seven new tests |
+| 12 | done: `GroupLightningAuthorisationEvent` (kind 30363, `pay`), budgets read from the signed authorisations, the node paying each once, its summary and transcript line, and the send screen (`GroupLightningSendScreen`). The co-signers now hold offered HTLCs under the statement's in-flight cap. Seven new tests |
 | 13 | done, except splicing out. `close` and `force-close` authorisations, the node acting on each once, the co-signers signing our own commitment only under a force-close authorisation and only after rebuilding it, and the channel menu on the wallet screen. Sweeps: the snapshot lists what closed channels left the group, any member proposes a sweep (`GroupSweep`, a new FROST subject), every member checks it against its own basepoints and the onchain wallet, and the watcher sends it. Five new tests: a force close and a two-input sweep both pass the script interpreter |
 | 14 | done: a room can have several Lightning wallets on a network, the highest-numbered current. A member who leaves is named on the wallet screen until a new wallet replaces it; the new key is made over the onchain key's holders who are still in the room; the old wallet keeps its operator and node until its channels are closed, in one decision for all of them; and removing a share holder says what it leaves. A five-device test re-keys after a removal |
 | 15 | the gates are in code and closed. `GroupLightningRollout.ENABLED` stays `false`. The JVM suite and the regtest run pass; what is left of its condition is Phase 0's testnet3 measurement of how long the LSP waits for a signature, and lifting it is a product decision either way. Mainnet is refused by `GroupLightningRollout.allows`, whatever a screen offers. The ceremony screen names every participant who has not answered, with a word that their build may not know the new kinds |
@@ -111,7 +111,9 @@ build chose differently, this table says so.
 | a new wallet statement with the next `wallet` number | as written, opened under the newest completed Iceberg key no statement uses yet (`GroupLightningWalletManager.unusedKey`). The screen shows the highest-numbered wallet, and the ones before it as earlier wallets with their balance and a way to close them |
 | close the old wallet's channel, signed by the old co-signers | the old wallet keeps its own operator statement and node, and `GroupLightningNodes` runs one node per wallet a device operates. Closing every channel it still has is one signing session over one `close` authorisation per channel. If its operator was the member who left, any remaining participant can nominate themselves for it |
 | the member-removal flow says so, as it already does for the onchain wallet | the removal flow said nothing about either wallet. It now says what a removal leaves when the member holds a share of the Lightning wallet's key. The onchain wallet's own sentence is left to that wallet's plan |
-| the kinds are reserved | in code: `GroupLightningEvents`, 30333-30349, with a test asserting the run is unbroken and touches no kind the app already dispatches on |
+| one schema version per phase, 27 to 30 | **one, 32.** The main branch used 27 to 31 meanwhile. The four versions this branch made were never on an installed database, so at the merge they became one migration, 31 to 32, that adds every Lightning table |
+| the kinds are taken from 30333 | from **30350**: the guarded-wallet family took 30333-30337 on the main branch meanwhile, and nothing failed when the two met, since each reads the other's events by kind. The family moved at the merge, which costs nothing for rumor kinds that never shipped, and the test now also asserts that it starts past every kind the app uses |
+| the kinds are reserved | in code: `GroupLightningEvents`, 30350-30366, with a test asserting the run is unbroken and touches no kind the app already dispatches on |
 | library phases land in the forks' `threshold` branches | on a new branch, `claude/group-lightning-wallet`, in `lightning-kmp-app` and in `experimental/lightning-kmp`. It is local and not pushed. The app's submodule pointer follows it, so a checkout of this branch needs those commits from the same machine until they are pushed |
 
 The headline: **Iceberg on the funding key is necessary but not enough.** The
@@ -353,30 +355,31 @@ quicker and saves fees, but safety does not depend on it.
 
 ## Kinds
 
-These are proposed, and taken from 30333 upward. 30330-30332 are the highest kinds
-in use. Every one is an MLS inner event, and none is ever broadcast. Check again
-before Phase 5. As the batch-signing note says, a new family should not rely on a
+These are taken from 30350 upward. They were first 30333-30349, the run after the highest kinds
+then in use; the guarded-wallet family took 30333-30337 on the main branch while this was being
+built, and the whole family moved here when the two merged. Every one is an MLS inner event, and
+none is ever broadcast. As the batch-signing note says, a new family should not rely on a
 routing accident to keep it apart from the others.
 
 | kind | from | carries | phase |
 |---|---|---|---|
-| 30333 | proposer | Iceberg ceremony proposal: `t`, the participants | 5 |
-| 30334 | participant | DKG round 1: commitments to seed contributions | 5 |
-| 30335 | participant | DKG round 2: seed contributions, each encrypted to its recipient | 5 |
-| 30336 | participant | DKG round 3: public share and a transcript signature | 5 |
-| 30337 | anyone | ceremony failure | 5 |
-| 30338 | group (FROST) | Lightning wallet statement | 6 |
-| 30339 | group (FROST) | operator statement | 7 |
-| 30340 | opener or operator | node seed, encrypted to each participant | 6 |
-| 30341 | operator | signing request: label, transaction, context | 9 |
-| 30342 | participant | echo: `(label, message hash)` | 9 |
-| 30343 | participant | round-one contributions, in batches of labels | 9 |
-| 30344 | participant | round-two signature share | 9 |
-| 30345 | operator | wallet snapshot | 10 |
-| 30346 | group (FROST) | authorisation: pay, close, force-close or splice-out | 12, 13 |
-| 30347 | member | invoice request | 11 |
-| 30348 | operator | invoice | 11 |
-| 30349 | old operator | stopped, with its last commitment numbers | 7 |
+| 30350 | proposer | Iceberg ceremony proposal: `t`, the participants | 5 |
+| 30351 | participant | DKG round 1: commitments to seed contributions | 5 |
+| 30352 | participant | DKG round 2: seed contributions, each encrypted to its recipient | 5 |
+| 30353 | participant | DKG round 3: public share and a transcript signature | 5 |
+| 30354 | anyone | ceremony failure | 5 |
+| 30355 | group (FROST) | Lightning wallet statement | 6 |
+| 30356 | group (FROST) | operator statement | 7 |
+| 30357 | opener or operator | node seed, encrypted to each participant | 6 |
+| 30358 | operator | signing request: label, transaction, context | 9 |
+| 30359 | participant | echo: `(label, message hash)` | 9 |
+| 30360 | participant | round-one contributions, in batches of labels | 9 |
+| 30361 | participant | round-two signature share | 9 |
+| 30362 | operator | wallet snapshot | 10 |
+| 30363 | group (FROST) | authorisation: pay, close, force-close or splice-out | 12, 13 |
+| 30364 | member | invoice request | 11 |
+| 30365 | operator | invoice | 11 |
+| 30366 | old operator | stopped, with its last commitment numbers | 7 |
 
 ---
 
@@ -634,7 +637,7 @@ completes. A device on an old build ignores the new kinds.
 
 **About three days.**
 
-`GroupLightningWalletStatement`, kind **30338**, is FROST-signed through
+`GroupLightningWalletStatement`, kind **30355**, is FROST-signed through
 `proposeSigning`. It is never broadcast. `BroadcastGroupSignedEventScreen` refuses
 it, and a test checks that refusal. `ProposedEvent.summarize` reads *Open a
 Lightning wallet on testnet3*.
@@ -655,7 +658,7 @@ onchain statement it names verifies. The Iceberg key matches the reader's own
 who is not an Iceberg participant checks everything except the last two.
 
 **The node seed.** The member who proposes the statement generates 32 random
-bytes. They send them, kind **30340**, NIP-44 encrypted to each participant inside
+bytes. They send them, kind **30357**, NIP-44 encrypted to each participant inside
 the room, once the statement completes. The seed is stored beside the Iceberg
 share. A participant who joins the ceremony later, or whose device was restored,
 asks the operator for it, and the reply is checked against the statement's `node`
@@ -670,7 +673,7 @@ tag.
 
 **About a week.**
 
-**The operator statement,** kind **30339**, is FROST-signed and never broadcast.
+**The operator statement,** kind **30356**, is FROST-signed and never broadcast.
 
 | tag | carries |
 |---|---|
@@ -694,7 +697,7 @@ tag.
 | device | does |
 |---|---|
 | every co-signer | refuses any request with an older term, or from any sender other than the new operator (constraint 2: the MLS sender is the identity checked) |
-| the old operator | stops its `Peer`, sends **30349** with its last commitment numbers, and deletes its channel database once the new operator's first snapshot shows the channel open. Until then it keeps the database, read-only, never started |
+| the old operator | stops its `Peer`, sends **30366** with its last commitment numbers, and deletes its channel database once the new operator's first snapshot shows the channel open. Until then it keeps the database, read-only, never started |
 | the new operator | starts the node from the wallet's seed (Phase 8). Its channels come back from the LSP's peer storage. It reconnects and sends a snapshot |
 
 **The start gate.** A device starts the group node only if the newest operator
@@ -706,7 +709,7 @@ old node from becoming the griefing case.
 **The new node is behind.** If the LSP's backup is newer than what the new node
 restored, lightning-kmp's data-loss protection waits for the LSP to force-close.
 That costs fees and the channel, but D5 means the money arrives under the group's
-key. The 30349 commitment numbers and the co-signers' ledgers (Phase 9) let the
+key. The 30366 commitment numbers and the co-signers' ledgers (Phase 9) let the
 screen say what happened.
 
 ---
@@ -730,8 +733,8 @@ current operator's device, one per wallet:
   applies `withFundingSigner(RemoteIcebergFundingSigner)` and
   `withGroupBasepoints`, as the fork's `SignerInjectingKeyManager` does in tests.
   The final script provider is the onchain wallet's next receive address.
-- **The transport** for the remote signer sends 30341 and collects 30344 from the
-  room. It keeps the round-one pools from 30343, and asks for more when a pool
+- **The transport** for the remote signer sends 30358 and collects 30361 from the
+  room. It keeps the round-one pools from 30360, and asks for more when a pool
   falls below a few commitments' worth.
 - **On Android, a foreground service** with a notification keeps the node
   running while the device is the operator. iOS cannot keep it running in the
@@ -753,13 +756,13 @@ started whether or not anybody opens the wallet, because the group's payments
 depend on it.
 
 **Round one, ahead of time.** When the operator asks, or when the pool shown in a
-snapshot runs low, the co-signer publishes 30343. That is a batch of nonce
+snapshot runs low, the co-signer publishes 30360. That is a batch of nonce
 contributions for the next labels of each channel. It covers the verification
 labels for commit indices `N…N+W` and the fresh labels for counters `C…C+W`. A
 contribution depends only on the share and the label, so publishing it early
 gives nothing away.
 
-**Round two, per request.** When a 30341 arrives, the co-signer runs these
+**Round two, per request.** When a 30358 arrives, the co-signer runs these
 checks. If any fails, it refuses, and the reason goes in the log:
 
 1. **The sender is the current operator**, the request's term is the current
@@ -782,15 +785,15 @@ checks. If any fails, it refuses, and the reason goes in the log:
    is checked against its output key. Every outgoing HTLC's payment hash is in an
    open authorisation. The total in flight is under the statement's cap.
 6. **Our own commitment** (force close) requires a group-signed force-close
-   authorisation (30346).
+   authorisation (30363).
 7. **A mutual close.** Our output pays an onchain wallet address the co-signer
    derives itself, and its amount is our balance minus a capped fee.
 8. **A splice.** The new funding output is again the group key with the LSP's.
    Spliced-out outputs go only to addresses in a splice-out authorisation.
 
-Once the checks pass, the co-signer **echoes**: it sends 30342 with the label and
+Once the checks pass, the co-signer **echoes**: it sends 30359 with the label and
 the message hash, and records both in its ledger before sending. It answers round
-two (30344) only once `n-t+1` participants, counting itself, have echoed the same
+two (30361) only once `n-t+1` participants, counting itself, have echoed the same
 hash for that label. It signs with the `2t-1` contributions the request names, and
 accepts each one only from the MLS sender that its index names. If it sees two
 hashes echoed for one label, it never answers that label. Then it raises the
@@ -801,7 +804,7 @@ co-signer has already seen and to authorisations the group has signed. So a
 co-signer never shows a commitment to its owner. A person only sees a refusal,
 as a transcript line.
 
-**The ledger,** schema 27 to 28, is never pruned:
+**The ledger,** schema 27, now part of 32 to 28, is never pruned:
 
 ```kotlin
 @Entity data class IcebergLabel(@PrimaryKey val label: HexKey, val wallet: String, val messageHash: HexKey, val echoedAt: Long, val signedAt: Long?)
@@ -816,8 +819,8 @@ does not answer anything until it has collected high-water marks from `t` other
 participants. Those are the highest commitment number and fresh counter each has
 answered, per channel. After that it answers only above the highest of them.
 
-**Tests,** in the four-device harness, a hand-built 30341 for each numbered check,
-each asserting that no 30344 was published. Two more: an operator that sends two
+**Tests,** in the four-device harness, a hand-built 30358 for each numbered check,
+each asserting that no 30361 was published. Two more: an operator that sends two
 messages under one label never gets a share from anyone, and a co-signer with
 a restored database answers nothing until it has the marks.
 
@@ -827,7 +830,7 @@ a restored database answers nothing until it has the marks.
 
 **About a week.**
 
-The operator sends **30345** whenever something changes, debounced, and every few
+The operator sends **30362** whenever something changes, debounced, and every few
 minutes while the node runs:
 
 | field | |
@@ -864,8 +867,8 @@ onchain wallet screens: amounts as format arguments, QR modules
 
 **About four days.**
 
-- **An invoice for an amount.** A member sends 30347 with the amount and a
-  description. The operator's node creates a bolt11 and replies with 30348. The
+- **An invoice for an amount.** A member sends 30364 with the amount and a
+  description. The operator's node creates a bolt11 and replies with 30365. The
   member's screen shows it as a QR code, and checks that its payee is the
   statement's node id. If there is no operator, or no reply within a minute, the
   screen says the wallet cannot receive right now, and why.
@@ -886,7 +889,7 @@ HTLC waits, and eventually the payer's side fails it.
 
 **About a week.**
 
-- **An authorisation, kind 30346 `pay`,** proposed with `proposeSigning`. It
+- **An authorisation, kind 30363 `pay`,** proposed with `proposeSigning`. It
   carries the invoice or offer, the amount, a fee cap, an expiry, and the payment
   hash. `summarize` reads *Pay 12,000 sats to …*. Any member can propose one, and
   `t` approve it, like any other group decision.
@@ -907,9 +910,9 @@ choice belongs to the group, not to this plan.
 
 **About a week and a half.**
 
-- **Close:** a 30346 `close` authorisation, then a mutual close to the onchain
+- **Close:** a 30363 `close` authorisation, then a mutual close to the onchain
   wallet. Check 7 holds on each co-signer.
-- **Force close:** a 30346 `force-close` authorisation, needed when the LSP has
+- **Force close:** a 30363 `force-close` authorisation, needed when the LSP has
   gone away. Co-signers then sign our own commitment.
 - **Sweeping into the onchain wallet.** The `ChannelAction`s from Phase 3 become
   rows that `GroupTransactionWatcher` follows. Once an output's CSV has expired, any
@@ -918,7 +921,7 @@ choice belongs to the group, not to this plan.
   the two leaves Phase 3 defines, derived by the member. The output must go to an
   onchain wallet address. That rule is new to the onchain wallet's checks, and its
   tests go beside the seven it already has.
-- **Splice out** to an onchain wallet address: a 30346 `splice-out`
+- **Splice out** to an onchain wallet address: a 30363 `splice-out`
   authorisation. It is design B from the parity plan, which serves the same group
   key at every funding index.
 - **Splice in from the onchain wallet** is left for its own plan. It needs the

@@ -6,6 +6,9 @@ import com.machankura.bennu.compose.text.grouped
 import fr.acinq.bitcoin.Satoshi
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
+import com.machankura.bennu.compose.text.describe
+import com.machankura.bennu.compose.text.BlockDuration
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import androidx.room3.Entity
 import androidx.room3.ForeignKey
 import androidx.room3.Index
@@ -18,8 +21,13 @@ import com.machankura.bennu.compose.database.model.traits.TimestampedEntity
 import com.machankura.bennu.compose.database.model.traits.UserViewableEntity
 import com.machankura.bennu.compose.exceptions.MarmotUnprocessableInnerEventException
 import com.machankura.bennu.compose.managers.ChronicleManager
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import com.machankura.bennu.compose.nostr.wallet.GroupKeyNoticeEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletRequestEvent
 import com.machankura.bennu.compose.managers.GroupKeyStateManager
 import com.machankura.bennu.compose.managers.GroupWalletManager
+import com.machankura.bennu.compose.managers.GuardianManager
 import com.machankura.bennu.compose.managers.SubgroupManager
 import com.machankura.bennu.compose.extensions.toHex
 import com.vitorpamplona.quartz.marmot.GroupEventResult
@@ -29,9 +37,10 @@ import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
-import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
-import com.machankura.bennu.compose.nostr.GroupNostrProfile
-import com.machankura.bennu.compose.nostr.GroupRelaySet
+import com.vitorpamplona.quartz.nip17Dm.settings.ChatMessageRelayListEvent
+import com.vitorpamplona.quartz.nip50Search.SearchRelayListEvent
+import com.vitorpamplona.quartz.nip51Lists.relayLists.BlockedRelayListEvent
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import com.vitorpamplona.quartz.nipC7Chats.ChatEvent
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
@@ -39,20 +48,9 @@ import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChunkEvent
-import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
+import com.machankura.bennu.compose.nostr.wallet.GuardedWalletNoticeEvent
 import com.machankura.bennu.compose.nostr.chronicle.ChronicleEvent
 import com.machankura.bennu.compose.nostr.chronicle.ChronicleRequestEvent
-import com.machankura.bennu.compose.nostr.nip30303.SubmissionEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationArtifactVersionContributorListEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationContributorListEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationEvent
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.firstTagValue
 import com.vitorpamplona.quartz.nip59Giftwrap.wraps.GiftWrapEvent
@@ -472,53 +470,6 @@ data class ChatMessage(
         const val TYPE_SUBGROUP_CERTIFIED = "subgroupCertified"
 
         /**
-         * The group signed what it says about itself on nostr.
-         *
-         * A system line rather than a bubble, for the reason every group-signed
-         * line is one: nobody said it, the group signed it. Whoever filled the
-         * form in proposed it and a quorum agreed, and the transcript of that
-         * happening is the signing session's own -- this is the line saying what
-         * the group now is, which is worth having in the room because a rename is
-         * the kind of thing members should not have to go looking for.
-         *
-         * Written only for a profile the *room* signed. A kind:0 authored by
-         * anybody else that reaches this room is a member's own profile
-         * travelling as a rumor, which is not the group saying anything.
-         */
-        const val TYPE_GROUP_PROFILE_SIGNED = "groupProfileSigned"
-
-        /**
-         * The group signed where it lives on nostr.
-         *
-         * One line per list, so a session that changed three of them writes three.
-         * They are not three accounts of one thing -- each names which list was
-         * agreed, which is the part a reader needs -- and `applyInnerEvent` is
-         * handed one event at a time with no way to know it was in a batch anyway.
-         */
-        const val TYPE_GROUP_RELAYS_SIGNED = "groupRelaysSigned"
-
-        /**
-         * Every line about the group's own nostr identity, for the one check the
-         * transcript dispatches on.
-         *
-         * The profile and the relay lists together, because they are the same kind
-         * of statement -- the group's account of itself, signed by the group -- and
-         * the transcript does the same thing with both. A type missing from here
-         * renders as a chat bubble, silently, looking exactly like somebody having
-         * said "The group is now called Translation collective".
-         */
-        /**
-         * The group signed something to say publicly, in its own name.
-         *
-         * A system line rather than a bubble, like the other two -- nobody said it,
-         * the group signed it -- and the line names the post rather than repeating
-         * it, because the post itself is on the group's screen where it can be read
-         * whole. A quote here would be the same words twice with the second copy
-         * unable to say who agreed to them.
-         */
-        const val TYPE_GROUP_POST_SIGNED = "groupPostSigned"
-
-        /**
          * Lines the curated-lists feature wrote: the group signing a list's schema,
          * and an entry into one. The feature is gone and nothing writes either any
          * more, but rows already in a transcript still carry them, and a type
@@ -527,6 +478,15 @@ data class ChatMessage(
          */
         private const val TYPE_LEGACY_GROUP_SCHEMA_SIGNED = "groupSchemaSigned"
         private const val TYPE_LEGACY_GROUP_ENTRY_CURATED = "groupEntryCurated"
+
+        /**
+         * Lines the group's nostr profile, relay lists and posts wrote. Those
+         * features are gone too, and these stay for the same reason: rows already
+         * in a transcript carry them and have to stay system lines.
+         */
+        private const val TYPE_LEGACY_GROUP_PROFILE_SIGNED = "groupProfileSigned"
+        private const val TYPE_LEGACY_GROUP_RELAYS_SIGNED = "groupRelaysSigned"
+        private const val TYPE_LEGACY_GROUP_POST_SIGNED = "groupPostSigned"
 
         /**
          * The group opened a wallet.
@@ -548,10 +508,47 @@ data class ChatMessage(
          */
         const val TYPE_GROUP_TRANSACTION_CONFIRMED = "groupTransactionConfirmed"
 
+        /**
+         * A member told this group about a descendant's guarded wallet -- a
+         * `GuardedWalletNoticeEvent` this device checked and believes. Written
+         * from the notice, attributed to the member who forwarded it. See
+         * `docs/group-wallet-guardians.md`.
+         */
+        const val TYPE_GUARDED_WALLET_SHARED = "guardedWalletShared"
+
+        /**
+         * One of this group's guardians spent from its guarded wallet through its
+         * leaf. Read off the chain by `GuardianManager.takenIn`, and the child's
+         * only notice of it: nobody in this room signed it.
+         */
+        const val TYPE_GUARDIAN_SPEND = "guardianSpend"
+
+        /**
+         * A member asked this group to guard a wallet only they can spend from --
+         * a `MemberWalletRequestEvent` this device checked. A request, not a
+         * decision: the group decides when a signer puts it to the quorum. See
+         * `docs/member-guarded-wallets.md`.
+         */
+        const val TYPE_MEMBER_WALLET_REQUESTED = "memberWalletRequested"
+
+        /** The group signed a member wallet certificate: it now guards that member's wallet. */
+        const val TYPE_MEMBER_WALLET_GUARDED = "memberWalletGuarded"
+
+        /**
+         * The group signed a policy on its members' wallets: it guards them, at a
+         * delay, or it has stopped. See `docs/member-wallet-delay.md`.
+         */
+        const val TYPE_MEMBER_WALLET_POLICY = "memberWalletPolicy"
+
+        /**
+         * Every line the group signed, for the one check the transcript
+         * dispatches on. A type missing from here renders as a chat bubble,
+         * silently, looking exactly like somebody having said it.
+         */
         val GROUP_IDENTITY_TYPES = setOf(
-            TYPE_GROUP_PROFILE_SIGNED,
-            TYPE_GROUP_RELAYS_SIGNED,
-            TYPE_GROUP_POST_SIGNED,
+            TYPE_LEGACY_GROUP_PROFILE_SIGNED,
+            TYPE_LEGACY_GROUP_RELAYS_SIGNED,
+            TYPE_LEGACY_GROUP_POST_SIGNED,
             TYPE_LEGACY_GROUP_SCHEMA_SIGNED,
             TYPE_LEGACY_GROUP_ENTRY_CURATED,
             TYPE_GROUP_WALLET_OPENED,
@@ -559,6 +556,11 @@ data class ChatMessage(
             TYPE_GROUP_LIGHTNING_WALLET_OPENED,
             TYPE_GROUP_LIGHTNING_OPERATOR_ELECTED,
             TYPE_GROUP_LIGHTNING_PAYMENT_AUTHORISED,
+            TYPE_GUARDED_WALLET_SHARED,
+            TYPE_GUARDIAN_SPEND,
+            TYPE_MEMBER_WALLET_REQUESTED,
+            TYPE_MEMBER_WALLET_GUARDED,
+            TYPE_MEMBER_WALLET_POLICY,
         )
 
         /**
@@ -926,24 +928,25 @@ data class ChatMessage(
                     val event = Event.fromJsonOrNull(groupEventResult.innerEventJson)
                         ?: throw MarmotUnprocessableInnerEventException("Can't process ${groupEventResult.innerEventJson}")
 
-                    // A submission is an envelope: the nip30303 event it delivers
-                    // is in its content, written by whoever wrote it. Everything
-                    // else on the wire is the nip30303 event itself. Either way the
-                    // row on disk is the outer event -- that is what the group sent
-                    // and what the chat line is attributed to.
-                    val submission = if (event.kind == SubmissionEvent.KIND) {
-                        SubmissionEvent(
-                            id = event.id,
-                            pubKey = event.pubKey,
-                            createdAt = event.createdAt,
-                            tags = event.tags,
-                            content = event.content,
-                            sig = event.sig,
-                        )
-                    } else {
-                        null
-                    }
-                    val payload = submission?.payload()
+                    // A key ceremony's or a signing session's own message. Decided
+                    // first: 30310-30312 were nip30303 document kinds too, and round
+                    // 1 of a subgroup's ceremony (30312) was read as a document
+                    // submission, failed to parse, and landed in the parent's chat
+                    // as raw hex -- see docs/ceremony-creation.md, finding F11. Stored like
+                    // every inner event, so a ceremony can replay what arrived
+                    // before its proposal; acted on by the managers
+                    // `NostrDao.fileGroupEventResult` dispatches to, which write
+                    // their own transcript lines.
+                    //
+                    // Except a direct message's envelope. It shares 30330 with a
+                    // signing session's decline, and is told apart by what it
+                    // carries: an envelope holds a gift wrap, a decline does not.
+                    // Treating every 30330 as a decline dropped every direct
+                    // message in a current-profile room.
+                    val isDirectMessageEnvelope = MarmotDirectMessage.wrapInside(event) != null
+                    val isProtocolMessage = !isDirectMessageEnvelope && (
+                        event.kind in DkgRitualEvents.ALL || event.kind in FrostSigningEvents.ALL
+                    )
 
                     database.marmotInnerEventDao().upsert(
                         MarmotInnerEvent(
@@ -954,12 +957,13 @@ data class ChatMessage(
                             content = event.content,
                             chatRoomId = groupEventResult.groupId,
                             kind = event.kind,
-                            payloadEventId = payload?.id,
                             createdAt = Instant.fromEpochSeconds(event.createdAt)
                         )
                     )
 
-                    // A direct message is not a nip30303 payload to apply. It is
+                    if (isProtocolMessage) return null
+
+                    // A direct message is not a payload to apply. It is
                     // gift wrapped for one member, and what this device does with it
                     // depends only on whether its key opens it. A legacy room carries
                     // the wrap itself; a current-profile room carries it inside an
@@ -1017,6 +1021,33 @@ data class ChatMessage(
                         return null
                     }
 
+                    // A descendant's guarded wallet, carried up by a member who is in
+                    // both rooms. The row above is the whole record of it -- there is
+                    // no table -- so all that is left is the line, and only for a
+                    // notice this room can actually believe.
+                    if (event.kind == GuardedWalletNoticeEvent.KIND) {
+                        // And on, a generation further: the statement inside, to
+                        // the groups above this one that this device is in. Any
+                        // device that believes it can, whether or not it holds this
+                        // room's key. docs/guarded-wallet-forwarding.md.
+                        GuardedWalletNoticeEvent.statementOf(event)?.let {
+                            GuardianManager.forwardOnArrival(database, it, groupEventResult.groupId)
+                        }
+                        val content = GuardianManager.describeNotice(database, groupEventResult.groupId, event)
+                            ?: return null
+                        return ChatMessage(
+                            giftWrapPayloadId = null,
+                            messageType = TYPE_GUARDED_WALLET_SHARED,
+                            marmotGroupEventId = groupEvent.id,
+                            marmotInnerEventId = event.id,
+                            senderPublicKey = senderIdentity ?: event.pubKey,
+                            isUserMessage = senderIdentity == activeKeyPair.pubKey.toHex(),
+                            chatRoomId = groupEventResult.groupId,
+                            createdAt = Instant.fromEpochSeconds(event.createdAt),
+                            content = content,
+                        )
+                    }
+
                     // Somebody in the room holds none of its signed work and is
                     // asking. Any member may answer and none is elected to: a
                     // duplicate answer costs bandwidth and nothing else, since
@@ -1037,33 +1068,34 @@ data class ChatMessage(
                         return null
                     }
 
-                    // A submission whose payload will not parse, or which carries
-                    // another submission, is kept but not applied: there is nothing
-                    // here we can turn into a row.
-                    if (submission != null && (payload == null || payload.kind == SubmissionEvent.KIND)) {
-                        ChatMessage(
-                            giftWrapPayloadId = null,
-                            messageType = "unsupported",
-                            marmotGroupEventId = groupEvent.id,
-                            marmotInnerEventId = event.id,
-                            senderPublicKey = event.pubKey,
-                            isUserMessage = senderIdentity == activeKeyPair.pubKey.toHex(),
-                            chatRoomId = groupEventResult.groupId,
-                            createdAt = Instant.fromEpochSeconds(event.createdAt),
-                            content = event.content,
-                        )
-                    } else {
-                        applyInnerEvent(
+                    // A member asking what the group signs with, so their device
+                    // can work out a guarded wallet's leaves, or a member
+                    // answering. Plumbing, so no line either way: the row above
+                    // is the record, and an answer is checked each time it is
+                    // read. Answered like the chronicle's request -- by any
+                    // member holding the key state, none elected.
+                    // docs/member-guarded-wallets.md, Phase 2.
+                    if (event.kind == GroupKeyNoticeEvent.KIND) {
+                        MemberWalletManager.answerKeyRequest(
                             database = database,
-                            groupId = groupEventResult.groupId,
-                            event = payload ?: event,
-                            marmotGroupEventId = groupEvent.id,
-                            marmotInnerEventId = event.id,
-                            senderPublicKey = event.pubKey,
-                            isUserMessage = senderIdentity == activeKeyPair.pubKey.toHex(),
-                            createdAt = Instant.fromEpochSeconds(event.createdAt),
+                            chatRoomId = groupEventResult.groupId,
+                            request = event,
+                            userPublicKey = activeKeyPair.pubKey.toHex(),
                         )
+
+                        return null
                     }
+
+                    applyInnerEvent(
+                        database = database,
+                        groupId = groupEventResult.groupId,
+                        event = event,
+                        marmotGroupEventId = groupEvent.id,
+                        marmotInnerEventId = event.id,
+                        senderPublicKey = event.pubKey,
+                        isUserMessage = senderIdentity == activeKeyPair.pubKey.toHex(),
+                        createdAt = Instant.fromEpochSeconds(event.createdAt),
+                    )
                 }
                 is GroupEventResult.CommitPending -> {
                     ChatMessage(
@@ -1157,16 +1189,12 @@ data class ChatMessage(
         }
 
         /**
-         * Apply one nip30303 [event] the group delivered, and describe it for
-         * the transcript.
+         * Apply one [event] the group delivered, and describe it for the
+         * transcript.
          *
          * [event] is what is being applied; the other parameters are how it
-         * arrived. They come apart for submissions: the payload is written by
-         * whoever wrote it -- possibly nobody in this group -- while
-         * [marmotInnerEventId], [senderPublicKey] and [createdAt] all belong to
-         * the envelope a member actually sent. Entity rows take their author
-         * from [event], so the chat line says who added it and the row says who
-         * wrote it.
+         * arrived -- [marmotInnerEventId], [senderPublicKey] and [createdAt]
+         * belong to the message a member actually sent.
          *
          * [groupSignedEventId] is the third way in, and the one with no
          * envelope at all: a `GroupSignedEvent` the group put its own signature
@@ -1176,6 +1204,10 @@ data class ChatMessage(
          * which is why they need an id of their own, and why every row this
          * writes carries it.
          */
+        /** A member as a transcript line names them: their profile's name, or the start of their key. */
+        private suspend fun memberName(database: BennuDatabase, publicKey: HexKey): String =
+            database.profileDao().getProfileByPublicKey(publicKey)?.humanReadableNameOrPubkey() ?: publicKey.take(8)
+
         internal suspend fun applyInnerEvent(
             database: BennuDatabase,
             groupId: String,
@@ -1187,10 +1219,8 @@ data class ChatMessage(
             createdAt: Instant,
             groupSignedEventId: HexKey? = null,
         ): ChatMessage? {
-            // The last resort, named because one arm reaches it deliberately rather
-            // than by falling off the end: a kind:1 the room did not sign is a
-            // member's own note travelling through the room, and it has always
-            // rendered as this. See the `TextNoteEvent` arm.
+            // The last resort: raw JSON in a bubble, the only trace an
+            // unrecognised payload leaves.
             fun unsupported() = ChatMessage(
                 giftWrapPayloadId = null,
                 messageType = "unsupported",
@@ -1204,327 +1234,11 @@ data class ChatMessage(
             )
 
             return when (event.kind) {
-                ChatEvent.KIND -> {
-                    ChatMessage(
-                        giftWrapPayloadId = null,
-                        messageType = "message",
-                        marmotGroupEventId = marmotGroupEventId,
-                        marmotInnerEventId = marmotInnerEventId,
-                        senderPublicKey = senderPublicKey,
-                        isUserMessage = isUserMessage,
-                        chatRoomId = groupId,
-                        createdAt = createdAt,
-                        content = event.content, // TODO: Figure out what to do here...
-                    )
-                }
-                ArtifactEvent.KIND -> {
-                    val artifactEvent = ArtifactEvent(
-                        id = event.id,
-                        pubKey = event.pubKey,
-                        createdAt = event.createdAt,
-                        tags = event.tags,
-                        content = event.content,
-                        sig = event.sig,
-                    )
-
-                    MantraArtifact.fromArtifactEvent(
-                        artifactEvent = artifactEvent,
-                        chatRoomId = groupId,
-                    )?.let { mantraArtifact ->
-                        database.mantraArtifactDao().upsert(
-                            mantraArtifact.copy(
-                                marmotGroupEventId = marmotGroupEventId,
-                                groupSignedEventId = groupSignedEventId,
-                            )
-                        )
-
-                        // The version the artifact starts life with is its own
-                        // event, signed in the same batch and applied after this
-                        // one -- see AddArtifactViewModel.addArtifact. It used to
-                        // be derived here instead; deriving it now as well would
-                        // stand a second, unsigned version row against the same
-                        // artifact, since the two hash differently.
-
-                        ChatMessage(
-                            giftWrapPayloadId = null,
-                            messageType = "artifact",
-                            marmotGroupEventId = marmotGroupEventId,
-                            marmotInnerEventId = marmotInnerEventId,
-                            senderPublicKey = senderPublicKey,
-                            isUserMessage = isUserMessage,
-                            chatRoomId = groupId,
-                            createdAt = createdAt,
-                            content = "Added ${mantraArtifact.name} to artifacts"
-                        )
-                    }
-                }
-                ArtifactVersionEvent.KIND -> {
-                    MantraArtifactVersion.fromArtifactVersionEvent(
-                        artifactVersionEvent = ArtifactVersionEvent(
-                            id = event.id,
-                            pubKey = event.pubKey,
-                            createdAt = event.createdAt,
-                            tags = event.tags,
-                            content = event.content,
-                            sig = event.sig
-                        ),
-                        chatRoomId = groupId,
-                    )?.let { mantraArtifactVersion ->
-                        database.mantraArtifactVersionDao().upsert(
-                            mantraArtifactVersion.copy(
-                                marmotGroupEventId = marmotGroupEventId,
-                                groupSignedEventId = groupSignedEventId,
-                            )
-                        )
-
-                        // No line of its own. A version arrives as the second
-                        // item of the batch that carries its artifact, and the
-                        // artifact has already said so -- the same reason a
-                        // chunk writes no line beside its chapter. While the
-                        // version was derived here rather than signed it wrote
-                        // none either, so this is the transcript standing still
-                        // rather than losing something.
-                    }
-                    null
-                }
-                ChapterEvent.KIND -> {
-                    // The chunks the chapter splits into are their own events,
-                    // signed in the same session and applied after it -- see
-                    // AddChapterViewModel.addChapter. Nothing to do here but the
-                    // chapter itself.
-                    MantraChapter.fromChapterEvent(
-                        chapterEvent = ChapterEvent(
-                            id = event.id,
-                            pubKey = event.pubKey,
-                            createdAt = event.createdAt,
-                            tags = event.tags,
-                            content = event.content,
-                            sig = event.sig
-                        ),
-                        chatRoomId = groupId,
-                    )?.let { mantraChapter ->
-                        database.mantraChapterDao().upsert(
-                            mantraChapter.copy(
-                                marmotGroupEventId = marmotGroupEventId,
-                                groupSignedEventId = groupSignedEventId,
-                            )
-                        )
-
-                        ChatMessage(
-                            giftWrapPayloadId = null,
-                            messageType = "chapter",
-                            marmotGroupEventId = marmotGroupEventId,
-                            marmotInnerEventId = marmotInnerEventId,
-                            senderPublicKey = senderPublicKey,
-                            isUserMessage = isUserMessage,
-                            chatRoomId = groupId,
-                            createdAt = createdAt,
-                            content = "Added ${mantraChapter.name} to chapters" // TODO: Use artifact name...
-                        )
-                    }
-                }
-
-                ChunkEvent.KIND -> {
-                    MantraChunk.fromChunkEvent(
-                        chunkEvent = ChunkEvent(
-                            id = event.id,
-                            pubKey = event.pubKey,
-                            createdAt = event.createdAt,
-                            tags = event.tags,
-                            content = event.content,
-                            sig = event.sig
-                        ),
-                        chatRoomId = groupId,
-                    )?.let { mantraChunk ->
-                        database.mantraChunkDao().upsert(
-                            mantraChunk.copy(
-                                marmotGroupEventId = marmotGroupEventId,
-                                groupSignedEventId = groupSignedEventId,
-                            )
-                        )
-
-                        // TODO: Chunks might be too noisy to show in chat...
-                    }
-                    null
-                }
-                DialectEvent.KIND -> {
-                    MantraDialect.fromDialectEvent(
-                        dialectEvent = DialectEvent(
-                            id = event.id,
-                            pubKey = event.pubKey,
-                            createdAt = event.createdAt,
-                            tags = event.tags,
-                            content = event.content,
-                            sig = event.sig
-                        ),
-                        chatRoomId = groupId,
-                    )?.let { mantraDialect ->
-                        database.mantraDialectDao().upsert(
-                            mantraDialect.copy(
-                                marmotGroupEventId = marmotGroupEventId,
-                                groupSignedEventId = groupSignedEventId,
-                            )
-                        )
-
-
-                        ChatMessage(
-                            giftWrapPayloadId = null,
-                            messageType = "dialect",
-                            marmotGroupEventId = marmotGroupEventId,
-                            marmotInnerEventId = marmotInnerEventId,
-                            senderPublicKey = senderPublicKey,
-                            isUserMessage = isUserMessage,
-                            chatRoomId = groupId,
-                            createdAt = createdAt,
-                            content = "Added ${mantraDialect.name} to dialects" // TODO: Use artifact name...
-                        )
-                    }
-                }
-                TranslationArtifactVersionEvent.KIND -> {
-                    MantraTranslationArtifactVersion.fromTranslationArtifactVersionEvent(
-                        translationArtifactVersionEvent = TranslationArtifactVersionEvent(
-                            id = event.id,
-                            pubKey = event.pubKey,
-                            createdAt = event.createdAt,
-                            tags = event.tags,
-                            content = event.content,
-                            sig = event.sig
-                        ),
-                        chatRoomId = groupId,
-                    )?.let { mantraTranslationArtifactVersion ->
-                        database.mantraTranslationArtifactVersionDao().upsert(
-                            mantraTranslationArtifactVersion.copy(
-                                marmotGroupEventId = marmotGroupEventId,
-                                groupSignedEventId = groupSignedEventId,
-                            )
-                        )
-
-                        ChatMessage(
-                            giftWrapPayloadId = null,
-                            messageType = "translationArtifactVersion",
-                            marmotGroupEventId = marmotGroupEventId,
-                            marmotInnerEventId = marmotInnerEventId,
-                            senderPublicKey = senderPublicKey,
-                            isUserMessage = isUserMessage,
-                            chatRoomId = groupId,
-                            createdAt = createdAt,
-                            content = "Added ${mantraTranslationArtifactVersion.name} to translation artifact versions" // TODO: Use artifact name...
-                        )
-                    }
-                }
-                TranslationArtifactVersionContributorListEvent.KIND -> {
-                    // TODO: Consume contributors...
-                    null
-                }
-                TranslationChapterEvent.KIND -> {
-                    MantraTranslationChapter.fromTranslationChapterEvent(
-                        translationChapterEvent = TranslationChapterEvent(
-                            id = event.id,
-                            pubKey = event.pubKey,
-                            createdAt = event.createdAt,
-                            tags = event.tags,
-                            content = event.content,
-                            sig = event.sig
-                        ),
-                        chatRoomId = groupId,
-                    )?.let { mantraTranslationChapter ->
-                        database.mantraTranslationChapterDao().upsert(
-                            mantraTranslationChapter.copy(
-                                marmotGroupEventId = marmotGroupEventId,
-                                groupSignedEventId = groupSignedEventId,
-                            )
-                        )
-                        // TODO: translation chapter might be too noisy for chat updates
-                    }
-                    null
-                }
-                TranslationChunkEvent.KIND -> {
-                    MantraTranslationChunk.fromTranslationChunkEvent(
-                        translationChunkEvent = TranslationChunkEvent(
-                            id = event.id,
-                            pubKey = event.pubKey,
-                            createdAt = event.createdAt,
-                            tags = event.tags,
-                            content = event.content,
-                            sig = event.sig
-                        ),
-                        chatRoomId = groupId,
-                    )?.let { mantraTranslationChunk ->
-                        // One translation per source chunk. Retranslating changes
-                        // the text and so the event's id, which makes it a new
-                        // event rather than an edit of the old one -- so the one
-                        // it supersedes is dropped here, or a passage would have
-                        // two answers to what it says and the reader would be
-                        // shown whichever the query happened to reach first.
-                        //
-                        // Newest wins by the timestamp the group signed at, not by
-                        // when it arrived, with the id breaking a tie. Two devices
-                        // catching up read the same events in whatever order the
-                        // relay hands them over, and they have to end up holding
-                        // the same translation either way.
-                        val existing = database.mantraTranslationChunkDao()
-                            .getTranslationChunksByChunkId(
-                                translationChapterId = mantraTranslationChunk.translationChapterId,
-                                chunkId = mantraTranslationChunk.chunkId,
-                            )
-                            .filterNot { it.id == mantraTranslationChunk.id }
-
-                        val isNewest = existing.none {
-                            it.createdAt > mantraTranslationChunk.createdAt ||
-                                (it.createdAt == mantraTranslationChunk.createdAt &&
-                                    it.id > mantraTranslationChunk.id)
-                        }
-
-                        if (isNewest) {
-                            existing.forEach {
-                                database.mantraTranslationChunkDao().deleteById(it.id)
-                            }
-
-                            database.mantraTranslationChunkDao().upsert(
-                                mantraTranslationChunk.copy(
-                                    marmotGroupEventId = marmotGroupEventId,
-                                    groupSignedEventId = groupSignedEventId,
-                                )
-                            )
-                        }
-                    }
-                    null
-                }
-                TranslationContributorListEvent.KIND -> {
-                    // TODO: Consume contributors...
-                    null
-                }
-                TranslationEvent.KIND -> {
-                    MantraTranslation.fromTranslationEvent(
-                        translationEvent = TranslationEvent(
-                            id = event.id,
-                            pubKey = event.pubKey,
-                            createdAt = event.createdAt,
-                            tags = event.tags,
-                            content = event.content,
-                            sig = event.sig
-                        ),
-                        chatRoomId = groupId,
-                    )?.let { mantraTranslation ->
-                        database.mantraTranslationDao().upsert(
-                            mantraTranslation.copy(
-                                marmotGroupEventId = marmotGroupEventId,
-                                groupSignedEventId = groupSignedEventId,
-                            )
-                        )
-                        ChatMessage(
-                            giftWrapPayloadId = null,
-                            messageType = "translation",
-                            marmotGroupEventId = marmotGroupEventId,
-                            marmotInnerEventId = marmotInnerEventId,
-                            senderPublicKey = senderPublicKey,
-                            isUserMessage = isUserMessage,
-                            chatRoomId = groupId,
-                            createdAt = createdAt,
-                            content = "Added ${mantraTranslation.text} to translations" // TODO: Reference original text
-                        )
-                    }
-                }
+                // First, above every content kind: protocol kinds are never
+                // content, whatever else might share their number, and a `when`
+                // takes the first arm that matches. The ceremony's 30310 and 30311
+                // once reached document arms that sat above this one.
+                //
                 // A signing session's own protocol messages. FrostSigningManager
                 // applies them and writes its own transcript lines naming who did
                 // what, so an "unsupported" row here would be a second, worse
@@ -1546,6 +1260,19 @@ data class ChatMessage(
                 // none of their business.
                 in DkgRitualEvents.ALL -> null
 
+                ChatEvent.KIND -> {
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = "message",
+                        marmotGroupEventId = marmotGroupEventId,
+                        marmotInnerEventId = marmotInnerEventId,
+                        senderPublicKey = senderPublicKey,
+                        isUserMessage = isUserMessage,
+                        chatRoomId = groupId,
+                        createdAt = createdAt,
+                        content = event.content, // TODO: Figure out what to do here...
+                    )
+                }
                 // The group saying what key one of its rooms signs with, arriving
                 // here the way every group-signed event does: applied by
                 // `FrostSigningManager` once a quorum has signed the proposal it
@@ -1615,103 +1342,78 @@ data class ChatMessage(
                     )
                 }
 
-                // The group saying who it is on nostr. A room's id is the pubkey
-                // it signs as, so a group has an identity from the moment it has a
-                // key; this is the kind:0 describing it, signed by the group's own
-                // quorum like everything else it says.
-                //
-                // **Only when the room itself signed it.** This arm is reached both
-                // from a completed signing session, where the author is the room by
-                // construction, and from an arriving inner event, where any member
-                // could have sent a rumor of this kind -- and it cannot tell which.
-                // A member's own kind:0 travelling through a room is their profile,
-                // not the group's, and gets no line here.
-                //
-                // No row is written. The event is already on file as a
-                // `GroupSignedEvent` -- `FrostSigningManager.complete` records the
-                // batch before it applies it -- and `GroupNostrProfile` reads the
-                // group's profile straight off those. A `Profile` row is not an
-                // option anyway: it hangs off `NostrEvent` by foreign key, and a
-                // group-signed event is not one.
-                MetadataEvent.KIND -> {
-                    if (!event.pubKey.equals(groupId, ignoreCase = true)) return null
-
-                    val profile = GroupNostrProfile.of(
-                        signedEvent = GroupSignedEvent.fromEvent(event, chatRoomId = groupId),
-                        chatRoomId = groupId,
-                    ) ?: return null
+                // A member asking the group to guard a wallet of theirs. The
+                // inner event carries the signed request whole; only a request
+                // that checks out and asks this room gets a line, and it is a
+                // line and nothing more -- the group decides when a signer puts
+                // it to the quorum. docs/member-guarded-wallets.md.
+                MemberWalletRequestEvent.KIND -> {
+                    val request = MemberWalletRequestEvent.carried(event) ?: return null
+                    val reading = MemberWalletRequestEvent.verified(request)?.reading ?: return null
+                    if (!reading.groupChatRoomId.equals(groupId, ignoreCase = true)) return null
 
                     ChatMessage(
                         giftWrapPayloadId = null,
-                        messageType = TYPE_GROUP_PROFILE_SIGNED,
+                        messageType = TYPE_MEMBER_WALLET_REQUESTED,
                         marmotGroupEventId = marmotGroupEventId,
                         marmotInnerEventId = marmotInnerEventId,
                         senderPublicKey = senderPublicKey,
                         isUserMessage = isUserMessage,
                         chatRoomId = groupId,
                         createdAt = createdAt,
-                        content = profile.name()?.let { "The group is now called $it" }
-                            ?: "The group signed a new profile for itself"
+                        content = "@${memberName(database, reading.memberPublicKey)} asked this group to guard a wallet",
                     )
                 }
 
-                // The group saying something publicly, in its own name -- which
-                // is a different thing from a member saying something in the room.
-                // A room's messages are `ChatEvent`s; this is a kind:1 authored by
-                // the room's own key, so any reader can check the group said it and
-                // that no single member could have.
-                //
-                // Verified like the arms below and for the same reason: a rumor
-                // carries an empty signature and any pubkey its sender likes, so an
-                // author check alone would let one member put words in the group's
-                // mouth in its own transcript.
-                //
-                // **Unlike those arms, a kind:1 that fails falls through to
-                // `unsupported` rather than vanishing.** A member's kind:0 or relay
-                // list passing through a room is identity plumbing nobody sent on
-                // purpose and silence is the right treatment; a kind:1 is content,
-                // somebody meant it, and it has rendered as an unsupported event
-                // since before any of this existed. Dropping it here would be this
-                // change quietly deleting messages it has no business touching.
-                TextNoteEvent.KIND -> {
-                    val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
-                    if (!signed.verifies()) return unsupported()
+                // The group agreeing to guard a member's wallet. Checked whole --
+                // the room's signature and the request inside -- because the line
+                // says the group made a promise about somebody's money. It is
+                // filed as a `GroupSignedEvent` either way, and every reader
+                // checks it there again.
+                MemberWalletCertificateEvent.KIND -> {
+                    val verified = MemberWalletCertificateEvent.verify(event, groupId) ?: return null
+                    // The groups above this one guard the wallet too, and learn
+                    // of it only by being told. docs/guarded-wallet-forwarding.md.
+                    GuardianManager.forwardOnArrival(database, event, groupId)
 
                     ChatMessage(
                         giftWrapPayloadId = null,
-                        messageType = TYPE_GROUP_POST_SIGNED,
+                        messageType = TYPE_MEMBER_WALLET_GUARDED,
                         marmotGroupEventId = marmotGroupEventId,
                         marmotInnerEventId = marmotInnerEventId,
                         senderPublicKey = senderPublicKey,
                         isUserMessage = isUserMessage,
                         chatRoomId = groupId,
                         createdAt = createdAt,
-                        content = "The group posted in its own name"
+                        content = "This group now guards a wallet for @${memberName(database, verified.memberPublicKey)}",
                     )
                 }
 
-                // The group saying where it lives on nostr: which relays carry
-                // its work, take its messages, answer a search of it, and which it
-                // will not talk to.
-                //
-                // **Verified, not just attributed.** This arm is reached from a
-                // completed signing session, where the author is the room by
-                // construction, and from an arriving inner event, where it is
-                // whatever the sender wrote -- and it cannot tell which. A rumor
-                // carries an empty signature and any pubkey its sender likes, so an
-                // author check alone would let one member put "the group signed its
-                // general relay list" in the transcript. `verifies` is what makes
-                // the line mean what it says: the room's key over these tags.
-                //
-                // A member's own relay list travelling through the room fails the
-                // author half and gets no line, which is right -- it is their list,
-                // not the group's.
-                //
-                // No row is written, and nothing is parsed beyond the check. The
-                // events are already on file as `GroupSignedEvent` and
-                // `GroupRelayList` reads the lists straight off those; this arm
-                // exists so a signed relay list is a line in the transcript rather
-                // than raw JSON in a bubble.
+                // The group saying whether it guards its members' wallets, and at
+                // what delay. Checked as the room's own signature, which is all a
+                // policy needs; one that does not verify gets no line, and is
+                // ignored where it is filed too. docs/member-wallet-delay.md.
+                MemberWalletPolicyEvent.KIND -> {
+                    val policy = MemberWalletPolicyEvent.verify(event, groupId) ?: return null
+
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = TYPE_MEMBER_WALLET_POLICY,
+                        marmotGroupEventId = marmotGroupEventId,
+                        marmotInnerEventId = marmotInnerEventId,
+                        senderPublicKey = senderPublicKey,
+                        isUserMessage = isUserMessage,
+                        chatRoomId = groupId,
+                        createdAt = createdAt,
+                        content = when (policy) {
+                            is MemberWalletPolicyEvent.Policy.Open ->
+                                "The group guards members' wallets, after ${BlockDuration.describe(policy.delay)}"
+                            is MemberWalletPolicyEvent.Policy.Closed ->
+                                "The group has stopped guarding new members' wallets"
+                        },
+                    )
+                }
+
                 // The group opening a wallet. Checked the whole way -- the room's
                 // signature, and the statement rederiving from the room's own key --
                 // because a line saying "the group opened a wallet" is a line people
@@ -1723,6 +1425,9 @@ data class ChatMessage(
                     val thresholdPublicKey = GroupWalletManager.thresholdKeyFor(database, groupId)
                         ?: return null
                     val wallet = GroupWallet.of(signed, thresholdPublicKey) ?: return null
+                    // A guarded wallet is one the groups above can find only by
+                    // being told of it. docs/guarded-wallet-forwarding.md.
+                    if (wallet.account.isGuarded) GuardianManager.forwardOnArrival(database, event, groupId)
 
                     ChatMessage(
                         giftWrapPayloadId = null,
@@ -1801,25 +1506,17 @@ data class ChatMessage(
                     )
                 }
 
-                in GroupRelaySet.KINDS -> {
-                    val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
-                    if (!signed.verifies()) return null
-
-                    val set = GroupRelaySet.entries.firstOrNull { it.kind == event.kind }
-                        ?: return null
-
-                    ChatMessage(
-                        giftWrapPayloadId = null,
-                        messageType = TYPE_GROUP_RELAYS_SIGNED,
-                        marmotGroupEventId = marmotGroupEventId,
-                        marmotInnerEventId = marmotInnerEventId,
-                        senderPublicKey = senderPublicKey,
-                        isUserMessage = isUserMessage,
-                        chatRoomId = groupId,
-                        createdAt = createdAt,
-                        content = "The group signed its ${set.name.lowercase()} relay list"
-                    )
-                }
+                // A profile or a relay list -- the group's or a member's own --
+                // travelling through the room. The app no longer reads either as
+                // the group's, and both are identity plumbing nobody sends into a
+                // room on purpose, so neither is a line nor a raw-JSON bubble: a
+                // signing session an older build opened for one ends in silence.
+                // A kind:1 is content, and keeps the bubble it always had.
+                MetadataEvent.KIND,
+                AdvertisedRelayListEvent.KIND,
+                ChatMessageRelayListEvent.KIND,
+                SearchRelayListEvent.KIND,
+                BlockedRelayListEvent.KIND -> null
 
                 // v2's two non-chat kinds. A kind:1210 that arrives is one member's
                 // assertion about what the group's state became, and this device

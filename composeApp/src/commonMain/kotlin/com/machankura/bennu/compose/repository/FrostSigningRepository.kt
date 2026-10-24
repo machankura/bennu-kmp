@@ -242,6 +242,19 @@ interface FrostSigningRepository {
         chain: Chain,
     ): FrostSigningSession?
 
+    /**
+     * Opens a session over one transaction from [descendantChatRoomId]'s guarded
+     * wallet, signed through this room's guardian leaf, or null when it could not
+     * be proposed. See `FrostSigningManager.proposeGuardianSpend`.
+     */
+    suspend fun proposeGuardianSpend(
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        psbt: Psbt,
+        descendantChatRoomId: String,
+        chain: Chain,
+    ): FrostSigningSession?
+
     /** The spend a transaction session signs, checked again; null for anything else. */
     suspend fun checkedSpend(sessionId: String): GroupSpend.Checked?
 
@@ -253,6 +266,9 @@ interface FrostSigningRepository {
 
     /** The change indices under [account] the room's open spends already pay back to. */
     suspend fun reservedChangeIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long>
+
+    /** The receive indices of [account], a descendant's guarded wallet, the room's open spends already fund. */
+    suspend fun reservedFundingIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long>
 
     /** Every spend the room has proposed, newest first, as it moves from proposed to confirmed. */
     fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>>
@@ -331,10 +347,19 @@ interface FrostSigningRepository {
                 chain: Chain,
             ): FrostSigningSession? = null
 
+            override suspend fun proposeGuardianSpend(
+                localChatRoom: LocalChatRoom,
+                userPublicKey: HexKey,
+                psbt: Psbt,
+                descendantChatRoomId: String,
+                chain: Chain,
+            ): FrostSigningSession? = null
+
             override suspend fun checkedSpend(sessionId: String): GroupSpend.Checked? = null
 
             override suspend fun reservedOutPoints(chatRoomId: String): Set<OutPoint> = emptySet()
             override suspend fun reservedChangeIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long> = emptySet()
+            override suspend fun reservedFundingIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long> = emptySet()
 
             override fun observeGroupTransactions(chatRoomId: String): Flow<List<GroupTransaction>> = flowOf(emptyList())
 

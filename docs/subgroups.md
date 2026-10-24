@@ -164,8 +164,13 @@ tags:
   ["subgroup_key", <the child's threshold key, 33-byte hex>]
   ["frost_path",   "m/9420/0/0"]
   ["name",         <the subgroup's name, as the coordinator typed it>]
+  ["wallet",       "guarded" | "unguarded"]          since subgroup-wallet-policy.md; absent before
   ["p",            <each of the child's admins>]
 ```
+
+A member's guarded wallet is not a subgroup and never a 30329: every reader of
+this kind assumes a room. It has its own certificate, 30334 --
+[member-guarded-wallets.md](./member-guarded-wallets.md).
 
 With those, a parent admin's device can check the thing that actually matters
 before it signs — `marmotGroupId(subgroup_key, frost_path) == content` — and
@@ -800,6 +805,12 @@ proposal outside it, and the `HOST_KEY` gate is where each of them agrees to the
 `t`-of-`n` they can now see. Joining is the agreement; the coordinator only
 writes down what is being joined.
 
+The subgroup's wallet policy, *guarded* or *unguarded*, is the second value the
+coordinator picks for other people, and it is agreed to the same way: it rides on
+the proposal, the join gate shows it, the parent's quorum signs it into the
+certificate, and the child's quorum refuses a key state whose certificate says
+otherwise. See [subgroup-wallet-policy.md](./subgroup-wallet-policy.md).
+
 Confirm stays disabled below two selections, and below a threshold outside the
 range, with the reason stated rather than left to be guessed.
 
@@ -906,6 +917,12 @@ One end-to-end, and it is the one that would have caught the collision in Phase
 second is refused rather than silently returning the first's key.
 
 ## Phase 10 — the ceremony moves into the parent's room
+
+*Followed up by [ceremony-creation.md](./ceremony-creation.md): with the
+ceremony in the parent's room, the shared-key screen's "Start key ceremony"
+offered a whole-room ceremony there, and a failed subgroup was retried as one.
+A Marmot room now refuses a ceremony of its own, and a failed subgroup is tried
+again from this picker, filled in from the ceremony that failed.*
 
 The thing [Phase 4](#why-not-the-parents-marmot-room) deferred, done, because the
 reason to wait was `docs/mls-skipped-keys.md` and that is being fixed. The child's
@@ -1021,8 +1038,11 @@ is wanted, is the button.
 **A subgroup cannot sign for its parent, and the parent cannot sign for it.**
 Two independent keys, two independent quorums. The certificate is a claim about
 lineage, not a delegation of authority, and nothing in this design lets one group
-act as the other. If delegation is ever wanted it is a different mechanism and it
-should not be built on top of this one silently.
+act as the other. Delegation is a different mechanism, and it was built as one:
+[group-wallet-guardians.md](./group-wallet-guardians.md) lets a parent guard a
+child's wallet, but only when the parent's quorum signs guardian keys into the
+certificate *and* the child's quorum opens a guarded wallet naming them. The
+certificate on its own still delegates nothing.
 
 **A member added to the parent later sees no subgroups, and a member added to the
 subgroup later cannot verify its parent.** One cause, two faces, and both are the

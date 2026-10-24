@@ -7,13 +7,41 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightni
 import bennu.composeapp.generated.resources.group_wallet_on_s
 import fr.acinq.phoenix.managers.NodeParamsManager
 import com.machankura.bennu.compose.wallet.GroupLightningRollout
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import bennu.composeapp.generated.resources.change
+import bennu.composeapp.generated.resources.guard_members_wallets
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberWalletPolicyRoute
+import bennu.composeapp.generated.resources.guarded_wallet_after
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import com.machankura.bennu.compose.repository.MemberWalletRepository
+import com.machankura.bennu.compose.ui.composable.navigation.routes.NewMemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.FrostSigningRoute
+import bennu.composeapp.generated.resources.members_guarded_wallets
+import bennu.composeapp.generated.resources.ask_this_group_to_guard_a_wallet_for_you
+import bennu.composeapp.generated.resources.asked_by_s_not_yet_signed
+import bennu.composeapp.generated.resources.put_to_the_group
+import bennu.composeapp.generated.resources.couldn_t_put_it_to_the_group
+import bennu.composeapp.generated.resources.at_s
+import bennu.composeapp.generated.resources.s_dot_s
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.style.TextOverflow
+import bennu.composeapp.generated.resources.unguarded_wallet
+import bennu.composeapp.generated.resources.guarded_wallet
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import bennu.composeapp.generated.resources.open_on_s
 import bennu.composeapp.generated.resources.not_opened_yet
 import bennu.composeapp.generated.resources.group_wallet
-import androidx.compose.material.icons.filled.AccountBalanceWallet
+import bennu.composeapp.generated.resources.s_onchain_wallet
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -34,10 +62,6 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.PersonRemove
-import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Campaign
-import androidx.compose.material.icons.filled.DataObject
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Unsubscribe
@@ -51,7 +75,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -72,7 +95,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.machankura.bennu.compose.database.model.ChatRoom
@@ -83,15 +105,10 @@ import com.machankura.bennu.compose.database.model.Profile
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.intermdiate.LocalParticipant
 import com.machankura.bennu.compose.repository.ChatRepository
-import com.machankura.bennu.compose.repository.MantraRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProfilePreviewRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
-import com.machankura.bennu.compose.ui.composable.navigation.routes.DkgRitualRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposeGroupEventRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupNostrProfileRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupRelaysRoute
-import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupPostsRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.CreateSharedKeyRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ProposalListRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.SearchMemberToAddToChatRoomRoute
 import com.machankura.bennu.compose.extensions.inComparableGroups
@@ -105,20 +122,8 @@ import com.machankura.bennu.compose.ui.theme.BennuTheme
 import com.machankura.bennu.compose.ui.view.model.ChatRoomDetailViewModel
 import com.machankura.bennu.compose.ui.view.state.ChatRoomDetailUIState
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
-import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
-import com.vitorpamplona.quartz.nip01Core.metadata.UserMetadata
 import com.machankura.bennu.compose.ui.theme.spacing
 import bennu.composeapp.generated.resources.run_by_members
-import bennu.composeapp.generated.resources.nostr_profile
-import bennu.composeapp.generated.resources.relays
-import bennu.composeapp.generated.resources.posts
-import bennu.composeapp.generated.resources.not_described_yet
-import bennu.composeapp.generated.resources.n_of_m_relay_lists_agreed
-import bennu.composeapp.generated.resources.no_posts_yet
-import bennu.composeapp.generated.resources.one_post
-import bennu.composeapp.generated.resources.n_posts
-import bennu.composeapp.generated.resources.propose_event
-import bennu.composeapp.generated.resources.no_name_on_this_profile
 import bennu.composeapp.generated.resources.parent_group
 import bennu.composeapp.generated.resources.a_subgroup
 import bennu.composeapp.generated.resources.created_you_are_not_a_member
@@ -130,8 +135,6 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.SelectSubgro
 import com.machankura.bennu.compose.ui.composable.navigation.routes.NostrEventDetailRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ChatRoomDetailRoute
 import com.machankura.bennu.compose.managers.SubgroupManager
-import com.machankura.bennu.compose.nostr.GroupNostrProfile
-import com.machankura.bennu.compose.nostr.GroupRelaySet
 import bennu.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.stringResource
 import bennu.composeapp.generated.resources.delete_group
@@ -179,7 +182,7 @@ fun ChatRoomDetailScreen(
     initialChatRoomDetailUIState: ChatRoomDetailUIState = ChatRoomDetailUIState.Loading,
     nostrRepository: NostrRepository,
     chatRepository: ChatRepository,
-    mantraRepository: MantraRepository,
+    memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
     onNavigateToRoute: (Route) -> Unit,
     onPopBackToRoute: (Route) -> Unit,
     onNavigateBack: () -> Unit,
@@ -191,10 +194,11 @@ fun ChatRoomDetailScreen(
             initialChatRoomDetailUIState = initialChatRoomDetailUIState,
             nostrRepository = nostrRepository,
             chatRepository = chatRepository,
-            mantraRepository = mantraRepository,
-            activeUserPublicKey = activeUserPublicKey
+            activeUserPublicKey = activeUserPublicKey,
+            memberWalletRepository = memberWalletRepository,
         )
     )
+    val couldNotPutToGroup = stringResource(Res.string.couldn_t_put_it_to_the_group)
 
     // Read outside the click handlers: stringResource and rememberNotifier are both
     // composable, and a lambda passed to onClick is not.
@@ -326,14 +330,21 @@ fun ChatRoomDetailScreen(
                                                 Text(text = stringResource(Res.string.parent_group))
                                             },
                                             supportingContent = {
-                                                Text(
-                                                    text = parentChatRoomId
-                                                        .take(16)
-                                                        .inComparableGroups(),
-                                                    fontFamily = FontFamily.Monospace,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.MiddleEllipsis
-                                                )
+                                                Column {
+                                                    Text(
+                                                        text = parentChatRoomId
+                                                            .take(16)
+                                                            .inComparableGroups(),
+                                                        fontFamily = FontFamily.Monospace,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.MiddleEllipsis
+                                                    )
+                                                    // What the parent decided about
+                                                    // this room's wallet at its birth.
+                                                    // Nothing for one that decided
+                                                    // nothing, as before policies.
+                                                    walletPolicyLabel(chatRoomDetailUIState.walletPolicy, chatRoomDetailUIState.guardianDelay)?.let { Text(it) }
+                                                }
                                             }
                                         )
                                     }
@@ -354,125 +365,25 @@ fun ChatRoomDetailScreen(
                                 HorizontalDivider()
                             }
 
-                            // Under the room's identity and above its work, because
-                            // that is what it is: what the rest of nostr reads for
-                            // the key the signing key row names. The room's subject
-                            // and description above are this device's names for it;
-                            // this is the group's own, signed by the group.
-                            //
-                            // One row per kind of statement, each opening the screen
-                            // that shows it, rather than the statements themselves.
-                            // Five sections of cards, every card with a button under
-                            // it, made this screen as long as everything the group
-                            // had ever said, with its members and its subgroups
-                            // somewhere underneath. What a member opening it wants
-                            // first is the shape of that -- a name and a few counts
-                            // -- not every word of it. The row carries the shape;
-                            // the screen behind it carries the rest, with the same
-                            // broadcasts and the same gated ways in the sections had.
+                            // The group's coins, signed by the room's key and read
+                            // by nobody outside the room: the statement opening it
+                            // never leaves the group. Shown to every member, open
+                            // or not -- the screen behind it is where a member who
+                            // can sign asks the group to open one.
                             //
                             // Marmot rooms only, and absent rather than empty in a
                             // NIP-17 one. A NIP-17 room's id is not a key it can
-                            // sign as, so it has no nostr identity at all -- and a
-                            // row saying it has not described one yet would promise
-                            // something that is never coming.
-                            if (chatRoomDetailUIState.localChatRoom.chatRoom.mlsGroupState != null) {
+                            // sign as, so it has no wallet to open.
+                            if (
+                                GroupWalletRollout.ENABLED &&
+                                chatRoomDetailUIState.localChatRoom.chatRoom.mlsGroupState != null
+                            ) {
                                 item {
-                                    SignedWorkRow(
-                                        icon = Icons.Default.Badge,
-                                        headline = stringResource(Res.string.nostr_profile),
-                                        // The name the group gave itself and its
-                                        // address where it claims one: the two
-                                        // things a reader checks a profile for.
-                                        // Named rather than falling back to the
-                                        // pubkey, for the reason the card gives.
-                                        supporting = chatRoomDetailUIState.groupNostrProfile
-                                            ?.let { profile ->
-                                                listOfNotNull(
-                                                    profile.name()
-                                                        ?: stringResource(Res.string.no_name_on_this_profile),
-                                                    profile.nip05()
-                                                ).joinToString(" · ")
-                                            }
-                                            ?: stringResource(Res.string.not_described_yet),
-                                        onOpen = {
-                                            onNavigateToRoute.invoke(
-                                                GroupNostrProfileRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // Directly under the profile, because between them
-                                // they are the whole of the group's account of
-                                // itself on nostr: who it says it is, and where it
-                                // says it can be found.
-                                item {
-                                    SignedWorkRow(
-                                        icon = Icons.Default.Dns,
-                                        headline = stringResource(Res.string.relays),
-                                        // How many of the four lists the group has
-                                        // agreed, counted against the sets rather
-                                        // than the entries: the entries come back
-                                        // empty in a room that has none of this to
-                                        // say, and "0 of 0" would say nothing.
-                                        supporting = stringResource(
-                                            Res.string.n_of_m_relay_lists_agreed,
-                                            chatRoomDetailUIState.groupRelayLists.count { it.isAgreed },
-                                            GroupRelaySet.entries.size
-                                        ),
-                                        onOpen = {
-                                            onNavigateToRoute.invoke(
-                                                GroupRelaysRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // Under the relay lists, because these are what the
-                                // lists are *for*: the profile says who the group
-                                // is, the relays say where to find it, and these are
-                                // what a reader would find there.
-                                item {
-                                    SignedWorkRow(
-                                        icon = Icons.Default.Campaign,
-                                        headline = stringResource(Res.string.posts),
-                                        supporting = when (val count = chatRoomDetailUIState.groupPosts.size) {
-                                            0 -> stringResource(Res.string.no_posts_yet)
-                                            1 -> stringResource(Res.string.one_post)
-                                            else -> stringResource(Res.string.n_posts, count)
-                                        },
-                                        onOpen = {
-                                            onNavigateToRoute.invoke(
-                                                GroupPostsRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // The group's coins. After the identity block's
-                                // last signed row and before the paste, because it
-                                // is signed by the same key and read by nobody
-                                // outside the room: the statement opening it never
-                                // leaves the group. Shown to every member, open or
-                                // not -- the screen behind it is where a member who
-                                // can sign asks the group to open one.
-                                if (GroupWalletRollout.ENABLED) item {
                                     SignedWorkRow(
                                         icon = Icons.Default.AccountBalanceWallet,
-                                        headline = stringResource(Res.string.group_wallet),
+                                        headline = chatRoomDetailUIState.localChatRoom.chatRoom.subject
+                                            ?.let { stringResource(Res.string.s_onchain_wallet, it) }
+                                            ?: stringResource(Res.string.group_wallet),
                                         supporting = chatRoomDetailUIState.groupWallet?.let { wallet ->
                                             stringResource(
                                                 Res.string.open_on_s,
@@ -530,44 +441,6 @@ fun ChatRoomDetailScreen(
                                             )
                                         }
                                     )
-                                }
-
-                                // The untyped way into everything above it. Each
-                                // row opens a screen with a form that builds one
-                                // kind of event; this takes any of those kinds as
-                                // JSON, pasted from wherever it was made, and it
-                                // lands on whichever screen is its kind's once the
-                                // quorum signs -- the same reading, off the same
-                                // signed events. Last in the block because it is
-                                // about the block rather than about any one row of
-                                // it, and behind the same gate for the same reason.
-                                if (chatRoomDetailUIState.canEditNostrProfile) {
-                                    item {
-                                        TextButton(
-                                            onClick = {
-                                                onNavigateToRoute.invoke(
-                                                    ProposeGroupEventRoute(
-                                                        activeUserPublicKey = activeUserPublicKey,
-                                                        chatRoomId = chatRoomId,
-                                                        relayHint = relayHint
-                                                    )
-                                                )
-                                            }
-                                        ) {
-                                            Icon(
-                                                Icons.Default.DataObject,
-                                                contentDescription = Decorative
-                                            )
-
-                                            Spacer(
-                                                modifier = Modifier.width(
-                                                    MaterialTheme.spacing.space125
-                                                )
-                                            )
-
-                                            Text(stringResource(Res.string.propose_event))
-                                        }
-                                    }
                                 }
 
                                 item {
@@ -647,6 +520,76 @@ fun ChatRoomDetailScreen(
                                 }
                             }
 
+                            // A member's wallet is a person, not a room, so it is its
+                            // own section and its row opens the person -- there is no
+                            // chat to open. docs/member-guarded-wallets.md, Phase 11.
+                            if (chatRoomDetailUIState.memberWallets.isNotEmpty() || chatRoomDetailUIState.canAskForMemberWallet || chatRoomDetailUIState.showsMemberWalletPolicy) {
+                                item { HorizontalDivider() }
+                                item {
+                                    Text(
+                                        text = stringResource(Res.string.members_guarded_wallets),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+                                // Whether the group guards members' wallets at all, and at
+                                // what delay -- first, because every row under it is a
+                                // wallet it agreed to under one. docs/member-wallet-delay.md.
+                                if (chatRoomDetailUIState.showsMemberWalletPolicy) {
+                                    item {
+                                        MemberWalletPolicyRow(
+                                            policy = chatRoomDetailUIState.memberWalletPolicy,
+                                            onChange = if (chatRoomDetailUIState.canSponsor) {
+                                                {
+                                                    onNavigateToRoute.invoke(
+                                                        MemberWalletPolicyRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)
+                                                    )
+                                                }
+                                            } else null,
+                                        )
+                                    }
+                                }
+                                items(
+                                    items = chatRoomDetailUIState.memberWallets,
+                                    key = { "member-wallet-" + it.walletId }
+                                ) { wallet ->
+                                    MemberWalletRow(
+                                        wallet = wallet,
+                                        isPending = chatRoomDetailViewModel.isActionPending.value,
+                                        onOpen = {
+                                            onNavigateToRoute.invoke(
+                                                ProfilePreviewRoute(activeUserPublicKey = activeUserPublicKey, profilePublicKey = wallet.ownerPublicKey)
+                                            )
+                                        },
+                                        onPutToGroup = if (!wallet.isCertified && chatRoomDetailUIState.canSponsor) {
+                                            {
+                                                chatRoomDetailViewModel.putToGroup(
+                                                    request = wallet.request,
+                                                    onSuccess = { sessionId ->
+                                                        onNavigateToRoute.invoke(
+                                                            FrostSigningRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId, sessionId = sessionId)
+                                                        )
+                                                    },
+                                                    onFailure = { notify(couldNotPutToGroup) },
+                                                )
+                                            }
+                                        } else null,
+                                    )
+                                }
+                                if (chatRoomDetailUIState.canAskForMemberWallet) {
+                                    item {
+                                        TextButton(
+                                            onClick = {
+                                                onNavigateToRoute.invoke(NewMemberWalletRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId))
+                                            }
+                                        ) {
+                                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
+                                            Spacer(modifier = Modifier.width(MaterialTheme.spacing.space125))
+                                            Text(stringResource(Res.string.ask_this_group_to_guard_a_wallet_for_you))
+                                        }
+                                    }
+                                }
+                            }
+
                             item {
                                 HorizontalDivider()
                             }
@@ -668,12 +611,17 @@ fun ChatRoomDetailScreen(
                             // -- and those are reached from the transcript line that
                             // names the ceremony they are about, never from here,
                             // which has no way to say which.
+                            //
+                            // To the creation screen, which hands over to the group's
+                            // ceremony if it already has one: the ceremony screen only
+                            // shows a ceremony it is named, and this button has none
+                            // to name. See docs/ceremony-creation.md.
                             if (chatRoomDetailUIState.localChatRoom.chatRoom.mlsGroupState == null) {
                                 item {
                                     TextButton(
                                         onClick = {
                                             onNavigateToRoute.invoke(
-                                                DkgRitualRoute(
+                                                CreateSharedKeyRoute(
                                                     activeUserPublicKey = activeUserPublicKey,
                                                     chatRoomId = chatRoomId
                                                 )
@@ -1197,8 +1145,8 @@ internal fun GroupKeyStateSheetContent(
 }
 
 /**
- * One row of the identity block: a kind of statement the group has signed, a
- * line summarising it, and the way to the screen where it is read in full.
+ * One row for a kind of statement the group has signed: a line summarising it,
+ * and the way to the screen where it is read in full.
  *
  * The same shape as the signing key and parent group rows above it -- a card
  * with a leading icon and a trailing chevron -- because it is the same kind of
@@ -1236,6 +1184,39 @@ private fun SignedWorkRow(
 }
 
 /**
+ * One member's guarded wallet, as the guarding group's page lists it: the
+ * person, by the live name of their profile, and the label they gave it. A
+ * request no signer has put to the group yet says so, and offers the one thing
+ * a signer can do about it.
+ */
+@Composable
+private fun MemberWalletRow(
+    wallet: MemberWalletManager.GroupMemberWallet,
+    isPending: Boolean,
+    onOpen: () -> Unit,
+    onPutToGroup: (() -> Unit)?,
+) {
+    val name = stringResource(Res.string.at_s, wallet.ownerName ?: wallet.ownerPublicKey.take(8))
+    ListItem(
+        modifier = Modifier.clickable(onClick = onOpen).minimumInteractiveComponentSize(),
+        leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
+        headlineContent = {
+            Text(
+                text = wallet.label?.let { stringResource(Res.string.s_dot_s, name, it) } ?: name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        supportingContent = if (wallet.isCertified) null else {
+            { Text(stringResource(Res.string.asked_by_s_not_yet_signed, name)) }
+        },
+        trailingContent = onPutToGroup?.let { put ->
+            { TextButton(onClick = put, enabled = !isPending) { Text(stringResource(Res.string.put_to_the_group)) } }
+        },
+    )
+}
+
+/**
  * One subgroup, as the parent's record and this device's rooms together have it.
  *
  * **The title comes from the room where there is one, and only otherwise from the
@@ -1267,22 +1248,67 @@ private fun SubgroupCard(
                 )
             },
             supportingContent = {
-                Text(
-                    text = when {
-                        subgroup.isJoined -> stringResource(
-                            Res.string.run_by_members,
-                            subgroup.adminPublicKeys.size.toString()
-                        )
-                        // The room does not exist anywhere yet: the parent has
-                        // certified it and nobody has created it. Between steps 2
-                        // and 4 of docs/subgroups.md this is every member's view.
-                        subgroup.keyState == null -> stringResource(Res.string.certified_not_yet_created)
-                        else -> stringResource(Res.string.created_you_are_not_a_member)
-                    }
-                )
+                Column {
+                    Text(
+                        text = when {
+                            subgroup.isJoined -> stringResource(
+                                Res.string.run_by_members,
+                                subgroup.adminPublicKeys.size.toString()
+                            )
+                            // The room does not exist anywhere yet: the parent has
+                            // certified it and nobody has created it. Between steps 2
+                            // and 4 of docs/subgroups.md this is every member's view.
+                            subgroup.keyState == null -> stringResource(Res.string.certified_not_yet_created)
+                            else -> stringResource(Res.string.created_you_are_not_a_member)
+                        }
+                    )
+                    // What the parent decided about its wallet, from the certificate:
+                    // founding history, like the name the row falls back to.
+                    walletPolicyLabel(subgroup.walletPolicy, subgroup.guardianDelay)?.let { Text(it) }
+                }
             }
         )
     }
+}
+
+/**
+ * The group's own stand on its members' wallets, with *Change* -- or *Guard
+ * members' wallets* when it has none open -- for a device that can put a change
+ * to the group. `docs/member-wallet-delay.md`, Phase 6.
+ */
+@Composable
+private fun MemberWalletPolicyRow(policy: MemberWalletPolicyEvent.Policy?, onChange: (() -> Unit)?) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
+    ) {
+        Box(modifier = Modifier.weight(1f)) { MemberWalletPolicyState(policy) }
+        onChange?.let { change ->
+            TextButton(onClick = change) {
+                Text(
+                    stringResource(
+                        if (policy is MemberWalletPolicyEvent.Policy.Open) Res.string.change else Res.string.guard_members_wallets
+                    )
+                )
+            }
+        }
+    }
+}
+
+/**
+ * *Guarded wallet, after 144 blocks, about 1 day* or *Unguarded wallet* for a
+ * policy a parent decided, and null for one it left to the subgroup --
+ * `docs/subgroup-wallet-policy.md`. The delay is the parent's own leaf's,
+ * `docs/guardian-delay.md`.
+ */
+@Composable
+private fun walletPolicyLabel(policy: WalletPolicyReading?, guardianDelay: Long?): String? = when (policy) {
+    WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED) -> guardianDelay
+        ?.let { stringResource(Res.string.guarded_wallet_after, delayText(it)) }
+        ?: stringResource(Res.string.guarded_wallet)
+    WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED) -> stringResource(Res.string.unguarded_wallet)
+    else -> null
 }
 
 /** One labelled value of a key state, whole and comparable. */
@@ -1415,9 +1441,9 @@ private fun ChatRoomMessagingScreenPreview() {
                             subject = "Message title",
                             description = "Description of a chat room so that members now why they are here.",
                             initialGiftWrapPayloadId = "sdfaer",
-                            // A Marmot room, so the nostr profile section renders
-                            // at all -- it is hidden in a NIP-17 one, which has no
-                            // key to have an identity on nostr.
+                            // A Marmot room, so the signed-work block renders at
+                            // all -- it is hidden in a NIP-17 one, which has no key
+                            // to sign with.
                             mlsGroupState = "state"
                         ),
                         localParticipants = listOf(
@@ -1447,32 +1473,9 @@ private fun ChatRoomMessagingScreenPreview() {
                         announcedBy = "d".repeat(64),
                         announcedAt = Instant.fromEpochSeconds(1_700_000_000)
                     ),
-                    // A group that has described itself, so the section renders
-                    // with something in it rather than only in its empty state.
-                    // Built directly rather than read out of a signed event: the
-                    // reading checks a signature, and there is no real one here.
-                    groupNostrProfile = GroupNostrProfile(
-                        signedEvent = GroupSignedEvent(
-                            id = "e".repeat(64),
-                            chatRoomId = "publicKey",
-                            publicKey = "publicKey",
-                            kind = MetadataEvent.KIND,
-                            tags = emptyArray(),
-                            content = "",
-                            signature = "f".repeat(128),
-                            createdAt = Instant.fromEpochSeconds(1_700_000_000)
-                        ),
-                        metadata = UserMetadata().apply {
-                            displayName = "Translation collective"
-                            about = "A group translating hard books into Sesotho."
-                            nip05 = "group@example.com"
-                        }
-                    ),
-                    canEditNostrProfile = true
                 ),
                 nostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
-                mantraRepository = MantraRepository.NO_OP_MANTRA_REPOSITORY,
                 onNavigateToRoute = {},
                 onPopBackToRoute = {},
                 onNavigateBack = {},

@@ -14,14 +14,6 @@ import com.machankura.bennu.compose.network.serialization.CommonJson
 import com.machankura.bennu.compose.nostr.chronicle.tags.ChronicleIdTag
 import com.machankura.bennu.compose.nostr.chronicle.tags.ChroniclePageTag
 import com.machankura.bennu.compose.nostr.chronicle.tags.ChronicleRecipientTag
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChunkEvent
-import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationArtifactVersionEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
 
 /**
  * 30327
@@ -45,16 +37,7 @@ import com.machankura.bennu.compose.nostr.nip30303.TranslationChunkEvent
  * deliberately does not do: it never carries the chat, and it cannot make its
  * recipient able to *sign* anything.
  *
- * ### Why not a [com.machankura.bennu.compose.nostr.nip30303.SubmissionEvent] each
- *
- * The envelope fits and the meaning does not. A submission is an *act* -- this
- * member is putting this event in front of this group -- and a chronicle asserts
- * nothing; it re-delivers what the group already agreed. On one kind a
- * four-hundred-event backfill is indistinguishable from four hundred new
- * submissions and every device has to guess which it is looking at. It would
- * also be one inner event and one kind:445 per payload, where a page is one, and
- * the submission arm of `ChatMessage.applyInnerEvent` files a chat line per
- * payload, which a chronicle must not.
+ * It carries nothing in this app at the moment -- see [KINDS].
  */
 @Immutable
 class ChronicleEvent(
@@ -88,18 +71,12 @@ class ChronicleEvent(
     companion object {
         /**
          * Sits past `GroupKeyStateEvent` at 30326, in the Marmot inner-event
-         * space it shares with the nip30303 document kinds and the FROST signing
-         * family.
+         * space it shares with the FROST signing family.
          *
-         * 30313 was free next to the document kinds and is not used, on
-         * `FrostSigningEvents`' own advice: the DKG's 30310-30316 already overlap
-         * that range and are told apart only by living in NIP-17 gift wraps
-         * instead, which is "an accident of routing rather than a decision, and
-         * the next family added should not rely on it." This is that next family.
-         *
-         * It is also the right neighbourhood on the merits. A chronicle is not a
-         * document kind; it is a statement about the record, which is what a key
-         * state is too.
+         * 30313 is not used, on `FrostSigningEvents`' own advice: the DKG's
+         * 30310-30316 sit there, and once collided with document kinds that
+         * shared their numbers. This family took numbers nobody else uses
+         * instead.
          */
         const val KIND: Kind = 30327
 
@@ -109,7 +86,7 @@ class ChronicleEvent(
          * The most JSON one page may carry.
          *
          * A byte cap rather than a count alone, because the payloads vary by two
-         * orders of magnitude -- a chunk is a paragraph, an artifact is a URL.
+         * orders of magnitude -- a paragraph of text against a single URL.
          * Sized so the finished kind:445 clears the tightest relay limits with
          * room for the MLS framing and the NIP-44 expansion that sit outside it;
          * measure it against a real one rather than trusting the arithmetic.
@@ -130,8 +107,8 @@ class ChronicleEvent(
          * The most payloads one page may carry.
          *
          * The byte cap bounds the transport; this bounds the receiver's *work*,
-         * and they are not the same limit -- 64 KB of one-line dialects is a lot
-         * more signature verifies than 64 KB of chapters.
+         * and they are not the same limit -- 64 KB of one-line events is a lot
+         * more signature verifies than 64 KB of long ones.
          *
          * **Sized under what the byte cap allows, or it would never fire.** An
          * event carries a 64-character id, a 64-character pubkey and a
@@ -154,82 +131,29 @@ class ChronicleEvent(
         const val MAX_PAGE_EVENTS = 96
 
         /**
-         * The kinds a chronicle may carry, in the order they have to be applied.
+         * The kinds a chronicle may carry in this app: **none, at the moment.**
          *
-         * One list doing both jobs, because a separate allowlist is one more
-         * thing that can disagree with the order it is applied in.
+         * It was built to hand a late member the group's signed documents --
+         * dialects, artifacts, chapters and their translations -- and those kinds
+         * were removed with the screens that made them (docs/ceremony-creation.md,
+         * Phase 7). Everything else the group signs is left out on purpose:
          *
-         * **The order is Room's, not nostr's.** Every one of these has a foreign
-         * key on the one before it, so a chronicle applied out of order is a
-         * constraint violation rather than a wrong answer. Kind order is not
-         * dependency order and never was -- a translation chapter (30308) hangs
-         * off a translation artifact version (30306) which hangs off an artifact
-         * version (30301) -- so this is a list rather than a `sortedBy { kind }`.
+         *  - a `GroupKeyStateEvent` or a subgroup's birth certificate is a validly
+         *    signed statement about the group that anyone holding a copy could
+         *    replay -- see [ChronicleKinds];
+         *  - wallet statements have their own way to a member who joins late.
          *
-         * **It is an allowlist first.** Verification admits an event to the apply
-         * path on the strength of the group's signature, which makes every kind
-         * the group has ever signed replayable by any member at any time. A
-         * `GroupKeyStateEvent` is group-signed and passes verification perfectly,
-         * so a chronicle carrying an old one is a validly signed statement about
-         * what the room signs with, replayed by whoever kept a copy. Nothing but
-         * this list stops it.
-         *
-         * ### What is missing from it, and why
-         *
-         * **Only kinds the group actually signs can be here**, because a chronicle
-         * that cannot be verified is one that has to be believed. Six of the
-         * thirteen nip30303 kinds reach a signing session; the rest travel as
-         * rumors -- empty signature, member author, vouched for by the MLS frame
-         * they arrived in and by nothing that survives leaving it.
-         *
-         * Left out for that reason:
-         *
-         *  - `TranslationEvent` (30311). Nothing builds one; the inbound arm
-         *    exists and no producer does.
-         *  - The contributor lists (30305, 30307, 30310). `applyInnerEvent` has
-         *    no arm that writes a row for any of them, so chronicling them would
-         *    cost bytes and restore nothing.
-         *
-         * Two kinds were on that list and are not any more, because the app
-         * stopped leaving them unsigned. `ArtifactVersionEvent` (30301) used to be
-         * derived from the signed artifact on arrival, and is now the second item
-         * of the batch that carries it. `TranslationChunkEvent` (30309) -- the
-         * translated text itself -- used to be submitted as its author's rumor,
-         * and is now proposed to the group like everything else. Both are
-         * therefore checkable, and a chronicle that left them out would hand a new
-         * member the whole structure and none of the prose.
+         * So the machinery stays and carries nothing: with an empty list a device
+         * asks for no chronicle, sends none, and applies nothing from one that an
+         * older build sends -- see `ChronicleManager`. Adding a kind back is a
+         * decision that belongs here, with the reason it is safe to replay.
          */
-        private val APPLY_ORDER: List<Kind> = listOf(
-            DialectEvent.KIND,
-            ArtifactEvent.KIND,
-            ArtifactVersionEvent.KIND,
-            ChapterEvent.KIND,
-            ChunkEvent.KIND,
-            TranslationArtifactVersionEvent.KIND,
-            TranslationChapterEvent.KIND,
-            TranslationChunkEvent.KIND,
-        )
+        val KINDS: ChronicleKinds = ChronicleKinds.NONE
 
-        /** Every kind a chronicle may carry. */
-        val CHRONICLABLE_KINDS: Set<Kind> = APPLY_ORDER.toSet()
+        /** Every kind a chronicle may carry in this app. */
+        val CHRONICLABLE_KINDS: Set<Kind> = KINDS.all
 
-        /**
-         * Where [kind] sits in dependency order, or null if a chronicle may not
-         * carry it at all.
-         */
-        fun applyRank(kind: Kind): Int? = APPLY_ORDER.indexOf(kind).takeIf { it >= 0 }
-
-        fun isChroniclable(kind: Kind): Boolean = kind in CHRONICLABLE_KINDS
-
-        /**
-         * [payloads] in dependency order, so a page applies front to back.
-         *
-         * Stable within a rank: two chapters of one version have no order between
-         * them and keeping the caller's is one less thing that varies between two
-         * members assembling the same chronicle.
-         */
-        fun inApplyOrder(payloads: List<Event>): List<Event> =
-            payloads.sortedBy { applyRank(it.kind) ?: Int.MAX_VALUE }
+        fun isChroniclable(kind: Kind): Boolean = KINDS.isChroniclable(kind)
 
         /**
          * The bytes [json] occupies once it is the `content` of a Marmot app event --
@@ -315,6 +239,7 @@ class ChronicleEvent(
             count: Int,
             recipient: HexKey,
             createdAt: Long = TimeUtils.now(),
+            kinds: ChronicleKinds = KINDS,
             initializer: TagArrayBuilder<ChronicleEvent>.() -> Unit = {},
         ): EventTemplate<ChronicleEvent> {
             require(payloads.isNotEmpty()) { "A chronicle page carries at least one event" }
@@ -322,7 +247,7 @@ class ChronicleEvent(
                 "A chronicle page carries at most $MAX_PAGE_EVENTS events, not ${payloads.size}"
             }
             payloads.forEach {
-                require(isChroniclable(it.kind)) { "A chronicle may not carry kind ${it.kind}" }
+                require(kinds.isChroniclable(it.kind)) { "A chronicle may not carry kind ${it.kind}" }
             }
 
             val content = encodePage(payloads)

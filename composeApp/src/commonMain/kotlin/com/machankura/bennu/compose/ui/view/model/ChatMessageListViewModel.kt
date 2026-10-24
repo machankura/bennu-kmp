@@ -204,6 +204,7 @@ class ChatMessageListViewModel(
         observeProposalsAwaitingYou()
         observeCeremoniesAwaitingYou()
         askForGroupHistory()
+        forwardGuardedWallets()
         resumeSigningSessions()
     }
 
@@ -310,6 +311,22 @@ class ChatMessageListViewModel(
                     userPublicKey = localChatRoom.chatRoom.userPublicKey,
                 )
             }.onFailure { logger.w(throwable = it) { "Could not ask for this group's history" } }
+        }
+    }
+
+    /**
+     * Tells the groups above this one about every guarded wallet it holds that
+     * they have not heard of: the catch-up behind the arrival triggers, which
+     * covers a wallet that arrived while this device was offline, one the
+     * elected device never sent, and every one filed before forwarding existed.
+     * `docs/guarded-wallet-forwarding.md`, D5. A Marmot room only -- a guardian
+     * is a group with a key, and a group with a key has an MLS room.
+     */
+    private fun forwardGuardedWallets() {
+        if (localChatRoom.chatRoom.mlsGroupState == null) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { chatRepository.forwardGuardedWallets(localChatRoom.chatRoom.id) }
+                .onFailure { logger.w(throwable = it) { "Could not tell the groups above about this group's guarded wallets" } }
         }
     }
 

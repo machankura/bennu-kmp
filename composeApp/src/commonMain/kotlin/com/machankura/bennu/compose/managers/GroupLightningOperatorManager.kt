@@ -87,7 +87,7 @@ object GroupLightningOperatorManager {
         return current(database, chatRoomId, chain, wallet)?.publicKey == userPublicKey
     }
 
-    /** Tells the room this device's node stopped, and where its channels were (kind 30349). */
+    /** Tells the room this device's node stopped, and where its channels were (kind 30366). */
     suspend fun announceStopped(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long, term: Long, commitmentNumbers: Map<String, Long>) {
         GroupLightningWalletManager.queue(
             database, localChatRoom, userPublicKey, GroupLightningEvents.STOPPED,

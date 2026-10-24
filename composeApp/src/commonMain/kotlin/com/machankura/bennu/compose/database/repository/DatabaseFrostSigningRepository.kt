@@ -149,6 +149,23 @@ class DatabaseFrostSigningRepository(
         )
     }
 
+    override suspend fun proposeGuardianSpend(
+        localChatRoom: LocalChatRoom,
+        userPublicKey: HexKey,
+        psbt: Psbt,
+        descendantChatRoomId: String,
+        chain: Chain,
+    ): FrostSigningSession? = proposing(localChatRoom) {
+        FrostSigningManager.proposeGuardianSpend(
+            database = database,
+            localChatRoom = localChatRoom,
+            userPublicKey = userPublicKey,
+            psbt = psbt,
+            descendantChatRoomId = descendantChatRoomId,
+            chain = chain,
+        )
+    }
+
     override suspend fun checkedSpend(sessionId: String): GroupSpend.Checked? = try {
         FrostSigningManager.checkedSpend(database, sessionId)
     } catch (e: Throwable) {
@@ -174,6 +191,13 @@ class DatabaseFrostSigningRepository(
         FrostSigningManager.reservedChangeIndices(database, chatRoomId, account)
     } catch (e: Throwable) {
         logger.e("Error reading the change addresses reserved in $chatRoomId", e)
+        emptySet()
+    }
+
+    override suspend fun reservedFundingIndices(chatRoomId: String, account: GroupWalletDerivation.Account): Set<Long> = try {
+        FrostSigningManager.reservedFundingIndices(database, chatRoomId, account)
+    } catch (e: Throwable) {
+        logger.e("Error reading the funding addresses reserved in $chatRoomId", e)
         emptySet()
     }
 

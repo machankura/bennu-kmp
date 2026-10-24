@@ -7,7 +7,7 @@ import fr.acinq.bitcoin.Chain
 import kotlin.time.Clock
 
 /**
- * Who runs the group's Lightning node: kind 30339, FROST-signed, never broadcast
+ * Who runs the group's Lightning node: kind 30356, FROST-signed, never broadcast
  * (`docs/group-lightning-wallet.md`, Phase 7).
  *
  * The term is what every co-signer fences on. It only goes up, and a request from anyone but the

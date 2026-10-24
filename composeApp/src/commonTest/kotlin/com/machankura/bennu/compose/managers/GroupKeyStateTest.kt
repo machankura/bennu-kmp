@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
+import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
+import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.hexToByteArray
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
@@ -26,9 +31,6 @@ import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupParentage
-import com.machankura.bennu.compose.nostr.nip30303.ArtifactEvent
-import com.machankura.bennu.compose.nostr.nip30303.ChapterEvent
-import com.machankura.bennu.compose.nostr.nip30303.DialectEvent
 
 /**
  * What a room's key state is allowed to convince a member of.
@@ -555,7 +557,7 @@ class GroupKeyStateTest {
 
     /** An event of [kind] authored and signed by [author]'s room at [path]. */
     private fun signedByRoom(
-        kind: Int = DialectEvent.KIND,
+        kind: Int = TextNoteEvent.KIND,
         content: String = "isiZulu",
         tags: Array<Array<String>> = arrayOf(arrayOf("name", "isiZulu")),
         createdAt: Long = 1_700_000_500,
@@ -605,17 +607,18 @@ class GroupKeyStateTest {
 
     @Test
     fun `the verifier does not care what kind it is looking at`() {
-        // The point of splitting it out: a chronicle carries documents rather than
-        // key states, and none of the three checks knows the difference.
+        // The point of splitting it out: a chronicle carries the group's work
+        // rather than key states, and none of the three checks knows the
+        // difference.
         //
         // Note the last one. A GroupKeyStateEvent signed by the room passes here
-        // exactly as a dialect does, which is why the chronicle needs an allowlist
+        // exactly as a post does, which is why the chronicle needs an allowlist
         // of kinds on top of this and cannot treat "the group signed it" as
         // permission to apply it.
         listOf(
-            DialectEvent.KIND,
-            ArtifactEvent.KIND,
-            ChapterEvent.KIND,
+            TextNoteEvent.KIND,
+            MetadataEvent.KIND,
+            AdvertisedRelayListEvent.KIND,
             GroupKeyStateEvent.KIND
         ).forEach { kind ->
             assertTrue(
@@ -627,9 +630,9 @@ class GroupKeyStateTest {
 
     @Test
     fun `a rumor nobody signed is not a group signature`() {
-        // Every nip30303 event on the wire today is a rumor: the signature is
-        // empty and the author is the member who sent it, because what vouches
-        // for it is the MLS frame. Neither half survives this check, which is
+        // A member's message in a room is a rumor: the signature is empty and
+        // the author is the member who sent it, because what vouches for it is
+        // the MLS frame. Neither half survives this check, which is
         // what makes "the group signed it" mean something narrower than "it
         // arrived from the group".
         val member = PrivateKey(
@@ -642,13 +645,13 @@ class GroupKeyStateTest {
             id = EventHasher.hashId(
                 pubKey = memberPubKey,
                 createdAt = 1_700_000_500,
-                kind = DialectEvent.KIND,
+                kind = TextNoteEvent.KIND,
                 tags = tags,
                 content = "isiZulu"
             ),
             pubKey = memberPubKey,
             createdAt = 1_700_000_500,
-            kind = DialectEvent.KIND,
+            kind = TextNoteEvent.KIND,
             tags = tags,
             content = "isiZulu",
             sig = ""
@@ -668,13 +671,13 @@ class GroupKeyStateTest {
             id = EventHasher.hashId(
                 pubKey = chatRoomId,
                 createdAt = 1_700_000_500,
-                kind = DialectEvent.KIND,
+                kind = TextNoteEvent.KIND,
                 tags = tags,
                 content = "isiZulu"
             ),
             pubKey = chatRoomId,
             createdAt = 1_700_000_500,
-            kind = DialectEvent.KIND,
+            kind = TextNoteEvent.KIND,
             tags = tags,
             content = "isiZulu",
             sig = "9".repeat(128)
@@ -763,7 +766,8 @@ class GroupKeyStateTest {
         parent: String = parentChatRoomId,
         subgroupKey: String = thresholdPublicKey,
         certificatePath: List<Long> = path,
-        author: KeyMaterial = otherKeyMaterial
+        author: KeyMaterial = otherKeyMaterial,
+        extraTags: Array<Array<String>> = emptyArray()
     ): Event = signedByRoom(
         kind = SubgroupBirthCertificateEvent.KIND,
         content = subgroupChatRoomId,
@@ -774,7 +778,7 @@ class GroupKeyStateTest {
             adminPublicKeys = listOf("a".repeat(64), "b".repeat(64), "c".repeat(64)),
             name = "Translation team",
             path = certificatePath
-        ),
+        ) + extraTags,
         author = author
     )
 
@@ -883,6 +887,31 @@ class GroupKeyStateTest {
         val wrongKey = birthCertificate(subgroupKey = otherKey)
 
         assertNull(GroupKeyStateManager.stateFrom(chatRoomId, keyStateWithParent(certificate = wrongKey)))
+    }
+
+    @Test
+    fun `a state whose certificate's wallet policy does not read is dropped`() {
+        // Present and unreadable must not read as absent: an undecided child is
+        // offered both wallets, so a corrupt policy would hand it the one its
+        // parent took away. docs/subgroup-wallet-policy.md, Phase 5.
+        listOf(
+            arrayOf(arrayOf("wallet", "maybe")),
+            arrayOf(WalletPolicyTag.assemble(SubgroupWalletPolicy.GUARDED)),
+            arrayOf(WalletPolicyTag.assemble(SubgroupWalletPolicy.UNGUARDED), WalletPolicyTag.assemble(SubgroupWalletPolicy.UNGUARDED)),
+        ).forEach { extraTags ->
+            assertNull(
+                GroupKeyStateManager.stateFrom(chatRoomId, keyStateWithParent(certificate = birthCertificate(extraTags = extraTags))),
+                "a certificate with ${extraTags.joinToString { it.joinToString() }} was believed",
+            )
+        }
+    }
+
+    @Test
+    fun `a state whose certificate decides a wallet policy keeps it`() {
+        val unguarded = birthCertificate(extraTags = arrayOf(WalletPolicyTag.assemble(SubgroupWalletPolicy.UNGUARDED)))
+        val state = GroupKeyStateManager.stateFrom(chatRoomId, keyStateWithParent(certificate = unguarded))
+
+        assertEquals(unguarded.toJson(), state?.birthCertificateJson)
     }
 
     @Test

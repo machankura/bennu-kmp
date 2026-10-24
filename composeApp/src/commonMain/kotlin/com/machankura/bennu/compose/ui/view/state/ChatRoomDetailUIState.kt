@@ -1,14 +1,14 @@
 package com.machankura.bennu.compose.ui.view.state
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.managers.SubgroupManager
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
-import com.machankura.bennu.compose.nostr.GroupNostrProfile
-import com.machankura.bennu.compose.nostr.GroupPost
-import com.machankura.bennu.compose.nostr.GroupRelayList
 
 sealed interface ChatRoomDetailUIState {
     data class Loaded(
@@ -51,44 +51,19 @@ sealed interface ChatRoomDetailUIState {
          */
         val parentChatRoomId: HexKey? = null,
         /**
-         * The kind:0 the group signed about itself, or null while it has signed
-         * none.
-         *
-         * Its row sits under the room's identity and above its work, because that
-         * is what it is: the name and the picture the rest of nostr sees on the
-         * key the signing key row names. The row shows the name and the address;
-         * the profile itself is read on `GroupNostrProfileScreen`. Null is an
-         * ordinary state and the row says so -- a group has an identity from the
-         * moment it has a key and describes it whenever somebody gets round to it.
+         * What [parentChatRoomId] decided about this room's wallet at its birth,
+         * or null for a room with no certificate. Shown on the parent row,
+         * because it is a fact about where the room came from.
          */
-        val groupNostrProfile: GroupNostrProfile? = null,
+        val walletPolicy: WalletPolicyReading? = null,
         /**
-         * Where the group has said it lives on nostr, one entry per relay set.
-         *
-         * Beside the profile because they are the same kind of fact -- the group's
-         * own account of itself, signed by the group -- and read in the same breath
-         * by anybody checking whether the group is reachable. The row counts how
-         * many the group has agreed; the lists are read on `GroupRelaysScreen`.
-         *
-         * Empty only in a room that has none of this to say. Every other case has
-         * four entries, some of them unsigned; see `ChatRepository.groupRelayLists`.
+         * The delay [parentChatRoomId] gave its own leaf in this room's wallet,
+         * or null for a room whose certificate grants no keys.
          */
-        val groupRelayLists: List<GroupRelayList> = emptyList(),
-        /**
-         * What the group has said publicly, as itself, newest first.
-         *
-         * Under the relay lists because it is the thing they are *for*: the profile
-         * says who the group is, the relay lists say where to find it, and these
-         * are what a reader would find there. The row counts them; they are read
-         * on `GroupPostsScreen`. Empty in a group that has said nothing, which is
-         * every group until somebody proposes one.
-         */
-        val groupPosts: List<GroupPost> = emptyList(),
+        val guardianDelay: Long? = null,
         /**
          * The wallet this group has opened on the app's network, or null for one
-         * it has not. Under the identity block because it is not part of the
-         * group's account of itself on nostr -- nobody outside the room reads it --
-         * and the row says only whether it is open; the coins are read on
+         * it has not. The row says only whether it is open; the coins are read on
          * `GroupWalletScreen`.
          */
         val groupWallet: GroupWallet? = null,
@@ -100,21 +75,6 @@ sealed interface ChatRoomDetailUIState {
         val testNetworkWallet: GroupWallet? = null,
         /** Who holds a share of the group's Lightning wallet key, so removing one of them can say what it leaves. */
         val lightningParticipants: Set<HexKey> = emptySet(),
-        /**
-         * Whether this device could sign an event for the group, which on this
-         * screen gates the paste at the end of the identity block. Each of the
-         * three screens the rows open reads the same capability for its own gate.
-         *
-         * The same capability [canAddSubgroup] wants, and wanted for the same
-         * reason: proposing anything in the group's name is a signature by the
-         * group, and `FrostSigningManager.proposeSigningBatch` throws for a
-         * device holding no share of the key. It is not about permission -- any
-         * member with a share may propose -- and the quorum is what decides.
-         *
-         * A NIP-17 room is excluded by the same condition, since it has no key of
-         * its own to sign as and so no nostr identity to describe.
-         */
-        val canEditNostrProfile: Boolean = false,
         /**
          * Whether this device could open a subgroup here at all.
          *
@@ -141,6 +101,24 @@ sealed interface ChatRoomDetailUIState {
          * and nobody rejoins, so every write entrance is hidden and the room says so.
          */
         val isDisbanded: Boolean = false,
+        /**
+         * The member wallets this group guards, and the requests for one still
+         * waiting for a signer -- `docs/member-guarded-wallets.md`. Its own
+         * section, never mixed into [subgroups]: a row here is a person.
+         */
+        val memberWallets: List<MemberWalletManager.GroupMemberWallet> = emptyList(),
+        /** Whether this profile could ask this group to guard a wallet for it. */
+        val canAskForMemberWallet: Boolean = false,
+        /** Whether this device holds a share, and so can put a member's request to the group. */
+        val canSponsor: Boolean = false,
+        /**
+         * Whether this group guards its members' wallets, and at what delay --
+         * its newest member-wallet policy, or null for one it never signed.
+         * `docs/member-wallet-delay.md`.
+         */
+        val memberWalletPolicy: MemberWalletPolicyEvent.Policy? = null,
+        /** Whether to show that at all: a Marmot group, still going. */
+        val showsMemberWalletPolicy: Boolean = false,
     ): ChatRoomDetailUIState
 
     data class Error(

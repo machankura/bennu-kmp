@@ -236,6 +236,12 @@ address with a hidden script path is an address no member's device recognises â€
 which is the whole defence, and why the app never displays, accepts or signs for
 an address it did not derive.
 
+A subgroup's *guarded* wallet does have a tree -- one leaf per ancestor, see
+[group-wallet-guardians.md](./group-wallet-guardians.md) -- and the defence is the
+same with one word changed: every member derives every address, tree included,
+from the child's key and a certificate every member verifies, and compares it byte
+for byte. The tree is computed, never proposed.
+
 ### The rule this inherits, made more expensive
 
 Every tweak above is publicly computable from `K`. So the derivation note's rule
@@ -444,12 +450,13 @@ is a record that the group agreed, not a source of keys. The app never reads an
 address out of it.
 
 **Never broadcast.** The xpub on a public relay is the group's whole history on
-chain, to anyone. `BroadcastGroupSignedEventScreen` refuses this kind, and a test
-says it refuses it, because a refusal nobody tested is the one that disappears
-in a refactor of the broadcast list.
+chain, to anyone. `BroadcastGroupSignedEventScreen` refused this kind, and a test
+said it refused it. That screen has since been removed with the group's nostr
+profile, relay lists and posts, and nothing in the app now sends a group-signed
+event to a relay.
 
-`GroupWallet` is a read model over `GroupSignedEvent`, in the shape of
-`GroupRelayList.of`/`newestAmong`. There is no table: a wallet is a signed event
+`GroupWallet` is a read model over `GroupSignedEvent`, in the shape the
+since-removed `GroupRelayList.of`/`newestAmong` had. There is no table: a wallet is a signed event
 and a derivation.
 
 **Not batched** with anything. A wallet statement is what every spend proposal is
