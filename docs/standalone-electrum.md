@@ -11,9 +11,27 @@ without a node*, which named this plan as its follow-up. Neither changes:
 an nsec still cannot have a Lightning wallet. This plan gives it eyes on the chain, not a
 wallet of its own.
 
-**Planned**, not built. Written against `3aba04a0`, with the
-`lightning-kmp-app` submodule at `e0d2b82`. Four phases, one commit each, and a
-fifth that is a device check rather than code.
+**Built**, phases 1–4, one commit each: `9899c571`, `da48d7b0`, `3f5de588` and
+the commit that changed this paragraph. Written against `3aba04a0`, with the
+`lightning-kmp-app` submodule at `e0d2b82`, which the build did not touch.
+`StandaloneElectrum` is the loop and `IdentityElectrum` is where the nav host
+gets a client. The phases are kept as written; where the build chose differently
+the table below says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| the connect seam is a `suspend (ServerAddress, Duration) -> Unit` | an interface, `ElectrumLink`, with `connect`, `disconnect` and `stop`. The loop drops the connection on every change of control, and a test has to see that as a status, not a socket |
+| the resolution is a plain function the nav host calls inside `remember` | a class, `IdentityElectrum`, held for the app's life. A `remember` keyed on the identity computes the new client *before* `DisposableEffect` disposes the old one, so a switch between two nsec profiles would have had both open for a moment. The class stops the last before it makes the next |
+| the standalone client reads the network monitor | and starts it: `NetworkMonitor.start()` is otherwise called only by the node's daemon, so a device that opens an nsec profile first would never have learnt it was online. `start()` is idempotent on all three platforms |
+| `wallets` becomes non-null at every screen | at every screen but the profile's. `ActiveProfileScreen` and `MemberWalletsViewModel` keep a nullable `wallets`, because the previews and `ReadOnlyEntrancesJvmTest` compose the profile without an identity. In the app it is never null there |
+| the nav host passes a non-null `wallets` | it still holds a nullable one, null with no identity, and each wallet route opens with `groupOnchainWallets ?: return@composable`: the frame between a profile switch and the startup screen has no chain to show |
+| the tests that drove the refusal are rewritten or deleted | the addresses view model's *cannot watch* test is deleted; the group send view model's *no node* test became *no share*, the other way to be refused the form; the rest pass a `GroupOnchainWallets` over an empty `FakeElectrum` |
+| `GroupWalletViewModel`'s `watcher` | stays nullable: the tests default it, and nothing in the app passes null |
+
+A real Electrum server has not been reached through this client yet. Every phase
+was checked with `:composeApp:jvmTest` (1,485 tests),
+`:composeApp:compileDebugKotlinAndroid` and `m3-audit.sh --check`. Phase 5, the
+device check, has not been done.
 
 The headline: **every consumer already takes an `IElectrumClient`, and every
 "cannot watch" branch in the app is `wallets == null`. So the work is a connection

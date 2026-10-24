@@ -136,3 +136,7 @@ the subgroups note's Phase 10 followed through to the screens: read it after
 that phase, and its table of findings before any phase. Its second half
 removes the nip30303 documents and leaves the member chronicle built but
 carrying no kinds, so read it before building on the chronicle note.
+The standalone-electrum note is a phased plan that has been built, and is the
+group chain wallet note's *An identity without a node* answered: read that
+paragraph and the nsec sign-in note's *The constraint* first, then its seven
+decisions, and its table of where the build chose differently before the code.
