@@ -555,6 +555,13 @@ object SubgroupManager {
         val walletPolicy: WalletPolicyReading?
             get() = SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags)
 
+        /**
+         * The delay the parent gave its own leaf in the subgroup's wallet, or
+         * null for a certificate that grants no keys -- `docs/guardian-delay.md`.
+         */
+        val guardianDelay: Long?
+            get() = SubgroupBirthCertificateEvent.parseGuardians(certificate.tags)?.firstOrNull()?.delay
+
         val isJoined: Boolean get() = room != null
     }
 

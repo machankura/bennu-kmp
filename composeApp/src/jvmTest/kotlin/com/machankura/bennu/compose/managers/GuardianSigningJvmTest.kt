@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.ui.view.state.GuardedWalletRow
 import com.machankura.bennu.compose.database.model.GroupKeyState
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import androidx.room3.Room
@@ -558,6 +559,27 @@ class GuardianSigningJvmTest {
             val refused = GroupSpend.check(built.psbt.copy(global = built.psbt.global.copy(tx = atDefault)), guarded.account, guarded.spender(thresholdPublicKey))
             if (delay != GuardianDerivation.DEFAULT_DELAY) assertIs<GroupSpend.Result.Refused>(refused, "a delay of $delay")
         }
+    }
+
+    /**
+     * Two ancestors who gave the same wallet different delays: a coin 100 blocks
+     * deep is within the reach of the one at 12 and not the one at 4,320.
+     * docs/guardian-delay.md, Phase 7.
+     */
+    @Test
+    fun `a guarded wallet's reach is each ancestor's own delay`() {
+        val farKey = PrivateKey(ByteVector32(ByteArray(32) { 0x5e })).publicKey().toString()
+        val farRoom = SharedKeyDerivation.marmotGroupId(farKey)
+        val inherited = GuardianDerivation.grant(farKey, farRoom, emptyList(), roomId, delay = 4_320)
+        val guardians = GuardianDerivation.grant(thresholdPublicKey, roomId, inherited, guardedChildRoomId, delay = 12)
+        val near = assertNotNull(GuardianManager.verify(guardedStatement(guardians), roomId, thresholdPublicKey))
+        val far = near.copy(ancestorChatRoomId = farRoom)
+        assertEquals(12L, near.delay)
+        assertEquals(4_320L, far.delay)
+
+        val state = fundedState(near.account, fundingOf(near.account), height = 100, tip = 199)
+        assertEquals(Satoshi(50_000), GuardedWalletRow(near, state).withinReach)
+        assertEquals(Satoshi(0), GuardedWalletRow(far, state).withinReach)
     }
 
     @Test

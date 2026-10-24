@@ -146,6 +146,17 @@ class GroupSendViewModel(
     fun amount(): SatsInput = parseSats(amountField.text)
 
     /** The confirmed coins no open spend holds, summed, or null before Electrum has answered. */
+    /**
+     * How long a coin has to have waited before this group, as a guardian, can
+     * spend it -- its own leaf's delay -- or null when the group spends its own
+     * wallet. `docs/guardian-delay.md`.
+     */
+    fun guardianDelay(): Long? {
+        val state = groupSendUIState as? GroupSendUIState.Ready ?: return null
+        val guardian = state.spender as? GroupSpend.Spender.Guardian ?: return null
+        return state.wallet.account.guardians.getOrNull(guardian.position)?.delay
+    }
+
     fun spendable(): Satoshi? {
         val state = groupSendUIState as? GroupSendUIState.Ready ?: return null
         return state.walletState?.let { GroupSpendBuilder.spendableBalance(it, state.reserved, state.spender) }

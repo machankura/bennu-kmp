@@ -67,6 +67,14 @@ object GuardianManager {
         /** Where the ancestor sits among the guardians: whose leaf, in every address, is its. */
         val position: Int get() = account.guardians.indexOfFirst { it.chatRoomId.equals(ancestorChatRoomId, ignoreCase = true) }
 
+        /**
+         * How long a coin here waits before this ancestor can take it: the delay
+         * on its own leaf, which the group that granted it chose and which two of
+         * an ancestor's descendants can have set differently.
+         * `docs/guardian-delay.md`.
+         */
+        val delay: Long get() = account.guardians[position].delay
+
         /** The ancestor as the spender of a spend from this wallet, signing as [thresholdPublicKey] -- null to only build one. */
         fun spender(thresholdPublicKey: HexKey? = null): GroupSpend.Spender.Guardian =
             GroupSpend.Spender.Guardian(position = position, lineage = lineage, thresholdPublicKey = thresholdPublicKey, name = name)

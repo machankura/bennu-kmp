@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.this_group_s_delay_in_this_wallet
+import bennu.composeapp.generated.resources.a_group_above_this_one
+import bennu.composeapp.generated.resources.guardian_after
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
 import bennu.composeapp.generated.resources.the_group_above_decided_this_wallet_is_not_guarded
 import bennu.composeapp.generated.resources.the_group_above_decided_this_wallet_is_guarded
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
@@ -258,6 +262,9 @@ fun GroupWalletScreen(
                                     guardedOffered = state.guarded != null,
                                     plainOffered = state.offersPlain,
                                     decided = (state.policy as? WalletPolicyReading.Decided)?.policy,
+                                    guardians = state.guarded?.account?.guardians.orEmpty(),
+                                    guardianNames = state.guardianNames,
+                                    chain = chain,
                                     onOpen = { guarded ->
                                         groupWalletViewModel.openWallet(
                                             guarded = guarded,
@@ -359,6 +366,10 @@ private fun OpenWalletAction(
     plainOffered: Boolean,
     /** What the room's parent decided at its birth, or null when it left it to the room. */
     decided: SubgroupWalletPolicy?,
+    /** The guardians a guarded wallet would name, nearest first, each with its own delay. */
+    guardians: List<GuardianDerivation.Guardian>,
+    guardianNames: Map<String, String>,
+    chain: Chain,
     onOpen: (guarded: Boolean) -> Unit,
 ) {
     Column(
@@ -381,14 +392,12 @@ private fun OpenWalletAction(
             // strand a quorum. See docs/subgroup-wallet-policy.md.
             Text(
                 text = when (decided) {
-                    SubgroupWalletPolicy.GUARDED -> stringResource(
-                        Res.string.the_group_above_decided_this_wallet_is_guarded,
-                        GuardianDerivation.DEFAULT_DELAY.toInt()
-                    )
+                    SubgroupWalletPolicy.GUARDED -> stringResource(Res.string.the_group_above_decided_this_wallet_is_guarded)
                     SubgroupWalletPolicy.UNGUARDED -> stringResource(Res.string.the_group_above_decided_this_wallet_is_not_guarded)
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
+            if (decided == SubgroupWalletPolicy.GUARDED) GuardianDelays(guardians, guardianNames, chain)
             val guarded = decided == SubgroupWalletPolicy.GUARDED
             if (guarded && guardedOffered || !guarded && plainOffered) {
                 Button(onClick = { onOpen(guarded) }, enabled = !isPending) {
@@ -403,12 +412,10 @@ private fun OpenWalletAction(
             // it rather than hidden: being guarded is then the group's own choice,
             // and its quorum signing the statement is it making that choice.
             Text(
-                text = stringResource(
-                    Res.string.the_groups_above_this_one_have_agreed_to_guard_it,
-                    GuardianDerivation.DEFAULT_DELAY.toInt()
-                ),
+                text = stringResource(Res.string.the_groups_above_this_one_have_agreed_to_guard_it),
                 style = MaterialTheme.typography.bodyMedium,
             )
+            GuardianDelays(guardians, guardianNames, chain)
             Button(onClick = { onOpen(true) }, enabled = !isPending) {
                 Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
                 Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
@@ -455,14 +462,14 @@ private fun OpenWallet(
 
         if (state.wallet.account.isGuarded) {
             item {
-                Text(
-                    text = stringResource(
-                        Res.string.guarded_the_groups_above_this_one_can_spend,
-                        GuardianDerivation.DEFAULT_DELAY.toInt()
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+                    Text(
+                        text = stringResource(Res.string.guarded_the_groups_above_this_one_can_spend),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    GuardianDelays(state.wallet.account.guardians, state.guardianNames, state.wallet.chain)
+                }
             }
         }
 
@@ -669,7 +676,7 @@ private fun LazyListScope.guardianItems(
         }
         item {
             Text(
-                text = stringResource(Res.string.wallets_of_groups_below_this_one, GuardianDerivation.DEFAULT_DELAY.toInt()),
+                text = stringResource(Res.string.wallets_of_groups_below_this_one),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -679,10 +686,15 @@ private fun LazyListScope.guardianItems(
                 leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
                 headlineContent = { Text(row.wallet.name ?: stringResource(Res.string.a_subgroup), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingContent = {
-                    Text(
-                        row.withinReach?.let { stringResource(Res.string.s_sats_within_this_group_s_reach, it.grouped()) }
-                            ?: stringResource(Res.string.balance_not_known_yet)
-                    )
+                    Column {
+                        Text(
+                            row.withinReach?.let { stringResource(Res.string.s_sats_within_this_group_s_reach, it.grouped()) }
+                                ?: stringResource(Res.string.balance_not_known_yet)
+                        )
+                        // This group's own leaf, which two of its descendants can
+                        // have set differently. docs/guardian-delay.md.
+                        Text(stringResource(Res.string.this_group_s_delay_in_this_wallet, delayText(row.wallet.delay, row.wallet.chain)))
+                    }
                 },
                 trailingContent = onSpend?.let { spend ->
                     {
@@ -708,6 +720,31 @@ private fun LazyListScope.guardianItems(
                         Text(stringResource(Res.string.share))
                     }
                 },
+            )
+        }
+    }
+}
+
+/**
+ * Each guardian of a guarded wallet with its own delay, nearest first:
+ * *#Council: after 144 blocks, about 1 day*. One sentence with one number in it
+ * stopped being true once each group chose its own -- `docs/guardian-delay.md`.
+ */
+@Composable
+private fun GuardianDelays(
+    guardians: List<GuardianDerivation.Guardian>,
+    names: Map<String, String>,
+    chain: Chain,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+        guardians.forEach { guardian ->
+            Text(
+                text = stringResource(
+                    Res.string.guardian_after,
+                    names[guardian.chatRoomId] ?: stringResource(Res.string.a_group_above_this_one),
+                    delayText(guardian.delay, chain),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }

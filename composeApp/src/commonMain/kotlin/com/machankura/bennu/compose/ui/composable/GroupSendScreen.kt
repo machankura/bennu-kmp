@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.only_coins_confirmed_for_can_be_spent
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
 import bennu.composeapp.generated.resources.while_the_wallet_is_new_at_most_s_sats
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -222,6 +224,11 @@ fun GroupSendScreen(
                                         Text(problemWith(amountProblem, chain))
                                     } else Column {
                                         spendable?.let { Text(stringResource(Res.string.s_sats_confirmed_and_free_to_spend, it.grouped())) }
+                                        // Why a guardian's balance can be lower than the
+                                        // wallet's: only coins past its own leaf's lock.
+                                        groupSendViewModel.guardianDelay()?.let {
+                                            Text(stringResource(Res.string.only_coins_confirmed_for_can_be_spent, delayText(it, chain)))
+                                        }
                                         cap?.let { Text(stringResource(Res.string.while_the_wallet_is_new_at_most_s_sats, it.grouped())) }
                                     }
                                 }

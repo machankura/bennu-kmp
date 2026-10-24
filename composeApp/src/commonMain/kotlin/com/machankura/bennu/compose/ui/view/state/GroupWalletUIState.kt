@@ -4,7 +4,6 @@ import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.managers.GroupWalletManager
-import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.managers.GuardianManager
 import fr.acinq.bitcoin.Satoshi
 import fr.acinq.lightning.utils.sum
@@ -38,6 +37,8 @@ sealed interface GroupWalletUIState {
         val canSign: Boolean,
         val guarded: GroupWalletManager.GuardedOpening? = null,
         val policy: WalletPolicyReading? = null,
+        /** What this device calls each guardian's room, by room id, for the ones it holds. */
+        val guardianNames: Map<String, String> = emptyMap(),
         /** Whether a plain wallet may be opened: false only when the parent decided this one is guarded. */
         val offersPlain: Boolean = true,
         /** Guarded wallets of groups below this one. A group with no wallet of its own can still guard others'. */
@@ -65,6 +66,8 @@ sealed interface GroupWalletUIState {
         val guardedWallets: List<GuardedWalletRow> = emptyList(),
         /** Guarded statements this device can carry to the groups above. */
         val shareable: List<GuardianManager.Shareable> = emptyList(),
+        /** What this device calls each guardian's room, by room id, for the ones it holds. */
+        val guardianNames: Map<String, String> = emptyMap(),
     ): GroupWalletUIState
 
     data class Error(
@@ -82,11 +85,12 @@ data class GuardedWalletRow(
 ) {
     /**
      * What this group could spend now: coins confirmed at least as deep as its
-     * leaf's lock. Null while the chain is not known.
+     * own leaf's lock -- not the default's, since the group that granted the
+     * leaf chose it. Null while the chain is not known.
      */
     val withinReach: Satoshi?
         get() = walletState?.let { state ->
-            state.utxos.filter { state.confirmations(it) >= GuardianDerivation.DEFAULT_DELAY }.map { it.amount }.sum()
+            state.utxos.filter { state.confirmations(it) >= wallet.delay }.map { it.amount }.sum()
         }
 }
 
