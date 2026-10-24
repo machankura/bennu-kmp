@@ -15,6 +15,7 @@ silent, or a decision that looked arbitrary and was not.
 | [group-send-an-amount.md](./group-send-an-amount.md) | sending an amount in sats from the group's wallet, with change — why the gate as written could never lift and is removed in favour of the mainnet cap, the decimal point the gated form multiplies by ten, and change addresses reserved like coins |
 | [group-wallet-guardians.md](./group-wallet-guardians.md) | letting an ancestor group spend from a subgroup's wallet through a taproot leaf — why the parent signs the guardian keys into the child's certificate, why every inherited key is derived one step further per child, and why every ancestor waits 12 blocks |
 | [subgroup-wallet-policy.md](./subgroup-wallet-policy.md) | the parent deciding, at a subgroup's birth, whether its wallet is guarded or unguarded — why the choice is signed three times, why *unguarded* means no keys in the certificate, why a guarded group's subgroups are all guarded, and why the rule is every honest client's rather than the chain's |
+| [guardian-delay.md](./guardian-delay.md) | a parent choosing how long a coin waits before a guardian can take it, from 6 blocks to BIP68's 65,535 -- why each ancestor keeps the delay it chose as its key goes down the tree, what a long delay gives the child, and how a number of blocks is said in time |
 | [group-wallet-addresses.md](./group-wallet-addresses.md) | listing the group wallet's receive addresses as Phoenix lists its swap-in ones — why the list stops at the current address plus two, why a paid address past that still shows, and why a used address can be copied but never shown as a QR code |
 | [frost-session-resend.md](./frost-session-resend.md) | asking the members who never got a signing proposal to look again — why a proposer can repeat only what it wrote, why a member's availability signal needs no repeating, and the one half that has to come from the silent member's own device |
 | [marmot-membership.md](./marmot-membership.md) | how members join an MLS group, and the epoch race that makes a missing member look like a successful invite |
@@ -57,6 +58,10 @@ The subgroup-wallet-policy note is a phased plan that has been built. It
 reads as the guardians note's *whose choice it is* reversed: read
 that section, then this note's Phase 0, whose five decisions shape every phase
 after it, and its table of where the build chose differently before the code.
+The guardian-delay note is a phased plan that has not been built. It changes
+the guardians note's *Why 12, and why for everybody* and reuses the
+wallet-policy note's plumbing one field further: read both, then its table of
+what is already per leaf, then its Phase 0.
 The Material Design note is a phased plan that has not been built, and is the
 only one about what the app looks like rather than what it does; read the
 jvm-target note first if you want to know why its adaptive-layout phase exists.
