@@ -11,7 +11,6 @@ import com.machankura.bennu.compose.nostr.subgroup.SubgroupBirthCertificateEvent
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.nostr.wallet.GuardedWalletNoticeEvent
 import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
-import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
 import com.machankura.bennu.compose.wallet.GroupSpend
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -335,35 +334,69 @@ object GuardianManager {
             }
 
         return candidates.mapNotNull { candidate ->
-            val rooms = targetsFor(database, candidate.statement, excluding = chatRoomId)
+            val rooms = targetsFor(database, candidate.statement, fromChatRoomId = chatRoomId)
             rooms.takeIf { it.isNotEmpty() }?.let { candidate.copy(rooms = it) }
         }
     }
 
-    /** The guardians [statement] names, nearest first: a subgroup's statement's, or a member wallet certificate's. */
-    private fun guardiansNamedIn(statement: Event): List<GuardianDerivation.Guardian> = when (statement.kind) {
-        MemberWalletCertificateEvent.KIND -> GuardianTag.parseAll(statement.tags).orEmpty()
-        else -> GroupWalletStatementEvent.read(statement.tags, statement.content)?.guardians.orEmpty()
+    /**
+     * The groups above [fromChatRoomId] that [statement] should be told to and
+     * this device can tell: [upwardOf] the room, Marmot rooms this device holds,
+     * belonging to the same profile as the room it is told from -- one database
+     * holds every profile, and a device must never post into a room as a
+     * profile that is not the one in it -- and not told yet. Nothing for a
+     * statement this device does not believe ([believable]).
+     */
+    private suspend fun targetsFor(database: BennuDatabase, statement: Event, fromChatRoomId: String): List<LocalChatRoom> {
+        val believed = believable(statement) ?: return emptyList()
+        val profile = database.chatRoomDao().findChatRoomById(fromChatRoomId)?.chatRoom?.userPublicKey
+
+        return upwardOf(believed.guardians, fromChatRoomId)
+            .mapNotNull { database.chatRoomDao().findChatRoomById(it) }
+            .filter { it.chatRoom.mlsGroupState != null }
+            .filter { profile == null || it.chatRoom.userPublicKey.equals(profile, ignoreCase = true) }
+            .filterNot { room -> told(database, room.chatRoom.id, statement.id) }
     }
 
     /**
-     * The guardian rooms of [statement] this device can post into and has not
-     * told it yet. Only Marmot rooms: a guardian is a group with a key, and a
-     * group with a key has an MLS room.
+     * Whether [chatRoomId] holds the statement [statementId] in any form: a
+     * notice carrying it, or the signed event itself -- which is how a group
+     * holds a member wallet certificate it signed, and never as a notice.
      */
-    private suspend fun targetsFor(database: BennuDatabase, statement: Event, excluding: String): List<LocalChatRoom> {
-        return guardiansNamedIn(statement)
-            .map { it.chatRoomId }
-            .filterNot { it.equals(excluding, ignoreCase = true) }
-            .mapNotNull { database.chatRoomDao().findChatRoomById(it) }
-            .filter { it.chatRoom.mlsGroupState != null }
-            .filterNot { room -> alreadyTold(database, room.chatRoom.id, statement.id) }
-    }
+    internal suspend fun told(database: BennuDatabase, chatRoomId: String, statementId: HexKey): Boolean =
+        database.groupSignedEventDao().getById(statementId)?.chatRoomId.equals(chatRoomId, ignoreCase = true) ||
+            database.marmotInnerEventDao()
+                .getByChatRoomAndKinds(chatRoomId, listOf(GuardedWalletNoticeEvent.KIND))
+                .any { Event.fromJsonOrNull(it.content)?.id == statementId }
 
-    private suspend fun alreadyTold(database: BennuDatabase, chatRoomId: String, statementId: HexKey): Boolean =
-        database.marmotInnerEventDao()
-            .getByChatRoomAndKinds(chatRoomId, listOf(GuardedWalletNoticeEvent.KIND))
-            .any { Event.fromJsonOrNull(it.content)?.id == statementId }
+    /**
+     * Tells every group above [chatRoomId] that this device can tell, and that
+     * has not been told, about [statement] -- as the profile that is in
+     * [chatRoomId]. `docs/guarded-wallet-forwarding.md`, Phase 2.
+     *
+     * With [whenElected], only the groups this device is the elected sender for
+     * ([electedSender] over the members of both rooms, as this device's
+     * participant lists have them, itself always among them): the moment a wallet
+     * arrives every device in both rooms has it, and only one of them should
+     * post at once. The catch-up passes false, and tells whatever is still left.
+     *
+     * Returns the rooms told.
+     */
+    suspend fun forward(database: BennuDatabase, statement: Event, chatRoomId: String, whenElected: Boolean): List<LocalChatRoom> {
+        val sender = database.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom?.userPublicKey ?: return emptyList()
+        val members = database.participantDao().findParticipantsByChatRoomId(chatRoomId).map { it.participantPublicKey.lowercase() }.toSet()
+
+        val targets = targetsFor(database, statement, fromChatRoomId = chatRoomId).filter { target ->
+            if (!whenElected) return@filter true
+            val both = database.participantDao().findParticipantsByChatRoomId(target.chatRoom.id)
+                .map { it.participantPublicKey.lowercase() }
+                .filter { it in members }
+                .toSet() + sender.lowercase()
+            electedSender(both).equals(sender, ignoreCase = true)
+        }
+        if (targets.isNotEmpty()) share(database, statement, targets, sender)
+        return targets
+    }
 
     /**
      * Tells every room in [rooms] about [statement], as [userPublicKey]: one
