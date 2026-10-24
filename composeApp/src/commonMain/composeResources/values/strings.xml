@@ -671,6 +671,9 @@
     <string name="this_group">this group</string>
     <string name="a_group_below_s">a group below %1$s</string>
     <string name="a_group_below_this_one">a group below this one</string>
+    <string name="another_group">another group</string>
+    <string name="the_wallet_guarded_by_s">the wallet guarded by %1$s</string>
+    <string name="spend_from_s_as_s">Spend from %1$s as %2$s</string>
     <string name="members_wallets">Members' wallets</string>
     <string name="s_comma_s">%1$s, %2$s</string>
     <plurals name="n_wallets">
