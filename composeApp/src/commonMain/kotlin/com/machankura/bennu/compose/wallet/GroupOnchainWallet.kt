@@ -230,6 +230,35 @@ data class GroupWalletState(
             }
     }
 
+    /**
+     * The receive address an ancestor pays when it funds this wallet: the lowest
+     * unused index from [GroupOnchainWallet.ADDRESSES_AHEAD] past the current one
+     * that [reserved] -- the indices open fundings already pay -- does not hold,
+     * and that the wallet watches. Null before Electrum has answered, for the
+     * reason [receiveAddress] is, and when every such index is held.
+     *
+     * Not the current address: the wallet's own members are handing that one
+     * out, and every device computes the same one. Starting at the top of the
+     * address list's window and going up keeps an ancestor out of their way.
+     * See `docs/guarded-wallet-funding.md`, D2.
+     */
+    fun fundingAddress(reserved: Set<Long> = emptySet()): GroupAddress? {
+        val current = receive.firstUnusedDerivedAddress?.second?.index ?: return null
+        val window = (current + GroupOnchainWallet.ADDRESSES_AHEAD) until (current + GroupOnchainWallet.RECEIVE_LOOKAHEAD.toInt())
+        val (address, index) = receive.addresses.entries
+            .filterNot { it.value.alreadyUsed }
+            .mapNotNull { (address, addressState) -> addressState.meta.indexOrNull?.let { address to it } }
+            .filter { (_, index) -> index in window && index.toLong() !in reserved }
+            .minByOrNull { (_, index) -> index }
+            ?: return null
+        return GroupAddress(
+            derivation = GroupWalletDerivation.derive(account, GroupWalletDerivation.RECEIVE, index.toLong()),
+            address = address,
+            status = GroupAddress.Status.NEXT,
+            balance = Satoshi(0),
+        )
+    }
+
     /** Whether Electrum has answered for any change address yet: before it has, there is no next one to name. */
     val changeKnown: Boolean get() = change.addresses.values.any { !it.alreadyUsed }
 

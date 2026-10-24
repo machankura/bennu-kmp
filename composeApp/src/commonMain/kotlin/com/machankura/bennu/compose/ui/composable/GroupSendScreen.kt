@@ -8,6 +8,18 @@ import bennu.composeapp.generated.resources.s_sats_come_back_to_this_wallet_as_c
 import bennu.composeapp.generated.resources.this_wallet_has_nothing_confirmed_to_spend
 import bennu.composeapp.generated.resources.this_wallet_doesn_t_have_that_much_confirmed
 import bennu.composeapp.generated.resources.while_the_wallet_is_new_at_most_s_sats
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.ui.text.font.FontFamily
+import bennu.composeapp.generated.resources.address_s
+import bennu.composeapp.generated.resources.finding_an_address_in_s_s_wallet
+import bennu.composeapp.generated.resources.fund_s_s_guarded_wallet
+import bennu.composeapp.generated.resources.sends_s_sats_to_s_s_guarded_wallet_with_a_fee_of_s_sats
+import bennu.composeapp.generated.resources.this_group_can_spend_these_coins_again
+import bennu.composeapp.generated.resources.to
+import bennu.composeapp.generated.resources.s_s_guarded_wallet
+import bennu.composeapp.generated.resources.wait_for_this_group_s_open_payments_to_s
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.ui.view.state.FundingTarget
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.ui.semantics.Role
@@ -119,6 +131,7 @@ fun GroupSendScreen(
     frostSigningRepository: FrostSigningRepository,
     wallets: GroupOnchainWallets?,
     guardedChatRoomId: String? = null,
+    fundChatRoomId: String? = null,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
     onNavigateBack: () -> Unit,
 ) {
@@ -132,6 +145,7 @@ fun GroupSendScreen(
             frostSigningRepository = frostSigningRepository,
             wallets = wallets,
             guardedChatRoomId = guardedChatRoomId,
+            fundChatRoomId = fundChatRoomId,
         )
     )
 
@@ -148,11 +162,17 @@ fun GroupSendScreen(
             TopAppBar(
                 title = {
                     // Whose wallet is in the title: a guardian's spend takes a
-                    // descendant's coins, and nothing else on the form says so.
-                    val guardian = ((groupSendViewModel.groupSendUIState as? GroupSendUIState.Ready)?.spender as? GroupSpend.Spender.Guardian)
+                    // descendant's coins, and nothing else on the form says so --
+                    // and a funding pays one, which the title says the same way.
+                    val ready = groupSendViewModel.groupSendUIState as? GroupSendUIState.Ready
+                    val guardian = ready?.spender as? GroupSpend.Spender.Guardian
+                    val funded = ready?.funding?.wallet
                     Text(
-                        text = if (guardian == null) stringResource(Res.string.send_from_the_group_s_wallet)
-                            else stringResource(Res.string.spend_from_s_s_guarded_wallet, guardian.name ?: stringResource(Res.string.a_subgroup)),
+                        text = when {
+                            guardian != null -> stringResource(Res.string.spend_from_s_s_guarded_wallet, guardian.name ?: stringResource(Res.string.a_subgroup))
+                            funded != null -> stringResource(Res.string.fund_s_s_guarded_wallet, funded.displayName ?: stringResource(Res.string.a_subgroup))
+                            else -> stringResource(Res.string.send_from_the_group_s_wallet)
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -185,6 +205,9 @@ fun GroupSendScreen(
                 ) {
                     val preview = groupSendViewModel.preview()
 
+                    // A funding's destination is fixed, not typed: the title names
+                    // the wallet, and an address field could make it pay another.
+                    // A funded wallet's address not known yet is said on its card.
                     SpendForm(
                         addressField = groupSendViewModel.addressField,
                         amountField = groupSendViewModel.amountField,
@@ -196,6 +219,9 @@ fun GroupSendScreen(
                         amountProblem = preview?.takeIf { groupSendViewModel.isAboutTheAmount(it) },
                         coinsKnown = state.walletState != null,
                         chain = chain,
+                        destination = state.funding?.let { funding -> { FundingDestination(funding) } },
+                        fundedName = state.funding?.wallet?.let { it.displayName ?: stringResource(Res.string.a_subgroup) },
+                        waitingOnFunding = state.funding != null && state.funding.address == null,
                     )
 
                     Text(
@@ -241,7 +267,9 @@ fun GroupSendScreen(
  * its quorum, a member signs alone.
  *
  * [ownWallet] is a member spending their own guarded wallet, which changes the
- * words -- "your coins", "this wallet" -- and nothing else.
+ * words -- "your coins", "this wallet" -- and nothing else. [destination], when
+ * there is one, takes the address field's place: a funding pays a wallet the
+ * form names rather than an address somebody types.
  */
 @Composable
 internal fun SpendForm(
@@ -258,10 +286,15 @@ internal fun SpendForm(
     coinsKnown: Boolean,
     chain: Chain,
     ownWallet: Boolean = false,
+    destination: (@Composable () -> Unit)? = null,
+    /** The wallet a funding pays, as the preview names it. */
+    fundedName: String? = null,
+    /** A funding whose address is not known yet: its card says so, and there is no preview to show. */
+    waitingOnFunding: Boolean = false,
 ) {
     // No column of its own: the fields go into the caller's, under its spacing,
     // exactly as they did before the form was shared.
-    OutlinedTextField(
+    destination?.invoke() ?: OutlinedTextField(
         modifier = Modifier.fillMaxWidth(),
         state = addressField,
         lineLimits = TextFieldLineLimits.SingleLine,
@@ -319,18 +352,70 @@ internal fun SpendForm(
     // Still finding change is still finding coins: neither is anything to correct.
     if (!coinsKnown || preview == GroupSpendBuilder.Result.FindingChange) {
         LoadingDataIndicator(fillScreen = false, text = stringResource(if (ownWallet) Res.string.finding_your_coins else Res.string.finding_the_group_s_coins))
-    } else if (amountProblem == null) {
-        preview?.let { SendPreview(it, chain, ownWallet) }
+    } else if (amountProblem == null && !waitingOnFunding) {
+        preview?.let { SendPreview(it, chain, ownWallet, fundedName) }
     }
 }
 
-/** What the form would build, or why it cannot. */
+/**
+ * Where a funding goes: the descendant's wallet, the address in it this send
+ * pays and its index, and what the group keeps over the coins once they land.
+ * While the address is not known yet, or every one is held, it says that instead.
+ */
 @Composable
-private fun SendPreview(result: GroupSpendBuilder.Result, chain: Chain, ownWallet: Boolean) {
+private fun FundingDestination(funding: FundingTarget) {
+    val name = funding.wallet.displayName ?: stringResource(Res.string.a_subgroup)
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(MaterialTheme.spacing.containerPadding),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap),
+        ) {
+            Text(text = stringResource(Res.string.to), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(text = stringResource(Res.string.s_s_guarded_wallet, name), style = MaterialTheme.typography.titleMedium)
+            val address = funding.address
+            when {
+                address != null -> {
+                    Text(
+                        text = address.address,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                        maxLines = 1,
+                        overflow = TextOverflow.MiddleEllipsis,
+                    )
+                    Text(
+                        text = stringResource(Res.string.address_s, address.derivation.index.toString()),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                funding.allHeld -> Text(
+                    text = stringResource(Res.string.wait_for_this_group_s_open_payments_to_s, name),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                else -> LoadingDataIndicator(fillScreen = false, text = stringResource(Res.string.finding_an_address_in_s_s_wallet, name))
+            }
+            // What funding a guarded wallet means for this group: the coins come
+            // back within its reach, through its leaf, after the lock.
+            Text(
+                text = stringResource(Res.string.this_group_can_spend_these_coins_again, GuardianDerivation.ANCESTOR_DELAY.toInt()),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** What the form would build, or why it cannot. [fundedName] names the wallet a funding pays. */
+@Composable
+private fun SendPreview(result: GroupSpendBuilder.Result, chain: Chain, ownWallet: Boolean, fundedName: String? = null) {
     when (result) {
         is GroupSpendBuilder.Result.Built -> Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
             Text(
-                text = stringResource(Res.string.sends_s_sats_with_a_fee_of_s_sats, result.amount.grouped(), result.fee.grouped()),
+                text = if (result.funded != null && fundedName != null) {
+                    stringResource(Res.string.sends_s_sats_to_s_s_guarded_wallet_with_a_fee_of_s_sats, result.amount.grouped(), fundedName, result.fee.grouped())
+                } else {
+                    stringResource(Res.string.sends_s_sats_with_a_fee_of_s_sats, result.amount.grouped(), result.fee.grouped())
+                },
                 style = MaterialTheme.typography.bodyLarge,
             )
             result.change?.let { change ->

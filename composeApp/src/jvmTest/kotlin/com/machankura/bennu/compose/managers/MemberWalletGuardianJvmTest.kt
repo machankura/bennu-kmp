@@ -202,4 +202,38 @@ class MemberWalletGuardianJvmTest {
         val early = unsigned.updateWitness(0, input.witness(signWith(parent, input.cache, sighash)))
         assertFails { early.correctlySpends(checked.inputs.associate { it.outPoint to it.txOut }, ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS) }
     }
+
+    @Test
+    fun `a group funds its member's wallet, and its signers read where the money goes`(): Unit = runBlocking {
+        GroupFixtures.seedProfile(db, memberPublicKey, name = "alice")
+        inRoom(group, guardedCertificate(parent, group))
+        fileSigned(certificate())
+        val wallet = GuardianManager.guardedWalletsOf(db, groupRoom).single()
+
+        // The group's own wallet, with one coin to fund from.
+        val own = GroupWalletDerivation.account(thresholdKeyOf(group), chain)
+        val coin = GroupWalletDerivation.derive(own, GroupWalletDerivation.RECEIVE, 0)
+        val funding = Transaction(2, listOf(TxIn(OutPoint(TxId(ByteVector32(ByteArray(32) { 5 })), 0), ByteVector.empty, 0xffffffffL)), listOf(TxOut(Satoshi(90_000), coin.pubkeyScript)), 0)
+        val meta = WalletState.AddressMeta.Derived(0)
+        val ownState = GroupWalletState(
+            own,
+            WalletState(mapOf(coin.address(chain) to WalletState.AddressState(meta, true, listOf(WalletState.Utxo(funding.txid, 0, 100, funding, meta))))),
+            WalletState(mapOf(GroupWalletDerivation.derive(own, GroupWalletDerivation.CHANGE, 0).address(chain) to WalletState.AddressState(WalletState.AddressMeta.Derived(0), false, emptyList()))),
+            tipHeight = 110,
+        )
+
+        // The member's address two past their current one.
+        val target = GroupWalletDerivation.derive(wallet.account, GroupWalletDerivation.RECEIVE, 2)
+        val built = assertIs<GroupSpendBuilder.Result.Built>(
+            GroupSpendBuilder.send(ownState, GroupSpendBuilder.Destination.Funding(wallet.account, target), Satoshi(20_000), 3L, emptySet())
+        )
+        val checked = assertIs<GroupSpend.Result.Ok>(GroupSpend.check(built.psbt, own)).checked
+        val reading = assertIs<GroupSpend.FundingReading.Ok>(GroupSpend.fundingsOf(checked, listOf(wallet)))
+
+        val funded = reading.fundings.single()
+        assertEquals(walletId, funded.wallet.descendantChatRoomId)
+        assertEquals(target.pubkeyScript, checked.tx.txOut[funded.outputIndex].publicKeyScript)
+        val summary = com.machankura.bennu.compose.text.ProposedSpend.summarize(checked.copy(fundings = reading.fundings), chain)
+        assertEquals("Fund @alice's guarded wallet", summary.label)
+    }
 }

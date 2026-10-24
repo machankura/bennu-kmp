@@ -453,7 +453,8 @@ the group does not un-know a key*, inherited one level down.
 **It does not tell the child before it happens**, and it does not constrain where
 the coins go. "Only back into the child, at a new address" is a covenant, and
 there is none on mainnet to write it with (`OP_CHECKTEMPLATEVERIFY`,
-`OP_VAULT`).
+`OP_VAULT`). The other direction is supported: an ancestor paying coins *into*
+a guarded wallet is [guarded-wallet-funding.md](./guarded-wallet-funding.md).
 
 ## Appendix — what was considered and rejected
 

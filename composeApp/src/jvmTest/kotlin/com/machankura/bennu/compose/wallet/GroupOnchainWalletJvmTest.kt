@@ -7,6 +7,7 @@ import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.bitcoin.Satoshi
 import fr.acinq.lightning.blockchain.electrum.HeaderSubscriptionResponse
+import fr.acinq.lightning.blockchain.electrum.WalletState
 import fr.acinq.secp256k1.Hex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -241,5 +242,80 @@ class GroupOnchainWalletJvmTest {
         assertEquals(GroupAddress.Status.USED, used.status)
         assertEquals(Satoshi(7_000), used.balance)
         assertEquals(before.listed(), state.listed())
+    }
+
+    @Test
+    fun `a fresh wallet is funded two past the current address`() {
+        val wallet = GroupOnchainWallet(account, FakeElectrum(), scope)
+
+        val state = eventually { wallet.state.first { it.receive.addresses.size == GroupOnchainWallet.RECEIVE_LOOKAHEAD.toInt() } }
+        val funding = state.fundingAddress()!!
+        assertEquals(receive(2), funding.derivation)
+        assertEquals(receive(2).address(Chain.Regtest), funding.address)
+        assertEquals(GroupAddress.Status.NEXT, funding.status)
+    }
+
+    @Test
+    fun `an open funding holds its address and the window ends where the watching does`() {
+        val wallet = GroupOnchainWallet(account, FakeElectrum(), scope)
+        val lookAhead = GroupOnchainWallet.RECEIVE_LOOKAHEAD.toLong()
+
+        val state = eventually { wallet.state.first { it.receive.addresses.size == lookAhead.toInt() } }
+        assertEquals(receive(3), state.fundingAddress(setOf(2L))!!.derivation)
+        val held = (GroupOnchainWallet.ADDRESSES_AHEAD.toLong() until lookAhead).toSet()
+        assertEquals(receive(lookAhead - 1), state.fundingAddress(held - (lookAhead - 1))!!.derivation)
+        assertNull(state.fundingAddress(held), "past the last watched address the child would not see the payment")
+    }
+
+    @Test
+    fun `being paid moves the funding address on`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+
+        eventually { wallet.state.first { it.receiveAddress != null } }
+        eventually { electrum.pay(receive(0).pubkeyScript, Satoshi(25_000)) }
+
+        val state = eventually { wallet.state.first { it.receiveAddress == receive(1).address(Chain.Regtest) } }
+        assertEquals(receive(3), state.fundingAddress()!!.derivation)
+    }
+
+    @Test
+    fun `a paid address above the current one is never funded`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+
+        eventually { wallet.state.first { it.receiveAddress != null } }
+        eventually { electrum.pay(receive(4).pubkeyScript, Satoshi(10_000)) }
+
+        val state = eventually { wallet.state.first { it.receiveAddresses?.any { it.status == GroupAddress.Status.USED } == true } }
+        assertEquals(receive(0).address(Chain.Regtest), state.receiveAddress)
+        assertEquals(receive(2), state.fundingAddress()!!.derivation)
+        assertEquals(receive(3), state.fundingAddress(setOf(2L))!!.derivation)
+        assertEquals(receive(5), state.fundingAddress(setOf(2L, 3L))!!.derivation)
+    }
+
+    @Test
+    fun `no funding address before Electrum has answered`() {
+        val state = GroupWalletState(account, WalletState.empty, WalletState.empty, tipHeight = null)
+        assertNull(state.fundingAddress())
+    }
+
+    @Test
+    fun `every funding address is one the wallet watches`() {
+        val electrum = FakeElectrum()
+        val wallet = GroupOnchainWallet(account, electrum, scope)
+
+        eventually { wallet.state.first { it.receiveAddress != null } }
+        eventually { electrum.pay(receive(0).pubkeyScript, Satoshi(1_000)) }
+
+        val state = eventually { wallet.state.first { it.receiveAddress == receive(1).address(Chain.Regtest) } }
+        val watched = state.receive.addresses.keys
+        var reserved = emptySet<Long>()
+        while (true) {
+            val funding = state.fundingAddress(reserved) ?: break
+            assertTrue(funding.address in watched, "${funding.derivation.index} is funded but not watched")
+            reserved = reserved + funding.derivation.index
+        }
+        assertEquals(GroupOnchainWallet.RECEIVE_LOOKAHEAD.toInt() - GroupOnchainWallet.ADDRESSES_AHEAD, reserved.size)
     }
 }

@@ -692,7 +692,7 @@ object FrostSigningManager {
         val wallet = GroupWalletManager.walletFor(database, chatRoomId, thresholdPublicKey, chain, account)
             ?: throw IllegalStateException("This group has not opened a wallet on ${GroupWalletStatementEvent.chainName(chain)}")
 
-        val checked = when (val result = GroupSpend.check(psbt, wallet.account)) {
+        val checked = when (val result = GroupSpend.check(psbt, wallet.account).withFundings(database, chatRoomId)) {
             is GroupSpend.Result.Ok -> result.checked
             is GroupSpend.Result.Refused -> throw IllegalArgumentException("This spend ${result.reason}")
         }
@@ -770,7 +770,7 @@ object FrostSigningManager {
         val guarded = GuardianManager.guardedWalletFor(database, chatRoomId, descendantChatRoomId, chain, account)
             ?: throw IllegalStateException("This group guards no wallet of $descendantChatRoomId on ${GroupWalletStatementEvent.chainName(chain)}")
 
-        val checked = when (val result = GroupSpend.check(psbt, guarded.account, guarded.spender(thresholdPublicKey))) {
+        val checked = when (val result = GroupSpend.check(psbt, guarded.account, guarded.spender(thresholdPublicKey)).withFundings(database, chatRoomId)) {
             is GroupSpend.Result.Ok -> result.checked
             is GroupSpend.Result.Refused -> throw IllegalArgumentException("This spend ${result.reason}")
         }
@@ -900,7 +900,7 @@ object FrostSigningManager {
             guarded.account to guarded.spender(thresholdPublicKey)
         }
 
-        val checked = when (val result = GroupSpend.check(psbt, walletAccount, spender)) {
+        val checked = when (val result = GroupSpend.check(psbt, walletAccount, spender).withFundings(database, localChatRoom.chatRoom.id)) {
             is GroupSpend.Result.Ok -> result.checked
             is GroupSpend.Result.Refused -> {
                 logger.w("Spend proposal $sessionId ${result.reason}; dropping")
@@ -1072,7 +1072,26 @@ object FrostSigningManager {
             ?: return null
         val context = spendContext(database, session, thresholdPublicKey) ?: return null
         val psbt = GroupSpend.decode(context.transaction.psbt) ?: return null
-        return (GroupSpend.check(psbt, context.account, context.spender) as? GroupSpend.Result.Ok)?.checked
+        return (GroupSpend.check(psbt, context.account, context.spender).withFundings(database, context.transaction.chatRoomId) as? GroupSpend.Result.Ok)?.checked
+    }
+
+    /**
+     * A checked spend with its payments into descendants' guarded wallets read
+     * against the ones [chatRoomId] holds -- `GroupSpend.fundingsOf` -- or
+     * refused for a claim that does not derive. Every place a spend is checked
+     * for a member to read or sign reads its fundings here, so the label a
+     * signer sees is the one every other signer's device derived too.
+     *
+     * A spend none of whose payments claims anything -- every spend to a typed
+     * address -- reads no guarded wallets at all.
+     */
+    private suspend fun GroupSpend.Result.withFundings(database: BennuDatabase, chatRoomId: String): GroupSpend.Result {
+        val checked = (this as? GroupSpend.Result.Ok)?.checked ?: return this
+        if (checked.payments.all { checked.psbt.outputs[it.index].taprootDerivationPaths.isEmpty() }) return this
+        return when (val reading = GroupSpend.fundingsOf(checked, GuardianManager.guardedWalletsOf(database, chatRoomId))) {
+            is GroupSpend.FundingReading.Ok -> GroupSpend.Result.Ok(checked.copy(fundings = reading.fundings))
+            is GroupSpend.FundingReading.Refused -> GroupSpend.Result.Refused(reading.reason)
+        }
     }
 
     /**
@@ -1099,6 +1118,21 @@ object FrostSigningManager {
     ): Set<Long> =
         openSpends(database, chatRoomId)
             .flatMap { GroupSpend.claimedChangeIndices(it, account) }
+            .toSet()
+
+    /**
+     * The receive addresses of [account] -- a descendant's guarded wallet -- that
+     * a room's open spends fund, which a new funding should not pay as well.
+     * Held by the same sessions as [reservedOutPoints], for the reason
+     * [reservedChangeIndices] gives.
+     */
+    suspend fun reservedFundingIndices(
+        database: BennuDatabase,
+        chatRoomId: String,
+        account: GroupWalletDerivation.Account,
+    ): Set<Long> =
+        openSpends(database, chatRoomId)
+            .flatMap { GroupSpend.claimedFundingIndices(it, account) }
             .toSet()
 
     /** The PSBT of every spend in the room whose session has not failed. */

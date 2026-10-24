@@ -6,6 +6,10 @@ import kotlinx.serialization.Serializable
  * The form a member proposes a spend from the group's wallet with -- or, with
  * [guardedChatRoomId], from that descendant's guarded wallet, through the
  * group's guardian leaf.
+ *
+ * [fundChatRoomId] is where the coins go instead of where they come from: the
+ * descendant whose guarded wallet a send from the group's own wallet pays. A
+ * route naming both is not one the form opens -- `docs/guarded-wallet-funding.md`, D6.
  */
 @Serializable
 data class GroupSendRoute(
@@ -13,4 +17,5 @@ data class GroupSendRoute(
     val chatRoomId: String,
     val relayHint: String?,
     val guardedChatRoomId: String? = null,
+    val fundChatRoomId: String? = null,
 ): Route()
