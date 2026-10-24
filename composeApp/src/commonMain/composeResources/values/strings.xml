@@ -610,4 +610,7 @@
     <string name="the_key_of_this_wallet_is_on_another_device">This wallet's key is on another of your devices, so it can be watched here but not spent from.</string>
     <string name="couldn_t_ask_again">Couldn't ask again.</string>
     <string name="couldn_t_discard_the_wallet">Couldn't discard the wallet.</string>
+    <string name="s_sats_come_back_to_this_wallet_as_change">%1$s sats come back to this wallet as change.</string>
+    <string name="this_wallet_has_nothing_confirmed_to_spend">This wallet has nothing confirmed to spend.</string>
+    <string name="this_wallet_doesn_t_have_that_much_confirmed">This wallet doesn't have that much confirmed.</string>
 </resources>
