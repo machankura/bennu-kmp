@@ -16,7 +16,8 @@ import kotlinx.coroutines.launch
 
 /**
  * A person's guarded wallets as the groups this profile is in guard them --
- * the person's page's *Wallets your groups guard*. Where a group's page lists a
+ * the person's page's *Wallets your groups guard*, one entry per wallet and
+ * each with the groups that hold a leaf in it. Where a group's page lists a
  * member's wallet, its row leads here, since a person is someone to look at,
  * not a room to go into.
  */
@@ -24,11 +25,12 @@ class PersonGuardedWalletsViewModel(
     private val ownerPublicKey: HexKey,
     private val memberWalletRepository: MemberWalletRepository,
 ) : ViewModel() {
-    var rows: List<MemberWalletManager.GuardedHere> by mutableStateOf(emptyList())
+    /** One per wallet, each with the groups here holding a leaf in it. */
+    var rows: List<MemberWalletManager.GuardedHereWallet> by mutableStateOf(emptyList())
         private set
 
     fun initiate() {
-        viewModelScope.launch(Dispatchers.IO) { rows = memberWalletRepository.guardedByGroupsHere(ownerPublicKey) }
+        viewModelScope.launch(Dispatchers.IO) { rows = MemberWalletManager.byWallet(memberWalletRepository.guardedByGroupsHere(ownerPublicKey)) }
     }
 
     companion object {

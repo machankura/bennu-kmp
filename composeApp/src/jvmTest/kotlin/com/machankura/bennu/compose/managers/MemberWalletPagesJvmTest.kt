@@ -22,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -100,7 +101,55 @@ class MemberWalletPagesJvmTest {
         assertEquals(setOf(groupRoom, parentRoom), here.map { it.wallet.ancestorChatRoomId }.toSet())
         assertEquals(true, here.single { it.wallet.ancestorChatRoomId == groupRoom }.canSpend, "a share of the group's key")
         assertEquals(false, here.single { it.wallet.ancestorChatRoomId == parentRoom }.canSpend, "none of the root's")
-        assertEquals("#Root", here.single { it.wallet.ancestorChatRoomId == parentRoom }.guardianName)
+        assertEquals("#Root", here.single { it.wallet.ancestorChatRoomId == parentRoom }.holderName)
         assertTrue(MemberWalletManager.guardedByGroupsHere(db, GroupFixtures.owner, bobPublicKey).isEmpty())
+    }
+
+    // ---- One entry per wallet: docs/member-wallet-guarding-group.md, Phase 6
+
+    @Test
+    fun `a wallet held by a group and its parent is one entry, guarded by the group, with both holders`(): Unit = runBlocking {
+        signingRoom(db, group, members = listOf(alicePublicKey))
+        fileKeyState(db, group, guardedCertificate(parent, group))
+        GroupFixtures.openToMembers(db, group)
+        signingRoom(db, parent, members = listOf(alicePublicKey), holdsShare = false, subject = "#Root")
+        fileKeyState(db, parent)
+        GroupFixtures.openToMembers(db, parent)
+
+        val wallet = MemberWalletManager.request(db, groupRoom, alice, chain, label = "Savings")
+        val certificate = certify(wallet.requestJson)
+        db.marmotInnerEventDao().upsert(
+            MarmotInnerEvent(
+                id = "9".repeat(64), publicKey = alicePublicKey, kind = GuardedWalletNoticeEvent.KIND,
+                createdAt = Instant.fromEpochSeconds(1_700_000_100), tags = arrayOf(arrayOf("h", parentRoom)),
+                content = certificate.toJson(), chatRoomId = parentRoom,
+            )
+        )
+
+        val entry = MemberWalletManager.byWallet(MemberWalletManager.guardedByGroupsHere(db, GroupFixtures.owner, alicePublicKey)).single()
+        assertEquals(wallet.walletId, entry.walletId)
+        assertEquals("Savings", entry.label)
+        assertEquals("#Child", entry.guardianName, "the founding name the parent certified")
+        assertEquals(listOf(groupRoom, parentRoom), entry.holders.map { it.wallet.ancestorChatRoomId })
+        assertEquals(listOf(true, false), entry.holders.map { it.canSpend }, "a share of the group's key, none of the root's")
+    }
+
+    @Test
+    fun `Savings held by P and R, and Rent held by R, are two entries`() {
+        val savingsAtP = MemberWalletManager.GuardedHere(LineageExample.heldBy(LineageExample.p, LineageExample.savings, LineageExample.savingsGuardians, label = "Savings", guardianName = "#M"), holderName = "#P", canSpend = true)
+        val savingsAtR = MemberWalletManager.GuardedHere(LineageExample.heldBy(LineageExample.r, LineageExample.savings, LineageExample.savingsGuardians, label = "Savings", guardianName = null, branchName = "#P"), holderName = "#R", canSpend = true)
+        val rentAtR = MemberWalletManager.GuardedHere(LineageExample.heldBy(LineageExample.r, LineageExample.rent, LineageExample.rentGuardians), holderName = "#R", canSpend = false)
+
+        val entries = MemberWalletManager.byWallet(listOf(savingsAtR, rentAtR, savingsAtP))
+        assertEquals(listOf(LineageExample.savings, LineageExample.rent), entries.map { it.walletId })
+
+        val savings = entries.first()
+        assertEquals("#M", savings.guardianName, "named by whichever holder can")
+        assertEquals(listOf("#P", "#R"), savings.holders.map { it.holderName }, "nearest first")
+
+        val rent = entries.last()
+        assertNull(rent.guardianName)
+        assertEquals("#R", rent.below, "N is unnamed here, but it is below R")
+        assertEquals(listOf(false), rent.holders.map { it.canSpend })
     }
 }

@@ -1303,7 +1303,7 @@ object FrostSigningManager {
             content = when (val guardian = checked.spender as? GroupSpend.Spender.Guardian) {
                 null -> "The group signed a transaction sending ${checked.amountSent.sat} sats, "
                 else -> "The group signed a transaction sending ${checked.amountSent.sat} sats from " +
-                    "${guardian.name ?: "a subgroup"}'s guarded wallet, "
+                    "${com.machankura.bennu.compose.text.ProposedSpend.guardedWallet(guardian.name, guardian.label)}, "
             } + "with ${checked.fee.sat} sats in fees. It took ${session.threshold} of " +
                 "${session.participantCount} members.",
             actor = session.coordinatorPublicKey

@@ -12,6 +12,7 @@ import com.machankura.bennu.compose.wallet.GroupWalletState
 import com.machankura.bennu.compose.wallet.GroupSpend
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.database.model.types.FrostSigningStage
+import com.vitorpamplona.quartz.nip01Core.core.HexKey
 
 sealed interface GroupWalletUIState {
     /**
@@ -106,6 +107,45 @@ data class GuardedWalletRow(
             state.utxos.filter { state.confirmations(it) < wallet.delay }.map { it.amount }.sum()
         }
 }
+
+/**
+ * One member's wallets as an ancestor's list gathers them, so a group can see
+ * at a glance that one person has several, guarded by different groups below
+ * it. `docs/member-wallet-guarding-group.md`, D6.
+ */
+data class PersonGuardedWallets(
+    val ownerPublicKey: HexKey,
+    /** The member's profile name on this device, or null. */
+    val ownerName: String?,
+    /** Nearest first, then by the guarding group's name: wallets from one branch sit together. */
+    val rows: List<GuardedWalletRow>,
+) {
+    /** How many groups below this one directly guard these wallets. */
+    val guardianCount: Int get() = rows.map { it.wallet.directGuardianChatRoomId.lowercase() }.distinct().size
+}
+
+/**
+ * The member wallets among these rows, by person, people by name and then key.
+ * Subgroups' wallets are left out: a row there is a room, not a person.
+ */
+fun List<GuardedWalletRow>.byPerson(): List<PersonGuardedWallets> =
+    mapNotNull { row -> (row.wallet.subject as? GuardianManager.GuardedSubject.Member)?.let { it to row } }
+        .groupBy { (member, _) -> member.ownerPublicKey.lowercase() }
+        .map { (_, owned) ->
+            val member = owned.first().first
+            PersonGuardedWallets(
+                ownerPublicKey = member.ownerPublicKey,
+                ownerName = owned.firstNotNullOfOrNull { (it, _) -> it.ownerName },
+                rows = owned.map { it.second }.sortedWith(
+                    compareBy<GuardedWalletRow>(
+                        { it.wallet.position },
+                        { (it.wallet.subject as GuardianManager.GuardedSubject.Member).guardianName?.lowercase() ?: it.wallet.directGuardianChatRoomId },
+                        { (it.wallet.subject as GuardianManager.GuardedSubject.Member).label?.lowercase() },
+                    )
+                ),
+            )
+        }
+        .sortedWith(compareBy({ it.ownerName?.lowercase() ?: it.ownerPublicKey }, { it.ownerPublicKey }))
 
 /** Where one of the room's spends has got to, as one fact a member reads. */
 enum class SpendStatus {

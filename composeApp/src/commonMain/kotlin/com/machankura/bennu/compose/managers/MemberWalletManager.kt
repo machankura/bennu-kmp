@@ -778,11 +778,50 @@ object MemberWalletManager {
     /** A member's wallet as one of the guarding groups on this device holds it. */
     data class GuardedHere(
         val wallet: GuardianManager.GuardedWallet,
-        /** The guarding group's room name here. */
-        val guardianName: String?,
+        /**
+         * The holding group's room name here -- the group with a leaf in it, which
+         * is not always the one that directly guards it: that is
+         * `GuardedSubject.Member.guardianName`.
+         */
+        val holderName: String?,
         /** Whether this device holds a share of that group's key, and so can propose a spend through its leaf. */
         val canSpend: Boolean,
     )
+
+    /**
+     * One of a member's wallets on their page, with every group here that holds
+     * a leaf in it -- `docs/member-wallet-guarding-group.md`, D7. The page used to
+     * draw a row per holder, so a wallet held by a group and its parent appeared
+     * twice, each row calling its holder the guardian.
+     */
+    data class GuardedHereWallet(
+        val walletId: String,
+        val label: String?,
+        /** The group that directly guards it, as any holder here can name it, or null. */
+        val guardianName: String?,
+        /** Where no holder can name it: a group it is known to sit below, or null. */
+        val below: String?,
+        /** The groups here holding a leaf in it, nearest first. */
+        val holders: List<GuardedHere>,
+    )
+
+    /** [rows] -- one per holding group, as [guardedByGroupsHere] gives them -- as one entry per wallet. */
+    fun byWallet(rows: List<GuardedHere>): List<GuardedHereWallet> =
+        rows.groupBy { it.wallet.descendantChatRoomId.lowercase() }.map { (_, held) ->
+            val holders = held.sortedBy { it.wallet.position }
+            val members = holders.mapNotNull { it.wallet.subject as? GuardianManager.GuardedSubject.Member }
+            GuardedHereWallet(
+                walletId = holders.first().wallet.descendantChatRoomId,
+                label = members.firstNotNullOfOrNull { it.label },
+                guardianName = members.firstNotNullOfOrNull { it.guardianName },
+                // The nearest holder's own child it sits under, or the holder
+                // itself: either is a group it is truly below.
+                below = holders.firstNotNullOfOrNull { holder ->
+                    (holder.wallet.subject as? GuardianManager.GuardedSubject.Member)?.branchName ?: holder.holderName?.takeUnless { holder.wallet.isGuardedHere }
+                },
+                holders = holders,
+            )
+        }
 
     private suspend fun noticesIn(database: BennuDatabase, chatRoomId: String): List<Event> =
         database.marmotInnerEventDao()

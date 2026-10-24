@@ -21,6 +21,11 @@ import com.machankura.bennu.compose.database.model.Profile
 import com.machankura.bennu.compose.database.model.SynchronizeNostrEventRequest
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.repository.ChatRepository
+import com.machankura.bennu.compose.repository.MemberWalletRepository
+import com.machankura.bennu.compose.managers.LineageExample
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import com.machankura.bennu.compose.extensions.hexToNpubHrp
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.navigation.routes.ChatRoomMessagingRoute
@@ -194,6 +199,7 @@ class ProfilePreviewScreenJvmTest {
         canSign: Boolean = true,
         nostrRepository: NostrRepository = NostrRepository.NO_OP_NOSTR_REPOSITORY,
         chatRepository: ChatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
+        memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
         onStartChat: (Route) -> Unit = {},
         assertions: ComposeUiTest.() -> Unit,
     ) = runDesktopComposeUiTest(width = 400, height = 1200) {
@@ -210,6 +216,7 @@ class ProfilePreviewScreenJvmTest {
                                 chatRepository = chatRepository,
                                 onStartChat = onStartChat,
                                 onNavigateBack = {},
+                                memberWalletRepository = memberWalletRepository,
                             )
                         }
                     }
@@ -218,5 +225,30 @@ class ProfilePreviewScreenJvmTest {
         }
 
         assertions()
+    }
+
+    // --- the wallets this profile's groups guard: docs/member-wallet-guarding-group.md, D7 ---
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `a wallet held by two groups here is one entry, guarded by the group that signed it`() {
+        val held = listOf(
+            MemberWalletManager.GuardedHere(LineageExample.heldBy(LineageExample.r, LineageExample.savings, LineageExample.savingsGuardians, label = "Savings", ownerPublicKey = profilePublicKey, branchName = "#P"), holderName = "#R", canSpend = false),
+            MemberWalletManager.GuardedHere(LineageExample.heldBy(LineageExample.p, LineageExample.savings, LineageExample.savingsGuardians, label = "Savings", ownerPublicKey = profilePublicKey, guardianName = "#M", branchName = "#M"), holderName = "#P", canSpend = true),
+        )
+        val repository = object : MemberWalletRepository by MemberWalletRepository.NO_OP {
+            override suspend fun guardedByGroupsHere(ownerPublicKey: String): List<MemberWalletManager.GuardedHere> = held
+        }
+
+        render(ProfilePreviewUIState.Loaded(profile = alice, readiness = Readiness.CanStartChat), memberWalletRepository = repository) {
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Savings").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Wallets your groups guard").assertIsDisplayed()
+            assertEquals(1, onAllNodesWithText("Savings").fetchSemanticsNodes().size, "one entry for the wallet")
+            onNodeWithText("Guarded by #M").assertIsDisplayed()
+            onNodeWithText("#P: after 12 blocks").assertIsDisplayed()
+            onNodeWithText("#R: after 12 blocks").assertIsDisplayed()
+            onNodeWithContentDescription("Spend from Savings as #P").assertIsDisplayed()
+            onNodeWithContentDescription("Spend from Savings as #R").assertDoesNotExist()
+        }
     }
 }

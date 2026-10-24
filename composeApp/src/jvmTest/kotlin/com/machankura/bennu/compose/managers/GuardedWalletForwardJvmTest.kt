@@ -131,7 +131,10 @@ class GuardedWalletForwardJvmTest {
     fun `the button offers only what goes up`(): Unit = runBlocking {
         inAllThree()
         signedInGroup()
-        GuardianManager.share(db, certificate, listOfNotNull(db.chatRoomDao().findChatRoomById(middleRoom), db.chatRoomDao().findChatRoomById(rootRoom)), memberPublicKey)
+        // Carrying the group's birth certificate, as every share from this build
+        // does: a notice without it would be offered once more, so the name
+        // reaches the groups above. docs/member-wallet-guarding-group.md, D5.
+        GuardianManager.share(db, certificate, listOfNotNull(db.chatRoomDao().findChatRoomById(middleRoom), db.chatRoomDao().findChatRoomById(rootRoom)), memberPublicKey, certificate = groupCertificate)
 
         // The root holds it as a notice, the middle group too, and the group signed it.
         assertTrue(GuardianManager.shareableFrom(db, rootRoom, chain).isEmpty(), "the root has nobody above it to tell")

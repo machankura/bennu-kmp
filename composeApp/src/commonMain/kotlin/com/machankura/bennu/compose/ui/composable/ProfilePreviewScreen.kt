@@ -2,13 +2,19 @@ package com.machankura.bennu.compose.ui.composable
 
 import com.machankura.bennu.compose.repository.MemberWalletRepository
 import com.machankura.bennu.compose.managers.MemberWalletManager
-import com.machankura.bennu.compose.managers.GuardianManager
 import com.machankura.bennu.compose.ui.view.model.PersonGuardedWalletsViewModel
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupSendRoute
 import bennu.composeapp.generated.resources.wallets_your_groups_guard
 import bennu.composeapp.generated.resources.guarded_by_s
 import bennu.composeapp.generated.resources.a_group
-import bennu.composeapp.generated.resources.s_dot_s
+import bennu.composeapp.generated.resources.a_group_below_s
+import bennu.composeapp.generated.resources.another_group
+import bennu.composeapp.generated.resources.guardian_after
+import bennu.composeapp.generated.resources.spend_from_s_as_s
+import bennu.composeapp.generated.resources.the_wallet_guarded_by_s
+import com.machankura.bennu.compose.ui.composable.widgets.delayText
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import bennu.composeapp.generated.resources.spend
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material3.ListItem
@@ -213,14 +219,14 @@ fun ProfilePreviewScreen(
                         // keys; this is the guardians' view of somebody else's.
                         if (profilePublicKey != activeUserPublicKey && personWalletsViewModel.rows.isNotEmpty()) {
                             GuardedByYourGroups(
-                                rows = personWalletsViewModel.rows,
-                                onSpend = { row ->
+                                wallets = personWalletsViewModel.rows,
+                                onSpend = { holder ->
                                     onNavigateToRoute(
                                         GroupSendRoute(
                                             activeUserPublicKey = activeUserPublicKey,
-                                            chatRoomId = row.wallet.ancestorChatRoomId,
+                                            chatRoomId = holder.wallet.ancestorChatRoomId,
                                             relayHint = null,
-                                            guardedChatRoomId = row.wallet.descendantChatRoomId,
+                                            guardedChatRoomId = holder.wallet.descendantChatRoomId,
                                         )
                                     )
                                 },
@@ -263,28 +269,53 @@ fun ProfilePreviewScreen(
 }
 
 /**
- * The person's guarded wallets as this profile's groups hold them: one row per
- * guarding group, and -- where this device holds a share of that group's key --
- * the way to spend through its leaf, which is the guardian spend the group's
- * wallet screen already offers.
+ * The person's guarded wallets as this profile's groups hold them: one entry per
+ * wallet, saying which group directly guards it, and under it each group here
+ * holding a leaf in it, with that leaf's delay and -- where this device holds a
+ * share of that group's key -- the way to spend through it, which is the
+ * guardian spend the group's wallet screen already offers.
+ * `docs/member-wallet-guarding-group.md`, D7.
  */
 @Composable
 private fun GuardedByYourGroups(
-    rows: List<MemberWalletManager.GuardedHere>,
+    wallets: List<MemberWalletManager.GuardedHereWallet>,
     onSpend: (MemberWalletManager.GuardedHere) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
         Text(stringResource(Res.string.wallets_your_groups_guard), style = MaterialTheme.typography.titleMedium)
-        rows.forEach { row ->
-            val guardian = stringResource(Res.string.guarded_by_s, row.guardianName ?: stringResource(Res.string.a_group))
-            val label = (row.wallet.subject as? GuardianManager.GuardedSubject.Member)?.label
+        wallets.forEach { wallet ->
+            val guardian = wallet.guardianName
+                ?: wallet.below?.let { stringResource(Res.string.a_group_below_s, it) }
+                ?: stringResource(Res.string.another_group)
+            val guardedBy = stringResource(Res.string.guarded_by_s, guardian)
             ListItem(
                 leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
-                headlineContent = { Text(label?.let { stringResource(Res.string.s_dot_s, it, guardian) } ?: guardian) },
-                trailingContent = if (row.canSpend) {
-                    { TextButton(onClick = { onSpend(row) }) { Text(stringResource(Res.string.spend)) } }
-                } else null,
+                // Named by its label, or with none by the group that guards it.
+                headlineContent = { Text(wallet.label ?: guardedBy) },
+                supportingContent = wallet.label?.let { { Text(guardedBy) } },
             )
+            wallet.holders.forEach { holder ->
+                val holderName = holder.holderName ?: stringResource(Res.string.a_group)
+                val spendLabel = stringResource(
+                    Res.string.spend_from_s_as_s,
+                    wallet.label ?: stringResource(Res.string.the_wallet_guarded_by_s, guardian),
+                    holderName,
+                )
+                ListItem(
+                    // Under its wallet, so the holders read as the wallet's.
+                    modifier = Modifier.padding(start = MaterialTheme.spacing.containerPadding),
+                    headlineContent = {
+                        Text(stringResource(Res.string.guardian_after, holderName, delayText(holder.wallet.delay, holder.wallet.chain)))
+                    },
+                    trailingContent = if (holder.canSpend) {
+                        {
+                            TextButton(onClick = { onSpend(holder) }, modifier = Modifier.semantics { contentDescription = spendLabel }) {
+                                Text(stringResource(Res.string.spend))
+                            }
+                        }
+                    } else null,
+                )
+            }
         }
     }
 }

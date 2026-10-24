@@ -20,24 +20,33 @@ object ProposedSpend {
             // device derived it -- never the proposer's word for it.
             label = when (val guardian = spend.spender as? GroupSpend.Spender.Guardian) {
                 null -> spend.fundings.singleOrNull()?.takeIf { spend.payments.size == 1 }
-                    ?.let { "Fund ${nameOf(it)}'s guarded wallet" }
+                    ?.let { "Fund ${walletOf(it)}" }
                     ?: "Spend from the group's wallet"
-                else -> "Spend from ${guardian.name ?: "a subgroup"}'s guarded wallet"
+                else -> "Spend from ${guardedWallet(guardian.name, guardian.label)}"
             },
             detail = when (val payment = spend.payments.singleOrNull()) {
                 null -> "Send ${spend.amountSent.grouped()} sats to ${spend.payments.size} addresses" + when (val funding = spend.fundings.singleOrNull()) {
                     null -> if (spend.fundings.isEmpty()) "" else
                         ", ${Satoshi(spend.fundings.sumOf { spend.tx.txOut[it.outputIndex].amount.sat }).grouped()} of them to ${spend.fundings.size} guarded wallets"
-                    else -> ", ${spend.tx.txOut[funding.outputIndex].amount.grouped()} of them to ${nameOf(funding)}'s guarded wallet"
+                    else -> ", ${spend.tx.txOut[funding.outputIndex].amount.grouped()} of them to ${walletOf(funding)}"
                 }
                 else -> when (val funding = spend.fundings.singleOrNull()) {
                     null -> "Send ${payment.txOut.amount.grouped()} sats to ${addressOf(payment.txOut.publicKeyScript, chain)}"
-                    else -> "Send ${payment.txOut.amount.grouped()} sats to ${nameOf(funding)}'s guarded wallet, address ${funding.derived.index}"
+                    else -> "Send ${payment.txOut.amount.grouped()} sats to ${walletOf(funding)}, address ${funding.derived.index}"
                 }
             }
         )
 
-    private fun nameOf(funding: GroupSpend.Funding): String = funding.wallet.displayName ?: "a subgroup"
+    private fun walletOf(funding: GroupSpend.Funding): String = guardedWallet(funding.wallet.displayName, funding.wallet.label)
+
+    /**
+     * A guarded wallet in a sentence: *#Translation's guarded wallet*, *@alice's
+     * guarded wallet* -- and, for a member's wallet with a label, *@alice's
+     * guarded wallet “Savings”*, since one person can have several and a signer
+     * should know which is being spent from. `docs/member-wallet-guarding-group.md`, Phase 5.
+     */
+    fun guardedWallet(name: String?, label: String?): String =
+        "${name ?: "a subgroup"}'s guarded wallet" + (label?.let { " “$it”" } ?: "")
 
     /** The address [script] pays, or the script itself where it has no address. */
     fun addressOf(script: ByteVector, chain: Chain): String =

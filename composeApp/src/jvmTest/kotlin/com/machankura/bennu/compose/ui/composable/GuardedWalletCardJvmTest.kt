@@ -1,6 +1,9 @@
 package com.machankura.bennu.compose.ui.composable
 
 import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.managers.LineageExample
+import com.machankura.bennu.compose.managers.LineageExample.heldBy
+import com.machankura.bennu.compose.ui.composable.navigation.routes.ProfilePreviewRoute
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
@@ -170,5 +173,58 @@ class GuardedWalletCardJvmTest {
     fun `at twice the text size the buttons stay whole`() = render(loaded("Savings"), fontScale = 2f) {
         onNodeWithContentDescription("Fund Savings's guarded wallet").assertIsDisplayed()
         onNodeWithContentDescription("Spend from Savings's guarded wallet").assertIsDisplayed()
+    }
+
+    // ---- Members' wallets by person: docs/member-wallet-guarding-group.md, Phase 5
+
+    /** R's wallet screen, guarding Alice's Savings (under M, below P) and Rent (under N). */
+    private fun atR(vararg guarded: GuardianManager.GuardedWallet): GroupWalletUIState.Loaded =
+        loaded("Savings").copy(guardedWallets = guarded.map { GuardedWalletRow(it, walletState = null) })
+
+    private val savings = heldBy(LineageExample.r, LineageExample.savings, LineageExample.savingsGuardians, label = "Savings", guardianName = "#M", branchName = "#P")
+    private val rent = heldBy(LineageExample.r, LineageExample.rent, LineageExample.rentGuardians, label = "Rent", guardianName = "#N", branchName = "#N")
+
+    @Test
+    fun `a member's two wallets under two groups are one header, each card naming its group`() = render(atR(savings, rent)) {
+        onNodeWithText("Members' wallets").assertIsDisplayed()
+        onNodeWithText("@alice").assertIsDisplayed()
+        onNodeWithText("2 wallets, guarded by 2 groups").assertIsDisplayed()
+        onNodeWithText("Rent").assertIsDisplayed()
+        onNodeWithText("Guarded by #N").assertIsDisplayed()
+        onNodeWithText("Savings").assertIsDisplayed()
+        onNodeWithText("Guarded by #M, below #P").assertIsDisplayed()
+    }
+
+    @Test
+    fun `an unlabelled wallet is named by the group that guards it`() =
+        render(atR(heldBy(LineageExample.r, LineageExample.savings, LineageExample.savingsGuardians, branchName = "#P"))) {
+            // No name this device can check for M: where it sits instead.
+            onNodeWithText("Guarded by a group below #P").assertIsDisplayed()
+            onNodeWithText("1 wallet, guarded by 1 group").assertIsDisplayed()
+        }
+
+    @Test
+    fun `each of a member's buttons names its wallet`() = render(atR(savings, rent, heldBy(LineageExample.r, "9".repeat(64), LineageExample.rentGuardians, guardianName = "#N", branchName = "#N"))) {
+        onNodeWithContentDescription("Fund @alice's guarded wallet “Savings”").assertIsDisplayed()
+        onNodeWithContentDescription("Spend from @alice's guarded wallet “Savings”").assertIsDisplayed()
+        onNodeWithContentDescription("Fund @alice's guarded wallet “Rent”").assertIsDisplayed()
+        onNodeWithContentDescription("Spend from @alice's guarded wallet “Rent”").assertIsDisplayed()
+        onNodeWithContentDescription("Fund @alice's wallet guarded by #N").assertIsDisplayed()
+        onNodeWithContentDescription("Spend from @alice's wallet guarded by #N").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a wallet this group guards directly says so`() =
+        render(atR(heldBy(LineageExample.m, LineageExample.savings, LineageExample.savingsGuardians, label = "Savings", guardianName = "#M"))) {
+            onNodeWithText("Guarded by this group").assertIsDisplayed()
+        }
+
+    @Test
+    fun `the header opens the member's profile`() {
+        var opened: Route? = null
+        render(atR(savings), onRoute = { opened = it }) {
+            onNodeWithText("@alice").performClick()
+        }
+        assertEquals(ProfilePreviewRoute(activeUserPublicKey = "a".repeat(64), profilePublicKey = LineageExample.alice), opened)
     }
 }

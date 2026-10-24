@@ -63,6 +63,15 @@ object GuardianManager {
             val label: String?,
             /** The member's profile name on this device, where one is known; filled where a database is to hand. */
             val ownerName: String? = null,
+            /**
+             * The group that directly guards it, by its founding name where this
+             * device can check a birth certificate for it, else its room name here;
+             * null when neither is known. Filled where a database is to hand.
+             * `docs/member-wallet-guarding-group.md`, D2.
+             */
+            val guardianName: String? = null,
+            /** The holding group's own child it sits under, named the same way; null when the holder guards it directly. */
+            val branchName: String? = null,
         ) : GuardedSubject
     }
 
@@ -84,6 +93,13 @@ object GuardianManager {
         /** The rooms the ancestor walks from its own child down to the descendant -- `GuardianDerivation.lineage`. */
         val lineage: List<String>,
         val subject: GuardedSubject = GuardedSubject.Subgroup(descendantChatRoomId, SubgroupBirthCertificateEvent.parseName(certificate.tags)),
+        /**
+         * For a member's wallet: the birth certificate of the group that directly
+         * guards it, checked, where this device holds one -- what a notice
+         * carries upward so the groups above can name that group.
+         * `docs/member-wallet-guarding-group.md`, D4.
+         */
+        val guardianCertificate: Event? = null,
     ) {
         /** What the descendant's parent certified it as, for a subgroup. The founding name: a rename does not reach it. */
         val name: String? get() = (subject as? GuardedSubject.Subgroup)?.name
@@ -103,9 +119,30 @@ object GuardianManager {
          */
         val delay: Long get() = account.guardians[position].delay
 
+        /**
+         * The group that directly guards it: the nearest guardian, which for a
+         * member's wallet is the group that signed its certificate --
+         * `MemberWalletRequestEvent.verified` refuses a request whose nearest
+         * guardian is not the group it asks. `docs/member-wallet-guarding-group.md`, D1.
+         */
+        val directGuardianChatRoomId: String get() = account.guardians.first().chatRoomId
+
+        /** True when the ancestor holding it is the group that directly guards it. */
+        val isGuardedHere: Boolean get() = position == 0
+
+        /**
+         * The ancestor's own child the wallet sits under -- the branch of its tree
+         * -- or null when the ancestor guards it directly. The ancestor signed
+         * that child's birth certificate, so it can always name it.
+         */
+        val branchChatRoomId: String? get() = lineage.takeIf { position > 0 }?.first()
+
         /** The ancestor as the spender of a spend from this wallet, signing as [thresholdPublicKey] -- null to only build one. */
         fun spender(thresholdPublicKey: HexKey? = null): GroupSpend.Spender.Guardian =
-            GroupSpend.Spender.Guardian(position = position, lineage = lineage, thresholdPublicKey = thresholdPublicKey, name = displayName)
+            GroupSpend.Spender.Guardian(position = position, lineage = lineage, thresholdPublicKey = thresholdPublicKey, name = displayName, label = label)
+
+        /** A member's label for it, where they gave one; null for a subgroup's. */
+        val label: String? get() = (subject as? GuardedSubject.Member)?.label
 
         /** How a spend from it names it: a subgroup's founding name, or `@` and a member's. */
         val displayName: String?
@@ -221,6 +258,72 @@ object GuardianManager {
     }.getOrNull()
 
     /**
+     * [wallet] with its member's profile name, and the names of the group that
+     * directly guards it and of the branch it sits under, where this device knows
+     * them. [known] are birth certificates that came to hand some other way --
+     * those the statements told to the holding room carry.
+     */
+    private suspend fun named(database: BennuDatabase, wallet: GuardedWallet, known: List<Event> = emptyList()): GuardedWallet {
+        val member = wallet.subject as? GuardedSubject.Member ?: return wallet
+        val name = database.profileDao().getProfileByPublicKey(member.ownerPublicKey)?.humanReadableNameOrPubkey()
+        val guardians = wallet.account.guardians
+
+        suspend fun certificateOf(position: Int): Event? =
+            guardians.getOrNull(position + 1)?.let { parent -> foundingCertificateOf(database, guardians[position].chatRoomId, parent.chatRoomId, known) }
+
+        // Founding name first, then the room's name here: the order D2 of
+        // docs/member-wallet-guarding-group.md gives, so the card agrees with a
+        // subgroup row in the same list naming the same room.
+        suspend fun nameOf(position: Int, certificate: Event?): String? =
+            certificate?.let { SubgroupBirthCertificateEvent.parseName(it.tags) }
+                ?: database.chatRoomDao().findChatRoomById(guardians[position].chatRoomId)?.chatRoom?.subject?.takeIf { it.isNotBlank() }
+
+        val guardianCertificate = certificateOf(0)
+        return wallet.copy(
+            subject = member.copy(
+                ownerName = name,
+                guardianName = nameOf(0, guardianCertificate),
+                branchName = wallet.position.takeIf { it > 0 }?.let { nameOf(it - 1, certificateOf(it - 1)) },
+            ),
+            guardianCertificate = guardianCertificate,
+        )
+    }
+
+    /**
+     * What [roomId] was called at its founding, read off a birth certificate
+     * [parentRoomId] signed for it -- or null when this device holds none it can
+     * check. Each candidate is checked with `SubgroupBirthCertificateEvent.certifies`,
+     * whoever handed it over: [carried] first, then the certificates the parent
+     * signed (every device in the parent holds them), then the one in [roomId]'s
+     * own key state (every device in the room). `docs/member-wallet-guarding-group.md`, D3.
+     */
+    suspend fun foundingNameOf(
+        database: BennuDatabase,
+        roomId: String,
+        parentRoomId: String,
+        carried: List<Event> = emptyList(),
+    ): String? = foundingCertificateOf(database, roomId, parentRoomId, carried)?.let { SubgroupBirthCertificateEvent.parseName(it.tags) }
+
+    /** The birth certificate [foundingNameOf] reads the name off, checked, or null. */
+    suspend fun foundingCertificateOf(
+        database: BennuDatabase,
+        roomId: String,
+        parentRoomId: String,
+        carried: List<Event> = emptyList(),
+    ): Event? {
+        fun List<Event>.certifying(): Event? = firstOrNull { SubgroupBirthCertificateEvent.certifies(it, roomId, parentRoomId) }
+
+        carried.certifying()?.let { return it }
+        database.groupSignedEventDao()
+            .getByChatRoomIdAndKind(parentRoomId, SubgroupBirthCertificateEvent.KIND)
+            .map { it.toEvent() }
+            .certifying()?.let { return it }
+        return listOfNotNull(
+            database.groupKeyStateDao().getByChatRoomId(roomId)?.birthCertificateJson?.let { Event.fromJsonOrNull(it) }
+        ).certifying()
+    }
+
+    /**
      * The guardian rooms a statement is told to from [chatRoomId]: those after it
      * in [guardians], nearest first -- upward only
      * (`docs/guarded-wallet-forwarding.md`, D3). A room the list does not name is
@@ -244,10 +347,6 @@ object GuardianManager {
      */
     fun electedSender(candidates: Set<HexKey>): HexKey? = candidates.map { it.lowercase() }.minOrNull()
 
-    /** [wallet] with its member's profile name, where this device knows one. */
-    private suspend fun named(database: BennuDatabase, wallet: GuardedWallet): GuardedWallet =
-        wallet.copy(subject = named(database, wallet.subject))
-
     /**
      * Every guarded wallet [ancestorChatRoomId] has been told about and can sign
      * for, one per descendant account on each network.
@@ -265,16 +364,24 @@ object GuardianManager {
         // What it was told, and -- for its own members' wallets -- what it signed:
         // the group holds a member wallet certificate it signed, and needs no
         // notice to learn of it.
-        val told = database.marmotInnerEventDao()
+        val notices = database.marmotInnerEventDao()
             .getByChatRoomAndKinds(ancestorChatRoomId, listOf(GuardedWalletNoticeEvent.KIND))
-            .mapNotNull { row -> Event.fromJsonOrNull(row.content) }
+        val told = notices.mapNotNull { row -> Event.fromJsonOrNull(row.content) }
         val signed = database.groupSignedEventDao()
             .getByChatRoomIdAndKind(ancestorChatRoomId, MemberWalletCertificateEvent.KIND)
             .map { it.toEvent() }
 
+        // Birth certificates the room was handed: the one a subgroup's statement
+        // carries, and the guardian's a member wallet's notice carries. Pooled,
+        // since each is checked against the room and parent it is used for, and
+        // one that certifies neither is never used.
+        val known = told.filter { it.kind == GroupWalletStatementEvent.KIND }
+            .mapNotNull { GroupWalletStatementEvent.read(it.tags, it.content)?.certificate } +
+            notices.mapNotNull { GuardedWalletNoticeEvent.certificateIn(it.tags) }
+
         return (told + signed)
             .mapNotNull { verify(it, ancestorChatRoomId, thresholdPublicKey) }
-            .map { named(database, it) }
+            .map { named(database, it, known) }
             .groupBy { Triple(it.descendantChatRoomId, it.chain, it.account.account) }
             .mapNotNull { (_, statements) ->
                 val first = statements.minWithOrNull(order) ?: return@mapNotNull null
@@ -303,6 +410,8 @@ object GuardianManager {
         /** For a member's wallet: the member, and their profile name where this device knows one. */
         val ownerPublicKey: HexKey? = null,
         val ownerName: String? = null,
+        /** For a member's wallet: its guardian's birth certificate, carried on the notice -- `GuardedWalletNoticeEvent`. */
+        val certificate: Event? = null,
     )
 
     /**
@@ -328,11 +437,11 @@ object GuardianManager {
         val candidates = listOfNotNull(own?.let { (statement, name) -> Shareable(statement, name, emptyList()) }) +
             passedOn.map { wallet ->
                 val member = wallet.subject as? GuardedSubject.Member
-                Shareable(wallet.statement, wallet.name, emptyList(), member?.ownerPublicKey, member?.ownerName)
+                Shareable(wallet.statement, wallet.name, emptyList(), member?.ownerPublicKey, member?.ownerName, wallet.guardianCertificate)
             }
 
         return candidates.mapNotNull { candidate ->
-            val rooms = targetsFor(database, candidate.statement, fromChatRoomId = chatRoomId)
+            val rooms = targetsFor(database, candidate.statement, fromChatRoomId = chatRoomId, withCertificate = candidate.certificate != null)
             rooms.takeIf { it.isNotEmpty() }?.let { candidate.copy(rooms = it) }
         }
     }
@@ -345,7 +454,7 @@ object GuardianManager {
      * profile that is not the one in it -- and not told yet. Nothing for a
      * statement this device does not believe ([believable]).
      */
-    private suspend fun targetsFor(database: BennuDatabase, statement: Event, fromChatRoomId: String): List<LocalChatRoom> {
+    private suspend fun targetsFor(database: BennuDatabase, statement: Event, fromChatRoomId: String, withCertificate: Boolean = false): List<LocalChatRoom> {
         val believed = believable(statement) ?: return emptyList()
         val profile = database.chatRoomDao().findChatRoomById(fromChatRoomId)?.chatRoom?.userPublicKey
 
@@ -353,19 +462,41 @@ object GuardianManager {
             .mapNotNull { database.chatRoomDao().findChatRoomById(it) }
             .filter { it.chatRoom.mlsGroupState != null }
             .filter { profile == null || it.chatRoom.userPublicKey.equals(profile, ignoreCase = true) }
-            .filterNot { room -> told(database, room.chatRoom.id, statement.id) }
+            .filterNot { room -> told(database, room.chatRoom.id, statement.id, withCertificate) }
     }
 
     /**
      * Whether [chatRoomId] holds the statement [statementId] in any form: a
      * notice carrying it, or the signed event itself -- which is how a group
      * holds a member wallet certificate it signed, and never as a notice.
+     *
+     * With [withCertificate] -- this device has the guardian's birth certificate
+     * to add -- a notice counts only if it carries one: a room told before
+     * notices carried it is told again, once, so the name reaches it.
+     * `docs/member-wallet-guarding-group.md`, D5.
      */
-    internal suspend fun told(database: BennuDatabase, chatRoomId: String, statementId: HexKey): Boolean =
+    internal suspend fun told(database: BennuDatabase, chatRoomId: String, statementId: HexKey, withCertificate: Boolean = false): Boolean =
         database.groupSignedEventDao().getById(statementId)?.chatRoomId.equals(chatRoomId, ignoreCase = true) ||
             database.marmotInnerEventDao()
                 .getByChatRoomAndKinds(chatRoomId, listOf(GuardedWalletNoticeEvent.KIND))
-                .any { Event.fromJsonOrNull(it.content)?.id == statementId }
+                .any { Event.fromJsonOrNull(it.content)?.id == statementId && (!withCertificate || GuardedWalletNoticeEvent.certificateIn(it.tags) != null) }
+
+    /**
+     * For a member wallet's certificate, the birth certificate of the group that
+     * signed it, checked, where this device holds one -- what a notice from
+     * [chatRoomId] carries upward so the groups above can name that group.
+     * Null for a subgroup's statement, which carries its own.
+     * `docs/member-wallet-guarding-group.md`, D4.
+     */
+    private suspend fun guardianCertificateFor(database: BennuDatabase, statement: Event, chatRoomId: String): Event? {
+        if (statement.kind != MemberWalletCertificateEvent.KIND) return null
+        val guardians = believable(statement)?.guardians ?: return null
+        val parent = guardians.getOrNull(1) ?: return null
+        val carried = database.marmotInnerEventDao()
+            .getByChatRoomAndKinds(chatRoomId, listOf(GuardedWalletNoticeEvent.KIND))
+            .mapNotNull { GuardedWalletNoticeEvent.certificateIn(it.tags) }
+        return foundingCertificateOf(database, guardians.first().chatRoomId, parent.chatRoomId, carried)
+    }
 
     /**
      * Tells every group above [chatRoomId] that this device can tell, and that
@@ -384,7 +515,8 @@ object GuardianManager {
         val sender = database.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom?.userPublicKey ?: return emptyList()
         val members = database.participantDao().findParticipantsByChatRoomId(chatRoomId).map { it.participantPublicKey.lowercase() }.toSet()
 
-        val targets = targetsFor(database, statement, fromChatRoomId = chatRoomId).filter { target ->
+        val certificate = guardianCertificateFor(database, statement, chatRoomId)
+        val targets = targetsFor(database, statement, fromChatRoomId = chatRoomId, withCertificate = certificate != null).filter { target ->
             if (!whenElected) return@filter true
             val both = database.participantDao().findParticipantsByChatRoomId(target.chatRoom.id)
                 .map { it.participantPublicKey.lowercase() }
@@ -392,7 +524,7 @@ object GuardianManager {
                 .toSet() + sender.lowercase()
             electedSender(both).equals(sender, ignoreCase = true)
         }
-        if (targets.isNotEmpty()) share(database, statement, targets, sender)
+        if (targets.isNotEmpty()) share(database, statement, targets, sender, certificate = certificate)
         return targets
     }
 
@@ -441,6 +573,9 @@ object GuardianManager {
      * Each notice names its room in an `h` tag. Without it, one statement told
      * to a grandchild's parent and grandparent in the same second is one id --
      * and one row, the last room's -- so the parent was never told.
+     *
+     * [certificate], for a member's wallet, is its guardian's birth certificate,
+     * carried as a tag -- `GuardedWalletNoticeEvent`.
      */
     suspend fun share(
         database: BennuDatabase,
@@ -448,6 +583,7 @@ object GuardianManager {
         rooms: List<LocalChatRoom>,
         userPublicKey: HexKey,
         createdAt: Long = Clock.System.now().epochSeconds,
+        certificate: Event? = null,
     ): Int {
         val content = statement.toJson()
 
@@ -458,7 +594,7 @@ object GuardianManager {
         val line = believable(statement)?.let { describe(named(database, it.subject)) }
 
         rooms.forEach { room ->
-            val tags = arrayOf(arrayOf("h", room.chatRoom.id))
+            val tags = listOfNotNull(arrayOf("h", room.chatRoom.id), certificate?.let(GuardedWalletNoticeEvent::certificateTag)).toTypedArray()
             val id = EventHasher.hashId(userPublicKey, createdAt, GuardedWalletNoticeEvent.KIND, tags, content)
             line?.takeIf { firstNoticeOf(database, room.chatRoom.id, statement.id, excludingNotice = id) }?.let {
                 database.chatMessageDao().upsert(

@@ -3,6 +3,8 @@ package com.machankura.bennu.compose.ui.view.state
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.managers.GuardianManager
+import com.machankura.bennu.compose.managers.LineageExample
+import com.machankura.bennu.compose.managers.LineageExample.heldBy
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.wallet.GroupWalletState
 import com.vitorpamplona.quartz.nip01Core.core.Event
@@ -78,5 +80,44 @@ class GuardedWalletRowTest {
         val row = GuardedWalletRow(wallet, walletState = null)
         assertNull(row.arriving)
         assertNull(row.withinReach)
+    }
+
+    // ---- By person: docs/member-wallet-guarding-group.md, Phase 4 ---------
+
+    private val r = LineageExample.r
+    private val savingsAtR = GuardedWalletRow(heldBy(r, LineageExample.savings, LineageExample.savingsGuardians, label = "Savings", guardianName = "#M"), walletState = null)
+    private val rentAtR = GuardedWalletRow(heldBy(r, LineageExample.rent, LineageExample.rentGuardians, label = "Rent", guardianName = "#N"), walletState = null)
+
+    @Test
+    fun `a member's two wallets under two groups are one person, the nearer first`() {
+        val people = listOf(savingsAtR, rentAtR).byPerson()
+
+        val alice = people.single()
+        assertEquals(LineageExample.alice, alice.ownerPublicKey)
+        assertEquals("alice", alice.ownerName)
+        assertEquals(2, alice.guardianCount)
+        assertEquals(listOf("Rent", "Savings"), alice.rows.map { (it.wallet.subject as GuardianManager.GuardedSubject.Member).label })
+    }
+
+    @Test
+    fun `two wallets under one group count one guardian`() {
+        // A second wallet N guards for her: the guardians name the same rooms.
+        val holiday = GuardedWalletRow(heldBy(r, "9".repeat(64), LineageExample.rentGuardians, label = "Holiday"), walletState = null)
+        val alice = listOf(rentAtR, holiday).byPerson().single()
+        assertEquals(1, alice.guardianCount)
+    }
+
+    @Test
+    fun `a subgroup's wallet is not a person`() {
+        assertEquals(emptyList(), listOf(GuardedWalletRow(wallet, walletState = null)).byPerson())
+    }
+
+    @Test
+    fun `people sort by name, and by key where there is none`() {
+        val bob = GuardedWalletRow(heldBy(r, "8".repeat(64), LineageExample.rentGuardians, ownerPublicKey = "b".repeat(64), ownerName = "bob"), walletState = null)
+        val nameless = GuardedWalletRow(heldBy(r, "6".repeat(64), LineageExample.rentGuardians, ownerPublicKey = "0".repeat(64), ownerName = null), walletState = null)
+
+        val people = listOf(bob, nameless, savingsAtR).byPerson()
+        assertEquals(listOf("0".repeat(64), LineageExample.alice, "b".repeat(64)), people.map { it.ownerPublicKey })
     }
 }

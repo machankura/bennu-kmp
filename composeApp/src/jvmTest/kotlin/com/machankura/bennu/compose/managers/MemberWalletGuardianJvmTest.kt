@@ -165,7 +165,7 @@ class MemberWalletGuardianJvmTest {
         assertEquals(memberPublicKey, shareable.ownerPublicKey)
         assertEquals(listOf(parentRoom), shareable.rooms.map { it.chatRoom.id })
 
-        GuardianManager.share(db, shareable.statement, shareable.rooms, memberPublicKey)
+        GuardianManager.share(db, shareable.statement, shareable.rooms, memberPublicKey, certificate = shareable.certificate)
         assertEquals(walletId, GuardianManager.guardedWalletsOf(db, parentRoom).single().descendantChatRoomId)
         assertTrue(GuardianManager.shareableFrom(db, groupRoom, chain).isEmpty(), "told once")
     }
@@ -237,6 +237,6 @@ class MemberWalletGuardianJvmTest {
         assertEquals(walletId, funded.wallet.descendantChatRoomId)
         assertEquals(target.pubkeyScript, checked.tx.txOut[funded.outputIndex].publicKeyScript)
         val summary = com.machankura.bennu.compose.text.ProposedSpend.summarize(checked.copy(fundings = reading.fundings), chain)
-        assertEquals("Fund @alice's guarded wallet", summary.label)
+        assertEquals("Fund @alice's guarded wallet “Savings”", summary.label)
     }
 }
