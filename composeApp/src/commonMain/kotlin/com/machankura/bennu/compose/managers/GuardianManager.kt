@@ -139,7 +139,10 @@ object GuardianManager {
 
         /** The ancestor as the spender of a spend from this wallet, signing as [thresholdPublicKey] -- null to only build one. */
         fun spender(thresholdPublicKey: HexKey? = null): GroupSpend.Spender.Guardian =
-            GroupSpend.Spender.Guardian(position = position, lineage = lineage, thresholdPublicKey = thresholdPublicKey, name = displayName)
+            GroupSpend.Spender.Guardian(position = position, lineage = lineage, thresholdPublicKey = thresholdPublicKey, name = displayName, label = label)
+
+        /** A member's label for it, where they gave one; null for a subgroup's. */
+        val label: String? get() = (subject as? GuardedSubject.Member)?.label
 
         /** How a spend from it names it: a subgroup's founding name, or `@` and a member's. */
         val displayName: String?

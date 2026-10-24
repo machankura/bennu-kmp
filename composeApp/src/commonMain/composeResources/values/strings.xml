@@ -667,6 +667,24 @@
     <string name="key_on_another_device">Key on another device</string>
     <string name="you_re_no_longer_in_s">You're no longer in %1$s. It still guards this wallet.</string>
     <string name="guarded_by_s">Guarded by %1$s</string>
+    <string name="guarded_by_s_below_s">Guarded by %1$s, below %2$s</string>
+    <string name="this_group">this group</string>
+    <string name="a_group_below_s">a group below %1$s</string>
+    <string name="a_group_below_this_one">a group below this one</string>
+    <string name="members_wallets">Members' wallets</string>
+    <string name="s_comma_s">%1$s, %2$s</string>
+    <plurals name="n_wallets">
+        <item quantity="one">%1$d wallet</item>
+        <item quantity="other">%1$d wallets</item>
+    </plurals>
+    <plurals name="guarded_by_n_groups">
+        <item quantity="one">guarded by %1$d group</item>
+        <item quantity="other">guarded by %1$d groups</item>
+    </plurals>
+    <string name="fund_s_s_guarded_wallet_s">Fund %1$s's guarded wallet “%2$s”</string>
+    <string name="spend_from_s_s_guarded_wallet_s">Spend from %1$s's guarded wallet “%2$s”</string>
+    <string name="fund_s_s_wallet_guarded_by_s">Fund %1$s's wallet guarded by %2$s</string>
+    <string name="spend_from_s_s_wallet_guarded_by_s">Spend from %1$s's wallet guarded by %2$s</string>
     <string name="discard">Discard</string>
     <string name="discard_this_wallet_question">Discard this wallet?</string>
     <string name="discarding_forgets_its_key">Its key is forgotten. No address of it was ever offered, so nothing can have been paid to it.</string>

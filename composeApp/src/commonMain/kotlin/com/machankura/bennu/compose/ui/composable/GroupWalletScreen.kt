@@ -1,5 +1,26 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.a_group_below_s
+import bennu.composeapp.generated.resources.a_group_below_this_one
+import bennu.composeapp.generated.resources.fund_s_s_guarded_wallet_s
+import bennu.composeapp.generated.resources.fund_s_s_wallet_guarded_by_s
+import bennu.composeapp.generated.resources.guarded_by_n_groups
+import bennu.composeapp.generated.resources.guarded_by_s
+import bennu.composeapp.generated.resources.guarded_by_s_below_s
+import bennu.composeapp.generated.resources.members_wallets
+import bennu.composeapp.generated.resources.n_wallets
+import bennu.composeapp.generated.resources.s_comma_s
+import bennu.composeapp.generated.resources.spend_from_s_s_guarded_wallet_s
+import bennu.composeapp.generated.resources.spend_from_s_s_wallet_guarded_by_s
+import bennu.composeapp.generated.resources.this_group
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.unit.dp
+import com.machankura.bennu.compose.ui.composable.navigation.routes.ProfilePreviewRoute
+import com.machankura.bennu.compose.ui.composable.widgets.profile.ProfileAvatar
+import com.machankura.bennu.compose.ui.view.state.PersonGuardedWallets
+import com.machankura.bennu.compose.ui.view.state.byPerson
+import org.jetbrains.compose.resources.pluralStringResource
 import bennu.composeapp.generated.resources.this_group_s_delay_in_this_wallet
 import bennu.composeapp.generated.resources.a_group_above_this_one
 import bennu.composeapp.generated.resources.guardian_after
@@ -222,6 +243,11 @@ fun GroupWalletScreen(
             )
         )
     }
+    // A member's wallets are gathered under them, and their header opens them:
+    // a person is someone to look at, not a room to go into.
+    val toPerson = { publicKey: HexKey ->
+        onNavigateToRoute(ProfilePreviewRoute(activeUserPublicKey = activeUserPublicKey, profilePublicKey = publicKey))
+    }
     val onShare = { shareable: GuardianManager.Shareable ->
         groupWalletViewModel.share(shareable, onShared = { notify(shared) }, onFailure = { notify(couldNotShare) })
     }
@@ -327,6 +353,7 @@ fun GroupWalletScreen(
                                 onSpend = if (state.canSign && wallets != null) toGuardianSpend else null,
                                 // A group with no wallet of its own has nothing to fund with.
                                 onFund = null,
+                                onOpenPerson = toPerson,
                             )
                         }
                     }
@@ -371,6 +398,7 @@ fun GroupWalletScreen(
                         onShare = onShare,
                         onSpend = if (state.canSign && state.canWatch) toGuardianSpend else null,
                         onFund = if (state.canSign && state.canWatch) toGuardianFund else null,
+                        onOpenPerson = toPerson,
                     )
                 }
             }
@@ -472,6 +500,7 @@ private fun OpenWallet(
     onShare: (GuardianManager.Shareable) -> Unit,
     onSpend: ((GuardedWalletRow) -> Unit)?,
     onFund: ((GuardedWalletRow) -> Unit)?,
+    onOpenPerson: (HexKey) -> Unit,
 ) {
     val clipboardManager = LocalClipboardManager.current
     val addressCopied = stringResource(Res.string.address_copied)
@@ -638,6 +667,7 @@ private fun OpenWallet(
             onShare = onShare,
             onSpend = onSpend,
             onFund = onFund,
+            onOpenPerson = onOpenPerson,
         )
     }
 }
@@ -696,6 +726,7 @@ private fun LazyListScope.guardianItems(
     onShare: (GuardianManager.Shareable) -> Unit,
     onSpend: ((GuardedWalletRow) -> Unit)?,
     onFund: ((GuardedWalletRow) -> Unit)?,
+    onOpenPerson: (HexKey) -> Unit,
 ) {
     if (guardedWallets.isNotEmpty()) {
         item {
@@ -708,8 +739,32 @@ private fun LazyListScope.guardianItems(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        items(guardedWallets, key = { "guarded-" + it.wallet.statement.id }) { row ->
+        // Subgroups' wallets, each a room; then members', gathered by person, so
+        // that one member's wallets under different groups below read as one
+        // person's. docs/member-wallet-guarding-group.md, D6.
+        val subgroups = guardedWallets.filter { it.wallet.subject is GuardianManager.GuardedSubject.Subgroup }
+        items(subgroups, key = { "guarded-" + it.wallet.statement.id }) { row ->
             GuardedWalletCard(row = row, onSpend = onSpend, onFund = onFund)
+        }
+        val people = guardedWallets.byPerson()
+        if (people.isNotEmpty()) {
+            item {
+                Text(text = stringResource(Res.string.members_wallets), style = MaterialTheme.typography.titleSmall)
+            }
+            people.forEach { person ->
+                item(key = "person-" + person.ownerPublicKey) {
+                    PersonHeader(person = person, onOpen = { onOpenPerson(person.ownerPublicKey) })
+                }
+                items(person.rows, key = { "guarded-" + it.wallet.statement.id }) { row ->
+                    GuardedWalletCard(
+                        row = row,
+                        onSpend = onSpend,
+                        onFund = onFund,
+                        // Under the header, so the cards read as the person's.
+                        modifier = Modifier.padding(start = MaterialTheme.spacing.containerPadding),
+                    )
+                }
+            }
         }
     }
 
@@ -777,13 +832,23 @@ private fun GuardedWalletCard(
     row: GuardedWalletRow,
     onSpend: ((GuardedWalletRow) -> Unit)?,
     onFund: ((GuardedWalletRow) -> Unit)?,
+    modifier: Modifier = Modifier,
 ) {
     val name = guardedName(row.wallet.subject)
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    val member = row.wallet.subject as? GuardianManager.GuardedSubject.Member
+    val guardedBy = member?.let { guardedByLine(row.wallet, it) }
+    // A member's card sits under their header, so it is named by its label --
+    // or, with none, by the group that guards it, which still tells two of one
+    // person's wallets apart.
+    val headline = when {
+        member == null -> name
+        else -> member.label ?: guardedBy.orEmpty()
+    }
+    OutlinedCard(modifier = modifier.fillMaxWidth()) {
         ListItem(
             leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
             // Two lines, since the name is what says which wallet the buttons act on.
-            headlineContent = { Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            headlineContent = { Text(headline, maxLines = 2, overflow = TextOverflow.Ellipsis) },
             supportingContent = {
                 val reach = row.withinReach?.let { stringResource(Res.string.s_sats_within_this_group_s_reach, it.grouped()) }
                 val arriving = row.arriving?.takeIf { it.sat > 0 }?.let { stringResource(Res.string.s_sats_arriving, it.grouped()) }
@@ -792,10 +857,10 @@ private fun GuardedWalletCard(
                     arriving == null -> reach
                     else -> stringResource(Res.string.s_dot_s, reach, arriving)
                 }
-                // A member's label says which of their wallets it is.
-                val label = (row.wallet.subject as? GuardianManager.GuardedSubject.Member)?.label
                 Column {
-                    Text(label?.let { stringResource(Res.string.s_dot_s, it, amounts) } ?: amounts)
+                    // Which group below guards it, where the headline does not say.
+                    if (member?.label != null && guardedBy != null) Text(guardedBy)
+                    Text(amounts)
                     // This group's own leaf, which two of its descendants can have
                     // set differently. docs/guardian-delay.md.
                     Text(stringResource(Res.string.this_group_s_delay_in_this_wallet, delayText(row.wallet.delay, row.wallet.chain)))
@@ -803,8 +868,18 @@ private fun GuardedWalletCard(
             },
         )
         if (onFund != null || onSpend != null) {
-            val fundLabel = stringResource(Res.string.fund_s_s_guarded_wallet, name)
-            val spendLabel = stringResource(Res.string.spend_from_s_s_guarded_wallet, name)
+            // Each names its wallet and not only its person: one member can have
+            // several here, and a screen reader hears every one's *Fund* alike.
+            val fundLabel = when {
+                member == null -> stringResource(Res.string.fund_s_s_guarded_wallet, name)
+                member.label != null -> stringResource(Res.string.fund_s_s_guarded_wallet_s, name, member.label)
+                else -> stringResource(Res.string.fund_s_s_wallet_guarded_by_s, name, guardianPhrase(row.wallet, member))
+            }
+            val spendLabel = when {
+                member == null -> stringResource(Res.string.spend_from_s_s_guarded_wallet, name)
+                member.label != null -> stringResource(Res.string.spend_from_s_s_guarded_wallet_s, name, member.label)
+                else -> stringResource(Res.string.spend_from_s_s_wallet_guarded_by_s, name, guardianPhrase(row.wallet, member))
+            }
             FlowRow(
                 modifier = Modifier.fillMaxWidth().padding(
                     start = MaterialTheme.spacing.containerPadding,
@@ -829,6 +904,51 @@ private fun GuardedWalletCard(
         }
     }
 }
+
+/**
+ * One member, heading their wallets in an ancestor's list: how many this group
+ * guards, and under how many groups below it -- the summary that shows a person
+ * with wallets in more than one branch. Opens their profile.
+ */
+@Composable
+private fun PersonHeader(person: PersonGuardedWallets, onOpen: () -> Unit) {
+    val name = stringResource(Res.string.at_s, person.ownerName ?: person.ownerPublicKey.take(8))
+    val wallets = pluralStringResource(Res.plurals.n_wallets, person.rows.size, person.rows.size)
+    val groups = pluralStringResource(Res.plurals.guarded_by_n_groups, person.guardianCount, person.guardianCount)
+    ListItem(
+        modifier = Modifier.clickable(onClick = onOpen).minimumInteractiveComponentSize(),
+        // 40dp is the avatar's size, a dimension: M3's list item leading avatar.
+        leadingContent = { ProfileAvatar(size = 40.dp, publicKey = person.ownerPublicKey, picture = null, name = person.ownerName) },
+        headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = { Text(stringResource(Res.string.s_comma_s, wallets, groups)) },
+    )
+}
+
+/**
+ * The group that directly guards a member's wallet, as a phrase inside a
+ * sentence: *this group*, its name, or -- with no name this device can check --
+ * where it sits, *a group below #P*. `docs/member-wallet-guarding-group.md`, D2.
+ */
+@Composable
+internal fun guardianPhrase(wallet: GuardianManager.GuardedWallet, member: GuardianManager.GuardedSubject.Member): String = when {
+    wallet.isGuardedHere -> stringResource(Res.string.this_group)
+    member.guardianName != null -> member.guardianName
+    member.branchName != null -> stringResource(Res.string.a_group_below_s, member.branchName)
+    else -> stringResource(Res.string.a_group_below_this_one)
+}
+
+/**
+ * *Guarded by #N*, or *Guarded by #M, below #P* where the group is further down
+ * than this one's own child -- the branch, so wallets from one part of the tree
+ * read as being from there. `docs/member-wallet-guarding-group.md`, D6.
+ */
+@Composable
+internal fun guardedByLine(wallet: GuardianManager.GuardedWallet, member: GuardianManager.GuardedSubject.Member): String =
+    if (wallet.position >= 2 && member.guardianName != null && member.branchName != null) {
+        stringResource(Res.string.guarded_by_s_below_s, member.guardianName, member.branchName)
+    } else {
+        stringResource(Res.string.guarded_by_s, guardianPhrase(wallet, member))
+    }
 
 /**
  * A guarded wallet as an ancestor's list names it: a subgroup by the name its

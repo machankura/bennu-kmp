@@ -15,6 +15,8 @@ import androidx.compose.ui.text.font.FontFamily
 import bennu.composeapp.generated.resources.address_s
 import bennu.composeapp.generated.resources.finding_an_address_in_s_s_wallet
 import bennu.composeapp.generated.resources.fund_s_s_guarded_wallet
+import bennu.composeapp.generated.resources.fund_s_s_guarded_wallet_s
+import bennu.composeapp.generated.resources.spend_from_s_s_guarded_wallet_s
 import bennu.composeapp.generated.resources.sends_s_sats_to_s_s_guarded_wallet_with_a_fee_of_s_sats
 import bennu.composeapp.generated.resources.this_group_can_spend_these_coins_again
 import bennu.composeapp.generated.resources.to
@@ -171,8 +173,11 @@ fun GroupSendScreen(
                     val funded = ready?.funding?.wallet
                     Text(
                         text = when {
+                            // A member's label says which of their wallets.
+                            guardian?.label != null -> stringResource(Res.string.spend_from_s_s_guarded_wallet_s, guardian.name ?: stringResource(Res.string.a_subgroup), guardian.label)
                             guardian != null -> stringResource(Res.string.spend_from_s_s_guarded_wallet, guardian.name ?: stringResource(Res.string.a_subgroup))
-                            funded != null -> stringResource(Res.string.fund_s_s_guarded_wallet, funded.displayName ?: stringResource(Res.string.a_subgroup))
+                            funded != null -> funded.label?.let { label -> stringResource(Res.string.fund_s_s_guarded_wallet_s, funded.displayName ?: stringResource(Res.string.a_subgroup), label) }
+                                ?: stringResource(Res.string.fund_s_s_guarded_wallet, funded.displayName ?: stringResource(Res.string.a_subgroup))
                             else -> stringResource(Res.string.send_from_the_group_s_wallet)
                         },
                         maxLines = 1,

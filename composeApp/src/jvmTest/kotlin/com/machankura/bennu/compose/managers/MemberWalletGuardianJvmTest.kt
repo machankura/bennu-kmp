@@ -235,6 +235,6 @@ class MemberWalletGuardianJvmTest {
         assertEquals(walletId, funded.wallet.descendantChatRoomId)
         assertEquals(target.pubkeyScript, checked.tx.txOut[funded.outputIndex].publicKeyScript)
         val summary = com.machankura.bennu.compose.text.ProposedSpend.summarize(checked.copy(fundings = reading.fundings), chain)
-        assertEquals("Fund @alice's guarded wallet", summary.label)
+        assertEquals("Fund @alice's guarded wallet “Savings”", summary.label)
     }
 }

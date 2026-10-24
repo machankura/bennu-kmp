@@ -102,6 +102,8 @@ object GroupSpend {
             val thresholdPublicKey: HexKey? = null,
             /** The guarded wallet's founding name, for the words a spend is shown in. */
             val name: String? = null,
+            /** A member's label for the wallet, where they gave one: one person can have several. */
+            val label: String? = null,
         ) : Spender
     }
 
