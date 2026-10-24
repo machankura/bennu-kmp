@@ -81,6 +81,7 @@ object MemberWalletRequestEvent {
     private const val CHANGE_MARKER = "change"
     private const val LABEL_TAG = "label"
     private const val POSSESSION_TAG = "possession"
+    private const val POLICY_TAG = "member_wallet_policy"
 
     /** The tag of the possession signature's message. Frozen once a request carries one. */
     private const val POSSESSION_HASH_TAG = "bennu/member-wallet/possession/v1"
@@ -101,6 +102,13 @@ object MemberWalletRequestEvent {
         val guardians: List<GuardianDerivation.Guardian>,
         val label: String?,
         val possession: ByteVector64,
+        /**
+         * The group's member-wallet policy the request was built under, whole and
+         * unverified -- or null for a request from before policies, which every
+         * signer now refuses and every reader of an old certificate still
+         * accepts. See `docs/member-wallet-delay.md`.
+         */
+        val policy: Event? = null,
     )
 
     /** A request that checks out on everything a reader can check without the group's key. */
@@ -109,6 +117,8 @@ object MemberWalletRequestEvent {
         val reading: Reading,
         /** The account the request opens, rederived from the wallet key -- never what it said. */
         val account: GroupWalletDerivation.Account,
+        /** The open policy it was built under, verified as the group's own; null for a request from before policies. */
+        val policy: MemberWalletPolicyEvent.Policy.Open? = null,
     )
 
     /**
@@ -135,6 +145,8 @@ object MemberWalletRequestEvent {
         account: GroupWalletDerivation.Account,
         label: String?,
         createdAt: Long = Clock.System.now().epochSeconds,
+        /** The group's open policy the grant was worked out under, carried whole. */
+        policy: Event? = null,
     ): Event {
         val memberPublicKey = memberPrivateKey.xOnlyPublicKey().value.toHex()
         val walletKey = walletPrivateKey.publicKey()
@@ -152,6 +164,7 @@ object MemberWalletRequestEvent {
             arrayOf(DESCRIPTOR_TAG, account.receiveDescriptor, RECEIVE_MARKER),
             arrayOf(DESCRIPTOR_TAG, account.changeDescriptor, CHANGE_MARKER),
             label?.trim()?.takeIf { it.isNotEmpty() }?.let { arrayOf(LABEL_TAG, it.take(MAX_LABEL_LENGTH)) },
+            policy?.let { arrayOf(POLICY_TAG, it.toJson()) },
             arrayOf(POSSESSION_TAG, possession.toHex()),
         ).toTypedArray()
 
@@ -173,6 +186,11 @@ object MemberWalletRequestEvent {
         val label = labels.singleOrNull()?.getOrNull(1)?.takeIf { it.isNotBlank() && it.length <= MAX_LABEL_LENGTH }
         if (labels.isNotEmpty() && label == null) return null
 
+        // Present and unreadable is not "built under no policy".
+        val policies = event.tags.filter { it.isNotEmpty() && it[0] == POLICY_TAG }
+        if (policies.size > 1) return null
+        val policy = policies.singleOrNull()?.let { tag -> tag.getOrNull(1)?.let { Event.fromJsonOrNull(it) } ?: return null }
+
         Reading(
             memberPublicKey = event.pubKey.lowercase(),
             groupChatRoomId = single(ROOM_TAG)?.lowercase() ?: return null,
@@ -185,6 +203,7 @@ object MemberWalletRequestEvent {
             guardians = GuardianTag.parseAll(event.tags)?.takeIf { it.isNotEmpty() } ?: return null,
             label = label,
             possession = single(POSSESSION_TAG)?.let { ByteVector64(it) } ?: return null,
+            policy = policy,
         )
     }.getOrNull()
 
@@ -197,7 +216,12 @@ object MemberWalletRequestEvent {
      *  4. its nearest guardian is the group it asks, so a request cannot leave
      *     out the one group it is asking;
      *  5. the wallet key, under those guardians, rederives the xpub and both
-     *     descriptors byte for byte.
+     *     descriptors byte for byte;
+     *  6. a policy it carries is an open one the group it asks signed, and its
+     *     nearest guardian's delay is that policy's -- `docs/member-wallet-delay.md`.
+     *     A request carrying none still reads: certificates signed before
+     *     policies embed one, and their wallets are guarded all the same. That
+     *     a *new* request must carry one is the signers' rule, not a reader's.
      *
      * Whether the guardians are the ones the group grants is not here: only a
      * device holding the group's key can say, and the group's signers do.
@@ -215,7 +239,13 @@ object MemberWalletRequestEvent {
         val account = MemberWalletDerivation.account(reading.walletKey, reading.chain, reading.guardians)
         if (account.xpub != reading.xpub || account.receiveDescriptor != reading.receiveDescriptor || account.changeDescriptor != reading.changeDescriptor) return null
 
-        Verified(request = event, reading = reading, account = account)
+        val policy = reading.policy?.let { carried ->
+            val open = MemberWalletPolicyEvent.verify(carried, reading.groupChatRoomId) as? MemberWalletPolicyEvent.Policy.Open ?: return null
+            if (reading.guardians.first().delay != open.delay) return null
+            open
+        }
+
+        Verified(request = event, reading = reading, account = account, policy = policy)
     }.getOrNull()
 
     /**

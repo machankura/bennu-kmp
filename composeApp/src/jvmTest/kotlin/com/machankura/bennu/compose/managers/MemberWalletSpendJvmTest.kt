@@ -67,6 +67,7 @@ class MemberWalletSpendJvmTest {
     private suspend fun certifiedWallet(): MemberWallet {
         signingRoom(db, group, members = listOf(memberPublicKey), holdsShare = false)
         fileKeyState(db, group, guardedCertificate(parent, group))
+        GroupFixtures.openToMembers(db, group)
         val wallet = MemberWalletManager.request(db, groupRoom, member, chain, label = null)
         val template = MemberWalletCertificateEvent.template(Event.fromJson(wallet.requestJson))
         val signed = signedAsRoom(group, template.kind, template.tags, template.content, template.createdAt)
@@ -123,6 +124,7 @@ class MemberWalletSpendJvmTest {
     fun `nothing is signed before a group certifies the wallet, or without its key`(): Unit = runBlocking {
         signingRoom(db, group, members = listOf(memberPublicKey), holdsShare = false)
         fileKeyState(db, group, guardedCertificate(parent, group))
+        GroupFixtures.openToMembers(db, group)
         val asked = MemberWalletManager.request(db, groupRoom, member, chain, label = null)
         val account = assertNotNull(MemberWalletManager.walletOf(db, memberPublicKey, asked.walletId)).account
         val built = assertIs<GroupSpendBuilder.Result.Built>(GroupSpendBuilder.sendAll(stateWith(account), destination, 3L, emptySet()))

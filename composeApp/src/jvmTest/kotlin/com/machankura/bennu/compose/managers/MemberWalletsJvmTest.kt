@@ -53,6 +53,7 @@ class MemberWalletsJvmTest {
     private suspend fun setUp(signer: Boolean = false) {
         signingRoom(db, group, members = listOf(memberPublicKey), holdsShare = signer)
         fileKeyState(db, group, guardedCertificate(parent, group))
+        GroupFixtures.openToMembers(db, group)
     }
 
     private suspend fun certify(request: Event) {

@@ -1,5 +1,11 @@
 package com.machankura.bennu.compose.ui.composable
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import bennu.composeapp.generated.resources.change
+import bennu.composeapp.generated.resources.guard_members_wallets
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberWalletPolicyRoute
 import bennu.composeapp.generated.resources.guarded_wallet_after
 import com.machankura.bennu.compose.ui.composable.widgets.delayText
 import com.machankura.bennu.compose.managers.MemberWalletManager
@@ -468,13 +474,30 @@ fun ChatRoomDetailScreen(
                             // A member's wallet is a person, not a room, so it is its
                             // own section and its row opens the person -- there is no
                             // chat to open. docs/member-guarded-wallets.md, Phase 11.
-                            if (chatRoomDetailUIState.memberWallets.isNotEmpty() || chatRoomDetailUIState.canAskForMemberWallet) {
+                            if (chatRoomDetailUIState.memberWallets.isNotEmpty() || chatRoomDetailUIState.canAskForMemberWallet || chatRoomDetailUIState.showsMemberWalletPolicy) {
                                 item { HorizontalDivider() }
                                 item {
                                     Text(
                                         text = stringResource(Res.string.members_guarded_wallets),
                                         style = MaterialTheme.typography.labelMedium
                                     )
+                                }
+                                // Whether the group guards members' wallets at all, and at
+                                // what delay -- first, because every row under it is a
+                                // wallet it agreed to under one. docs/member-wallet-delay.md.
+                                if (chatRoomDetailUIState.showsMemberWalletPolicy) {
+                                    item {
+                                        MemberWalletPolicyRow(
+                                            policy = chatRoomDetailUIState.memberWalletPolicy,
+                                            onChange = if (chatRoomDetailUIState.canSponsor) {
+                                                {
+                                                    onNavigateToRoute.invoke(
+                                                        MemberWalletPolicyRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)
+                                                    )
+                                                }
+                                            } else null,
+                                        )
+                                    }
                                 }
                                 items(
                                     items = chatRoomDetailUIState.memberWallets,
@@ -1191,6 +1214,31 @@ private fun SubgroupCard(
                 }
             }
         )
+    }
+}
+
+/**
+ * The group's own stand on its members' wallets, with *Change* -- or *Guard
+ * members' wallets* when it has none open -- for a device that can put a change
+ * to the group. `docs/member-wallet-delay.md`, Phase 6.
+ */
+@Composable
+private fun MemberWalletPolicyRow(policy: MemberWalletPolicyEvent.Policy?, onChange: (() -> Unit)?) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
+    ) {
+        Box(modifier = Modifier.weight(1f)) { MemberWalletPolicyState(policy) }
+        onChange?.let { change ->
+            TextButton(onClick = change) {
+                Text(
+                    stringResource(
+                        if (policy is MemberWalletPolicyEvent.Policy.Open) Res.string.change else Res.string.guard_members_wallets
+                    )
+                )
+            }
+        }
     }
 }
 

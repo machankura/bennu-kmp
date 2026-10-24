@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.repository
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.MemberWallet
 import com.machankura.bennu.compose.managers.GuardianManager
@@ -47,7 +48,8 @@ interface MemberWalletRepository {
     suspend fun walletOf(ownerPublicKey: HexKey, walletId: String): MemberWalletManager.MemberWalletRow?
 
     /** Asks the group again, with the request the wallet was first asked with. */
-    suspend fun askAgain(walletId: String)
+    /** Asks again for [walletId]; returns the wallet now asked for, a new one when the old request would be refused. */
+    suspend fun askAgain(walletId: String): String
 
     /** Forgets a wallet's key -- refused once a group guards it. */
     suspend fun discard(walletId: String)
@@ -70,6 +72,9 @@ interface MemberWalletRepository {
     /** The member wallets [chatRoomId] guards, and the requests waiting for a signer to put them to it. */
     suspend fun memberWalletsOf(chatRoomId: String): List<MemberWalletManager.GroupMemberWallet>
 
+    /** [chatRoomId]'s newest member-wallet policy this device holds, or null. See `MemberWalletManager.policyFor`. */
+    suspend fun policyOf(chatRoomId: String): MemberWalletPolicyEvent.Policy?
+
     /** Puts a member's request to [chatRoomId]'s quorum as the active profile, which counts as its approval. */
     suspend fun putToGroup(chatRoomId: String, request: Event): FrostSigningSession
 
@@ -88,7 +93,7 @@ interface MemberWalletRepository {
                 throw UnsupportedOperationException("no repository")
             override suspend fun walletsOf(ownerPublicKey: HexKey): List<MemberWalletManager.MemberWalletRow> = emptyList()
             override suspend fun walletOf(ownerPublicKey: HexKey, walletId: String): MemberWalletManager.MemberWalletRow? = null
-            override suspend fun askAgain(walletId: String) = Unit
+            override suspend fun askAgain(walletId: String): String = walletId
             override suspend fun discard(walletId: String) = Unit
             override suspend fun exportKey(walletId: String): Pair<String, String>? = null
             override suspend fun roomName(chatRoomId: String): String? = null
@@ -96,6 +101,8 @@ interface MemberWalletRepository {
             override suspend fun recordChain(txid: String, confirmations: Int?, broadcastAt: Instant?) = Unit
             override fun observeSpends(walletId: String): Flow<List<MemberWalletSpend>> = flowOf(emptyList())
             override suspend fun memberWalletsOf(chatRoomId: String): List<MemberWalletManager.GroupMemberWallet> = emptyList()
+
+            override suspend fun policyOf(chatRoomId: String): MemberWalletPolicyEvent.Policy? = null
             override suspend fun putToGroup(chatRoomId: String, request: Event): FrostSigningSession = throw UnsupportedOperationException("no repository")
             override suspend fun guardedByGroupsHere(ownerPublicKey: HexKey): List<MemberWalletManager.GuardedHere> = emptyList()
         }

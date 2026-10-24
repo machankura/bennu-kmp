@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import androidx.room3.Room
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.builder.getRoomDatabase
@@ -75,9 +76,45 @@ class GroupKeyNoticeJvmTest {
         assertEquals(thresholdKeyOf(group), groupKey.thresholdPublicKey)
         assertEquals(certificate.id, groupKey.certificate?.id)
         assertEquals(SubgroupBirthCertificateEvent.parseGuardians(certificate.tags), groupKey.guardians)
+        assertNull(groupKey.policy, "the answering device held no member-wallet policy, and says nothing about one")
 
         assertNull(asking.groupKeyStateDao().getByChatRoomId(groupRoom), "an answer is never filed as key state")
         assertFalse(MemberWalletManager.askForGroupKey(asking, groupRoom, member), "nothing left to ask")
+    }
+
+    /** docs/member-wallet-delay.md, Phase 3: the late member's only way to the group's policy. */
+    private suspend fun askedAndAnswered(policy: Event) {
+        fileKeyState(answering, group, certificate)
+        GroupFixtures.filePolicy(answering, group, policy)
+        MemberWalletManager.askForGroupKey(asking, groupRoom, member)
+        deliver(asking, answering)
+        val request = answering.marmotInnerEventDao().getByChatRoomAndKinds(groupRoom, listOf(GroupKeyNoticeEvent.KIND)).single().asEvent()
+        assertTrue(MemberWalletManager.answerKeyRequest(answering, groupRoom, request, signer))
+        deliver(answering, asking)
+    }
+
+    @Test
+    fun `an answer carries the group's open policy to a member who joined after it`(): Unit = runBlocking {
+        askedAndAnswered(GroupFixtures.memberWalletPolicy(group, 144))
+
+        val policy = MemberWalletManager.policyFor(asking, groupRoom)
+        assertEquals(144L, (policy as MemberWalletPolicyEvent.Policy.Open).delay)
+    }
+
+    @Test
+    fun `an answer carries a closed policy as well`(): Unit = runBlocking {
+        askedAndAnswered(GroupFixtures.memberWalletPolicy(group, null))
+
+        assertTrue(MemberWalletManager.policyFor(asking, groupRoom) is MemberWalletPolicyEvent.Policy.Closed)
+    }
+
+    @Test
+    fun `an answer carrying a policy another room signed does not read at all`() {
+        val forged = GroupFixtures.memberWalletPolicy(stranger, 6)
+        val tags = GroupKeyNoticeEvent.answeringTags("e".repeat(64), GroupKeyNoticeEvent.GroupKey(groupRoom, thresholdKeyOf(group), certificate), GroupFixtures.path) +
+            arrayOf(arrayOf("member_wallet_policy", forged.toJson()))
+
+        assertNull(GroupKeyNoticeEvent.read(answer(thresholdKeyOf(group), tags), groupRoom), "present and unreadable is not \"no policy\"")
     }
 
     @Test

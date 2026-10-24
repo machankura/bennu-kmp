@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.composable.navigation
 
+import com.machankura.bennu.compose.ui.composable.MemberWalletPolicyScreen
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberWalletPolicyRoute
 import com.machankura.bennu.compose.ui.composable.GroupSendScreen
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupSendRoute
 import androidx.compose.foundation.layout.fillMaxSize
@@ -1188,6 +1190,23 @@ fun BennuNavHost(
                     chain = NodeParamsManager.chain,
                     memberWalletRepository = databaseMemberWalletRepository,
                     wallets = groupOnchainWallets,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<MemberWalletPolicyRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<MemberWalletPolicyRoute>()
+
+                MemberWalletPolicyScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    chatRepository = databaseChatRepository,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    frostSigningRepository = databaseFrostSigningRepository,
+                    onNavigateToRoute = { actionRoute ->
+                        navController.navigate(route = actionRoute)
+                    },
                     onNavigateBack = {
                         navController.popBackStack()
                     }

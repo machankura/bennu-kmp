@@ -111,6 +111,10 @@ class ChatRoomDetailViewModel(
                         it == null || it == MemberWalletManager.Refusal.KEY_UNKNOWN
                     },
                     canSponsor = canSign,
+                    memberWalletPolicy = memberWalletRepository.policyOf(chatRoomId),
+                    // Everybody in a Marmot group sees whether it guards members'
+                    // wallets; only a signer is offered to change it.
+                    showsMemberWalletPolicy = !isDisbanded && localChatRoom.chatRoom.mlsGroupState != null,
                 )
             }
         }

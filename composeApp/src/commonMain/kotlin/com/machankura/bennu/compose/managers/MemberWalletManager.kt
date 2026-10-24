@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.FrostSigningSession
@@ -66,6 +67,27 @@ object MemberWalletManager {
     }
 
     /**
+     * Whether [chatRoomId] guards its members' wallets, and at what delay: the
+     * newest policy its own room signed, open or closed, among the ones this
+     * device holds -- `docs/member-wallet-delay.md`. Null when it holds none,
+     * which means the group has not opened (D8), or that this device has not
+     * yet been told.
+     *
+     * The one reader, used by the member's device when it builds a request and
+     * by every signer when it judges one.
+     */
+    suspend fun policyFor(database: BennuDatabase, chatRoomId: String): MemberWalletPolicyEvent.Policy? =
+        MemberWalletPolicyEvent.newestAmong(
+            database.groupSignedEventDao()
+                .getByChatRoomIdAndKind(chatRoomId, MemberWalletPolicyEvent.KIND)
+                .map { it.toEvent() } +
+                // A late member's only way to it: carried in a key answer, and
+                // checked again here as the room's own signature.
+                noticesIn(database, chatRoomId).mapNotNull { GroupKeyNoticeEvent.read(it, chatRoomId)?.policy?.event },
+            chatRoomId,
+        )
+
+    /**
      * Asks [chatRoomId] for its key, as [userPublicKey]. Returns false, asking
      * nothing, when this device already knows it or has asked and not been
      * answered: a second question would get the same answer.
@@ -102,6 +124,9 @@ object MemberWalletManager {
             chatRoomId = state.chatRoomId,
             thresholdPublicKey = state.thresholdPublicKey,
             certificate = state.birthCertificateJson?.let { Event.fromJsonOrNull(it) },
+            // The other thing a late member cannot read for themselves.
+            // docs/member-wallet-delay.md, Phase 3.
+            policy = policyFor(database, chatRoomId),
         )
         queue(database, chatRoomId, userPublicKey, GroupKeyNoticeEvent.answeringTags(request.id, groupKey, path), content = state.thresholdPublicKey)
         logger.i("Answered ${request.pubKey.take(8)}'s request for $chatRoomId's key")
@@ -129,6 +154,15 @@ object MemberWalletManager {
 
         /** The profile has no Electrum client, so it could not see its own coins. Read by the screen, not here. */
         CANNOT_WATCH,
+
+        /**
+         * The group has not said it guards members' wallets: no policy, as far as
+         * this device knows. `docs/member-wallet-delay.md`, D8.
+         */
+        NOT_OFFERED,
+
+        /** The group's newest policy closed it to new members' wallets. D9. */
+        CLOSED,
     }
 
     /** Why [chatRoomId] cannot guard a wallet for this profile on [chain], or null when it can. */
@@ -141,7 +175,14 @@ object MemberWalletManager {
         if (groupKey.certificate != null && SubgroupBirthCertificateEvent.parseGuardians(groupKey.certificate.tags) == null) {
             return Refusal.GUARDIANS_UNREADABLE
         }
-        return null
+        // Only a group that has opened guards members' wallets, at the delay it
+        // chose -- and a late member learns it with the key, so no key and no
+        // policy is KEY_UNKNOWN above, with its button to ask.
+        return when (policyFor(database, chatRoomId)) {
+            null -> Refusal.NOT_OFFERED
+            is MemberWalletPolicyEvent.Policy.Closed -> Refusal.CLOSED
+            is MemberWalletPolicyEvent.Policy.Open -> null
+        }
     }
 
     /**
@@ -154,13 +195,16 @@ object MemberWalletManager {
 
     /**
      * How long a coin in a wallet [chatRoomId] guards would wait for each of its
-     * guardians, nearest first: the group's own leaf at the default, and every
-     * group above it at the delay it chose -- `docs/guardian-delay.md`. The same
-     * list the grant in [request] carries. Null when this device does not know
-     * the group's key.
+     * guardians, nearest first: the group's own leaf at the delay its open policy
+     * sets, and every group above it at the delay it chose -- the same list the
+     * grant in [request] carries. Null when this device does not know the
+     * group's key, or the group is not open. `docs/member-wallet-delay.md`.
      */
-    suspend fun delaysOf(database: BennuDatabase, chatRoomId: String): List<Long>? =
-        groupKeyFor(database, chatRoomId)?.let { key -> listOf(GuardianDerivation.DEFAULT_DELAY) + key.guardians.map { it.delay } }
+    suspend fun delaysOf(database: BennuDatabase, chatRoomId: String): List<Long>? {
+        val key = groupKeyFor(database, chatRoomId) ?: return null
+        val policy = policyFor(database, chatRoomId) as? MemberWalletPolicyEvent.Policy.Open ?: return null
+        return listOf(policy.delay) + key.guardians.map { it.delay }
+    }
 
     /**
      * Steps 1 and 2: makes a random key, works out every ancestor's leaf and
@@ -188,9 +232,15 @@ object MemberWalletManager {
         val groupKey = groupKeyFor(database, chatRoomId) ?: throw IllegalStateException("Cannot ask: ${Refusal.KEY_UNKNOWN}")
         val memberPublicKey = memberPrivateKey.xOnlyPublicKey().value.toHex()
 
+        // The group's own leaf at the delay its newest policy sets, which the
+        // request carries so every signer judges it by what the group signed.
+        // refusal() has already refused a group that is not open.
+        val policy = policyFor(database, chatRoomId) as? MemberWalletPolicyEvent.Policy.Open
+            ?: throw IllegalStateException("Cannot ask: ${Refusal.NOT_OFFERED}")
+
         val walletPrivateKey = MemberWalletDerivation.generate()
         val walletId = MemberWalletDerivation.walletId(walletPrivateKey.publicKey())
-        val grant = GuardianDerivation.grant(groupKey.thresholdPublicKey, chatRoomId.lowercase(), groupKey.guardians, walletId)
+        val grant = GuardianDerivation.grant(groupKey.thresholdPublicKey, chatRoomId.lowercase(), groupKey.guardians, walletId, policy.delay)
         val account = MemberWalletDerivation.account(walletPrivateKey.publicKey(), chain, grant)
 
         val request = MemberWalletRequestEvent.build(
@@ -200,6 +250,7 @@ object MemberWalletManager {
             account = account,
             label = label,
             createdAt = createdAt.epochSeconds,
+            policy = policy.event,
         )
         checkNotNull(MemberWalletRequestEvent.verified(request)) { "The request this device built does not check out" }
 
@@ -223,13 +274,31 @@ object MemberWalletManager {
     }
 
     /**
-     * Asks again with the request [wallet] was asked with, unchanged -- for a
-     * request no signer put to the group, or one the group did not sign.
+     * Asks again -- for a request no signer put to the group, or one the group
+     * did not sign. With the request [wallet] was asked with, unchanged, when
+     * the group would still accept it; otherwise with a new one under the
+     * group's newest policy and a new key, as the member [memberPrivateKey]
+     * holds, and the old key discarded: no address of it was ever offered.
+     * `docs/member-wallet-delay.md`, Phase 5.
+     *
+     * Returns the wallet now asked for -- [wallet] itself, or its replacement.
+     *
+     * @throws IllegalStateException when a new request is needed and this group
+     * cannot be asked now, with the [Refusal]
      */
-    suspend fun askAgain(database: BennuDatabase, wallet: MemberWallet) {
+    suspend fun askAgain(database: BennuDatabase, wallet: MemberWallet, memberPrivateKey: PrivateKey): MemberWallet {
         val request = Event.fromJsonOrNull(wallet.requestJson) ?: throw IllegalStateException("The stored request does not read")
-        send(database, wallet.guardingChatRoomId, request)
-        sponsorIfSigner(database, wallet.guardingChatRoomId, wallet.ownerPublicKey, request)
+        if (judgePolicy(database, wallet.guardingChatRoomId, request) is PolicyJudgement.At) {
+            send(database, wallet.guardingChatRoomId, request)
+            sponsorIfSigner(database, wallet.guardingChatRoomId, wallet.ownerPublicKey, request)
+            return wallet
+        }
+
+        val chain = MemberWalletRequestEvent.read(request)?.chain ?: throw IllegalStateException("The stored request does not read")
+        val replacement = request(database, wallet.guardingChatRoomId, memberPrivateKey, chain, wallet.label)
+        discard(database, wallet.walletId)
+        logger.i("Asked ${wallet.guardingChatRoomId} again for a new wallet in place of ${wallet.walletId.take(8)}")
+        return replacement
     }
 
     /**
@@ -297,6 +366,12 @@ object MemberWalletManager {
         val isMember: Boolean,
         /** The stored key's row, for a wallet whose key is here. Never handed to a screen. */
         internal val stored: MemberWallet?,
+        /**
+         * Why the group would refuse this wallet's request as it stands, for one
+         * not yet guarded -- [judgePolicy] -- or null when it would not. Asking
+         * again then makes a new request. `docs/member-wallet-delay.md`.
+         */
+        val refusedBecause: Why? = null,
     ) {
         val isCertified: Boolean get() = state == WalletState.OPEN || state == WalletState.WATCH_ONLY
     }
@@ -325,6 +400,10 @@ object MemberWalletManager {
                 else -> WalletState.ASKED
             }
             row(database, wallet.walletId, wallet.guardingChatRoomId, wallet.label, verified.account, state, ownerPublicKey, wallet)
+                .let { row ->
+                    if (row.isCertified) row
+                    else row.copy(refusedBecause = (judgePolicy(database, wallet.guardingChatRoomId, request) as? PolicyJudgement.Refused)?.why)
+                }
         }
         val elsewhere = certified.values
             .filter { cert -> stored.none { it.walletId == cert.walletId } }
@@ -501,6 +580,9 @@ object MemberWalletManager {
      * The group's own wallet policy decides only which keys the grant carries.
      * It never refuses a member's wallet: an unguarded group guards its members
      * with its own key alone. `docs/member-guarded-wallets.md`, Phase 7.
+     *
+     * The group's *member-wallet* policy decides whether it guards one at all,
+     * and the delay on its own leaf: [judgePolicy], `docs/member-wallet-delay.md`.
      */
     suspend fun refuseCertificate(
         database: BennuDatabase,
@@ -515,9 +597,74 @@ object MemberWalletManager {
             .any { it.participantPublicKey.equals(verified.memberPublicKey, ignoreCase = true) }
         if (!member) return "was asked by somebody who is not a member"
 
-        val expected = runCatching { SubgroupManager.grantFor(database, chatRoomId, thresholdPublicKey, verified.walletId) }.getOrNull()
+        val delay = when (val judged = judgePolicy(database, chatRoomId, verified.request)) {
+            is PolicyJudgement.Refused -> return judged.reason
+            is PolicyJudgement.At -> judged.delay
+        }
+
+        val expected = runCatching { SubgroupManager.grantFor(database, chatRoomId, thresholdPublicKey, verified.walletId, delay) }.getOrNull()
             ?: return "grants keys this device cannot check"
         return if (verified.account.guardians == expected) null else "grants guardian keys this group does not"
+    }
+
+    /** What a signer makes of the policy a request was built under: the delay to judge it at, or why not. */
+    sealed interface PolicyJudgement {
+        data class At(val delay: Long) : PolicyJudgement
+        data class Refused(val reason: String, val why: Why) : PolicyJudgement
+    }
+
+    /** Why a request's policy will not do, said as a reason the member's screen can name. */
+    enum class Why {
+        /** Built before policies, or under none: the group never said it guards members' wallets. */
+        NO_POLICY,
+
+        /** It carries a policy, but not an open one the group signed. */
+        NOT_THE_GROUPS,
+
+        /** The group has a newer delay; the request was built under an older one. */
+        DELAY_CHANGED,
+
+        /** The group has since stopped guarding members' wallets. */
+        CLOSED,
+    }
+
+    /**
+     * The delay [chatRoomId]'s own leaf must have in the wallet [request] asks
+     * for, or why the request cannot be signed -- `docs/member-wallet-delay.md`,
+     * D6. `held` is this device's newest policy, `carried` the one the request
+     * was built under:
+     *
+     *  - carried, an open policy the group signed, and nothing held newer: at
+     *    its delay. Newer than what this device holds is fine -- the group
+     *    signed it, and this device missed it;
+     *  - carried, but a newer open one held: stale, *asked under a delay the
+     *    group has since changed*;
+     *  - carried, but a newer closed one held: stale, *the group has stopped*;
+     *  - carried and not an open policy the group signed: refused;
+     *  - none carried: refused. A request from before policies never asked for
+     *    the delay the group chose, or of a group that chose to guard members.
+     *
+     * Read from the request, not the certificate, so the member's screen and a
+     * sponsor's device can ask it before there is a certificate to check.
+     */
+    suspend fun judgePolicy(database: BennuDatabase, chatRoomId: String, request: Event): PolicyJudgement {
+        val reading = MemberWalletRequestEvent.read(request)
+            ?: return PolicyJudgement.Refused("is not a request this group could have been asked", Why.NOT_THE_GROUPS)
+        val carried = reading.policy
+            ?: return PolicyJudgement.Refused("does not say the group guards members' wallets", Why.NO_POLICY)
+        val open = MemberWalletPolicyEvent.verify(carried, chatRoomId) as? MemberWalletPolicyEvent.Policy.Open
+            ?: return PolicyJudgement.Refused("carries a policy this group did not sign open", Why.NOT_THE_GROUPS)
+
+        val held = policyFor(database, chatRoomId)
+        if (held != null && MemberWalletPolicyEvent.ORDER.compare(held, open) > 0) {
+            return when (held) {
+                is MemberWalletPolicyEvent.Policy.Open ->
+                    PolicyJudgement.Refused("was asked under a delay the group has since changed", Why.DELAY_CHANGED)
+                is MemberWalletPolicyEvent.Policy.Closed ->
+                    PolicyJudgement.Refused("was asked of a group that has since stopped guarding members' wallets", Why.CLOSED)
+            }
+        }
+        return PolicyJudgement.At(open.delay)
     }
 
     /**
