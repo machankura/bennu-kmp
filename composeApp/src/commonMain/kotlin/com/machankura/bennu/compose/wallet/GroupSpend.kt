@@ -299,6 +299,19 @@ object GroupSpend {
             .toSet()
 
     /**
+     * The receive indices under [account] -- a descendant's guarded wallet --
+     * that [psbt]'s outputs claim to fund: what an open funding holds, so the
+     * next one pays a different address. Claims, as [claimedChangeIndices] are,
+     * for the same reason. See `docs/guarded-wallet-funding.md`.
+     */
+    fun claimedFundingIndices(psbt: Psbt, account: GroupWalletDerivation.Account): Set<Long> =
+        psbt.outputs
+            .flatMap { it.taprootDerivationPaths.values }
+            .filter { isOurs(it, account) }
+            .mapNotNull { path -> path.keyPath.path.takeIf { it.size == 2 && it[0] == GroupWalletDerivation.RECEIVE }?.get(1) }
+            .toSet()
+
+    /**
      * The one derivation under [account] a PSBT field names, or null when it names
      * none, several, or one this wallet will not walk.
      *
