@@ -56,7 +56,7 @@ import bennu.composeapp.generated.resources.this_device_does_not_know_what_this_
 import bennu.composeapp.generated.resources.this_group_s_guardian_keys_can_t_be_read_to_guard_a_wallet
 import bennu.composeapp.generated.resources.this_profile_cannot_sign_a_request
 import bennu.composeapp.generated.resources.this_profile_cannot_watch_its_own_coins
-import bennu.composeapp.generated.resources.you_are_in_no_groups_that_can_guard_a_wallet
+import bennu.composeapp.generated.resources.none_of_your_groups_guards_members_wallets_yet
 import com.machankura.bennu.compose.managers.MemberWalletManager
 import com.machankura.bennu.compose.repository.MemberWalletRepository
 import com.machankura.bennu.compose.ui.composable.widgets.Decorative
@@ -138,7 +138,7 @@ fun NewMemberWalletScreen(
                 is NewMemberWalletUIState.Picking -> if (state.groups.isEmpty()) {
                     EmptyState(
                         modifier = Modifier.padding(padding).readableContent(),
-                        message = stringResource(Res.string.you_are_in_no_groups_that_can_guard_a_wallet),
+                        message = stringResource(Res.string.none_of_your_groups_guards_members_wallets_yet),
                         icon = Icons.Default.Groups,
                     )
                 } else {

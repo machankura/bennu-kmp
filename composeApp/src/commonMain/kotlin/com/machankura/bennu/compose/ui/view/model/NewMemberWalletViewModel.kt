@@ -52,7 +52,14 @@ class NewMemberWalletViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             uiState = when (val chosen = chatRoomId) {
                 null -> NewMemberWalletUIState.Picking(
-                    memberWalletRepository.groupsOf(activeUserPublicKey).map { GroupChoice(it, refusal(it.chatRoom.id)) }
+                    memberWalletRepository.groupsOf(activeUserPublicKey)
+                        .map { GroupChoice(it, refusal(it.chatRoom.id)) }
+                        // A group that has never opened to its members' wallets, or
+                        // has closed, is not a choice, so it is not on the list. A
+                        // group whose key -- and so whose policy -- this device has
+                        // not been told yet stays, with the button that asks: it may
+                        // well be open. docs/member-wallet-delay.md.
+                        .filter { it.refusal !in NOT_A_CHOICE }
                 )
                 else -> choose(chosen) ?: NewMemberWalletUIState.Error("Couldn't find the group")
             }
@@ -108,6 +115,9 @@ class NewMemberWalletViewModel(
     }
 
     companion object {
+        /** Refusals that say a group is not guarding members' wallets, rather than that this device cannot ask yet. */
+        private val NOT_A_CHOICE = setOf(MemberWalletManager.Refusal.NOT_OFFERED, MemberWalletManager.Refusal.CLOSED)
+
         private const val TAG = "NewMemberWalletViewModel"
 
         /** The longest label a request carries -- `MemberWalletRequestEvent.MAX_LABEL_LENGTH`. */
