@@ -22,7 +22,6 @@ import fr.acinq.lightning.blockchain.electrum.UnspentItem
 import fr.acinq.lightning.blockchain.fee.FeeratePerKw
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 
 /**
  * A chain that only exists in a test.
@@ -36,7 +35,7 @@ internal class FakeElectrum : IElectrumClient {
     val txs = mutableMapOf<TxId, Transaction>()
     val subscribed = mutableSetOf<ByteVector32>()
     override val notifications = MutableSharedFlow<ElectrumSubscriptionResponse>(extraBufferCapacity = 64)
-    override val connectionStatus: StateFlow<ElectrumConnectionStatus> = MutableStateFlow(ElectrumConnectionStatus.Closed(null))
+    override val connectionStatus = MutableStateFlow<ElectrumConnectionStatus>(ElectrumConnectionStatus.Closed(null))
 
     /** How many transactions have touched each script: Electrum's status is over the history, not the unspents. */
     private val history = mutableMapOf<ByteVector32, Int>()

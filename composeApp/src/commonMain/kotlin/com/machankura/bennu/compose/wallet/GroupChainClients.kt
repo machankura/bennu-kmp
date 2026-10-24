@@ -1,31 +1,20 @@
 package com.machankura.bennu.compose.wallet
 
-import co.touchlab.kermit.Logger
 import fr.acinq.bitcoin.Chain
-import fr.acinq.lightning.blockchain.electrum.ElectrumClient
-import fr.acinq.lightning.blockchain.electrum.ElectrumConnectionStatus
-import fr.acinq.lightning.blockchain.electrum.ElectrumServers
 import fr.acinq.lightning.blockchain.electrum.IElectrumClient
-import fr.acinq.lightning.io.TcpSocket
-import fr.acinq.lightning.logging.LoggerFactory
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * The Electrum connection each network's group wallets watch through, for one identity.
  *
- * The identity's own node has one, for the network the node runs on, and every wallet on that network
- * shares it as before. A group may keep a wallet on another network as well -- testnet3, while its
- * Lightning wallet is tried there (`docs/group-lightning-wallet.md`, Phase 4) -- and that network gets a
- * connection of its own, made the first time a wallet on it asks and kept for the identity's life, for
- * the reason [GroupOnchainWallets] keeps its wallets: a subscription is cheap and the first answer slow.
+ * The identity has one for the network its node runs on -- the node's own, or for a profile with no
+ * node the one `IdentityElectrum` gives it -- and every wallet on that network shares it. A group may
+ * keep a wallet on another network as well -- testnet3, while its Lightning wallet is tried there
+ * (`docs/group-lightning-wallet.md`, Phase 4) -- and that network gets a [StandaloneElectrum] of its
+ * own, made the first time a wallet on it asks and kept for the identity's life, for the reason
+ * [GroupOnchainWallets] keeps its wallets: a subscription is cheap and the first answer slow. Being the
+ * same loop as the identity's own, it follows the profile's Tor setting.
  */
 class GroupChainClients(
     private val nodeChain: Chain,
@@ -52,39 +41,15 @@ class GroupChainClients(
             GroupChainClients(Chain.Mainnet, client) { Connection(client) {} }
 
         /**
-         * The identity's node for its own network, and a standalone [ElectrumClient] on a random public
-         * server for any other that lightning-kmp lists servers for (mainnet and testnet3), reconnecting
-         * whenever it drops.
+         * The identity's client for its own network -- its node's, or the one a profile with no node
+         * is given -- and, for any other network a group keeps a wallet on, a [StandaloneElectrum]
+         * from [standaloneFor]: the same connection loop the identity's own uses, so the same
+         * server choice, the same pauses, and the same refusal of a clearnet server while Tor is on.
          */
-        fun forNode(nodeChain: Chain, nodeClient: IElectrumClient, scope: CoroutineScope, loggerFactory: LoggerFactory): GroupChainClients =
-            GroupChainClients(nodeChain, nodeClient) { chain -> standalone(chain, scope, loggerFactory) }
-
-        private fun standalone(chain: Chain, scope: CoroutineScope, loggerFactory: LoggerFactory): Connection {
-            val logger = Logger.withTag("GroupChainClients")
-            val client = ElectrumClient(scope, loggerFactory, pingInterval = 30.seconds, rpcTimeout = 10.seconds)
-            val socketBuilder = TcpSocket.Builder()
-            val job: Job = scope.launch {
-                var backoff = 1.seconds
-                while (isActive) {
-                    if (client.connectionStatus.value is ElectrumConnectionStatus.Closed) {
-                        val server = ElectrumServers.pickElectrumServer(chain)
-                        val connected = try {
-                            client.connect(server, socketBuilder)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Throwable) {
-                            logger.w("Could not reach ${server.host} for $chain", e)
-                            false
-                        }
-                        backoff = if (connected) 1.seconds else (backoff * 2).coerceAtMost(60.seconds)
-                    }
-                    delay(backoff)
-                }
+        fun forNode(nodeChain: Chain, nodeClient: IElectrumClient, standaloneFor: (Chain) -> StandaloneElectrum): GroupChainClients =
+            GroupChainClients(nodeChain, nodeClient) { chain ->
+                val standalone = standaloneFor(chain).also { it.start() }
+                Connection(standalone.client) { standalone.stop() }
             }
-            return Connection(client) {
-                job.cancel()
-                client.stop()
-            }
-        }
     }
 }

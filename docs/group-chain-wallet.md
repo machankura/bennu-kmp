@@ -523,10 +523,11 @@ it knows is re-fetched from Electrum on start.
 **An identity without a node.** `Identity.business` is null for an nsec or npub
 profile, and with it the Electrum client. Such a member still holds a share if
 they are in the quorum, and Phase 7 is built so they can sign without the chain.
-What they cannot do in this phase is see a balance; the screen says so rather
-than showing zero. A standalone `ElectrumClient` for those identities is a
-follow-up, and `AppConfigurationManager.randomElectrumServer` is where its server
-would come from.
+What they could not do in this phase is see a balance; the screen said so rather
+than showing zero. **Since built:** a standalone Electrum client for those
+identities, [standalone-electrum.md](./standalone-electrum.md), which picks its
+server as `AppConfigurationManager.randomElectrumServer` does. The screen's
+*cannot watch* branch is gone with it.
 
 **Test** in `jvmTest`, with a fake `IElectrumClient` — the interface is small and
 documented never to throw: funding `/0/2` makes the receive address move to
@@ -839,7 +840,8 @@ same as a shared xpub in any multisig and is stated here so nobody is surprised.
 
 ### What is left, when someone wants it
 
-- A standalone Electrum client for nsec and npub identities (Phase 4).
+- ~~A standalone Electrum client for nsec and npub identities (Phase 4).~~ Built:
+  [standalone-electrum.md](./standalone-electrum.md).
 - **Funding from a member's own node.** Phoenix's close-channels flow takes a
   destination address (`CloseChannelsConfigurationController` defaults it to
   `finalAddress`); offering the group's receive address there, and as a

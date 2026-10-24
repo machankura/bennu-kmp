@@ -29,7 +29,7 @@ class GroupWalletAddressesViewModel(
     val chain: Chain,
     initialUIState: GroupWalletAddressesUIState,
     val chatRepository: ChatRepository,
-    private val wallets: GroupOnchainWallets?,
+    private val wallets: GroupOnchainWallets,
 ): ViewModel() {
     var uiState: GroupWalletAddressesUIState by mutableStateOf(initialUIState)
         private set
@@ -62,10 +62,6 @@ class GroupWalletAddressesViewModel(
                 uiState = GroupWalletAddressesUIState.Error("This group has not opened a wallet")
                 return@launch
             }
-            if (wallets == null) {
-                uiState = GroupWalletAddressesUIState.CannotWatch
-                return@launch
-            }
 
             uiState = GroupWalletAddressesUIState.Loaded(receive = null)
             wallets.walletFor(wallet.account).state.collect { state ->
@@ -91,7 +87,7 @@ class GroupWalletAddressesViewModel(
             chain: Chain,
             initialUIState: GroupWalletAddressesUIState = GroupWalletAddressesUIState.Loading,
             chatRepository: ChatRepository,
-            wallets: GroupOnchainWallets?,
+            wallets: GroupOnchainWallets,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 GroupWalletAddressesViewModel(

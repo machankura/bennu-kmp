@@ -39,7 +39,7 @@ class MemberWalletViewModel(
     walletId: String,
     initialUIState: MemberWalletUIState,
     private val memberWalletRepository: MemberWalletRepository,
-    private val wallets: GroupOnchainWallets?,
+    private val wallets: GroupOnchainWallets,
 ) : ViewModel() {
     private val logger = Logger.withTag(TAG)
 
@@ -69,11 +69,11 @@ class MemberWalletViewModel(
                 uiState = MemberWalletUIState.Error("Couldn't find this wallet")
                 return@launch
             }
-            val loaded = MemberWalletUIState.Loaded(wallet = wallet, canWatch = wallets != null)
+            val loaded = MemberWalletUIState.Loaded(wallet = wallet)
             uiState = loaded
 
             watching?.cancel()
-            if (!wallet.isCertified || wallets == null) return@launch
+            if (!wallet.isCertified) return@launch
             watching = viewModelScope.launch(Dispatchers.IO) {
                 var taken = emptyList<TakenLine>()
                 combine(
@@ -104,7 +104,6 @@ class MemberWalletViewModel(
      * record for the next one that does.
      */
     private suspend fun follow(spends: List<MemberWalletSpend>, chain: Chain) {
-        val wallets = wallets ?: return
         spends.filter { it.confirmedAt == null && it.replacedByTxid == null }.forEach { spend ->
             val tx = runCatching { Transaction.read(spend.signedTransaction) }.getOrNull() ?: return@forEach
             val confirmations = wallets.confirmationsOf(tx, chain)
@@ -152,7 +151,7 @@ class MemberWalletViewModel(
             walletId: String,
             initialUIState: MemberWalletUIState = MemberWalletUIState.Loading,
             memberWalletRepository: MemberWalletRepository,
-            wallets: GroupOnchainWallets?,
+            wallets: GroupOnchainWallets,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer { MemberWalletViewModel(ownerPublicKey, walletId, initialUIState, memberWalletRepository, wallets) }
         }

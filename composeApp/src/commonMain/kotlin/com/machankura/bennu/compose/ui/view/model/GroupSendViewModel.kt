@@ -53,7 +53,7 @@ class GroupSendViewModel(
     initialGroupSendUIState: GroupSendUIState,
     val chatRepository: ChatRepository,
     val frostSigningRepository: FrostSigningRepository,
-    private val wallets: GroupOnchainWallets?,
+    private val wallets: GroupOnchainWallets,
     /** The descendant whose guarded wallet this form spends from, or null for the room's own. */
     val guardedChatRoomId: String? = null,
     /** The descendant whose guarded wallet this form pays, or null for a payment to a typed address. */
@@ -103,7 +103,7 @@ class GroupSendViewModel(
                 else -> GroupWallet(GroupSignedEvent.fromEvent(guarded.statement, chatRoomId = guarded.descendantChatRoomId), guarded.account)
             }
             val canSign = localChatRoom.chatRoom.mlsGroupState != null && chatRepository.canSign(chatRoomId)
-            if (wallet == null || !canSign || wallets == null || (fundChatRoomId != null && funded == null)) {
+            if (wallet == null || !canSign || (fundChatRoomId != null && funded == null)) {
                 groupSendUIState = GroupSendUIState.Unavailable
                 return@launch
             }
@@ -284,7 +284,7 @@ class GroupSendViewModel(
             initialGroupSendUIState: GroupSendUIState = GroupSendUIState.Loading,
             chatRepository: ChatRepository,
             frostSigningRepository: FrostSigningRepository,
-            wallets: GroupOnchainWallets?,
+            wallets: GroupOnchainWallets,
             guardedChatRoomId: String? = null,
             fundChatRoomId: String? = null,
         ): ViewModelProvider.Factory = viewModelFactory {

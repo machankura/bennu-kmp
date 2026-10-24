@@ -12,10 +12,8 @@ sealed interface MemberWalletUIState {
 
     data class Loaded(
         val wallet: MemberWalletManager.MemberWalletRow,
-        /** Null before Electrum's first answer, for a wallet no group has certified, and for a profile that cannot watch the chain. */
+        /** Null before Electrum's first answer, and for a wallet no group has certified. */
         val walletState: GroupWalletState? = null,
-        /** Whether this profile has an Electrum client to watch the chain with. */
-        val canWatch: Boolean,
         /** What the wallet's guardians took from it, read off the chain: never stored, found again on each look. */
         val taken: List<TakenLine> = emptyList(),
         /** The spends the member signed from it, newest first. */

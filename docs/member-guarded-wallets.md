@@ -272,7 +272,10 @@ opened to its members' wallets: a group that has signed no member-wallet policy,
 or whose newest one is closed, takes no request.
 A read-only profile cannot sign the request. A profile with no Electrum client
 (`GroupOnchainWallets` is null for it) could not see its own coins, so it is not
-offered a wallet it cannot see.
+offered a wallet it cannot see. **Since
+[standalone-electrum.md](./standalone-electrum.md)** there is no such profile:
+an nsec profile watches on a client of its own, the `CANNOT_WATCH` refusal is
+gone, and an nsec profile may ask.
 
 ### D4. What the member's device has to know, and the member who joined late
 
@@ -597,7 +600,7 @@ with a `NavigateBackButton`). It is a consent screen first and a form second:
 | refused | because |
 |---|---|
 | a read-only profile | it cannot sign the request (`LocalCanSign`) |
-| no Electrum client for the profile | it could not see its own coins (D3) |
+| ~~no Electrum client for the profile~~ | gone: every profile has one since [standalone-electrum.md](./standalone-electrum.md) (D3) |
 | the group has no key, or is not a Marmot room | there is nobody to sign the certificate, and no room to carry it |
 | `groupKeyFor` is null | the grant cannot be worked out. Offer *Ask the group for its key* (Phase 2) |
 | `grantFor` is null | `G`'s certificate carries guardian keys this build cannot read. Today that surfaces at the end of a ceremony, and here it is refused up front |
@@ -969,8 +972,9 @@ longer in #Ekklesia* when that is so.
 certificate is a signature that exists forever, and the group can only stop
 watching.
 
-**It does not reach a member who cannot watch the chain** (D3), and it does not
-reach a read-only profile at all.
+**It does not reach a read-only profile at all.** It did not reach a member who
+could not watch the chain either (D3), until
+[standalone-electrum.md](./standalone-electrum.md) gave every profile a client.
 
 **It does not survive a re-keyed group**, for the reason the guardians note
 gives. The leaf is bound to `K_G`.

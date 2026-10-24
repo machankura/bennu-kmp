@@ -153,9 +153,6 @@ object MemberWalletManager {
         /** Member wallets are not offered on this network yet: `GroupWalletRollout.offersMemberWalletsOn`. */
         NOT_ON_THIS_NETWORK,
 
-        /** The profile has no Electrum client, so it could not see its own coins. Read by the screen, not here. */
-        CANNOT_WATCH,
-
         /**
          * The group has not said it guards members' wallets: no policy, as far as
          * this device knows. `docs/member-wallet-delay.md`, D8.

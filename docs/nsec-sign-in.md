@@ -942,6 +942,9 @@ found.
   in [The constraint](#the-constraint). Possible as a *second* secret — generate
   a seed, attach it to the identity — but then one profile has two things to back
   up and every recovery screen in this plan has to say which. Its own plan.
+  *Watching* the chain without a wallet of its own is built: an nsec profile
+  sees its groups' balances on an Electrum client of its own —
+  [standalone-electrum.md](./standalone-electrum.md).
 - **Starting the node lazily for mnemonic identities.** Recommended, separable,
   and made small by Phase 1. See [The one decision](#the-one-decision-to-make-first).
 - **`npub` sign-in (read only).** The skeleton parses it, and `signInToProfile`

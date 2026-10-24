@@ -27,15 +27,11 @@ import kotlinx.coroutines.withContext
  * the button is drawn and again inside `MemberWalletManager.request`, the way
  * the subgroup picker refuses: the screen keeps a member out of a dead end, the
  * manager keeps a bug out of the room.
- *
- * [canWatch] is whether this profile has an Electrum client: one without could
- * not see its own coins, so it is not offered a wallet it cannot see (D3).
  */
 class NewMemberWalletViewModel(
     val activeUserPublicKey: HexKey,
     private val chatRoomId: String?,
     private val chain: Chain,
-    private val canWatch: Boolean,
     initialUIState: NewMemberWalletUIState,
     private val memberWalletRepository: MemberWalletRepository,
 ) : ViewModel() {
@@ -84,7 +80,6 @@ class NewMemberWalletViewModel(
 
     private suspend fun refusal(chatRoomId: String): MemberWalletManager.Refusal? =
         memberWalletRepository.refusal(chatRoomId, chain)
-            ?: if (!canWatch) MemberWalletManager.Refusal.CANNOT_WATCH else null
 
     fun askForGroupKey() {
         val chosen = uiState as? NewMemberWalletUIState.Chosen ?: return
@@ -127,12 +122,11 @@ class NewMemberWalletViewModel(
             activeUserPublicKey: HexKey,
             chatRoomId: String?,
             chain: Chain,
-            canWatch: Boolean,
             initialUIState: NewMemberWalletUIState = NewMemberWalletUIState.Loading,
             memberWalletRepository: MemberWalletRepository,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
-                NewMemberWalletViewModel(activeUserPublicKey, chatRoomId, chain, canWatch, initialUIState, memberWalletRepository)
+                NewMemberWalletViewModel(activeUserPublicKey, chatRoomId, chain, initialUIState, memberWalletRepository)
             }
         }
     }

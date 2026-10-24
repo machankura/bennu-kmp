@@ -30,6 +30,7 @@ silent, or a decision that looked arbitrary and was not.
 | [long-running-sync.md](./long-running-sync.md) | the chat subscriptions that stay open instead of pulling once per screen — why the request queue could not simply hold one, and how the group filter follows the room list |
 | [dead-code.md](./dead-code.md) | code in the sync and relay stack that nothing calls, why each piece is still there, and which of it is a bug rather than a leftover |
 | [nsec-sign-in.md](./nsec-sign-in.md) | signing in with an existing nostr key — why an nsec can never have a wallet behind it, the ten call sites that make it small, and the sign-in machine that was already built and unreachable |
+| [standalone-electrum.md](./standalone-electrum.md) | a profile with no node watching the chain — why only a nodeless profile gets its own client, why it connects at start rather than on first look, and why Tor on still means no clearnet fallback |
 | [npub-sign-in.md](./npub-sign-in.md) | signing in with only a public key — what a key that cannot sign can still see here, why that is a preview rather than a browser, and the four decisions the word settles |
 | [multiple-profiles.md](./multiple-profiles.md) | several profiles on one device — why a profile is a credential and a seed is a wallet attached to one, why a switch is a restart rather than a swap, the two entrances the app lacks, and the inbox a switch would silently lose |
 | [jvm-target.md](./jvm-target.md) | what desktop support cost, phased — why the native chain was already done, why an empty source set in our phoenix fork was the real blocker, and why DAO tests need none of it |
@@ -145,3 +146,8 @@ wallet note and the ceremony note, and reads as the lightning-kmp fork's
 constraints and its decision table before any phase, its trust table before
 arguing with either, and its two tables of what the build found before
 changing anything it describes.
+
+The standalone-electrum note is a phased plan that has been built, and is the
+group chain wallet note's *An identity without a node* answered: read that
+paragraph and the nsec sign-in note's *The constraint* first, then its seven
+decisions, and its table of where the build chose differently before the code.

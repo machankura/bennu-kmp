@@ -16,12 +16,6 @@ sealed interface GroupWalletAddressesUIState {
         val change: List<GroupAddress> = emptyList(),
     ): GroupWalletAddressesUIState
 
-    /**
-     * A profile with no node of its own -- an nsec or an npub -- which knows the
-     * group keeps a wallet and cannot see which of its addresses are used.
-     */
-    data object CannotWatch: GroupWalletAddressesUIState
-
     data class Error(
         val message: String
     ): GroupWalletAddressesUIState

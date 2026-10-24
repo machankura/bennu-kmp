@@ -73,7 +73,7 @@ class GroupWalletAddressesViewModelJvmTest {
             override suspend fun groupWallet(chatRoomId: String, chain: Chain): GroupWallet? = opened
         }
 
-    private fun viewModel(opened: GroupWallet?, wallets: GroupOnchainWallets?) =
+    private fun viewModel(opened: GroupWallet?, wallets: GroupOnchainWallets = GroupOnchainWallets(FakeElectrum(), scope)) =
         GroupWalletAddressesViewModel(
             chatRoomId = chatRoomId,
             chain = Chain.Regtest,
@@ -94,15 +94,7 @@ class GroupWalletAddressesViewModelJvmTest {
 
     @Test
     fun `a room with no wallet has no addresses to list`() {
-        assertIs<GroupWalletAddressesUIState.Error>(viewModel(opened = null, wallets = null).until { it != GroupWalletAddressesUIState.Loading })
-    }
-
-    @Test
-    fun `a profile with no node is told it cannot watch rather than shown nothing`() {
-        assertEquals(
-            GroupWalletAddressesUIState.CannotWatch,
-            viewModel(opened = wallet, wallets = null).until { it != GroupWalletAddressesUIState.Loading },
-        )
+        assertIs<GroupWalletAddressesUIState.Error>(viewModel(opened = null).until { it != GroupWalletAddressesUIState.Loading })
     }
 
     @Test

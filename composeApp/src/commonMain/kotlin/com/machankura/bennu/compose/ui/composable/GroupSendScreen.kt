@@ -133,7 +133,7 @@ fun GroupSendScreen(
     initialGroupSendUIState: GroupSendUIState = GroupSendUIState.Loading,
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
-    wallets: GroupOnchainWallets?,
+    wallets: GroupOnchainWallets,
     guardedChatRoomId: String? = null,
     fundChatRoomId: String? = null,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,

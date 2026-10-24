@@ -170,6 +170,7 @@ import com.machankura.bennu.compose.ui.composable.MemberWalletScreen
 import com.machankura.bennu.compose.ui.composable.NewMemberWalletScreen
 import com.machankura.bennu.compose.database.repository.DatabaseMemberWalletRepository
 import com.machankura.bennu.compose.wallet.GroupOnchainWallets
+import com.machankura.bennu.compose.wallet.IdentityElectrum
 import com.machankura.bennu.compose.wallet.GroupTransactionWatcher
 import fr.acinq.phoenix.managers.NodeParamsManager
 import com.machankura.bennu.compose.ui.composable.navigation.routes.FrostSigningRoute
@@ -262,21 +263,37 @@ fun BennuNavHost(
         )
     }
 
-    // The group wallets this identity is watching, on its own node's Electrum
-    // client -- null for an nsec or npub profile, which has no node and so no
-    // chain to watch. Remade with the node and stopped with it, because a switch
-    // of profile is a restart and a wallet left subscribing on the last one's
-    // connection is a wallet nobody can see.
+    // The Electrum client this identity watches the chain on: its node's, or --
+    // for an nsec or npub profile, which has no node -- one of its own. Remade
+    // with the identity, the last one stopped first, because a switch of profile
+    // is a restart and a wallet left subscribing on the last one's connection is
+    // a wallet nobody can see. See docs/standalone-electrum.md.
     val activeIdentityForWallets by sovereignWalletViewModel.activeIdentity.collectAsState()
-    // One Electrum connection per network: the node's own for its network, and one of
-    // their own for any other a group keeps a wallet on (testnet3, while a Lightning
-    // wallet is tried there). Shared by the wallets and the watcher below.
-    val groupChainClients = remember(activeIdentityForWallets?.business) {
-        activeIdentityForWallets?.business?.let { GroupChainClients.forNode(NodeParamsManager.chain, it.electrumClient, applicationIOScope, it.loggerFactory) }
+    val identityElectrum = remember {
+        IdentityElectrum(IdentityElectrum.standalone(phoenixGlobal.networkMonitor, phoenixGlobal.loggerFactory))
+    }
+    DisposableEffect(identityElectrum) {
+        onDispose { identityElectrum.stop() }
+    }
+    val electrum = remember(activeIdentityForWallets?.id, activeIdentityForWallets?.business) {
+        identityElectrum.clientFor(activeIdentityForWallets)
+    }
+
+    // One Electrum connection per network: the identity's own -- its node's, or the one a
+    // profile with no node is given -- for the node's network, and one of their own for any
+    // other a group keeps a wallet on (testnet3, while a Lightning wallet is tried there).
+    // Shared by the wallets and the watcher below, and remade with the identity's client.
+    val groupChainClients = remember(electrum) {
+        val identity = activeIdentityForWallets
+        if (electrum == null || identity == null) null else GroupChainClients.forNode(NodeParamsManager.chain, electrum) { chain ->
+            IdentityElectrum.standaloneOn(chain, identity, phoenixGlobal.networkMonitor, phoenixGlobal.loggerFactory)
+        }
     }
     DisposableEffect(groupChainClients) {
         onDispose { groupChainClients?.let { clients -> applicationIOScope.launch { clients.stop() } } }
     }
+
+    // The group wallets this identity is watching. Remade with the client.
     val groupOnchainWallets = remember(groupChainClients) {
         groupChainClients?.let { GroupOnchainWallets(it, applicationIOScope) }
     }
@@ -286,12 +303,13 @@ fun BennuNavHost(
 
     // The group Lightning nodes this identity is the elected operator of. Behind the
     // rollout gate: nothing is built while it is off. Same lifetime as the wallets.
+    // A group's node is not the identity's own, and needs only an Electrum client: so a
+    // profile with no node -- an nsec or an npub, which has one now -- can run it too.
     val groupLightningNodes = remember(groupChainClients) {
-        val business = activeIdentityForWallets?.business
         val clients = groupChainClients
         val user = activeIdentityForWallets?.nostrPublicKey
-        if (!GroupLightningRollout.ENABLED || business == null || clients == null || user == null) null else {
-            val ctx = business.phoenixGlobal.ctx
+        if (!GroupLightningRollout.ENABLED || clients == null || user == null) null else {
+            val ctx = phoenixGlobal.ctx
             GroupLightningNodes(
                 database = auxDatabaseManager.auxDatabase,
                 userPublicKey = user,
@@ -301,12 +319,12 @@ fun BennuNavHost(
                     databasesFor = { nodeId, chain ->
                         PhoenixDatabases(
                             channels = createSqliteChannelsDb(createChannelsDbDriver(ctx, "group-" + DatabaseManager.channelsDbName(chain, nodeId))),
-                            payments = createSqlitePaymentsDb(createPaymentsDbDriver(ctx, "group-" + DatabaseManager.paymentsDbName(chain, nodeId)) {}, null, business.loggerFactory),
+                            payments = createSqlitePaymentsDb(createPaymentsDbDriver(ctx, "group-" + DatabaseManager.paymentsDbName(chain, nodeId)) {}, null, phoenixGlobal.loggerFactory),
                             cloudKit = null,
                         )
                     },
                     walletParamsFor = { chain -> LSP.from(chain).walletParams },
-                    loggerFactory = business.loggerFactory,
+                    loggerFactory = phoenixGlobal.loggerFactory,
                     scope = applicationIOScope,
                 ),
             ).also { it.start() }
@@ -318,7 +336,7 @@ fun BennuNavHost(
 
     // Sends the group's signed spends to the network from this device too, and
     // follows them to a confirmation -- whether or not anybody opens the wallet.
-    // Same lifetime as the wallets: the identity's node, and nothing longer.
+    // Same lifetime as the wallets: the identity's client, and nothing longer.
     val groupTransactionWatcher = remember(groupChainClients) {
         groupChainClients?.let {
             GroupTransactionWatcher(auxDatabaseManager.auxDatabase, it, applicationIOScope).also { watcher -> watcher.start() }
@@ -1275,6 +1293,9 @@ fun BennuNavHost(
             }
             composable<GroupWalletRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<GroupWalletRoute>()
+                // Null only with no identity, for the frame between a profile
+                // switch and the startup screen: there is no chain to show yet.
+                val wallets = groupOnchainWallets ?: return@composable
 
                 GroupWalletScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
@@ -1282,7 +1303,7 @@ fun BennuNavHost(
                     chain = route.chain?.let(GroupWalletStatementEvent::chainNamed) ?: NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     watcher = groupTransactionWatcher,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
@@ -1294,12 +1315,13 @@ fun BennuNavHost(
             }
             composable<MemberWalletRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<MemberWalletRoute>()
+                val wallets = groupOnchainWallets ?: return@composable
 
                 MemberWalletScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     walletId = route.walletId,
                     memberWalletRepository = databaseMemberWalletRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     onSend = { walletId ->
                         navController.navigate(route = MemberSendRoute(activeUserPublicKey = route.activeUserPublicKey, walletId = walletId))
                     },
@@ -1310,13 +1332,14 @@ fun BennuNavHost(
             }
             composable<MemberSendRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<MemberSendRoute>()
+                val wallets = groupOnchainWallets ?: return@composable
 
                 MemberSendScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     walletId = route.walletId,
                     chain = NodeParamsManager.chain,
                     memberWalletRepository = databaseMemberWalletRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
@@ -1346,7 +1369,6 @@ fun BennuNavHost(
                     activeUserPublicKey = route.activeUserPublicKey,
                     chatRoomId = route.chatRoomId,
                     chain = NodeParamsManager.chain,
-                    canWatch = groupOnchainWallets != null,
                     memberWalletRepository = databaseMemberWalletRepository,
                     onNavigateBack = {
                         navController.popBackStack()
@@ -1355,12 +1377,13 @@ fun BennuNavHost(
             }
             composable<GroupWalletAddressesRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<GroupWalletAddressesRoute>()
+                val wallets = groupOnchainWallets ?: return@composable
 
                 GroupWalletAddressesScreen(
                     chatRoomId = route.chatRoomId,
                     chain = route.chain?.let(GroupWalletStatementEvent::chainNamed) ?: NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
@@ -1368,6 +1391,7 @@ fun BennuNavHost(
             }
             composable<GroupSendRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<GroupSendRoute>()
+                val wallets = groupOnchainWallets ?: return@composable
 
                 GroupSendScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
@@ -1375,7 +1399,7 @@ fun BennuNavHost(
                     chain = route.chain?.let(GroupWalletStatementEvent::chainNamed) ?: NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     guardedChatRoomId = route.guardedChatRoomId,
                     fundChatRoomId = route.fundChatRoomId,
                     onNavigateToRouteAndPopUpInclusive = { signingRoute ->
