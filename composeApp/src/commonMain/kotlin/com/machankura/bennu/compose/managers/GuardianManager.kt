@@ -245,11 +245,8 @@ object GuardianManager {
     fun electedSender(candidates: Set<HexKey>): HexKey? = candidates.map { it.lowercase() }.minOrNull()
 
     /** [wallet] with its member's profile name, where this device knows one. */
-    private suspend fun named(database: BennuDatabase, wallet: GuardedWallet): GuardedWallet {
-        val member = wallet.subject as? GuardedSubject.Member ?: return wallet
-        val name = database.profileDao().getProfileByPublicKey(member.ownerPublicKey)?.humanReadableNameOrPubkey()
-        return wallet.copy(subject = member.copy(ownerName = name))
-    }
+    private suspend fun named(database: BennuDatabase, wallet: GuardedWallet): GuardedWallet =
+        wallet.copy(subject = named(database, wallet.subject))
 
     /**
      * Every guarded wallet [ancestorChatRoomId] has been told about and can sign
@@ -454,9 +451,30 @@ object GuardianManager {
     ): Int {
         val content = statement.toJson()
 
+        // The sender is never handed its own MLS message back, so the line the
+        // other members' devices write when it arrives is written here for the
+        // sender's own -- before the notice, which then finds a line already
+        // there. docs/guarded-wallet-forwarding.md, D6.
+        val line = believable(statement)?.let { describe(named(database, it.subject)) }
+
         rooms.forEach { room ->
             val tags = arrayOf(arrayOf("h", room.chatRoom.id))
             val id = EventHasher.hashId(userPublicKey, createdAt, GuardedWalletNoticeEvent.KIND, tags, content)
+            line?.takeIf { firstNoticeOf(database, room.chatRoom.id, statement.id, excludingNotice = id) }?.let {
+                database.chatMessageDao().upsert(
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = ChatMessage.TYPE_GUARDED_WALLET_SHARED,
+                        marmotGroupEventId = null,
+                        marmotInnerEventId = null,
+                        senderPublicKey = userPublicKey,
+                        isUserMessage = true,
+                        chatRoomId = room.chatRoom.id,
+                        createdAt = Instant.fromEpochSeconds(createdAt),
+                        content = it,
+                    )
+                )
+            }
             database.marmotInnerEventDao().upsert(
                 MarmotInnerEvent(
                     id = id,
@@ -557,11 +575,36 @@ object GuardianManager {
         val statement = GuardedWalletNoticeEvent.statementOf(notice) ?: return null
         val thresholdPublicKey = GroupWalletManager.thresholdKeyFor(database, chatRoomId) ?: return null
         val wallet = verify(statement, chatRoomId, thresholdPublicKey) ?: return null
+        // One line per wallet per group: a second notice of a statement this room
+        // already holds -- told before, by another forwarder, or signed here --
+        // is filed and silent. docs/guarded-wallet-forwarding.md, D6.
+        if (!firstNoticeOf(database, chatRoomId, statement.id, excludingNotice = notice.id)) return null
 
-        return when (val subject = named(database, wallet).subject) {
-            is GuardedSubject.Member -> "Shared @${subject.ownerName ?: subject.ownerPublicKey.take(8)}'s guarded wallet with this group."
-            is GuardedSubject.Subgroup -> subject.name?.let { "Shared the guarded wallet of $it with this group." }
-                ?: "Shared a subgroup's guarded wallet with this group."
-        }
+        return describe(named(database, wallet).subject)
+    }
+
+    private fun describe(subject: GuardedSubject): String = when (subject) {
+        is GuardedSubject.Member -> "Shared @${subject.ownerName ?: subject.ownerPublicKey.take(8)}'s guarded wallet with this group."
+        is GuardedSubject.Subgroup -> subject.name?.let { "Shared the guarded wallet of $it with this group." }
+            ?: "Shared a subgroup's guarded wallet with this group."
+    }
+
+    /** [subject] with its member's profile name, where this device knows one. */
+    private suspend fun named(database: BennuDatabase, subject: GuardedSubject): GuardedSubject {
+        val member = subject as? GuardedSubject.Member ?: return subject
+        val name = database.profileDao().getProfileByPublicKey(member.ownerPublicKey)?.humanReadableNameOrPubkey()
+        return member.copy(ownerName = name)
+    }
+
+    /**
+     * Whether a notice of [statementId] -- [excludingNotice], the one being
+     * filed or sent -- is the first [chatRoomId] holds: no other notice in the
+     * room carries the statement, and the room did not sign it itself.
+     */
+    private suspend fun firstNoticeOf(database: BennuDatabase, chatRoomId: String, statementId: HexKey, excludingNotice: HexKey): Boolean {
+        if (database.groupSignedEventDao().getById(statementId)?.chatRoomId.equals(chatRoomId, ignoreCase = true)) return false
+        return database.marmotInnerEventDao()
+            .getByChatRoomAndKinds(chatRoomId, listOf(GuardedWalletNoticeEvent.KIND))
+            .none { it.id != excludingNotice && Event.fromJsonOrNull(it.content)?.id == statementId }
     }
 }

@@ -141,7 +141,9 @@ class MemberWalletGuardianJvmTest {
         val listed = GuardianManager.guardedWalletsOf(db, parentRoom).single()
         assertEquals(listOf(groupRoom, walletId), listed.lineage)
         assertEquals(1, listed.position)
-        assertTrue(GuardianManager.describeNotice(db, parentRoom, Event("1".repeat(64), memberPublicKey, 1, GuardedWalletNoticeEvent.KIND, emptyArray(), certificate().toJson(), ""))!!.startsWith("Shared @"))
+        // The notice as it was filed: a second of the same certificate would be silent.
+        val filed = db.marmotInnerEventDao().getByChatRoomAndKinds(parentRoom, listOf(GuardedWalletNoticeEvent.KIND)).single()
+        assertTrue(GuardianManager.describeNotice(db, parentRoom, Event(filed.id, filed.publicKey, filed.createdAt.epochSeconds, filed.kind, filed.tags, filed.content, ""))!!.startsWith("Shared @"))
     }
 
     @Test

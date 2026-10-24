@@ -272,4 +272,54 @@ class GuardedWalletForwardJvmTest {
         assertEquals(2, repository.forwardGuardedWallets(groupRoom), "the middle group and the root")
         assertEquals(0, repository.forwardGuardedWallets(middleRoom), "the root has heard, and the group signed it")
     }
+
+    // ---- Phase 5: the transcript ------------------------------------------
+
+    private suspend fun sharedLinesIn(chatRoomId: String) =
+        db.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId).map { it.chatMessage }
+            .filter { it.messageType == com.machankura.bennu.compose.database.model.ChatMessage.TYPE_GUARDED_WALLET_SHARED }
+
+    /** A notice of [statement] from [forwarder], filed in [chatRoomId] as the inbound path files one. */
+    private suspend fun noticeFrom(forwarder: String, chatRoomId: String, statement: Event, at: Long): Event {
+        val tags = arrayOf(arrayOf("h", chatRoomId))
+        val id = com.vitorpamplona.quartz.nip01Core.crypto.EventHasher.hashId(forwarder, at, GuardedWalletNoticeEvent.KIND, tags, statement.toJson())
+        db.marmotInnerEventDao().upsert(
+            com.machankura.bennu.compose.database.model.MarmotInnerEvent(
+                id = id, publicKey = forwarder, kind = GuardedWalletNoticeEvent.KIND,
+                createdAt = kotlin.time.Instant.fromEpochSeconds(at), tags = tags, content = statement.toJson(), chatRoomId = chatRoomId,
+            )
+        )
+        return Event(id, forwarder, at, GuardedWalletNoticeEvent.KIND, tags, statement.toJson(), "")
+    }
+
+    @Test
+    fun `two forwarders' notices of one wallet give the group one line`(): Unit = runBlocking {
+        GroupFixtures.seedProfile(db, memberPublicKey, name = "alice")
+        inRoom(middle, middleCertificate)
+
+        val first = noticeFrom("a1".repeat(32), middleRoom, certificate, 1_700_000_100)
+        assertEquals("Shared @alice's guarded wallet with this group.", GuardianManager.describeNotice(db, middleRoom, first))
+
+        val second = noticeFrom("b2".repeat(32), middleRoom, certificate, 1_700_000_200)
+        assertEquals(null, GuardianManager.describeNotice(db, middleRoom, second), "the second is filed and silent")
+        assertEquals(1, GuardianManager.guardedWalletsOf(db, middleRoom).size, "and the wallet listed once")
+    }
+
+    @Test
+    fun `the forwarder sees its own line in the group it told`(): Unit = runBlocking {
+        GroupFixtures.seedProfile(db, memberPublicKey, name = "alice")
+        inRoom(group, groupCertificate)
+        inRoom(middle, middleCertificate)
+        signedInGroup()
+
+        GuardianManager.forward(db, certificate, groupRoom, whenElected = false)
+        val lines = sharedLinesIn(middleRoom)
+        assertEquals(1, lines.size)
+        assertTrue(lines.single().isUserMessage)
+        assertEquals("Shared @alice's guarded wallet with this group.", lines.single().content)
+        assertTrue(sharedLinesIn(groupRoom).isEmpty(), "nothing in the group that signed it")
+
+        // Another member's notice of the same wallet, arriving afterwards, writes nothing more.
+        assertEquals(null, GuardianManager.describeNotice(db, middleRoom, noticeFrom("b2".repeat(32), middleRoom, certificate, 1_800_000_000)))
+    }
 }
