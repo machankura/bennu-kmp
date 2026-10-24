@@ -23,7 +23,25 @@ the guardian tag from the first and the wallet-policy plumbing from the second,
 and it changes one section of the first: [*Why 12, and why for
 everybody*](./group-wallet-guardians.md#the-leaf).
 
-**Not built.** Written against the code as it stood at `60cb3fa7`, schema v29.
+**Built**, phases 1-8, one commit each, in the order the plan asked for —
+Phase 7 before Phase 5 — written against the code as it stood at `60cb3fa7`,
+schema v29; the build is schema v30. `GuardianDerivation.DELAY_RANGE`,
+`grant(..., delay)`, `BlockDuration` and `delayText` are the entry points. The
+phases below are kept as written, line references included, which have since
+moved; where the build chose differently the table says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 2: one jvmTest | two. The script edges are in `GuardianSpendRoundTest` (commonTest), beside the 12-block test they generalise; the builder and the check are in `GuardianSigningJvmTest`, where the funded-state fixture is |
+| Phase 3: `BlockDuration` in `wallet/` | in `text/`, beside `Sats.kt`, with `groupedBlocks()`. `delayText` and `approximateDuration` are in `ui/composable/widgets/DelayText.kt`. `BlockDuration.describe` says the same in fixed English for `ProposedEvent`, which is not a composable |
+| Phase 4: a migration test | none, as for the policy's v29: the nullable auto-migrations have none, and every jvmTest's in-memory database runs at v30 |
+| Phase 5: `setGuardianDelay` stores what was typed | two calls: `setGuardianDelay(blocks)` for a preset and `setGuardianDelayInput(text)` for the field, which drops anything but digits and stops at seven, enough to say *at most 65,535* about a number past it. The presets are `SelectSubgroupAdminsViewModel.DELAY_PRESETS`, as `FilterChip`s in a `FlowRow`. A retry comes back on its preset when it was one, and in the field when it was not |
+| Phase 5: tests of `confirm` | not written, as for the policy: `confirm` needs an `Identity` with a private key and settled key packages |
+| Phase 6: the summary's own-leaf line | a separate element, *this group after 144 blocks, about 1 day*, after the existing reach line |
+| Phase 7: the guarded section's title says the shortest delay | not built. Each guardian is listed nearest first with its own delay, named by the room this device holds for it — `GroupWalletUIState.guardianNames` — and otherwise *a group above this one* |
+| Phase 7: `withinReach` reads `wallet.account.guardians[position].delay` | `GuardianManager.GuardedWallet.delay`, the same thing named once |
+
+Still to do by hand: the three-emulator run in Phase 8.
 
 ---
 
