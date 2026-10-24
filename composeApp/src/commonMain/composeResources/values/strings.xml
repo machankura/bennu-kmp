@@ -473,8 +473,11 @@
     <string name="spend_from_s_s_guarded_wallet">Spend from %1$s's guarded wallet</string>
     <string name="wallets_of_groups_below_this_one">Wallets of groups below this one. This group can spend a coin in them once it has %1$d confirmations.</string>
     <string name="s_sats_within_this_group_s_reach">%1$s sats within this group's reach</string>
+    <string name="fund">Fund</string>
     <string name="fund_s_s_guarded_wallet">Fund %1$s's guarded wallet</string>
+    <string name="s_sats_arriving">%1$s sats arriving</string>
     <string name="to">To</string>
+    <string name="s_s_guarded_wallet">%1$s's guarded wallet</string>
     <string name="this_group_can_spend_these_coins_again">This group can spend these coins again once they have %1$d confirmations.</string>
     <string name="finding_an_address_in_s_s_wallet">Finding an address in %1$s's wallet…</string>
     <string name="wait_for_this_group_s_open_payments_to_s">Wait for this group's open payments to %1$s to confirm.</string>

@@ -4,6 +4,14 @@ import bennu.composeapp.generated.resources.the_group_above_decided_this_wallet_
 import bennu.composeapp.generated.resources.the_group_above_decided_this_wallet_is_guarded
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import bennu.composeapp.generated.resources.fund
+import bennu.composeapp.generated.resources.fund_s_s_guarded_wallet
+import bennu.composeapp.generated.resources.s_sats_arriving
+import bennu.composeapp.generated.resources.spend_from_s_s_guarded_wallet
 import androidx.compose.foundation.layout.Row
 import com.machankura.bennu.compose.text.ProposedSpend
 import com.machankura.bennu.compose.ui.view.state.SpendRow
@@ -197,6 +205,18 @@ fun GroupWalletScreen(
             )
         )
     }
+    // Behind the room's own send's gates, since a funding is one: a share to
+    // propose with, and a node to see this group's coins with.
+    val toGuardianFund = { row: GuardedWalletRow ->
+        onNavigateToRoute(
+            GroupSendRoute(
+                activeUserPublicKey = activeUserPublicKey,
+                chatRoomId = chatRoomId,
+                relayHint = null,
+                fundChatRoomId = row.wallet.descendantChatRoomId,
+            )
+        )
+    }
     val onShare = { shareable: GuardianManager.Shareable ->
         groupWalletViewModel.share(shareable, onShared = { notify(shared) }, onFailure = { notify(couldNotShare) })
     }
@@ -297,6 +317,8 @@ fun GroupWalletScreen(
                                 isPending = groupWalletViewModel.isActionPending.value,
                                 onShare = onShare,
                                 onSpend = if (state.canSign && wallets != null) toGuardianSpend else null,
+                                // A group with no wallet of its own has nothing to fund with.
+                                onFund = null,
                             )
                         }
                     }
@@ -340,6 +362,7 @@ fun GroupWalletScreen(
                         isPending = groupWalletViewModel.isActionPending.value,
                         onShare = onShare,
                         onSpend = if (state.canSign && state.canWatch) toGuardianSpend else null,
+                        onFund = if (state.canSign && state.canWatch) toGuardianFund else null,
                     )
                 }
             }
@@ -440,6 +463,7 @@ private fun OpenWallet(
     isPending: Boolean,
     onShare: (GuardianManager.Shareable) -> Unit,
     onSpend: ((GuardedWalletRow) -> Unit)?,
+    onFund: ((GuardedWalletRow) -> Unit)?,
 ) {
     val clipboardManager = LocalClipboardManager.current
     val addressCopied = stringResource(Res.string.address_copied)
@@ -605,6 +629,7 @@ private fun OpenWallet(
             isPending = isPending,
             onShare = onShare,
             onSpend = onSpend,
+            onFund = onFund,
         )
     }
 }
@@ -662,6 +687,7 @@ private fun LazyListScope.guardianItems(
     isPending: Boolean,
     onShare: (GuardianManager.Shareable) -> Unit,
     onSpend: ((GuardedWalletRow) -> Unit)?,
+    onFund: ((GuardedWalletRow) -> Unit)?,
 ) {
     if (guardedWallets.isNotEmpty()) {
         item {
@@ -675,23 +701,7 @@ private fun LazyListScope.guardianItems(
             )
         }
         items(guardedWallets, key = { "guarded-" + it.wallet.statement.id }) { row ->
-            ListItem(
-                leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
-                headlineContent = { Text(row.wallet.name ?: stringResource(Res.string.a_subgroup), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                supportingContent = {
-                    Text(
-                        row.withinReach?.let { stringResource(Res.string.s_sats_within_this_group_s_reach, it.grouped()) }
-                            ?: stringResource(Res.string.balance_not_known_yet)
-                    )
-                },
-                trailingContent = onSpend?.let { spend ->
-                    {
-                        TextButton(onClick = { spend(row) }) {
-                            Text(stringResource(Res.string.spend))
-                        }
-                    }
-                },
-            )
+            GuardedWalletCard(row = row, onSpend = onSpend, onFund = onFund)
         }
     }
 
@@ -709,6 +719,66 @@ private fun LazyListScope.guardianItems(
                     }
                 },
             )
+        }
+    }
+}
+
+/**
+ * One descendant's guarded wallet: its name and what is within reach, and under
+ * them the actions, in the card's own row rather than the list item's trailing
+ * slot. Two buttons there would leave the name -- the one thing that says which
+ * wallet this is -- a few characters at large text sizes, and a flow row wraps
+ * them instead. Each button names its wallet, since a screen reader hears every
+ * row's *Fund* and *Spend* alike. See `docs/guarded-wallet-funding.md`, Phase 5.
+ */
+@Composable
+private fun GuardedWalletCard(
+    row: GuardedWalletRow,
+    onSpend: ((GuardedWalletRow) -> Unit)?,
+    onFund: ((GuardedWalletRow) -> Unit)?,
+) {
+    val name = row.wallet.name ?: stringResource(Res.string.a_subgroup)
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        ListItem(
+            leadingContent = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative) },
+            // Two lines, since the name is what says which wallet the buttons act on.
+            headlineContent = { Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            supportingContent = {
+                val reach = row.withinReach?.let { stringResource(Res.string.s_sats_within_this_group_s_reach, it.grouped()) }
+                val arriving = row.arriving?.takeIf { it.sat > 0 }?.let { stringResource(Res.string.s_sats_arriving, it.grouped()) }
+                Text(
+                    when {
+                        reach == null -> stringResource(Res.string.balance_not_known_yet)
+                        arriving == null -> reach
+                        else -> stringResource(Res.string.s_dot_s, reach, arriving)
+                    }
+                )
+            },
+        )
+        if (onFund != null || onSpend != null) {
+            val fundLabel = stringResource(Res.string.fund_s_s_guarded_wallet, name)
+            val spendLabel = stringResource(Res.string.spend_from_s_s_guarded_wallet, name)
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(
+                    start = MaterialTheme.spacing.containerPadding,
+                    end = MaterialTheme.spacing.containerPadding,
+                    bottom = MaterialTheme.spacing.compactPadding,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.targetGap, Alignment.End),
+            ) {
+                // Money in before money out, at equal weight: neither is the one
+                // every member wants, and a filled button would say it was.
+                onFund?.let { fund ->
+                    TextButton(onClick = { fund(row) }, modifier = Modifier.semantics { contentDescription = fundLabel }) {
+                        Text(stringResource(Res.string.fund))
+                    }
+                }
+                onSpend?.let { spend ->
+                    TextButton(onClick = { spend(row) }, modifier = Modifier.semantics { contentDescription = spendLabel }) {
+                        Text(stringResource(Res.string.spend))
+                    }
+                }
+            }
         }
     }
 }

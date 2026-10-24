@@ -9,6 +9,7 @@ import bennu.composeapp.generated.resources.fund_s_s_guarded_wallet
 import bennu.composeapp.generated.resources.sends_s_sats_to_s_s_guarded_wallet_with_a_fee_of_s_sats
 import bennu.composeapp.generated.resources.this_group_can_spend_these_coins_again
 import bennu.composeapp.generated.resources.to
+import bennu.composeapp.generated.resources.s_s_guarded_wallet
 import bennu.composeapp.generated.resources.wait_for_this_group_s_open_payments_to_s
 import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.ui.view.state.FundingTarget
@@ -320,7 +321,7 @@ private fun FundingDestination(funding: FundingTarget) {
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap),
         ) {
             Text(text = stringResource(Res.string.to), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(text = stringResource(Res.string.fund_s_s_guarded_wallet, name), style = MaterialTheme.typography.titleMedium)
+            Text(text = stringResource(Res.string.s_s_guarded_wallet, name), style = MaterialTheme.typography.titleMedium)
             val address = funding.address
             when {
                 address != null -> {
