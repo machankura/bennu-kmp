@@ -4,7 +4,9 @@ import com.machankura.bennu.compose.nostr.dkg.tags.DkgSessionIdTag
 import com.machankura.bennu.compose.nostr.dkg.tags.DkgThresholdTag
 import com.vitorpamplona.quartz.nip01Core.core.Kind
 import com.vitorpamplona.quartz.nip14Subject.SubjectTag
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupParentTag
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
 
 /**
  * The nostr kinds a ChillDKG ritual is carried on.
@@ -81,12 +83,14 @@ object DkgRitualEvents {
         sessionId: String,
         threshold: Int? = null,
         parentChatRoomId: String? = null,
-        subject: String? = null
+        subject: String? = null,
+        walletPolicy: SubgroupWalletPolicy? = null
     ): Array<Array<String>> = buildList {
         add(DkgSessionIdTag.assemble(sessionId))
         threshold?.let { add(DkgThresholdTag.assemble(it)) }
         parentChatRoomId?.let { add(SubgroupParentTag.assemble(it)) }
         subject?.ifBlank { null }?.let { add(SubjectTag.assemble(it)) }
+        walletPolicy?.let { add(WalletPolicyTag.assemble(it)) }
     }.toTypedArray()
 
     fun parseSessionId(tags: Array<Array<String>>): String? =
@@ -129,4 +133,17 @@ object DkgRitualEvents {
      */
     fun parseSubject(tags: Array<Array<String>>): String? =
         tags.firstNotNullOfOrNull(SubjectTag::parse)
+
+    /**
+     * The wallet policy the coordinator chose for the subgroup this ceremony
+     * makes -- `docs/subgroup-wallet-policy.md`.
+     *
+     * Authenticates nothing, as [parseParentChatRoomId] does not: it is what the
+     * admins are shown before they join, and what the certificate is later
+     * proposed under. Absent for an ordinary ceremony and for one from an older
+     * build; unreadable is told apart from absent, because a proposal whose
+     * policy cannot be read is not one to join on the assumption it has none.
+     */
+    fun parseWalletPolicy(tags: Array<Array<String>>): WalletPolicyTag.Result =
+        WalletPolicyTag.parseOne(tags)
 }

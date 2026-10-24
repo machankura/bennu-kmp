@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.nostr.subgroup.isDecided
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.ui.view.state.SpendRow
 import com.machankura.bennu.compose.ui.view.state.SpendStatus
@@ -84,13 +86,21 @@ class GroupWalletViewModel(
             watching?.cancel()
 
             if (wallet == null) {
+                // What the room's parent decided at its birth: a decided policy
+                // leaves one way in, and an undecided or absent one both, as
+                // before policies. docs/subgroup-wallet-policy.md.
+                val policy = chatRepository.walletPolicyOf(chatRoomId)
+                val offersGuarded = !policy.isDecided(SubgroupWalletPolicy.UNGUARDED) &&
+                    GroupWalletRollout.offersGuardiansOn(chain)
                 val notOpened = GroupWalletUIState.NotOpened(
                     localChatRoom = localChatRoom,
                     account = chatRepository.groupWalletAccount(chatRoomId, chain),
                     canSign = canSign,
-                    guarded = if (GroupWalletRollout.offersGuardiansOn(chain)) {
+                    guarded = if (offersGuarded) {
                         chatRepository.groupWalletGuardedOpening(chatRoomId, chain)
                     } else null,
+                    policy = policy,
+                    offersPlain = !policy.isDecided(SubgroupWalletPolicy.GUARDED),
                     guardedWallets = guardedRows,
                     shareable = shareable,
                 )
@@ -262,6 +272,9 @@ class GroupWalletViewModel(
             val opening = state.guarded ?: return
             GroupWalletStatementEvent.template(opening.account, opening.certificate)
         } else {
+            // Not under a parent that decided this wallet is guarded: no state
+            // offers it, and every other member would refuse it anyway.
+            if (!state.offersPlain) return
             GroupWalletStatementEvent.template(state.account ?: return)
         }
         // A second statement for the same account is harmless -- the same values

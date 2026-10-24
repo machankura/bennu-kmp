@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.state
 
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.machankura.bennu.compose.database.model.GroupKeyState
@@ -47,6 +48,12 @@ sealed interface ChatRoomDetailUIState {
          * really is a subgroup.
          */
         val parentChatRoomId: HexKey? = null,
+        /**
+         * What [parentChatRoomId] decided about this room's wallet at its birth,
+         * or null for a room with no certificate. Shown on the parent row,
+         * because it is a fact about where the room came from.
+         */
+        val walletPolicy: WalletPolicyReading? = null,
         /**
          * The wallet this group has opened on the app's network, or null for one
          * it has not. The row says only whether it is open; the coins are read on

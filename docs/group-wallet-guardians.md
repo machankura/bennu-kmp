@@ -46,7 +46,7 @@ under plain tweaks of its own threshold key.
 
 ---
 
-## What this reverses, and why it is still the child's choice
+## What this reverses, and whose choice it is
 
 [subgroups.md](./subgroups.md#what-this-does-not-do) says:
 
@@ -66,12 +66,25 @@ each side:
 The certificate on its own delegates nothing. A child that never opens a guarded
 wallet has a certificate with keys in it and no address that uses them.
 
-**The parent cannot impose this.** The child's threshold key is the child's. Its
-quorum can always pay to a plain BIP86 address under its own key, and no script
-in any address can stop it. Bennu opens a guarded wallet by default for a child
-whose certificate carries guardian keys, and offers a plain one beside it; that
-is a client's default, not a cryptographic rule, and the UI never describes it
-as one.
+**The parent decides, and the chain does not enforce it.** Since
+[subgroup-wallet-policy.md](./subgroup-wallet-policy.md), the parent decides when
+it makes the child: the coordinator picks *guarded* or *unguarded* on the
+subgroup picker, every admin is told at the join gate, the parent's quorum signs
+the choice into the certificate as a `["wallet", …]` tag, and the child's quorum
+signs it again in its key state. Every client running this app then offers,
+signs, derives and watches only the wallet the certificate allows. A guarded
+group's subgroups are all guarded.
+
+What has not changed is the cryptography. The child's threshold key is the
+child's. Its quorum can always pay to a plain BIP86 address under its own key,
+and no script in any address can stop it. The parent's decision is a signed rule
+every honest client keeps, not a rule the chain enforces, and the UI never
+describes it as more than that.
+
+A certificate from before policies carries no `wallet` tag and decides nothing.
+Its child is offered a guarded wallet by default when the certificate carries
+keys, and a plain one beside it, as this note first described. There, being
+guarded is still the child's own choice.
 
 **The child gives up a real thing.** An ancestor can take any coin in the wallet
 that has been confirmed for two hours, without the child's agreement and without
@@ -415,6 +428,11 @@ room today.
 **It does not reach a subgroup certified before this.** Its certificate has no
 keys. Its parent can sign a fresh one — certificates are replaceable per child,
 newest winning — but nothing here prompts it to.
+
+**It does not, on its own, let the parent decide.** That is
+[subgroup-wallet-policy.md](./subgroup-wallet-policy.md): a policy the parent
+signs into the certificate at the child's birth, which the child's own quorum
+agrees to.
 
 **It does not survive a re-keyed ancestor.** A leaf is bound to the ancestor's
 threshold key, so to the shares of the ceremony that made it, including the

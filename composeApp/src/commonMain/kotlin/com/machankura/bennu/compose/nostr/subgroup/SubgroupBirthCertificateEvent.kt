@@ -12,6 +12,7 @@ import com.machankura.bennu.compose.nostr.frost.tags.FrostDerivationPathTag
 import com.machankura.bennu.compose.nostr.subgroup.tags.GuardianTag
 import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupKeyTag
 import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupParentTag
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
 
 /**
  * A group saying, with a quorum, that another group is its child.
@@ -61,9 +62,18 @@ import com.machankura.bennu.compose.nostr.subgroup.tags.SubgroupParentTag
  * guarded one; it delegates nothing on its own. They are not among the checks in
  * [certifies], which is about lineage. Whether they are the keys the parent
  * grants is checked by every parent signer before the certificate is signed --
- * `SubgroupManager.refuseGrant` -- and nowhere after, because nobody else holds
+ * `SubgroupManager.refuseCertificate` -- and nowhere after, because nobody else holds
  * the key that check needs and nobody else needs it: the parent's quorum can
  * already spend through its own leaf whatever the others would let it.
+ *
+ * ### The wallet policy
+ *
+ * A certificate may carry a [WalletPolicyTag]: the parent deciding whether the
+ * child's wallet is guarded or unguarded, rather than leaving it to the child --
+ * `docs/subgroup-wallet-policy.md`. A guarded certificate carries the guardian
+ * keys and an unguarded one carries none, and [parseWalletPolicy] refuses one
+ * whose policy and keys disagree. Like the keys, the policy is not among the
+ * checks in [certifies]: it is read where it is used.
  *
  * ### What [certifies] deliberately does not check
  *
@@ -111,7 +121,8 @@ object SubgroupBirthCertificateEvent {
         adminPublicKeys: List<HexKey>,
         name: String,
         path: List<Long> = SharedKeyDerivation.MARMOT_ADMIN_GROUP_PATH,
-        guardians: List<GuardianDerivation.Guardian> = emptyList()
+        guardians: List<GuardianDerivation.Guardian> = emptyList(),
+        walletPolicy: SubgroupWalletPolicy? = null
     ): Array<Array<String>> = arrayOf(
         DTag.assemble(subgroupChatRoomId),
         SubgroupParentTag.assemble(parentChatRoomId),
@@ -119,7 +130,35 @@ object SubgroupBirthCertificateEvent {
         FrostDerivationPathTag.assemble(path),
         arrayOf(NAME_TAG_NAME, name)
     ) + adminPublicKeys.distinct().map { PTag.assemble(it, null) } +
-        guardians.map(GuardianTag::assemble)
+        guardians.map(GuardianTag::assemble) +
+        listOfNotNull(walletPolicy?.let(WalletPolicyTag::assemble))
+
+    /**
+     * What the certificate says about the child's wallet: [WalletPolicyReading.Undecided]
+     * when it carries no policy, as every certificate from before policies does,
+     * and null when the reading cannot be used --
+     *
+     *  - a `wallet` tag that does not read, or two of them;
+     *  - guardian keys that do not read;
+     *  - a policy that contradicts the keys beside it: `guarded` with none, or
+     *    `unguarded` with some.
+     *
+     * A certificate that says one thing in its policy and another in its keys is
+     * not a thing to guess the meaning of, and a policy present and unreadable
+     * must never read as absent -- that would hand the child the choice the
+     * parent took away.
+     */
+    fun parseWalletPolicy(tags: Array<Array<String>>): WalletPolicyReading? {
+        val guardians = parseGuardians(tags) ?: return null
+        return when (val tag = WalletPolicyTag.parseOne(tags)) {
+            WalletPolicyTag.Result.Absent -> WalletPolicyReading.Undecided
+            WalletPolicyTag.Result.Unreadable -> null
+            is WalletPolicyTag.Result.Present -> when (tag.policy) {
+                SubgroupWalletPolicy.GUARDED -> WalletPolicyReading.Decided(tag.policy).takeIf { guardians.isNotEmpty() }
+                SubgroupWalletPolicy.UNGUARDED -> WalletPolicyReading.Decided(tag.policy).takeIf { guardians.isEmpty() }
+            }
+        }
+    }
 
     /**
      * The guardian keys the parent grants the child, nearest first -- empty for a

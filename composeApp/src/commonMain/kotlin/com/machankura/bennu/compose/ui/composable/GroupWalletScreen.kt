@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.the_group_above_decided_this_wallet_is_not_guarded
+import bennu.composeapp.generated.resources.the_group_above_decided_this_wallet_is_guarded
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import androidx.compose.foundation.layout.Row
 import com.machankura.bennu.compose.text.ProposedSpend
 import com.machankura.bennu.compose.ui.view.state.SpendRow
@@ -247,11 +251,13 @@ fun GroupWalletScreen(
                         // Hidden rather than disabled, the way every gated way in
                         // on the group's screens is: a device with no share cannot
                         // propose, and a room with no key has nothing to open.
-                        action = if (state.canSign && state.account != null) {
+                        action = if (state.canSign && state.account != null && (state.offersPlain || state.guarded != null)) {
                             {
                                 OpenWalletAction(
                                     isPending = groupWalletViewModel.isActionPending.value,
                                     guardedOffered = state.guarded != null,
+                                    plainOffered = state.offersPlain,
+                                    decided = (state.policy as? WalletPolicyReading.Decided)?.policy,
                                     onOpen = { guarded ->
                                         groupWalletViewModel.openWallet(
                                             guarded = guarded,
@@ -347,7 +353,14 @@ fun GroupWalletScreen(
  * an unencrypted share on a member's device means once there are coins behind it.
  */
 @Composable
-private fun OpenWalletAction(isPending: Boolean, guardedOffered: Boolean, onOpen: (guarded: Boolean) -> Unit) {
+private fun OpenWalletAction(
+    isPending: Boolean,
+    guardedOffered: Boolean,
+    plainOffered: Boolean,
+    /** What the room's parent decided at its birth, or null when it left it to the room. */
+    decided: SubgroupWalletPolicy?,
+    onOpen: (guarded: Boolean) -> Unit,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap)
@@ -361,11 +374,34 @@ private fun OpenWalletAction(isPending: Boolean, guardedOffered: Boolean, onOpen
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (guardedOffered) {
-            // The default for a subgroup whose parent agreed to guard it, and the
-            // plain wallet beside it rather than hidden: being guarded is the
-            // group's own choice, and its quorum signing the statement is it
-            // making that choice.
+        if (decided != null) {
+            // The parent decided at the room's birth, and its quorum signed it:
+            // one way in, and the line says whose decision it was. Every other
+            // member refuses the other statement, so offering it would only
+            // strand a quorum. See docs/subgroup-wallet-policy.md.
+            Text(
+                text = when (decided) {
+                    SubgroupWalletPolicy.GUARDED -> stringResource(
+                        Res.string.the_group_above_decided_this_wallet_is_guarded,
+                        GuardianDerivation.ANCESTOR_DELAY.toInt()
+                    )
+                    SubgroupWalletPolicy.UNGUARDED -> stringResource(Res.string.the_group_above_decided_this_wallet_is_not_guarded)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            val guarded = decided == SubgroupWalletPolicy.GUARDED
+            if (guarded && guardedOffered || !guarded && plainOffered) {
+                Button(onClick = { onOpen(guarded) }, enabled = !isPending) {
+                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = Decorative)
+                    Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                    Text(stringResource(if (guarded) Res.string.open_a_guarded_wallet else Res.string.open_a_group_wallet))
+                }
+            }
+        } else if (guardedOffered) {
+            // Undecided: a subgroup certified before parents decided. The default
+            // for one whose parent agreed to guard it, and the plain wallet beside
+            // it rather than hidden: being guarded is then the group's own choice,
+            // and its quorum signing the statement is it making that choice.
             Text(
                 text = stringResource(
                     Res.string.the_groups_above_this_one_have_agreed_to_guard_it,

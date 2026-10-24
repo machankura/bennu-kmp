@@ -1,5 +1,23 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.ui.view.state.onlyGuarded
+import com.machankura.bennu.compose.ui.view.state.canGuard
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import bennu.composeapp.generated.resources.this_group_s_guardian_keys_can_t_be_read
+import bennu.composeapp.generated.resources.this_group_is_guarded_so_its_subgroups_are_too
+import bennu.composeapp.generated.resources.only_the_subgroup_can_spend_from_its_wallet
+import bennu.composeapp.generated.resources.this_group_and_the_d_above_it_can_spend
+import bennu.composeapp.generated.resources.this_group_can_spend_its_coins_once
+import bennu.composeapp.generated.resources.unguarded_wallet
+import bennu.composeapp.generated.resources.guarded_wallet
+import bennu.composeapp.generated.resources.the_subgroup_s_wallet
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.RadioButton
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -70,9 +88,10 @@ import com.machankura.bennu.compose.ui.view.model.SelectSubgroupAdminsViewModel
 import com.machankura.bennu.compose.ui.view.state.SelectSubgroupAdminsUIState
 
 /**
- * Picks who runs a subgroup, what it is called, and on what quorum.
+ * Picks who runs a subgroup, what it is called, on what quorum, and whether its
+ * wallet is guarded.
  *
- * The three things that cannot be changed later, gathered before anything is
+ * The four things that cannot be changed later, gathered before anything is
  * published -- see `SelectSubgroupAdminsViewModel` for why the threshold in
  * particular has nowhere else to live.
  */
@@ -274,6 +293,16 @@ fun SelectSubgroupAdminsScreen(
                             onQuorumChange = viewModel::setThreshold
                         )
                     }
+
+                    item {
+                        WalletPolicyChooser(
+                            policy = viewModel.walletPolicy.value,
+                            parentGuardianCount = state.parentGuardians?.size ?: 0,
+                            onlyGuarded = state.onlyGuarded,
+                            canGuard = state.canGuard,
+                            onPolicyChange = viewModel::setWalletPolicy
+                        )
+                    }
                 }
             }
         }
@@ -328,6 +357,93 @@ private fun QuorumStepper(
                 Icon(Icons.Default.Add, contentDescription = "More approvals")
             }
         }
+    }
+}
+
+/**
+ * Whether the subgroup's wallet is guarded -- `docs/subgroup-wallet-policy.md`.
+ *
+ * Settled here for the reason the threshold is: it rides the proposal, every
+ * admin is shown it before joining, and the parent's quorum signs it into the
+ * certificate, so there is no later screen where it could be changed.
+ *
+ * Under a guarded parent both rows still show, with *unguarded* disabled and its
+ * reason in place of its description. Hiding it would make the picker look like
+ * an older build's, where nobody decided anything; showing it says a decision was
+ * made, and by whom.
+ */
+@Composable
+private fun WalletPolicyChooser(
+    policy: SubgroupWalletPolicy,
+    parentGuardianCount: Int,
+    onlyGuarded: Boolean,
+    canGuard: Boolean,
+    onPolicyChange: (SubgroupWalletPolicy) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = MaterialTheme.spacing.space50)
+            .selectableGroup(),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space50)
+    ) {
+        Text(
+            text = stringResource(Res.string.the_subgroup_s_wallet),
+            style = MaterialTheme.typography.titleSmall
+        )
+
+        val delay = GuardianDerivation.ANCESTOR_DELAY.toInt()
+        WalletPolicyRow(
+            title = stringResource(Res.string.guarded_wallet),
+            // Names the reach the parent is actually granting: itself, and each
+            // ancestor whose key its own certificate passes on.
+            description = if (!canGuard) {
+                stringResource(Res.string.this_group_s_guardian_keys_can_t_be_read)
+            } else if (parentGuardianCount == 0) {
+                stringResource(Res.string.this_group_can_spend_its_coins_once, delay)
+            } else {
+                stringResource(Res.string.this_group_and_the_d_above_it_can_spend, parentGuardianCount, delay)
+            },
+            isSelected = policy == SubgroupWalletPolicy.GUARDED,
+            isEnabled = canGuard,
+            onSelect = { onPolicyChange(SubgroupWalletPolicy.GUARDED) }
+        )
+        WalletPolicyRow(
+            title = stringResource(Res.string.unguarded_wallet),
+            description = if (onlyGuarded) {
+                stringResource(Res.string.this_group_is_guarded_so_its_subgroups_are_too)
+            } else {
+                stringResource(Res.string.only_the_subgroup_can_spend_from_its_wallet)
+            },
+            isSelected = policy == SubgroupWalletPolicy.UNGUARDED,
+            isEnabled = !onlyGuarded,
+            onSelect = { onPolicyChange(SubgroupWalletPolicy.UNGUARDED) }
+        )
+    }
+}
+
+@Composable
+private fun WalletPolicyRow(
+    title: String,
+    description: String,
+    isSelected: Boolean,
+    isEnabled: Boolean,
+    onSelect: () -> Unit,
+) {
+    // The card is the target, as the admin rows above are, and the radio button
+    // beside the title only says which one is chosen.
+    Card(
+        modifier = Modifier.fillMaxWidth().semantics { role = Role.RadioButton; selected = isSelected },
+        onClick = onSelect,
+        enabled = isEnabled
+    ) {
+        ListItem(
+            leadingContent = {
+                RadioButton(selected = isSelected, onClick = null, enabled = isEnabled)
+            },
+            headlineContent = { Text(title) },
+            supportingContent = { Text(description) }
+        )
     }
 }
 

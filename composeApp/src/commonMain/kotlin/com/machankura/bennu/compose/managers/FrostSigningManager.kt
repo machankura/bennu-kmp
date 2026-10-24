@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.allows
+import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
 import fr.acinq.bitcoin.OutPoint
 import com.machankura.bennu.compose.database.model.GroupTransaction
 import com.machankura.bennu.compose.database.model.types.FrostSigningSubject
@@ -559,13 +561,49 @@ object FrostSigningManager {
         // A birth certificate's guardian keys are a promise by the group signing
         // it, so they have to be the keys it grants: recomputed here from the key
         // this session signs with and the group's own certificate, never taken
-        // from the proposer. Refused before anything is shown, for the reason a
+        // from the proposer. Its wallet policy has to be one the group may make:
+        // a guarded group only makes guarded subgroups. Refused before anything is shown, for the reason a
         // mismatched id is.
         val thresholdPublicKey = key.thresholdPublicKey
         unsignedEvents.forEach { rebuilt ->
             if (rebuilt.kind != SubgroupBirthCertificateEvent.KIND || thresholdPublicKey == null) return@forEach
-            SubgroupManager.refuseGrant(database, rebuilt.pubKey, thresholdPublicKey, rebuilt)?.let { reason ->
+            SubgroupManager.refuseCertificate(database, rebuilt.pubKey, thresholdPublicKey, rebuilt)?.let { reason ->
                 logger.w("Signing proposal $sessionId carries a birth certificate that $reason; dropping")
+                return null
+            }
+        }
+
+        // A subgroup's key state carries its birth certificate, and the
+        // certificate's wallet policy has to be the one this group was made
+        // under: every admin was shown it at the join gate, so joining was
+        // agreeing to it. A certificate proposed later, by a parent admin
+        // resuming the flow, under another one would be the child signing a
+        // decision none of its members agreed to. [key] is the child's own
+        // ceremony here, which is where the policy was filed.
+        // `docs/subgroup-wallet-policy.md`, Phase 5.
+        // A wallet statement has to be one the room's parent allows: a subgroup
+        // decided guarded opens a guarded wallet and nothing else, and one decided
+        // unguarded a plain one. Read off this device's own certificate for the
+        // room, never the proposal's, and refused before it is shown -- a member
+        // should not be asked to approve what their device already knows the
+        // room has ruled out. docs/subgroup-wallet-policy.md, Phase 7.
+        unsignedEvents.forEach { rebuilt ->
+            if (rebuilt.kind != GroupWalletStatementEvent.KIND) return@forEach
+            val guarded = GroupWalletStatementEvent.read(rebuilt.tags, rebuilt.content)?.guardians?.isNotEmpty() ?: return@forEach
+            val policy = SubgroupManager.walletPolicyOf(database, rebuilt.pubKey)
+            if (!policy.allows(guarded)) {
+                logger.w(
+                    "Signing proposal $sessionId opens ${if (guarded) "a guarded" else "an unguarded"} wallet, " +
+                        "and this group's parent decided otherwise; dropping"
+                )
+                return null
+            }
+        }
+
+        unsignedEvents.forEach { rebuilt ->
+            if (rebuilt.kind != GroupKeyStateEvent.KIND) return@forEach
+            SubgroupManager.refuseKeyState(key, rebuilt)?.let { reason ->
+                logger.w("Signing proposal $sessionId carries a key state that $reason; dropping")
                 return null
             }
         }

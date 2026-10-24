@@ -1,5 +1,12 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
+import org.jetbrains.compose.resources.stringResource
+import bennu.composeapp.generated.resources.the_subgroup_s_wallet_will_not_be_guarded
+import bennu.composeapp.generated.resources.the_subgroup_s_wallet_will_be_guarded
+import bennu.composeapp.generated.resources.Res
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -58,6 +65,23 @@ fun DkgJoinApprovalScreen(
                 "${session.threshold} of ${state.participantCount} members to sign with.",
             style = MaterialTheme.typography.bodyLarge
         )
+
+        // What the subgroup's wallet will be, as the coordinator chose it and the
+        // parent's quorum will sign it -- the one place an admin is told before
+        // joining is agreeing to it. A ceremony with no policy says nothing.
+        // See docs/subgroup-wallet-policy.md.
+        session.subgroupWalletPolicy?.let { policy ->
+            Text(
+                text = when (policy) {
+                    SubgroupWalletPolicy.GUARDED -> stringResource(
+                        Res.string.the_subgroup_s_wallet_will_be_guarded,
+                        GuardianDerivation.ANCESTOR_DELAY.toInt()
+                    )
+                    SubgroupWalletPolicy.UNGUARDED -> stringResource(Res.string.the_subgroup_s_wallet_will_not_be_guarded)
+                },
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
 
         Column(
             modifier = Modifier.fillMaxWidth(),

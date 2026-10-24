@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.frost.GroupKeyStateEvent
+import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
+import com.machankura.bennu.compose.nostr.subgroup.isDecided
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import co.touchlab.kermit.Logger
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -193,6 +198,21 @@ object SubgroupManager {
      * A session of one, never batched, for the reason `GroupKeyStateManager.propose`
      * gives: a batch is only as available as its worst item, and everything after
      * this depends on it.
+     *
+     * The wallet policy comes off [key], the child's ceremony, where the picker
+     * put it and every admin was shown it -- never from a caller, for the reason
+     * the key does not. `docs/subgroup-wallet-policy.md`:
+     *
+     * | ceremony's policy | parent's own        | certificate                   |
+     * |-------------------|---------------------|-------------------------------|
+     * | guarded           | any                 | the grant, `guarded`          |
+     * | unguarded         | not guarded         | no keys, `unguarded`          |
+     * | unguarded         | guarded             | refused: D4                   |
+     * | none (older)      | not guarded         | the grant, no policy -- today |
+     * | none (older)      | guarded             | the grant, `guarded`          |
+     *
+     * @throws IllegalStateException for an unguarded ceremony under a guarded
+     * parent, with the reason and the remedy
      */
     suspend fun proposeBirthCertificate(
         database: BennuDatabase,
@@ -229,13 +249,40 @@ object SubgroupManager {
             "$parentChatRoomId has already certified $subgroupChatRoomId"
         }
 
+        // What the child's wallet is to be. A guarded parent can only make guarded
+        // subgroups, and every one of its signers refuses anything else -- so an
+        // unguarded ceremony under one is stranded, and proposing it would only
+        // spend a quorum's attention. It is not quietly certified as guarded
+        // instead: its admins joined on the understanding it would not be, and
+        // every child signer refuses a certificate that says otherwise. An older
+        // build's ceremony carried no policy and showed its admins none, so under
+        // a guarded parent the certificate says the only thing its signers accept.
+        val parentGuarded = walletPolicyOf(database, parentChatRoomId).isDecided(SubgroupWalletPolicy.GUARDED)
+        val walletPolicy = when (key.subgroupWalletPolicy) {
+            SubgroupWalletPolicy.UNGUARDED -> {
+                check(!parentGuarded) {
+                    "This group is guarded, so its subgroups are too. Start the subgroup again: " +
+                        "its admins joined it as unguarded."
+                }
+                SubgroupWalletPolicy.UNGUARDED
+            }
+            SubgroupWalletPolicy.GUARDED -> SubgroupWalletPolicy.GUARDED
+            null -> SubgroupWalletPolicy.GUARDED.takeIf { parentGuarded }
+        }
+
         // The parent's guardian keys for the child: its own, and the ones its
-        // ancestors granted it. Every signer recomputes this list and refuses a
-        // certificate carrying any other -- see [refuseGrant].
-        val parentKey = FrostSigningManager.completedKey(database, parentChatRoomId)?.thresholdPublicKey
-            ?: throw IllegalStateException("$parentChatRoomId has no key to grant a guardian key under")
-        val guardians = grantFor(database, parentChatRoomId, parentKey, subgroupChatRoomId)
-            ?: throw IllegalStateException("$parentChatRoomId's own certificate carries guardian keys this build cannot read")
+        // ancestors granted it -- or none, for an unguarded child, whose
+        // certificate then grants nothing to it or to anything beneath it. Every
+        // signer recomputes this list and refuses a certificate carrying any
+        // other -- see [refuseCertificate].
+        val guardians = if (walletPolicy == SubgroupWalletPolicy.UNGUARDED) {
+            emptyList()
+        } else {
+            val parentKey = FrostSigningManager.completedKey(database, parentChatRoomId)?.thresholdPublicKey
+                ?: throw IllegalStateException("$parentChatRoomId has no key to grant a guardian key under")
+            grantFor(database, parentChatRoomId, parentKey, subgroupChatRoomId)
+                ?: throw IllegalStateException("$parentChatRoomId's own certificate carries guardian keys this build cannot read")
+        }
 
         logger.i("Asking $parentChatRoomId to certify $subgroupChatRoomId as its subgroup")
 
@@ -251,7 +298,8 @@ object SubgroupManager {
                 adminPublicKeys = adminPublicKeys,
                 name = subgroupName,
                 path = path,
-                guardians = guardians
+                guardians = guardians,
+                walletPolicy = walletPolicy
             ),
             content = subgroupChatRoomId
         )
@@ -275,6 +323,31 @@ object SubgroupManager {
     }
 
     /**
+     * What [chatRoomId]'s own certificate says of its wallet --
+     * `docs/subgroup-wallet-policy.md` -- or null for a room with no certificate:
+     * a root group, or a member who holds no key state for it.
+     *
+     * Off the verified key state, like [guardiansOf]. A state whose certificate
+     * carries a policy that does not read is dropped before it is stored, so a
+     * certificate held here always reads; if one somehow does not, it is logged
+     * and read as none rather than guessed at.
+     *
+     * The one reader the picker, every parent signer and the wallet screen share,
+     * so the three cannot disagree about what a group is.
+     */
+    suspend fun walletPolicyOf(database: BennuDatabase, chatRoomId: String): WalletPolicyReading? {
+        val certificate = database.groupKeyStateDao().getByChatRoomId(chatRoomId)
+            ?.birthCertificateJson
+            ?.let { Event.fromJsonOrNull(it) }
+            ?: return null
+        return SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags)
+            ?: run {
+                logger.w("$chatRoomId's certificate carries a wallet policy that does not read")
+                null
+            }
+    }
+
+    /**
      * What [parentChatRoomId], signing as [thresholdPublicKey], grants
      * [subgroupChatRoomId]: `GuardianDerivation.grant` over the keys its own
      * certificate carries. Null when those cannot be read.
@@ -290,16 +363,26 @@ object SubgroupManager {
     }
 
     /**
-     * Why a proposed certificate's guardian keys are not the ones [chatRoomId]
-     * grants, or null when they are -- or when it carries none, which an older
-     * proposer's certificate does and which grants nothing.
+     * Why [chatRoomId] should not sign a proposed certificate, or null when it
+     * may: its guardian keys are not the ones the group grants, or its wallet
+     * policy is not one the group may make.
      *
-     * The check every parent signer makes before agreeing to guard a child. A
-     * coordinator who slipped a key of their own into the list, dropped an
-     * ancestor, or reordered the leaves would be asking the group to vouch for a
-     * wallet tree it did not make, so the proposal is refused rather than shown.
+     * The check every parent signer makes before agreeing to guard a child, or
+     * to certify one unguarded. A coordinator who slipped a key of their own into
+     * the list, dropped an ancestor, or reordered the leaves would be asking the
+     * group to vouch for a wallet tree it did not make; one who certified an
+     * unguarded child of a guarded group would be taking a branch out of the
+     * reach of every group above it. Either way the proposal is refused rather
+     * than shown.
+     *
+     * The group's own policy is read off this device's verified key state, never
+     * off the proposal. Under a guarded group anything but a guarded certificate
+     * is refused -- an undecided one included, since an undecided child is
+     * offered the plain wallet D4 exists to take away. A certificate with no keys
+     * and no policy from an older proposer grants nothing, and is still signable
+     * under any other group. See `docs/subgroup-wallet-policy.md`.
      */
-    suspend fun refuseGrant(
+    suspend fun refuseCertificate(
         database: BennuDatabase,
         chatRoomId: String,
         thresholdPublicKey: HexKey,
@@ -307,6 +390,17 @@ object SubgroupManager {
     ): String? {
         val proposed = SubgroupBirthCertificateEvent.parseGuardians(certificate.tags)
             ?: return "carries a guardian key that does not read"
+        val policy = SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags)
+            ?: return "carries a wallet policy that does not read, or that its keys contradict"
+
+        if (walletPolicyOf(database, chatRoomId).isDecided(SubgroupWalletPolicy.GUARDED) &&
+            !policy.isDecided(SubgroupWalletPolicy.GUARDED)
+        ) {
+            return "would make an unguarded subgroup of a guarded group"
+        }
+
+        // Unguarded, or an older proposer's certificate with no keys: grants
+        // nothing. Phase 1's read has already refused an unguarded one with keys.
         if (proposed.isEmpty()) return null
 
         val subgroupChatRoomId = SubgroupBirthCertificateEvent.parseSubgroupChatRoomId(certificate.tags)
@@ -384,6 +478,12 @@ object SubgroupManager {
                     "cannot name a parent yet"
             )
 
+        // Every other child signer refuses a certificate under another policy, so
+        // proposing it would only stall a quorum -- see [refuseKeyState].
+        refusePolicy(key, certificate.toEvent())?.let { reason ->
+            throw IllegalStateException("$parentChatRoomId's certificate for $subgroupChatRoomId $reason")
+        }
+
         return GroupKeyStateManager.propose(
             database = database,
             localChatRoom = ceremonyRoom,
@@ -395,6 +495,33 @@ object SubgroupManager {
                 certificate = certificate.toEvent()
             )
         )
+    }
+
+    /**
+     * Why a child signer should not sign [keyState] under [key], its own
+     * ceremony, or null when it may: the birth certificate it carries decides a
+     * wallet policy other than the one the ceremony announced.
+     *
+     * Every admin was shown that policy at the join gate, so joining was agreeing
+     * to it. A certificate proposed later under another -- by a parent admin
+     * resuming the flow, or one whose device read the parent differently -- would
+     * be the child signing a decision none of its members agreed to. A ceremony
+     * that announced none, from an older build, has nothing to hold the
+     * certificate to. `docs/subgroup-wallet-policy.md`, Phase 5.
+     */
+    fun refuseKeyState(key: DkgSession, keyState: Event): String? {
+        val certificate = GroupKeyStateEvent.parseBirthCertificate(keyState.tags) ?: return null
+        return refusePolicy(key, certificate)
+    }
+
+    private fun refusePolicy(key: DkgSession, certificate: Event): String? {
+        val agreed = key.subgroupWalletPolicy ?: return null
+        val certified = SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags)
+        return if (certified.isDecided(agreed)) {
+            null
+        } else {
+            "carries a certificate whose wallet policy is not the one this group was made under ($agreed)"
+        }
     }
 
     /**
@@ -420,6 +547,14 @@ object SubgroupManager {
         val keyState: GroupKeyState?,
     ) {
         /** Whether this device can open the subgroup, rather than only know of it. */
+        /**
+         * What the parent decided about the subgroup's wallet when it certified
+         * it -- `docs/subgroup-wallet-policy.md`. Founding history like [name]:
+         * decided once, and never changed by anything after.
+         */
+        val walletPolicy: WalletPolicyReading?
+            get() = SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags)
+
         val isJoined: Boolean get() = room != null
     }
 

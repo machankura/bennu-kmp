@@ -92,6 +92,7 @@ class ChatRoomDetailViewModel(
                     signedGroupKeyStateEvent = chatRepository.signedGroupKeyStateEvent(chatRoomId),
                     subgroups = chatRepository.subgroupsOf(chatRoomId),
                     parentChatRoomId = chatRepository.parentOf(chatRoomId),
+                    walletPolicy = chatRepository.walletPolicyOf(chatRoomId),
                     groupWallet = chatRepository.groupWallet(chatRoomId, NodeParamsManager.chain),
                     canAddSubgroup = canSign,
                     canGovern = canGovern,

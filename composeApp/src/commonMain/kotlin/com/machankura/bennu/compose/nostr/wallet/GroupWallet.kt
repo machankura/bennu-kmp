@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.nostr.wallet
 
+import com.machankura.bennu.compose.nostr.subgroup.allows
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -61,17 +63,26 @@ data class GroupWallet(
          *  2. among guarded ones the earliest decides the guardians, and a later one
          *     naming others is ignored. Changing who guards a wallet is another
          *     account.
+         *
+         * And before either, a statement [policy] does not allow is no wallet at
+         * all -- `docs/subgroup-wallet-policy.md`. Under a parent that decided
+         * *guarded* a plain statement is ignored even with no guarded one beside
+         * it, which is stronger than rule 1: an older client's plain wallet then
+         * opens nothing on this device, no addresses derived and no coins
+         * watched, rather than a wallet the rest of the group refuses to spend.
          */
         fun newestAmong(
             signedEvents: List<GroupSignedEvent>,
             thresholdPublicKey: HexKey,
             chain: Chain,
             account: Long = 0L,
+            policy: WalletPolicyReading? = null,
         ): GroupWallet? {
             val order = compareBy<GroupWallet>({ it.openedAt }, { it.signedEvent.id })
             val opened = signedEvents
                 .mapNotNull { of(it, thresholdPublicKey) }
                 .filter { it.chain == chain && it.account.account == account }
+                .filter { policy.allows(it.account.isGuarded) }
 
             val guarded = opened.filter { it.account.isGuarded }
             val first = guarded.minWithOrNull(order)

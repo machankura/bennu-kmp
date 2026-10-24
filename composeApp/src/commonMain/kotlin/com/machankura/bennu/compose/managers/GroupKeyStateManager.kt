@@ -423,6 +423,19 @@ object GroupKeyStateManager {
             return null
         }
 
+        // A wallet policy present and unreadable must never look absent: an
+        // undecided child is offered both wallets, so a corrupt `guarded` would
+        // hand it the plain one its parent took away -- the lesson of
+        // [GroupKeyStateEvent.claimsParentage], one tag further on.
+        // `docs/subgroup-wallet-policy.md`.
+        if (SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags) == null) {
+            logger.w(
+                "Key state for $announced carries a certificate whose wallet policy does not " +
+                    "read, or contradicts its guardian keys; dropping"
+            )
+            return null
+        }
+
         return Parentage(
             SubgroupParentage(parentChatRoomId = parentChatRoomId, certificate = certificate)
         )

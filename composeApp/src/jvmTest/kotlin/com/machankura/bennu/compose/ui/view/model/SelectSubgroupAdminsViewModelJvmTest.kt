@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import kotlin.test.assertNull
+import com.machankura.bennu.compose.managers.GuardianDerivation
+import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -74,7 +78,10 @@ class SelectSubgroupAdminsViewModelJvmTest {
         },
     )
 
-    private fun failed(parentChatRoomId: String? = this.parentChatRoomId) = DkgSession(
+    private fun failed(
+        parentChatRoomId: String? = this.parentChatRoomId,
+        walletPolicy: SubgroupWalletPolicy? = null,
+    ) = DkgSession(
         id = failedId,
         chatRoomId = this.parentChatRoomId,
         coordinatorPublicKey = ada,
@@ -88,11 +95,21 @@ class SelectSubgroupAdminsViewModelJvmTest {
         round1Random = "aa".repeat(32),
         round2AuxRandom = "bb".repeat(32),
         parentChatRoomId = parentChatRoomId,
+        walletPolicy = walletPolicy?.tagValue,
     )
 
-    private val chatRepository = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
+    private fun chatRepository(
+        parentPolicy: WalletPolicyReading? = null,
+        parentGuardians: List<GuardianDerivation.Guardian>? = emptyList(),
+    ) = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
         override suspend fun getChatRoomByIdentifier(id: HexKey): LocalChatRoom? =
             parent.takeIf { id == parentChatRoomId }
+
+        override suspend fun walletPolicyOf(chatRoomId: String): WalletPolicyReading? =
+            parentPolicy.takeIf { chatRoomId == parentChatRoomId }
+
+        override suspend fun guardiansOf(chatRoomId: String): List<GuardianDerivation.Guardian>? =
+            parentGuardians.takeIf { chatRoomId == parentChatRoomId }
 
         // Never answers, so the lookup is still out while the test looks: what is
         // under test is what the form starts from, not who has a key package.
@@ -102,7 +119,11 @@ class SelectSubgroupAdminsViewModelJvmTest {
         ): Flow<MarmotKeyPackage?> = flow { awaitCancellation() }
     }
 
-    private fun viewModel(session: DkgSession?, retrying: String? = failedId) = SelectSubgroupAdminsViewModel(
+    private fun viewModel(
+        session: DkgSession?,
+        retrying: String? = failedId,
+        chatRepository: ChatRepository = chatRepository(),
+    ) = SelectSubgroupAdminsViewModel(
         activeUserPublicKey = ada,
         parentChatRoomId = parentChatRoomId,
         retrying = retrying,
@@ -156,5 +177,97 @@ class SelectSubgroupAdminsViewModelJvmTest {
 
         assertEquals("", viewModel.name.value)
         assertEquals(emptySet(), viewModel.selectedPublicKeys.toSet())
+    }
+
+    private val guarded = WalletPolicyReading.Decided(SubgroupWalletPolicy.GUARDED)
+
+    /** A guarded parent's view model, loaded, with a name typed so a refusal is about the policy. */
+    private suspend fun underGuardedParent(session: DkgSession? = null) =
+        viewModel(session, chatRepository = chatRepository(parentPolicy = guarded)).apply {
+            initiate()
+            awaitLoaded()
+            setName("Tapscript")
+        }
+
+    @Test
+    fun `a subgroup is guarded unless the coordinator says otherwise`(): Unit = runBlocking {
+        val viewModel = viewModel(null, retrying = null)
+        viewModel.initiate()
+        viewModel.awaitLoaded()
+
+        assertEquals(SubgroupWalletPolicy.GUARDED, viewModel.walletPolicy.value)
+
+        viewModel.setWalletPolicy(SubgroupWalletPolicy.UNGUARDED)
+        assertEquals(SubgroupWalletPolicy.UNGUARDED, viewModel.walletPolicy.value, "a root group may make either")
+    }
+
+    @Test
+    fun `a guarded parent's subgroup is guarded, and stays so`(): Unit = runBlocking {
+        val viewModel = underGuardedParent()
+
+        assertEquals(SubgroupWalletPolicy.GUARDED, viewModel.walletPolicy.value)
+        viewModel.setWalletPolicy(SubgroupWalletPolicy.UNGUARDED)
+        assertEquals(SubgroupWalletPolicy.GUARDED, viewModel.walletPolicy.value, "D4: the choice is not the coordinator's")
+        assertNull(viewModel.refusal()?.takeIf { "guarded" in it })
+    }
+
+    @Test
+    fun `a guarded parent refuses an unguarded subgroup that got past the screen`(): Unit = runBlocking {
+        val viewModel = underGuardedParent()
+
+        // The state forced, as a bug or a skipped screen would leave it.
+        viewModel.walletPolicy.value = SubgroupWalletPolicy.UNGUARDED
+
+        assertEquals("This group is guarded, so its subgroups are too.", viewModel.refusal())
+    }
+
+    @Test
+    fun `a retry of an unguarded ceremony under a guarded parent comes back guarded`(): Unit = runBlocking {
+        val viewModel = underGuardedParent(failed(walletPolicy = SubgroupWalletPolicy.UNGUARDED))
+
+        assertEquals("Tapscript", viewModel.name.value)
+        assertEquals(SubgroupWalletPolicy.GUARDED, viewModel.walletPolicy.value)
+    }
+
+    @Test
+    fun `a retry starts from the failed ceremony's wallet policy`(): Unit = runBlocking {
+        val viewModel = viewModel(failed(walletPolicy = SubgroupWalletPolicy.UNGUARDED))
+        viewModel.initiate()
+        viewModel.awaitLoaded()
+
+        assertEquals(SubgroupWalletPolicy.UNGUARDED, viewModel.walletPolicy.value)
+    }
+
+    @Test
+    fun `an unguarded or undecided parent may make either`(): Unit = runBlocking {
+        listOf(WalletPolicyReading.Decided(SubgroupWalletPolicy.UNGUARDED), WalletPolicyReading.Undecided).forEach { policy ->
+            val viewModel = viewModel(null, retrying = null, chatRepository = chatRepository(parentPolicy = policy))
+            viewModel.initiate()
+            viewModel.awaitLoaded()
+
+            viewModel.setWalletPolicy(SubgroupWalletPolicy.UNGUARDED)
+            assertEquals(SubgroupWalletPolicy.UNGUARDED, viewModel.walletPolicy.value, "under $policy")
+            viewModel.setWalletPolicy(SubgroupWalletPolicy.GUARDED)
+            assertEquals(SubgroupWalletPolicy.GUARDED, viewModel.walletPolicy.value, "under $policy")
+        }
+    }
+
+    @Test
+    fun `a parent whose guardian keys do not read cannot make a guarded subgroup`(): Unit = runBlocking {
+        val viewModel = viewModel(null, retrying = null, chatRepository = chatRepository(parentGuardians = null))
+        viewModel.initiate()
+        viewModel.awaitLoaded()
+        viewModel.setName("Tapscript")
+
+        assertEquals(SubgroupWalletPolicy.UNGUARDED, viewModel.walletPolicy.value)
+        viewModel.setWalletPolicy(SubgroupWalletPolicy.GUARDED)
+        assertEquals(SubgroupWalletPolicy.UNGUARDED, viewModel.walletPolicy.value)
+
+        viewModel.walletPolicy.value = SubgroupWalletPolicy.GUARDED
+        assertEquals(
+            "This group's own guardian keys can't be read, so it can't guard a subgroup.",
+            viewModel.refusal(),
+            "refused here, not after a ceremony",
+        )
     }
 }

@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.subgroup.tags.WalletPolicyTag
+import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.vitorpamplona.quartz.nip10Notes.TextNoteEvent
 import com.vitorpamplona.quartz.nip01Core.metadata.MetadataEvent
 import com.vitorpamplona.quartz.nip65RelayList.AdvertisedRelayListEvent
@@ -764,7 +766,8 @@ class GroupKeyStateTest {
         parent: String = parentChatRoomId,
         subgroupKey: String = thresholdPublicKey,
         certificatePath: List<Long> = path,
-        author: KeyMaterial = otherKeyMaterial
+        author: KeyMaterial = otherKeyMaterial,
+        extraTags: Array<Array<String>> = emptyArray()
     ): Event = signedByRoom(
         kind = SubgroupBirthCertificateEvent.KIND,
         content = subgroupChatRoomId,
@@ -775,7 +778,7 @@ class GroupKeyStateTest {
             adminPublicKeys = listOf("a".repeat(64), "b".repeat(64), "c".repeat(64)),
             name = "Translation team",
             path = certificatePath
-        ),
+        ) + extraTags,
         author = author
     )
 
@@ -884,6 +887,31 @@ class GroupKeyStateTest {
         val wrongKey = birthCertificate(subgroupKey = otherKey)
 
         assertNull(GroupKeyStateManager.stateFrom(chatRoomId, keyStateWithParent(certificate = wrongKey)))
+    }
+
+    @Test
+    fun `a state whose certificate's wallet policy does not read is dropped`() {
+        // Present and unreadable must not read as absent: an undecided child is
+        // offered both wallets, so a corrupt policy would hand it the one its
+        // parent took away. docs/subgroup-wallet-policy.md, Phase 5.
+        listOf(
+            arrayOf(arrayOf("wallet", "maybe")),
+            arrayOf(WalletPolicyTag.assemble(SubgroupWalletPolicy.GUARDED)),
+            arrayOf(WalletPolicyTag.assemble(SubgroupWalletPolicy.UNGUARDED), WalletPolicyTag.assemble(SubgroupWalletPolicy.UNGUARDED)),
+        ).forEach { extraTags ->
+            assertNull(
+                GroupKeyStateManager.stateFrom(chatRoomId, keyStateWithParent(certificate = birthCertificate(extraTags = extraTags))),
+                "a certificate with ${extraTags.joinToString { it.joinToString() }} was believed",
+            )
+        }
+    }
+
+    @Test
+    fun `a state whose certificate decides a wallet policy keeps it`() {
+        val unguarded = birthCertificate(extraTags = arrayOf(WalletPolicyTag.assemble(SubgroupWalletPolicy.UNGUARDED)))
+        val state = GroupKeyStateManager.stateFrom(chatRoomId, keyStateWithParent(certificate = unguarded))
+
+        assertEquals(unguarded.toJson(), state?.birthCertificateJson)
     }
 
     @Test
