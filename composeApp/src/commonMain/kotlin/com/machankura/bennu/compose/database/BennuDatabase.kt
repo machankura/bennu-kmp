@@ -153,7 +153,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 29,
+    version = 30,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -355,6 +355,10 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // subgroup's ceremony was proposed under (docs/subgroup-wallet-policy.md,
         // Phase 2). Every ceremony before it chose none, which is what null means.
         AutoMigration(from = 28, to = 29),
+        // v30 adds the nullable DkgSession.guardianDelay: the delay a guarded
+        // subgroup's ceremony was proposed under for the parent's own leaf
+        // (docs/guardian-delay.md, Phase 4). Null for every ceremony before it.
+        AutoMigration(from = 29, to = 30),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)

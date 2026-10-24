@@ -87,7 +87,8 @@ interface DkgRepository {
         parentChatRoomId: HexKey? = null,
         participantPublicKeys: Set<HexKey>? = null,
         subject: String? = null,
-        walletPolicy: SubgroupWalletPolicy? = null
+        walletPolicy: SubgroupWalletPolicy? = null,
+        guardianDelay: Long? = null
     ): DkgSession?
 
     /** What the ritual is waiting on this device's owner for, if anything. */
@@ -229,7 +230,8 @@ interface DkgRepository {
                 parentChatRoomId: HexKey?,
                 participantPublicKeys: Set<HexKey>?,
                 subject: String?,
-                walletPolicy: SubgroupWalletPolicy?
+                walletPolicy: SubgroupWalletPolicy?,
+                guardianDelay: Long?
             ): DkgSession? = null
 
             override suspend fun pendingApproval(session: DkgSession): DkgApprovalStep? = null

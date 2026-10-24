@@ -114,6 +114,19 @@ data class DkgSession(
      */
     val walletPolicy: String? = null,
 
+    /**
+     * The delay, in blocks, the coordinator chose for the parent's own leaf in
+     * the guarded subgroup this ceremony makes -- or null for an unguarded one,
+     * one that makes no subgroup, or one from a build before parents chose.
+     * `docs/guardian-delay.md`.
+     *
+     * A claim on a proposal like [walletPolicy], read for the join screen and for
+     * the certificate rung. A guarded ceremony with none is certified at
+     * `GuardianDerivation.DEFAULT_DELAY`, which is what its build would have
+     * written.
+     */
+    val guardianDelay: Long? = null,
+
     val stage: DkgRitualStage = DkgRitualStage.COLLECTING_HOST_KEYS,
 
     /** This device's ChillDKG host public key (33-byte compressed, hex). */
