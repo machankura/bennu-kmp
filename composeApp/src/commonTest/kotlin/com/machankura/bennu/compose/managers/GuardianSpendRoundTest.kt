@@ -193,6 +193,30 @@ class GuardianSpendRoundTest {
         }
     }
 
+    /**
+     * A chosen delay, at every edge of its encoding: the script interpreter takes
+     * the spend at exactly that many blocks and not one fewer. Where an encoding
+     * mistake would be caught before a coin could be lost to it.
+     * docs/guardian-delay.md, Phase 2.
+     */
+    @Test
+    fun `a chosen delay holds at exactly its own number of blocks`() {
+        val child = someKey(0xc6)
+        val childRoom = SharedKeyDerivation.marmotGroupId(child)
+        val cache = GuardianDerivation.signingCache(ancestorKey.toString(), listOf(childRoom), chain, 0, 0, 0).cache
+
+        listOf(6L, 16L, 17L, 127L, 128L, 32_767L, 32_768L, 65_535L).forEach { delay ->
+            val grant = GuardianDerivation.grant(ancestorKey.toString(), ancestorRoom, emptyList(), childRoom, delay = delay)
+            val address = address(child, grant)
+            val funding = funding(address)
+
+            assertSpends(guardianSpend(spend(funding, sequence = delay), funding, address, address.leaves[0], cache), funding)
+            assertFails("one block short of $delay") {
+                assertSpends(guardianSpend(spend(funding, sequence = delay - 1), funding, address, address.leaves[0], cache), funding)
+            }
+        }
+    }
+
     @Test
     fun `the wrong cache signs for a key the leaf does not name`() {
         val child = someKey(0xc4)

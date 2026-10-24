@@ -530,6 +530,36 @@ class GuardianSigningJvmTest {
         assertEquals(built.fee.sat, 2 * ((checked.weight + 3) / 4).toLong())
     }
 
+    /**
+     * The builder and the check read each leaf's own delay, at the edges of its
+     * encoding: a coin one block short of the lock is the owner's alone, at the
+     * lock it is the guardian's too, and every input carries exactly that lock.
+     * docs/guardian-delay.md, Phase 2.
+     */
+    @Test
+    fun `the builder and the check follow a chosen delay, not the default`() {
+        val address = fr.acinq.bitcoin.Bitcoin.addressFromPublicKeyScript(chain.chainHash, elsewhere.toByteArray()).right!!
+        listOf(6L, 17L, 128L, 32_768L, 65_535L).forEach { delay ->
+            val guardians = GuardianDerivation.grant(thresholdPublicKey, roomId, emptyList(), guardedChildRoomId, delay = delay)
+            val guarded = assertNotNull(GuardianManager.verify(guardedStatement(guardians), roomId, thresholdPublicKey), "a delay of $delay")
+            val funding = fundingOf(guarded.account)
+
+            // Confirmed at height 100, so `delay` confirmations at tip 99 + delay.
+            val young = fundedState(guarded.account, funding, height = 100, tip = 98 + delay.toInt())
+            assertEquals(GroupSpendBuilder.Result.NothingToSpend, GroupSpendBuilder.sendAll(young, address, 2, emptySet(), guarded.spender()), "a delay of $delay")
+
+            val old = fundedState(guarded.account, funding, height = 100, tip = 99 + delay.toInt())
+            val built = assertIs<GroupSpendBuilder.Result.Built>(GroupSpendBuilder.sendAll(old, address, 2, emptySet(), guarded.spender()))
+            assertEquals(listOf(delay), built.psbt.global.tx.txIn.map { it.sequence })
+            assertIs<GroupSpend.Result.Ok>(GroupSpend.check(built.psbt, guarded.account, guarded.spender(thresholdPublicKey)))
+
+            // The default's lock on a leaf that chose another is refused.
+            val atDefault = built.psbt.global.tx.copy(txIn = built.psbt.global.tx.txIn.map { it.copy(sequence = GuardianDerivation.DEFAULT_DELAY) })
+            val refused = GroupSpend.check(built.psbt.copy(global = built.psbt.global.copy(tx = atDefault)), guarded.account, guarded.spender(thresholdPublicKey))
+            if (delay != GuardianDerivation.DEFAULT_DELAY) assertIs<GroupSpend.Result.Refused>(refused, "a delay of $delay")
+        }
+    }
+
     @Test
     fun `an ancestor's quorum spends a descendant's coin through its leaf, on every device`(): Unit = runBlocking {
         val proposer = device(members[0], signerIndex = 0)
