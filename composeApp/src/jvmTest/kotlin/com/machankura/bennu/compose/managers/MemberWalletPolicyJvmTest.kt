@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import kotlin.test.assertFalse
 import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
 import kotlin.test.assertTrue
 import kotlin.test.assertNotNull
@@ -223,5 +224,28 @@ class MemberWalletPolicyJvmTest {
         assertEquals(MemberWalletManager.Why.CLOSED, MemberWalletManager.walletsOf(db, memberPublicKey).single().refusedBecause)
         assertFailsWith<IllegalStateException> { MemberWalletManager.askAgain(db, db.memberWalletDao().getById(asked.walletId)!!, member) }
         assertNotNull(db.memberWalletDao().getById(asked.walletId), "a refused ask leaves the old key for the member to discard")
+    }
+
+    // ---- the picker leaves out direct chats -------------------------------
+
+    @Test
+    fun `a direct chat is not a group that can guard a wallet, a two-member group with a known key is`(): Unit = runBlocking {
+        val peer = "b".repeat(64)
+        val direct = keyMaterial("d1ec7")
+        val shrunk = keyMaterial("5412c")
+        val waiting = keyMaterial("3a17")
+
+        // A direct chat: two people, and no key anywhere.
+        GroupFixtures.signingRoom(db, direct, members = listOf(peer), holdsShare = false)
+        // A group down to two members after its ceremony, whose key this device holds.
+        GroupFixtures.signingRoom(db, shrunk, members = listOf(peer), holdsShare = false)
+        GroupFixtures.fileKeyState(db, shrunk)
+        // A group of three whose key this device has not been told yet: it may be open.
+        GroupFixtures.signingRoom(db, waiting, members = listOf(peer, "c".repeat(64)), holdsShare = false)
+
+        val listed = MemberWalletManager.groupsOf(db, GroupFixtures.owner).map { it.chatRoom.id }.toSet()
+        assertEquals(setOf(roomOf(shrunk), roomOf(waiting)), listed)
+        // And a direct chat's own page offers nothing about members' wallets.
+        assertFalse(MemberWalletManager.couldGuard(db, db.chatRoomDao().findChatRoomById(roomOf(direct))!!))
     }
 }

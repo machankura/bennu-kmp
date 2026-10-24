@@ -27,9 +27,12 @@ class DatabaseMemberWalletRepository(
 ) : MemberWalletRepository {
     private val logger = Logger.withTag(TAG)
 
-    override suspend fun groupsOf(ownerPublicKey: HexKey): List<LocalChatRoom> =
-        database.chatRoomDao().getChatRoomListByUserPublicKey(ownerPublicKey)
-            .filter { it.chatRoom.mlsGroupState != null }
+    override suspend fun groupsOf(ownerPublicKey: HexKey): List<LocalChatRoom> = try {
+        MemberWalletManager.groupsOf(database, ownerPublicKey)
+    } catch (e: Throwable) {
+        logger.e("Error reading the groups that could guard a wallet", e)
+        emptyList()
+    }
 
     override suspend fun refusal(chatRoomId: String, chain: Chain): MemberWalletManager.Refusal? = try {
         MemberWalletManager.refusal(database, chatRoomId, canSign = activeIdentity.value?.canSign == true, chain = chain)
@@ -108,6 +111,13 @@ class DatabaseMemberWalletRepository(
         MemberWalletManager.recordChain(database, txid, confirmations, broadcastAt)
 
     override fun observeSpends(walletId: String): Flow<List<MemberWalletSpend>> = database.memberWalletDao().observeSpends(walletId)
+
+    override suspend fun couldGuard(chatRoomId: String): Boolean = try {
+        database.chatRoomDao().findChatRoomById(chatRoomId)?.let { MemberWalletManager.couldGuard(database, it) } == true
+    } catch (e: Throwable) {
+        logger.e("Error reading whether $chatRoomId could guard a wallet", e)
+        false
+    }
 
     override suspend fun policyOf(chatRoomId: String): MemberWalletPolicyEvent.Policy? = try {
         MemberWalletManager.policyFor(database, chatRoomId)

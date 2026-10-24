@@ -91,6 +91,11 @@ class ChatRoomDetailViewModel(
                 val isDisbanded = group?.currentGroupState()?.isDisbanded == true
                 val canGovern = group != null && group.isLocalAdmin() && !isDisbanded && localChatRoom.chatRoom.leftGroupAt == null
 
+                // A direct chat is a Marmot room of two with no key, and not a group
+                // that guards anybody's wallet: no section, no button.
+                // docs/member-wallet-delay.md.
+                val couldGuard = memberWalletRepository.couldGuard(chatRoomId)
+
                 ChatRoomDetailUIState.Loaded(
                     localChatRoom = localChatRoom,
                     groupKeyState = chatRepository.groupKeyState(chatRoomId),
@@ -107,14 +112,14 @@ class ChatRoomDetailViewModel(
                     // Offered wherever the new-wallet screen could get somewhere:
                     // a group, a profile that signs, a network it is open on. A key
                     // this device does not know yet is that screen's to ask for.
-                    canAskForMemberWallet = !isDisbanded && memberWalletRepository.refusal(chatRoomId, NodeParamsManager.chain).let {
+                    canAskForMemberWallet = !isDisbanded && couldGuard && memberWalletRepository.refusal(chatRoomId, NodeParamsManager.chain).let {
                         it == null || it == MemberWalletManager.Refusal.KEY_UNKNOWN
                     },
                     canSponsor = canSign,
                     memberWalletPolicy = memberWalletRepository.policyOf(chatRoomId),
                     // Everybody in a Marmot group sees whether it guards members'
                     // wallets; only a signer is offered to change it.
-                    showsMemberWalletPolicy = !isDisbanded && localChatRoom.chatRoom.mlsGroupState != null,
+                    showsMemberWalletPolicy = !isDisbanded && couldGuard,
                 )
             }
         }
