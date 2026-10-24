@@ -126,7 +126,12 @@ class MemberWalletRequestJvmTest {
         assertFailsWith<IllegalStateException> { MemberWalletManager.request(db, groupRoom, member, chain, label = null) }
         assertTrue(db.memberWalletDao().getByOwner(memberPublicKey).isEmpty(), "a refused request makes no key")
 
-        assertEquals(Refusal.NOT_ON_THIS_NETWORK, MemberWalletManager.refusal(db, groupRoom, canSign = true, Chain.Mainnet))
+        // Offered on mainnet since the gate lifted -- the refusal is the room's, not
+        // the network's -- and a member's own spend there still held to the cap.
+        assertTrue(com.machankura.bennu.compose.wallet.GroupWalletRollout.offersMemberWalletsOn(Chain.Mainnet))
+        assertEquals(com.machankura.bennu.compose.wallet.GroupWalletRollout.MAINNET_CAP, com.machankura.bennu.compose.wallet.GroupWalletRollout.memberCapFor(Chain.Mainnet))
+        assertNull(com.machankura.bennu.compose.wallet.GroupWalletRollout.memberCapFor(Chain.Signet))
+        assertEquals(Refusal.KEY_UNKNOWN, MemberWalletManager.refusal(db, groupRoom, canSign = true, Chain.Mainnet))
     }
 
     @Test

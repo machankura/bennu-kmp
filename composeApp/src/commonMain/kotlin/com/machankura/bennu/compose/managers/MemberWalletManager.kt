@@ -375,7 +375,7 @@ object MemberWalletManager {
             is GroupSpend.Result.Refused -> throw IllegalStateException("This spend ${result.reason}")
         }
         GroupWalletRollout.memberCapFor(row.chain)?.let { cap ->
-            check(checked.amountSent <= cap) { "This spend sends more than ${cap.sat} sats while member wallets are new" }
+            check(checked.amountSent <= cap) { "This spend sends more than the ${cap.sat} sats one spend may send on mainnet" }
         }
 
         val signed = checked.witnessed(checked.inputs.map { MemberWalletDerivation.sign(key, row.chain, it) })
