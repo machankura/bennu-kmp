@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.FrostSigningSession
@@ -64,6 +65,24 @@ object MemberWalletManager {
             .sortedByDescending { it.createdAt }
             .firstNotNullOfOrNull { GroupKeyNoticeEvent.read(it, chatRoomId) }
     }
+
+    /**
+     * Whether [chatRoomId] guards its members' wallets, and at what delay: the
+     * newest policy its own room signed, open or closed, among the ones this
+     * device holds -- `docs/member-wallet-delay.md`. Null when it holds none,
+     * which means the group has not opened (D8), or that this device has not
+     * yet been told.
+     *
+     * The one reader, used by the member's device when it builds a request and
+     * by every signer when it judges one.
+     */
+    suspend fun policyFor(database: BennuDatabase, chatRoomId: String): MemberWalletPolicyEvent.Policy? =
+        MemberWalletPolicyEvent.newestAmong(
+            database.groupSignedEventDao()
+                .getByChatRoomIdAndKind(chatRoomId, MemberWalletPolicyEvent.KIND)
+                .map { it.toEvent() },
+            chatRoomId,
+        )
 
     /**
      * Asks [chatRoomId] for its key, as [userPublicKey]. Returns false, asking

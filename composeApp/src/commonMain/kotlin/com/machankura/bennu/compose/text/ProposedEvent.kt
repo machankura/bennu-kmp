@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.text
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
 import com.vitorpamplona.quartz.nip01Core.core.Event
@@ -109,6 +110,21 @@ object ProposedEvent {
         // is whose wallet, and what the group can do with it: take any coin that
         // has sat for its leaf's delay, alongside every group above it after
         // theirs, while only the member can spend before then. The keys are their device's to check.
+        // The group deciding whether it guards its members' wallets, and at what
+        // delay. A signer weighs the delay, and that it reaches only wallets
+        // asked for from now on; closing leaves every guarded wallet guarded.
+        // docs/member-wallet-delay.md.
+        MemberWalletPolicyEvent.KIND -> Summary(
+            label = "Members' guarded wallets",
+            detail = when (val policy = MemberWalletPolicyEvent.read(event)) {
+                is MemberWalletPolicyEvent.Policy.Open ->
+                    "this group after ${BlockDuration.describe(policy.delay)} · for wallets asked for from now on"
+                is MemberWalletPolicyEvent.Policy.Closed ->
+                    "no new ones · wallets already guarded stay guarded"
+                null -> "A policy this device cannot read"
+            }
+        )
+
         MemberWalletCertificateEvent.KIND -> Summary(
             label = "Guard a member's wallet",
             detail = MemberWalletCertificateEvent.requestOf(event)

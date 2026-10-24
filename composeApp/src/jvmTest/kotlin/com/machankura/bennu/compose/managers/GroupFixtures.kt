@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.GroupSignedEvent
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.DkgParticipantMessage
@@ -63,6 +65,22 @@ internal object GroupFixtures {
         val pubKey = roomOf(material)
         val id = EventHasher.hashId(pubKey = pubKey, createdAt = createdAt, kind = kind, tags = tags, content = content)
         return Event(id = id, pubKey = pubKey, createdAt = createdAt, kind = kind, tags = tags, content = content, sig = signature(material, id))
+    }
+
+    /**
+     * [group]'s policy on its members' wallets, signed by its room: open at
+     * [delay], or closed when [delay] is null. `docs/member-wallet-delay.md`.
+     */
+    fun memberWalletPolicy(group: KeyMaterial, delay: Long?, createdAt: Long = 1_700_000_000): Event {
+        val template = delay?.let { MemberWalletPolicyEvent.open(it, createdAt) } ?: MemberWalletPolicyEvent.closed(createdAt)
+        return signedAsRoom(group, template.kind, template.tags, template.content, createdAt)
+    }
+
+    /** [policy] filed as [group]'s room files a signed event: a `GroupSignedEvent` row. */
+    suspend fun filePolicy(db: BennuDatabase, group: KeyMaterial, policy: Event) {
+        db.groupSignedEventDao().upsert(
+            GroupSignedEvent.fromEvent(policy, chatRoomId = roomOf(group), derivationPath = SharedKeyDerivation.formatPath(path), frostSigningSessionId = null)
+        )
     }
 
     /**

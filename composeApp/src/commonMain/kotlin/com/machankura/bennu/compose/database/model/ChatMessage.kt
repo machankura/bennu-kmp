@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.database.model
 
+import com.machankura.bennu.compose.text.describe
+import com.machankura.bennu.compose.text.BlockDuration
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
 import androidx.room3.Entity
 import androidx.room3.ForeignKey
 import androidx.room3.Index
@@ -481,6 +484,12 @@ data class ChatMessage(
         const val TYPE_MEMBER_WALLET_GUARDED = "memberWalletGuarded"
 
         /**
+         * The group signed a policy on its members' wallets: it guards them, at a
+         * delay, or it has stopped. See `docs/member-wallet-delay.md`.
+         */
+        const val TYPE_MEMBER_WALLET_POLICY = "memberWalletPolicy"
+
+        /**
          * Every line the group signed, for the one check the transcript
          * dispatches on. A type missing from here renders as a chat bubble,
          * silently, looking exactly like somebody having said it.
@@ -497,6 +506,7 @@ data class ChatMessage(
             TYPE_GUARDIAN_SPEND,
             TYPE_MEMBER_WALLET_REQUESTED,
             TYPE_MEMBER_WALLET_GUARDED,
+            TYPE_MEMBER_WALLET_POLICY,
         )
 
         /**
@@ -1312,6 +1322,31 @@ data class ChatMessage(
                         chatRoomId = groupId,
                         createdAt = createdAt,
                         content = "This group now guards a wallet for @${memberName(database, verified.memberPublicKey)}",
+                    )
+                }
+
+                // The group saying whether it guards its members' wallets, and at
+                // what delay. Checked as the room's own signature, which is all a
+                // policy needs; one that does not verify gets no line, and is
+                // ignored where it is filed too. docs/member-wallet-delay.md.
+                MemberWalletPolicyEvent.KIND -> {
+                    val policy = MemberWalletPolicyEvent.verify(event, groupId) ?: return null
+
+                    ChatMessage(
+                        giftWrapPayloadId = null,
+                        messageType = TYPE_MEMBER_WALLET_POLICY,
+                        marmotGroupEventId = marmotGroupEventId,
+                        marmotInnerEventId = marmotInnerEventId,
+                        senderPublicKey = senderPublicKey,
+                        isUserMessage = isUserMessage,
+                        chatRoomId = groupId,
+                        createdAt = createdAt,
+                        content = when (policy) {
+                            is MemberWalletPolicyEvent.Policy.Open ->
+                                "The group guards members' wallets, after ${BlockDuration.describe(policy.delay)}"
+                            is MemberWalletPolicyEvent.Policy.Closed ->
+                                "The group has stopped guarding new members' wallets"
+                        },
                     )
                 }
 

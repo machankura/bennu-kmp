@@ -93,6 +93,18 @@ object MemberWalletPolicyEvent {
      *     room's id alone.
      */
     fun verify(event: Event, chatRoomId: String): Policy? = runCatching {
+        val policy = read(event) ?: return null
+        if (!GroupKeyStateEvent.isSignedByRoom(event, chatRoomId)) return null
+        policy
+    }.getOrNull()
+
+    /**
+     * What [event] says, by its shape alone -- checks 1 and 2 of [verify], and
+     * not the signature. For a proposal the group has not signed yet, which a
+     * signer reads before agreeing to it; anything that acts on a policy goes
+     * through [verify].
+     */
+    fun read(event: Event): Policy? = runCatching {
         if (event.kind != KIND) return null
         if (event.tags.count { it.size >= 2 && it[0] == D_TAG && it[1] == IDENTIFIER } != 1) return null
         if (event.tags.any { it.isNotEmpty() && it[0] == D_TAG && (it.size < 2 || it[1] != IDENTIFIER) }) return null
@@ -108,8 +120,6 @@ object MemberWalletPolicyEvent {
             delays.isEmpty() && closed.size == 1 -> Policy.Closed(event)
             else -> return null
         }
-
-        if (!GroupKeyStateEvent.isSignedByRoom(event, chatRoomId)) return null
         policy
     }.getOrNull()
 
