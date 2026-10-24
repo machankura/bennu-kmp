@@ -116,23 +116,53 @@ object GuardianManager {
     }
 
     /**
-     * [statement] as a guarded wallet [ancestorChatRoomId] guards, or null when
-     * it is not one -- believed on its own merits, never on the word of whoever
-     * forwarded it:
+     * A guarded wallet statement believed on its own merits -- everything
+     * [verify] checks except the walk down from an ancestor's own guardian root,
+     * which only a device holding that ancestor's key can make. What a forwarder
+     * checks before passing a statement on (`docs/guarded-wallet-forwarding.md`,
+     * D2): a notice it would copy into every group above should be one it
+     * believes itself.
+     */
+    data class Believable(
+        val statement: Event,
+        /** The descendant's room id, or a member wallet's `W`: what the line of descent ends in. */
+        val descendantId: String,
+        /** The account the statement opens, rederived from the descendant's key. */
+        val account: GroupWalletDerivation.Account,
+        /** A subgroup's birth certificate, carried in the statement -- or, for a member, the certificate itself. */
+        val certificate: Event,
+        val subject: GuardedSubject,
+    ) {
+        /** Every guardian, nearest first: the groups that can be told. */
+        val guardians: List<GuardianDerivation.Guardian> get() = account.guardians
+
+        val chain: Chain get() = account.chain
+    }
+
+    /**
+     * [statement] believed, or null:
      *
      *  1. it is a wallet statement, and the room it is authored by signed it;
      *  2. it is guarded, and carries the certificate its guardians came from;
      *  3. the certificate's key makes that room, and the statement's xpub, tree
      *     and descriptors all rederive from it -- `Reading.verifiedAgainst`, which
      *     also checks the certificate certifies the room and grants exactly those
-     *     guardians;
-     *  4. the ancestor is among the guardians, and the key the statement names
-     *     for it is the key [ancestorThresholdPublicKey]'s guardian root reaches
-     *     down the line of descent the guardians name. A key it does not reach is
-     *     a leaf this group cannot sign, whatever the statement calls it.
+     *     guardians.
+     *
+     * Or a member wallet certificate the guarding group signed over the member's
+     * own request -- `MemberWalletCertificateEvent.verify`.
      */
-    fun verify(statement: Event, ancestorChatRoomId: String, ancestorThresholdPublicKey: HexKey): GuardedWallet? = runCatching {
-        if (statement.kind == MemberWalletCertificateEvent.KIND) return verifyMember(statement, ancestorChatRoomId, ancestorThresholdPublicKey)
+    fun believable(statement: Event): Believable? = runCatching {
+        if (statement.kind == MemberWalletCertificateEvent.KIND) {
+            val verified = MemberWalletCertificateEvent.verify(statement, statement.pubKey) ?: return null
+            return Believable(
+                statement = statement,
+                descendantId = verified.walletId,
+                account = verified.account,
+                certificate = statement,
+                subject = GuardedSubject.Member(verified.walletId, verified.memberPublicKey, verified.label),
+            )
+        }
         if (statement.kind != GroupWalletStatementEvent.KIND) return null
         val descendantChatRoomId = statement.pubKey
         if (!GroupKeyStateEvent.isSignedByRoom(statement, descendantChatRoomId)) return null
@@ -149,35 +179,31 @@ object GuardianManager {
         if (!SharedKeyDerivation.marmotGroupId(descendantKey).equals(descendantChatRoomId, ignoreCase = true)) return null
         val account = reading.verifiedAgainst(descendantKey) ?: return null
 
-        val lineage = GuardianDerivation.lineage(account.guardians, descendantChatRoomId, ancestorChatRoomId) ?: return null
-        val named = account.guardians.first { it.chatRoomId.equals(ancestorChatRoomId, ignoreCase = true) }
-        val walked = GuardianDerivation.root(ancestorThresholdPublicKey).extendedPublicKey
-            .derivePublicKey(lineage.map(GuardianDerivation::childIndex))
-        if (walked.publicKey != named.publicKey || walked.chaincode != named.chainCode) return null
-
-        GuardedWallet(
-            ancestorChatRoomId = ancestorChatRoomId,
-            descendantChatRoomId = descendantChatRoomId,
+        Believable(
             statement = statement,
+            descendantId = descendantChatRoomId,
             account = account,
             certificate = certificate,
-            lineage = lineage,
+            subject = GuardedSubject.Subgroup(descendantChatRoomId, SubgroupBirthCertificateEvent.parseName(certificate.tags)),
         )
     }.getOrNull()
 
     /**
-     * [certificate] as a member's guarded wallet [ancestorChatRoomId] guards, or
-     * null when it is not one: the guarding group signed it over the member's
-     * own request (`MemberWalletCertificateEvent.verify`), and -- rule 4 of
-     * [verify] -- the key it names for the ancestor is the key the ancestor's
-     * guardian root reaches down the line of descent, which ends in the
-     * wallet's id where a subgroup's ends in its room.
+     * [statement] as a guarded wallet [ancestorChatRoomId] guards, or null when
+     * it is not one -- believed on its own merits, never on the word of whoever
+     * forwarded it: [believable], and
+     *
+     *  4. the ancestor is among the guardians, and the key the statement names
+     *     for it is the key [ancestorThresholdPublicKey]'s guardian root reaches
+     *     down the line of descent the guardians name. A key it does not reach is
+     *     a leaf this group cannot sign, whatever the statement calls it. The
+     *     line ends in the descendant's room, or in a member wallet's id.
      */
-    private fun verifyMember(certificate: Event, ancestorChatRoomId: String, ancestorThresholdPublicKey: HexKey): GuardedWallet? = runCatching {
-        val verified = MemberWalletCertificateEvent.verify(certificate, certificate.pubKey) ?: return null
-        val account = verified.account
+    fun verify(statement: Event, ancestorChatRoomId: String, ancestorThresholdPublicKey: HexKey): GuardedWallet? = runCatching {
+        val believed = believable(statement) ?: return null
+        val account = believed.account
 
-        val lineage = GuardianDerivation.lineage(account.guardians, verified.walletId, ancestorChatRoomId) ?: return null
+        val lineage = GuardianDerivation.lineage(account.guardians, believed.descendantId, ancestorChatRoomId) ?: return null
         val named = account.guardians.first { it.chatRoomId.equals(ancestorChatRoomId, ignoreCase = true) }
         val walked = GuardianDerivation.root(ancestorThresholdPublicKey).extendedPublicKey
             .derivePublicKey(lineage.map(GuardianDerivation::childIndex))
@@ -185,14 +211,38 @@ object GuardianManager {
 
         GuardedWallet(
             ancestorChatRoomId = ancestorChatRoomId,
-            descendantChatRoomId = verified.walletId,
-            statement = certificate,
+            descendantChatRoomId = believed.descendantId,
+            statement = statement,
             account = account,
-            certificate = certificate,
+            certificate = believed.certificate,
             lineage = lineage,
-            subject = GuardedSubject.Member(verified.walletId, verified.memberPublicKey, verified.label),
+            subject = believed.subject,
         )
     }.getOrNull()
+
+    /**
+     * The guardian rooms a statement is told to from [chatRoomId]: those after it
+     * in [guardians], nearest first -- upward only
+     * (`docs/guarded-wallet-forwarding.md`, D3). A room the list does not name is
+     * the wallet's own, a subgroup's, and is told to every guardian.
+     *
+     * Every guardian *except* the room, which is what the button used to take,
+     * reaches down as well as up: from a root holding a grandchild's statement it
+     * would tell the middle group, which told the root.
+     */
+    fun upwardOf(guardians: List<GuardianDerivation.Guardian>, chatRoomId: String): List<String> {
+        val position = guardians.indexOfFirst { it.chatRoomId.equals(chatRoomId, ignoreCase = true) }
+        return guardians.drop(position + 1).map { it.chatRoomId }
+    }
+
+    /**
+     * Of [candidates] -- the members of both a room and a group above it, as this
+     * device's participant lists have them -- the one who sends a notice the
+     * moment a wallet arrives: the lowest key. Everybody else waits for the
+     * catch-up, by when the elected device's notice has usually arrived
+     * (`docs/guarded-wallet-forwarding.md`, D4). Null when there are none.
+     */
+    fun electedSender(candidates: Set<HexKey>): HexKey? = candidates.map { it.lowercase() }.minOrNull()
 
     /** [wallet] with its member's profile name, where this device knows one. */
     private suspend fun named(database: BennuDatabase, wallet: GuardedWallet): GuardedWallet {
