@@ -8,7 +8,11 @@ sealed interface NewMemberWalletUIState {
 
     data class Error(val message: String) : NewMemberWalletUIState
 
-    /** No group chosen yet: every group this profile is in, each with why it cannot guard a wallet, if it cannot. */
+    /**
+     * No group chosen yet: every group this profile is in that guards members'
+     * wallets, or may -- one whose key this device does not know yet -- each
+     * with why it cannot guard a wallet now, if it cannot.
+     */
     data class Picking(val groups: List<GroupChoice>) : NewMemberWalletUIState
 
     /**

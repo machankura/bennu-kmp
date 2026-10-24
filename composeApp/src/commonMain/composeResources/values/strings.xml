@@ -620,7 +620,7 @@
     <string name="new_guarded_wallet">New guarded wallet</string>
     <string name="a_group">A group</string>
     <string name="choose_a_group_to_guard_it">Choose a group to guard it</string>
-    <string name="you_are_in_no_groups_that_can_guard_a_wallet">You're in no groups that could guard a wallet for you.</string>
+    <string name="none_of_your_groups_guards_members_wallets_yet">None of your groups guards members' wallets yet. A group's signers can turn it on from the group's page.</string>
     <string name="a_wallet_only_you_can_spend_from_guarded_by_s">A wallet only you can spend from, guarded by %1$s</string>
     <string name="s_can_take_any_coin_without_asking_you">%1$s can take any coin in it that has waited %2$s, without asking you.</string>
     <string name="s_and_the_group_above_it_can_take_any_coin_without_asking_you">%1$s can take any coin in it that has waited %2$s, and the group above it any coin that has waited %3$s, without asking you.</string>
