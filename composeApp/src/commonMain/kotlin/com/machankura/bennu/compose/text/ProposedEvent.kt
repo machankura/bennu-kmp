@@ -68,6 +68,11 @@ object ProposedEvent {
                             else -> "this group and the ${count - 1} above it can spend from its wallet"
                         }
                     },
+                // How long this group's own leaf waits, which its coordinator
+                // chose; every inherited one keeps its own. docs/guardian-delay.md.
+                SubgroupBirthCertificateEvent.parseGuardians(event.tags)
+                    ?.firstOrNull()
+                    ?.let { "this group after ${BlockDuration.describe(it.delay)}" },
                 // The decision this certificate makes for the child, said in both
                 // directions: an absent line is not a decision anybody can be said
                 // to have read. An older certificate decides nothing and says so

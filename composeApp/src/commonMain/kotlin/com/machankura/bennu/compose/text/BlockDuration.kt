@@ -57,3 +57,15 @@ object BlockDuration {
 
 /** A count of blocks, its thousands grouped: `65,535`. */
 fun Long.groupedBlocks(): String = toString().reversed().chunked(3).joinToString(",").reversed()
+
+/**
+ * *144 blocks, about 1 day*, in fixed English: for the words that are not
+ * composables -- a proposal's summary -- as the rest of `ProposedEvent` is.
+ * Screens use `delayText`, which reads the catalogue.
+ */
+fun BlockDuration.describe(blocks: Long): String {
+    val approximate = approximate(blocks)
+    val unit = approximate.unit.name.lowercase().let { if (approximate.count == 1) it.removeSuffix("s") else it }
+    val count = if (blocks == 1L) "1 block" else "${blocks.groupedBlocks()} blocks"
+    return "$count, about ${approximate.count} $unit"
+}

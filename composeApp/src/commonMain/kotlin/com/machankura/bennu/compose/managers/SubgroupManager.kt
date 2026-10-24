@@ -280,7 +280,11 @@ object SubgroupManager {
         } else {
             val parentKey = FrostSigningManager.completedKey(database, parentChatRoomId)?.thresholdPublicKey
                 ?: throw IllegalStateException("$parentChatRoomId has no key to grant a guardian key under")
-            grantFor(database, parentChatRoomId, parentKey, subgroupChatRoomId)
+            // The parent's own leaf's delay as its coordinator chose it, or the
+            // default an older build's ceremony would have written. Every
+            // inherited key keeps the delay its own ancestor chose.
+            // docs/guardian-delay.md.
+            grantFor(database, parentChatRoomId, parentKey, subgroupChatRoomId, key.guardianDelay ?: GuardianDerivation.DEFAULT_DELAY)
                 ?: throw IllegalStateException("$parentChatRoomId's own certificate carries guardian keys this build cannot read")
         }
 
@@ -356,10 +360,11 @@ object SubgroupManager {
         database: BennuDatabase,
         parentChatRoomId: String,
         thresholdPublicKey: HexKey,
-        subgroupChatRoomId: String
+        subgroupChatRoomId: String,
+        delay: Long = GuardianDerivation.DEFAULT_DELAY
     ): List<GuardianDerivation.Guardian>? {
         val inherited = guardiansOf(database, parentChatRoomId) ?: return null
-        return GuardianDerivation.grant(thresholdPublicKey, parentChatRoomId, inherited, subgroupChatRoomId)
+        return GuardianDerivation.grant(thresholdPublicKey, parentChatRoomId, inherited, subgroupChatRoomId, delay)
     }
 
     /**
@@ -405,7 +410,15 @@ object SubgroupManager {
 
         val subgroupChatRoomId = SubgroupBirthCertificateEvent.parseSubgroupChatRoomId(certificate.tags)
             ?: return "names no subgroup"
-        val expected = runCatching { grantFor(database, chatRoomId, thresholdPublicKey, subgroupChatRoomId) }.getOrNull()
+        // The parent's own leaf's delay is the proposal's -- the coordinator chose
+        // it, in range, or the tag would not have read -- and everything else is
+        // recomputed: the keys, their order, and every inherited key's delay,
+        // which has to be the one this group's own certificate carries. A
+        // proposer cannot shorten or lengthen an ancestor's wait in the child's
+        // wallet. docs/guardian-delay.md.
+        val expected = runCatching {
+            grantFor(database, chatRoomId, thresholdPublicKey, subgroupChatRoomId, proposed.first().delay)
+        }.getOrNull()
             ?: return "grants keys this device cannot check"
 
         return if (proposed == expected) null else "grants guardian keys this group does not"
@@ -517,10 +530,18 @@ object SubgroupManager {
     private fun refusePolicy(key: DkgSession, certificate: Event): String? {
         val agreed = key.subgroupWalletPolicy ?: return null
         val certified = SubgroupBirthCertificateEvent.parseWalletPolicy(certificate.tags)
-        return if (certified.isDecided(agreed)) {
+        if (!certified.isDecided(agreed)) {
+            return "carries a certificate whose wallet policy is not the one this group was made under ($agreed)"
+        }
+
+        // And the delay on the parent's own leaf, which the admins were shown
+        // at the same gate. docs/guardian-delay.md.
+        val agreedDelay = key.guardianDelay ?: return null
+        val certifiedDelay = SubgroupBirthCertificateEvent.parseGuardians(certificate.tags)?.firstOrNull()?.delay
+        return if (certifiedDelay == agreedDelay) {
             null
         } else {
-            "carries a certificate whose wallet policy is not the one this group was made under ($agreed)"
+            "carries a certificate whose guardian delay is not the one this group was made under ($agreedDelay blocks)"
         }
     }
 

@@ -775,6 +775,56 @@ class SubgroupManagerJvmTest {
         assertNull(SubgroupManager.refuseKeyState(ceremonyUnder(null), keyStateCarrying(unguarded)))
     }
 
+    // ---- the guardian delay: docs/guardian-delay.md, Phase 6 --------------
+
+    @Test
+    fun `a guarded ceremony's delay is the parent's own leaf's in the certificate`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        parentIs(SubgroupWalletPolicy.GUARDED)
+
+        val proposed = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED).copy(guardianDelay = 4_320))
+
+        val granted = assertNotNull(SubgroupBirthCertificateEvent.parseGuardians(proposed.tags))
+        assertEquals(listOf(4_320L, GuardianDerivation.DEFAULT_DELAY), granted.map { it.delay }, "the grandparent's keeps its own")
+        assertNull(SubgroupManager.refuseCertificate(db, parentRoomId, parentMaterial.thresholdPublicKey.value.toHex(), proposed))
+    }
+
+    @Test
+    fun `an older guarded ceremony is certified at the default delay`(): Unit = runBlocking {
+        val proposed = proposedCertificate(parentWith(listOf(alice, bob)), ceremonyUnder(SubgroupWalletPolicy.GUARDED))
+
+        assertEquals(GuardianDerivation.DEFAULT_DELAY, SubgroupBirthCertificateEvent.parseGuardians(proposed.tags)?.single()?.delay)
+    }
+
+    @Test
+    fun `a signer refuses a certificate that changes an ancestor's delay`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val parentKey = parentMaterial.thresholdPublicKey.value.toHex()
+        parentIs(SubgroupWalletPolicy.GUARDED)
+        val proposed = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED).copy(guardianDelay = 144))
+        val granted = assertNotNull(SubgroupBirthCertificateEvent.parseGuardians(proposed.tags))
+
+        // The grandparent's leaf brought closer, which was never this group's to do.
+        val shortened = certificate(
+            tags = proposed.tags.filterNot { it[0] == GuardianTag.TAG_NAME }.toTypedArray() +
+                listOf(granted[0], granted[1].copy(delay = 6)).map(GuardianTag::assemble)
+        )
+        assertEquals("grants guardian keys this group does not", SubgroupManager.refuseCertificate(db, parentRoomId, parentKey, shortened))
+    }
+
+    @Test
+    fun `a child signer refuses a certificate under a delay its ceremony did not announce`(): Unit = runBlocking {
+        val parentRoom = parentWith(listOf(alice, bob))
+        val atDefault = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED))
+        val atMonth = proposedCertificate(parentRoom, ceremonyUnder(SubgroupWalletPolicy.GUARDED).copy(guardianDelay = 4_320))
+
+        val ceremony = ceremonyUnder(SubgroupWalletPolicy.GUARDED).copy(guardianDelay = 4_320)
+        assertNotNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(atDefault)))
+        assertNull(SubgroupManager.refuseKeyState(ceremony, keyStateCarrying(atMonth)))
+        // A ceremony that announced none holds the certificate to no delay.
+        assertNull(SubgroupManager.refuseKeyState(ceremonyUnder(SubgroupWalletPolicy.GUARDED), keyStateCarrying(atMonth)))
+    }
+
     // ---- fixtures ----------------------------------------------------------
 
     /** The certificate [parentRoom] is asked to sign for the child, as the session holds it. */
