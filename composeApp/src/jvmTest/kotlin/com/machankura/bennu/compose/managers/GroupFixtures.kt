@@ -103,6 +103,7 @@ internal object GroupFixtures {
         guardians: List<GuardianDerivation.Guardian>,
         policy: SubgroupWalletPolicy? = if (guardians.isEmpty()) SubgroupWalletPolicy.UNGUARDED else SubgroupWalletPolicy.GUARDED,
         admins: List<HexKey> = listOf("a".repeat(64)),
+        name: String = "#Child",
     ): Event = signedAsRoom(
         material = parent,
         kind = SubgroupBirthCertificateEvent.KIND,
@@ -111,7 +112,7 @@ internal object GroupFixtures {
             parentChatRoomId = roomOf(parent),
             thresholdPublicKey = thresholdKeyOf(child),
             adminPublicKeys = admins,
-            name = "#Child",
+            name = name,
             path = path,
             guardians = guardians,
             walletPolicy = policy,

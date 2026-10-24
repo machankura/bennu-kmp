@@ -63,6 +63,15 @@ object GuardianManager {
             val label: String?,
             /** The member's profile name on this device, where one is known; filled where a database is to hand. */
             val ownerName: String? = null,
+            /**
+             * The group that directly guards it, by its founding name where this
+             * device can check a birth certificate for it, else its room name here;
+             * null when neither is known. Filled where a database is to hand.
+             * `docs/member-wallet-guarding-group.md`, D2.
+             */
+            val guardianName: String? = null,
+            /** The holding group's own child it sits under, named the same way; null when the holder guards it directly. */
+            val branchName: String? = null,
         ) : GuardedSubject
     }
 
@@ -212,11 +221,63 @@ object GuardianManager {
         )
     }.getOrNull()
 
-    /** [wallet] with its member's profile name, where this device knows one. */
-    private suspend fun named(database: BennuDatabase, wallet: GuardedWallet): GuardedWallet {
+    /**
+     * [wallet] with its member's profile name, and the names of the group that
+     * directly guards it and of the branch it sits under, where this device knows
+     * them. [known] are birth certificates that came to hand some other way --
+     * those the statements told to the holding room carry.
+     */
+    private suspend fun named(database: BennuDatabase, wallet: GuardedWallet, known: List<Event> = emptyList()): GuardedWallet {
         val member = wallet.subject as? GuardedSubject.Member ?: return wallet
         val name = database.profileDao().getProfileByPublicKey(member.ownerPublicKey)?.humanReadableNameOrPubkey()
-        return wallet.copy(subject = member.copy(ownerName = name))
+        val guardians = wallet.account.guardians
+
+        // Founding name first, then the room's name here: the order D2 of
+        // docs/member-wallet-guarding-group.md gives, so the card agrees with a
+        // subgroup row in the same list naming the same room.
+        suspend fun nameOf(position: Int): String? {
+            val roomId = guardians[position].chatRoomId
+            val parentRoomId = guardians.getOrNull(position + 1)?.chatRoomId
+            return parentRoomId?.let { foundingNameOf(database, roomId, it, known) }
+                ?: database.chatRoomDao().findChatRoomById(roomId)?.chatRoom?.subject?.takeIf { it.isNotBlank() }
+        }
+
+        return wallet.copy(
+            subject = member.copy(
+                ownerName = name,
+                guardianName = nameOf(0),
+                branchName = wallet.position.takeIf { it > 0 }?.let { nameOf(it - 1) },
+            )
+        )
+    }
+
+    /**
+     * What [roomId] was called at its founding, read off a birth certificate
+     * [parentRoomId] signed for it -- or null when this device holds none it can
+     * check. Each candidate is checked with `SubgroupBirthCertificateEvent.certifies`,
+     * whoever handed it over: [carried] first, then the certificates the parent
+     * signed (every device in the parent holds them), then the one in [roomId]'s
+     * own key state (every device in the room). `docs/member-wallet-guarding-group.md`, D3.
+     */
+    suspend fun foundingNameOf(
+        database: BennuDatabase,
+        roomId: String,
+        parentRoomId: String,
+        carried: List<Event> = emptyList(),
+    ): String? {
+        fun List<Event>.name(): String? = firstNotNullOfOrNull { certificate ->
+            certificate.takeIf { SubgroupBirthCertificateEvent.certifies(it, roomId, parentRoomId) }
+                ?.let { SubgroupBirthCertificateEvent.parseName(it.tags) }
+        }
+
+        carried.name()?.let { return it }
+        database.groupSignedEventDao()
+            .getByChatRoomIdAndKind(parentRoomId, SubgroupBirthCertificateEvent.KIND)
+            .map { it.toEvent() }
+            .name()?.let { return it }
+        return listOfNotNull(
+            database.groupKeyStateDao().getByChatRoomId(roomId)?.birthCertificateJson?.let { Event.fromJsonOrNull(it) }
+        ).name()
     }
 
     /**
@@ -243,9 +304,14 @@ object GuardianManager {
             .getByChatRoomIdAndKind(ancestorChatRoomId, MemberWalletCertificateEvent.KIND)
             .map { it.toEvent() }
 
+        // A subgroup's statement carries the birth certificate its parent signed,
+        // which names that subgroup for any member wallet guarded beneath it.
+        val known = told.filter { it.kind == GroupWalletStatementEvent.KIND }
+            .mapNotNull { GroupWalletStatementEvent.read(it.tags, it.content)?.certificate }
+
         return (told + signed)
             .mapNotNull { verify(it, ancestorChatRoomId, thresholdPublicKey) }
-            .map { named(database, it) }
+            .map { named(database, it, known) }
             .groupBy { Triple(it.descendantChatRoomId, it.chain, it.account.account) }
             .mapNotNull { (_, statements) ->
                 val first = statements.minWithOrNull(order) ?: return@mapNotNull null

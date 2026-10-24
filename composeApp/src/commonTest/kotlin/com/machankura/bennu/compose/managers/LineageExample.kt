@@ -52,7 +52,7 @@ object LineageExample {
 
     /**
      * Alice's wallet [walletId] under [guardians], as [ancestor] holds it.
-     * [label] and [ownerName] are what `GuardianManager.named` would fill.
+     * [label] and the names are what `GuardianManager.named` would fill.
      */
     fun heldBy(
         ancestor: String,
@@ -61,6 +61,8 @@ object LineageExample {
         label: String? = null,
         ownerPublicKey: String = alice,
         ownerName: String? = "alice",
+        guardianName: String? = null,
+        branchName: String? = null,
         walletKey: Int = 0xdecaf,
     ): GuardianManager.GuardedWallet {
         val account = GroupWalletDerivation.account(key(walletKey), Chain.Regtest, guardians = guardians)
@@ -77,6 +79,8 @@ object LineageExample {
                 ownerPublicKey = ownerPublicKey,
                 label = label,
                 ownerName = ownerName,
+                guardianName = guardianName,
+                branchName = branchName,
             ),
         )
     }
