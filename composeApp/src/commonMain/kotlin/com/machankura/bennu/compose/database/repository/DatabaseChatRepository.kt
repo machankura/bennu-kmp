@@ -192,6 +192,15 @@ class DatabaseChatRepository(
         emptyList()
     }
 
+    override suspend fun forwardGuardedWallets(chatRoomId: String): Int = try {
+        GuardianManager.forwardAll(database, chatRoomId)
+    } catch (e: Throwable) {
+        // A room that opens without telling the groups above is wrong and
+        // survivable, and the button is still there.
+        logger.e("Error forwarding $chatRoomId's guarded wallets upward", e)
+        0
+    }
+
     override suspend fun shareGuardedWallet(shareable: GuardianManager.Shareable, userPublicKey: HexKey): Int = try {
         GuardianManager.share(database, shareable.statement, shareable.rooms, userPublicKey, certificate = shareable.certificate)
     } catch (e: Throwable) {

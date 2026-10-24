@@ -758,6 +758,10 @@ replaces and settles.
 
 ## Phase 10 — the guardians see `@alice`
 
+> Since [guarded-wallet-forwarding.md](./guarded-wallet-forwarding.md) a member's
+> wallet reaches the groups above with nobody tapping *Share*: the group's devices
+> that are also in a group above tell it as the certificate is filed.
+
 The guardian side is built. What changes is what a guarded wallet can be.
 
 [member-wallet-guarding-group.md](./member-wallet-guarding-group.md) later

@@ -972,6 +972,13 @@ data class ChatMessage(
                     // no table -- so all that is left is the line, and only for a
                     // notice this room can actually believe.
                     if (event.kind == GuardedWalletNoticeEvent.KIND) {
+                        // And on, a generation further: the statement inside, to
+                        // the groups above this one that this device is in. Any
+                        // device that believes it can, whether or not it holds this
+                        // room's key. docs/guarded-wallet-forwarding.md.
+                        GuardedWalletNoticeEvent.statementOf(event)?.let {
+                            GuardianManager.forwardOnArrival(database, it, groupEventResult.groupId)
+                        }
                         val content = GuardianManager.describeNotice(database, groupEventResult.groupId, event)
                             ?: return null
                         return ChatMessage(
@@ -1311,6 +1318,9 @@ data class ChatMessage(
                 // checks it there again.
                 MemberWalletCertificateEvent.KIND -> {
                     val verified = MemberWalletCertificateEvent.verify(event, groupId) ?: return null
+                    // The groups above this one guard the wallet too, and learn
+                    // of it only by being told. docs/guarded-wallet-forwarding.md.
+                    GuardianManager.forwardOnArrival(database, event, groupId)
 
                     ChatMessage(
                         giftWrapPayloadId = null,
@@ -1361,6 +1371,9 @@ data class ChatMessage(
                     val thresholdPublicKey = GroupWalletManager.thresholdKeyFor(database, groupId)
                         ?: return null
                     val wallet = GroupWallet.of(signed, thresholdPublicKey) ?: return null
+                    // A guarded wallet is one the groups above can find only by
+                    // being told of it. docs/guarded-wallet-forwarding.md.
+                    if (wallet.account.isGuarded) GuardianManager.forwardOnArrival(database, event, groupId)
 
                     ChatMessage(
                         giftWrapPayloadId = null,

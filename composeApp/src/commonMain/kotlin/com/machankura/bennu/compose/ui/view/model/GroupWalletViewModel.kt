@@ -81,6 +81,9 @@ class GroupWalletViewModel(
             val canSign = localChatRoom.chatRoom.mlsGroupState != null && chatRepository.canSign(chatRoomId)
             val wallet = chatRepository.groupWallet(chatRoomId, chain)
             val guarded = chatRepository.guardedWallets(chatRoomId).filter { it.chain == chain }
+            // The catch-up first, so what the screen offers to share is only what
+            // could not be sent. docs/guarded-wallet-forwarding.md, Phase 4.
+            chatRepository.forwardGuardedWallets(chatRoomId)
             val shareable = chatRepository.shareableGuardedWallets(chatRoomId, chain)
             val guardedRows = guarded.map { GuardedWalletRow(it, walletState = null) }
 

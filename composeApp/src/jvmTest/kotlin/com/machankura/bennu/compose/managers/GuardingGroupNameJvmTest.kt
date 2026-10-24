@@ -247,4 +247,23 @@ class GuardingGroupNameJvmTest {
             assertEquals(mCertificate.id, GuardedWalletNoticeEvent.certificateIn(notice.tags)?.id, "the notice in $room")
         }
     }
+
+    @Test
+    fun `forwarding on its own carries the certificate too, and tells a room told without it once more`(): Unit = runBlocking {
+        inRoom(m, mCertificate)
+        inRoom(p)
+        inRoom(r)
+        fileSigned(savings, signer = mRoom)
+        // R was told before notices carried the certificate.
+        noticeIn(rRoom, savings)
+
+        val told = GuardianManager.forward(db, savings, mRoom, whenElected = false)
+        assertEquals(setOf(pRoom, rRoom), told.map { it.chatRoom.id }.toSet())
+        listOf(pRoom, rRoom).forEach { room ->
+            val carried = db.marmotInnerEventDao().getByChatRoomAndKinds(room, listOf(GuardedWalletNoticeEvent.KIND))
+                .mapNotNull { GuardedWalletNoticeEvent.certificateIn(it.tags) }
+            assertEquals(listOf(mCertificate.id), carried.map { it.id }, "the notice in $room")
+        }
+        assertEquals(emptyList(), GuardianManager.forward(db, savings, mRoom, whenElected = false), "told once with it")
+    }
 }

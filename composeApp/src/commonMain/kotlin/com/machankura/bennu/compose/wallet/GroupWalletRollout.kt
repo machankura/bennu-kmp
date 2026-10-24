@@ -61,6 +61,16 @@ object GroupWalletRollout {
     fun offersMemberWalletsOn(chain: Chain): Boolean = MEMBER_WALLETS_ON_MAINNET || !chain.isMainnet()
 
     /**
+     * Whether a device tells the groups above about a guarded wallet on its own
+     * -- as the wallet arrives, and as a group's chat or wallet screen opens --
+     * rather than only when somebody taps *Share*.
+     * `docs/guarded-wallet-forwarding.md`, D8. A behaviour that sends messages
+     * without a person, so it has a switch for the release it first ships in.
+     * The button does not read it.
+     */
+    const val FORWARDS_GUARDED_WALLETS: Boolean = true
+
+    /**
      * The most a member's own spend from their guarded wallet may send on
      * [chain]: [MAINNET_CAP] on mainnet, as every other spend is. The gate
      * lifted before the run that was to lift the cap with it, and the member's

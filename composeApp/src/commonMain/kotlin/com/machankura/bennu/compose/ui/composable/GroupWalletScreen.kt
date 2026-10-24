@@ -122,6 +122,7 @@ import bennu.composeapp.generated.resources.share
 import bennu.composeapp.generated.resources.spend
 import bennu.composeapp.generated.resources.shared_with_the_groups_above
 import bennu.composeapp.generated.resources.tell_the_groups_above
+import bennu.composeapp.generated.resources.this_device_shares_these_on_its_own_when_it_can
 import bennu.composeapp.generated.resources.wallets_of_groups_below_this_one
 import com.machankura.bennu.compose.managers.GuardianManager
 import com.machankura.bennu.compose.ui.view.state.GuardedWalletRow
@@ -771,6 +772,16 @@ private fun LazyListScope.guardianItems(
     if (shareable.isNotEmpty()) {
         item {
             Text(text = stringResource(Res.string.tell_the_groups_above), style = MaterialTheme.typography.titleMedium)
+        }
+        // What is left here is what the automatic forwarding could not send --
+        // a notice lost on the wire, most often -- so the section says so, once.
+        // docs/guarded-wallet-forwarding.md, Phase 6.
+        item {
+            Text(
+                text = stringResource(Res.string.this_device_shares_these_on_its_own_when_it_can),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         items(shareable, key = { "shareable-" + it.statement.id }) { candidate ->
             ListItem(
