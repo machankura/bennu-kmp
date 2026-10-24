@@ -35,12 +35,20 @@ import kotlinx.coroutines.withContext
  */
 class MemberWalletViewModel(
     private val ownerPublicKey: HexKey,
-    val walletId: String,
+    walletId: String,
     initialUIState: MemberWalletUIState,
     private val memberWalletRepository: MemberWalletRepository,
     private val wallets: GroupOnchainWallets?,
 ) : ViewModel() {
     private val logger = Logger.withTag(TAG)
+
+    /**
+     * The wallet on screen. Moves when asking again had to make a new request
+     * under the group's newest policy, with a new key, in place of this one --
+     * `docs/member-wallet-delay.md`, Phase 5.
+     */
+    var walletId: String = walletId
+        private set
 
     var uiState: MemberWalletUIState by mutableStateOf(initialUIState)
         private set
@@ -107,7 +115,7 @@ class MemberWalletViewModel(
     }
 
     fun askAgain(onAsked: () -> Unit, onFailure: () -> Unit) = act(onAsked, onFailure) {
-        memberWalletRepository.askAgain(walletId)
+        walletId = memberWalletRepository.askAgain(walletId)
         initiate()
     }
 

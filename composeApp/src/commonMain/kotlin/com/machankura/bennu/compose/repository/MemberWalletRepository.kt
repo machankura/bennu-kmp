@@ -47,7 +47,8 @@ interface MemberWalletRepository {
     suspend fun walletOf(ownerPublicKey: HexKey, walletId: String): MemberWalletManager.MemberWalletRow?
 
     /** Asks the group again, with the request the wallet was first asked with. */
-    suspend fun askAgain(walletId: String)
+    /** Asks again for [walletId]; returns the wallet now asked for, a new one when the old request would be refused. */
+    suspend fun askAgain(walletId: String): String
 
     /** Forgets a wallet's key -- refused once a group guards it. */
     suspend fun discard(walletId: String)
@@ -88,7 +89,7 @@ interface MemberWalletRepository {
                 throw UnsupportedOperationException("no repository")
             override suspend fun walletsOf(ownerPublicKey: HexKey): List<MemberWalletManager.MemberWalletRow> = emptyList()
             override suspend fun walletOf(ownerPublicKey: HexKey, walletId: String): MemberWalletManager.MemberWalletRow? = null
-            override suspend fun askAgain(walletId: String) = Unit
+            override suspend fun askAgain(walletId: String): String = walletId
             override suspend fun discard(walletId: String) = Unit
             override suspend fun exportKey(walletId: String): Pair<String, String>? = null
             override suspend fun roomName(chatRoomId: String): String? = null

@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
 import kotlin.test.assertTrue
 import kotlin.test.assertNotNull
 import kotlin.test.assertFailsWith
@@ -134,5 +135,93 @@ class MemberWalletPolicyJvmTest {
         assertNotNull(MemberWalletRequestEvent.verified(build(memberWalletPolicy(group, 12))))
         // A request from before policies still reads: old certificates embed one.
         assertNotNull(MemberWalletRequestEvent.verified(build(null)))
+    }
+
+    // ---- Phase 5: every signer checks it -----------------------------------
+
+    /** This device as a signer of the group, which the member is in. */
+    private suspend fun asSigner() {
+        GroupFixtures.signingRoom(db, group, members = listOf(memberPublicKey))
+        GroupFixtures.fileKeyState(db, group, GroupFixtures.guardedCertificate(parent, group))
+    }
+
+    /** What the signer is asked to sign: the certificate for a request built at [delay] under [carried]. */
+    private fun proposedUnder(carried: Event?, delay: Long): Event {
+        val walletKey = MemberWalletDerivation.generate()
+        val walletId = MemberWalletDerivation.walletId(walletKey.publicKey())
+        val parentsGrant = GuardianDerivation.grant(thresholdKeyOf(parent), roomOf(parent), emptyList(), groupRoom)
+        val guardians = GuardianDerivation.grant(thresholdKeyOf(group), groupRoom, parentsGrant, walletId, delay)
+        val account = MemberWalletDerivation.account(walletKey.publicKey(), chain, guardians)
+        val request = MemberWalletRequestEvent.build(member, groupRoom, walletKey, account, label = null, createdAt = 1_700_000_500, policy = carried)
+        val template = MemberWalletCertificateEvent.template(request)
+        return Event(MemberWalletManager.certificateIdFor(groupRoom, request), groupRoom, template.createdAt, template.kind, template.tags, template.content, "")
+    }
+
+    private suspend fun refusal(certificate: Event) =
+        MemberWalletManager.refuseCertificate(db, groupRoom, thresholdKeyOf(group), certificate)
+
+    @Test
+    fun `a signer judges a request by the policy it carries, unless it holds a newer one`(): Unit = runBlocking {
+        asSigner()
+        val older = 1_700_000_000L
+        val carried = memberWalletPolicy(group, 4_320, createdAt = older + 100)
+
+        // Held none: a signer that missed the opening is told what it missed.
+        assertNull(refusal(proposedUnder(carried, 4_320)))
+        // The leaf has to have the carried delay, as every reader checks.
+        assertEquals("is not a certificate this group could have been asked for", refusal(proposedUnder(carried, 12)))
+
+        // An older closing the group has since reversed is no reason to refuse.
+        filePolicy(db, group, memberWalletPolicy(group, null, createdAt = older))
+        assertNull(refusal(proposedUnder(carried, 4_320)))
+
+        // A newer delay held: the request is stale.
+        filePolicy(db, group, memberWalletPolicy(group, 144, createdAt = older + 200))
+        assertEquals("was asked under a delay the group has since changed", refusal(proposedUnder(carried, 4_320)))
+
+        // A newer closing held: the group has stopped.
+        filePolicy(db, group, memberWalletPolicy(group, null, createdAt = older + 300))
+        assertEquals("was asked of a group that has since stopped guarding members' wallets", refusal(proposedUnder(carried, 4_320)))
+    }
+
+    @Test
+    fun `a request built under no policy, or under a closed one, is refused`(): Unit = runBlocking {
+        asSigner()
+        filePolicy(db, group, memberWalletPolicy(group, 12))
+
+        assertEquals("does not say the group guards members' wallets", refusal(proposedUnder(null, 12)))
+        assertNotNull(refusal(proposedUnder(memberWalletPolicy(group, null), 12)), "a closed policy opens nothing")
+        assertNotNull(refusal(proposedUnder(memberWalletPolicy(stranger, 12), 12)), "nor does another group's")
+    }
+
+    @Test
+    fun `a stale request says why, and asking again makes a new one at the new delay`(): Unit = runBlocking {
+        asMember()
+        filePolicy(db, group, memberWalletPolicy(group, 12, createdAt = 1_700_000_000))
+        val asked = MemberWalletManager.request(db, groupRoom, member, chain, label = "Savings")
+        assertNull(MemberWalletManager.walletsOf(db, memberPublicKey).single().refusedBecause)
+
+        filePolicy(db, group, memberWalletPolicy(group, 144, createdAt = 1_700_000_100))
+        assertEquals(MemberWalletManager.Why.DELAY_CHANGED, MemberWalletManager.walletsOf(db, memberPublicKey).single().refusedBecause)
+
+        val replacement = MemberWalletManager.askAgain(db, db.memberWalletDao().getById(asked.walletId)!!, member)
+        assertTrue(replacement.walletId != asked.walletId, "a new key")
+        assertNull(db.memberWalletDao().getById(asked.walletId), "the old key, never offered, is gone")
+        assertEquals("Savings", replacement.label)
+        val rebuilt = assertNotNull(MemberWalletRequestEvent.verified(Event.fromJson(replacement.requestJson)))
+        assertEquals(144L, rebuilt.reading.guardians.first().delay)
+        assertNull(MemberWalletManager.walletsOf(db, memberPublicKey).single().refusedBecause)
+    }
+
+    @Test
+    fun `a request to a group that has since closed can only be discarded`(): Unit = runBlocking {
+        asMember()
+        filePolicy(db, group, memberWalletPolicy(group, 12, createdAt = 1_700_000_000))
+        val asked = MemberWalletManager.request(db, groupRoom, member, chain, label = null)
+        filePolicy(db, group, memberWalletPolicy(group, null, createdAt = 1_700_000_100))
+
+        assertEquals(MemberWalletManager.Why.CLOSED, MemberWalletManager.walletsOf(db, memberPublicKey).single().refusedBecause)
+        assertFailsWith<IllegalStateException> { MemberWalletManager.askAgain(db, db.memberWalletDao().getById(asked.walletId)!!, member) }
+        assertNotNull(db.memberWalletDao().getById(asked.walletId), "a refused ask leaves the old key for the member to discard")
     }
 }

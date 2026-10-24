@@ -79,6 +79,9 @@ class MemberWalletSigningJvmTest {
             account = MemberWalletDerivation.account(walletPrivateKey.publicKey(), chain, guardians),
             label = "Savings",
             createdAt = 1_700_000_000,
+            // Built under the group's open policy, as a member's device builds
+            // it -- the one groupRoomHere() files. docs/member-wallet-delay.md.
+            policy = GroupFixtures.memberWalletPolicy(group, GuardianDerivation.DEFAULT_DELAY, createdAt = 1_600_000_000).takeIf { asking == groupRoom },
         )
 
     /** The certificate [request] asks for, as a session would carry it -- unsigned, authored by the room. */

@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.managers.MemberWalletManager
+import bennu.composeapp.generated.resources.s_has_stopped_guarding_members_wallets_discard
+import bennu.composeapp.generated.resources.s_has_changed_its_delay_since_you_asked
+import bennu.composeapp.generated.resources.s_would_refuse_this_request_asked_before
+import bennu.composeapp.generated.resources.s_would_refuse_this_request
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -199,13 +204,35 @@ fun MemberWalletScreen(
                                         )
                                     )
                                 }
-                                if (wallet.state != WalletState.SIGNING) {
+                                // Why the group would refuse the request as it stands, said
+                                // before the button that fixes it. docs/member-wallet-delay.md.
+                                wallet.refusedBecause?.let { why ->
+                                    item {
+                                        Text(
+                                            stringResource(
+                                                when (why) {
+                                                    MemberWalletManager.Why.NO_POLICY -> Res.string.s_would_refuse_this_request_asked_before
+                                                    MemberWalletManager.Why.DELAY_CHANGED -> Res.string.s_has_changed_its_delay_since_you_asked
+                                                    MemberWalletManager.Why.CLOSED -> Res.string.s_has_stopped_guarding_members_wallets_discard
+                                                    MemberWalletManager.Why.NOT_THE_GROUPS -> Res.string.s_would_refuse_this_request
+                                                },
+                                                group,
+                                            ),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                // A closed group takes no new request, so asking again
+                                // could only fail; discarding is what is left.
+                                if (wallet.state != WalletState.SIGNING && wallet.refusedBecause != MemberWalletManager.Why.CLOSED) {
                                     item {
                                         OutlinedButton(
                                             onClick = { viewModel.askAgain(onAsked = {}, onFailure = { notify(couldNotAskAgain) }) },
                                             enabled = !viewModel.isActionPending.value,
                                         ) { Text(stringResource(Res.string.ask_again)) }
                                     }
+                                }
+                                if (wallet.state != WalletState.SIGNING) {
                                     item {
                                         TextButton(onClick = { confirmingDiscard = true }, enabled = !viewModel.isActionPending.value) {
                                             Text(stringResource(Res.string.discard))

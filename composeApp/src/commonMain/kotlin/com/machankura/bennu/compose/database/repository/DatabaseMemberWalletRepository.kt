@@ -77,10 +77,11 @@ class DatabaseMemberWalletRepository(
         null
     }
 
-    override suspend fun askAgain(walletId: String) {
+    override suspend fun askAgain(walletId: String): String {
         val wallet = database.memberWalletDao().getById(walletId) ?: throw IllegalStateException("No key for $walletId here")
         check(wallet.ownerPublicKey == activeIdentity.value?.nostrPublicKey) { "Not this profile's wallet" }
-        MemberWalletManager.askAgain(database, wallet)
+        val key = activeIdentity.value?.nostrPrivateKey ?: throw IllegalStateException("This profile cannot sign")
+        return MemberWalletManager.askAgain(database, wallet, key).walletId
     }
 
     override suspend fun discard(walletId: String) {
