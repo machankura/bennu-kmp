@@ -103,6 +103,24 @@ object GuardianManager {
          */
         val delay: Long get() = account.guardians[position].delay
 
+        /**
+         * The group that directly guards it: the nearest guardian, which for a
+         * member's wallet is the group that signed its certificate --
+         * `MemberWalletRequestEvent.verified` refuses a request whose nearest
+         * guardian is not the group it asks. `docs/member-wallet-guarding-group.md`, D1.
+         */
+        val directGuardianChatRoomId: String get() = account.guardians.first().chatRoomId
+
+        /** True when the ancestor holding it is the group that directly guards it. */
+        val isGuardedHere: Boolean get() = position == 0
+
+        /**
+         * The ancestor's own child the wallet sits under -- the branch of its tree
+         * -- or null when the ancestor guards it directly. The ancestor signed
+         * that child's birth certificate, so it can always name it.
+         */
+        val branchChatRoomId: String? get() = lineage.takeIf { position > 0 }?.first()
+
         /** The ancestor as the spender of a spend from this wallet, signing as [thresholdPublicKey] -- null to only build one. */
         fun spender(thresholdPublicKey: HexKey? = null): GroupSpend.Spender.Guardian =
             GroupSpend.Spender.Guardian(position = position, lineage = lineage, thresholdPublicKey = thresholdPublicKey, name = displayName)
