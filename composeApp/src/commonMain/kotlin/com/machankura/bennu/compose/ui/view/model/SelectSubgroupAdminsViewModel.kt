@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.text.groupedBlocks
+import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.ui.view.state.canGuard
 import com.machankura.bennu.compose.ui.view.state.onlyGuarded
 import com.machankura.bennu.compose.database.model.subgroupWalletPolicy
@@ -97,6 +99,20 @@ class SelectSubgroupAdminsViewModel(
      */
     val walletPolicy: MutableState<SubgroupWalletPolicy> = mutableStateOf(SubgroupWalletPolicy.GUARDED)
 
+    /**
+     * How long a coin in a guarded subgroup's wallet waits before this group can
+     * take it, in blocks, as typed -- `docs/guardian-delay.md`. The parent's own
+     * leaf only: each ancestor above keeps the delay it chose.
+     *
+     * Held as the text rather than a number, and never clamped, so the field can
+     * say *at most 65,535 blocks* about the number somebody actually entered.
+     * [guardianDelay] reads it.
+     */
+    val guardianDelayInput: MutableState<String> = mutableStateOf(GuardianDerivation.DEFAULT_DELAY.toString())
+
+    /** Whether the delay is being typed rather than picked from a preset. */
+    val isCustomDelay: MutableState<Boolean> = mutableStateOf(false)
+
     /** Whether [retrying] has been read into the form, which happens once. */
     private var prefilled = false
 
@@ -171,6 +187,10 @@ class SelectSubgroupAdminsViewModel(
         // failed ceremony can predate the parent's own certificate -- is pulled
         // back the way the threshold is pulled into its range.
         failed.subgroupWalletPolicy?.let(::setWalletPolicy)
+        failed.guardianDelay?.let { delay ->
+            guardianDelayInput.value = delay.toString()
+            isCustomDelay.value = delay !in DELAY_PRESETS
+        }
     }
 
     /**
@@ -236,6 +256,41 @@ class SelectSubgroupAdminsViewModel(
         walletPolicy.value = value
     }
 
+    /** Picks a preset delay. */
+    fun setGuardianDelay(blocks: Long) {
+        if (isActionPending.value) return
+
+        isCustomDelay.value = false
+        guardianDelayInput.value = blocks.toString()
+    }
+
+    /** Switches to typing a delay, starting from the one already chosen. */
+    fun useCustomDelay() {
+        if (isActionPending.value) return
+
+        isCustomDelay.value = true
+    }
+
+    /** What was typed as the delay, kept as typed. */
+    fun setGuardianDelayInput(value: String) {
+        if (isActionPending.value) return
+
+        guardianDelayInput.value = value.filter { it in '0'..'9' }.take(MAX_DELAY_DIGITS)
+    }
+
+    /** The delay typed or picked, or null while the field holds no number. */
+    fun guardianDelay(): Long? = guardianDelayInput.value.toLongOrNull()
+
+    /** Why the delay cannot be used, or null when it can. */
+    fun guardianDelayProblem(): String? {
+        val delay = guardianDelay() ?: return "Give the delay in blocks."
+        return when {
+            delay < GuardianDerivation.MIN_DELAY -> "A delay is at least ${GuardianDerivation.MIN_DELAY} blocks."
+            delay > GuardianDerivation.MAX_DELAY -> "A delay is at most ${GuardianDerivation.MAX_DELAY.groupedBlocks()} blocks."
+            else -> null
+        }
+    }
+
     /** The subgroup's admins: everyone ticked, plus the coordinator. */
     fun adminCount(): Int = selectedPublicKeys.size + 1
 
@@ -269,6 +324,7 @@ class SelectSubgroupAdminsViewModel(
         if (walletPolicy.value == SubgroupWalletPolicy.GUARDED && !loaded.canGuard) {
             return "This group's own guardian keys can't be read, so it can't guard a subgroup."
         }
+        if (walletPolicy.value == SubgroupWalletPolicy.GUARDED) guardianDelayProblem()?.let { return it }
 
 
         if (loaded.isResolvingKeyPackages) return "Checking who can be added…"
@@ -347,7 +403,10 @@ class SelectSubgroupAdminsViewModel(
                 // Carried on the proposal so every admin is told at the join gate,
                 // and on the session so whoever proposes the certificate proposes
                 // it under the same one.
-                walletPolicy = walletPolicy.value
+                walletPolicy = walletPolicy.value,
+                // The parent's own leaf, and only for a guarded subgroup.
+                // docs/guardian-delay.md.
+                guardianDelay = guardianDelay().takeIf { walletPolicy.value == SubgroupWalletPolicy.GUARDED }
             )
 
             isActionPending.value = false
@@ -379,6 +438,16 @@ class SelectSubgroupAdminsViewModel(
     }
 
     companion object {
+        /**
+         * The delays the picker offers, in blocks -- `docs/guardian-delay.md`, D4:
+         * an hour, two (the default), a day, a week, a month, six months, and the
+         * longest a leaf can carry.
+         */
+        val DELAY_PRESETS: List<Long> = listOf(6L, 12L, 144L, 1_008L, 4_320L, 26_280L, GuardianDerivation.MAX_DELAY)
+
+        /** Enough digits for anything past the ceiling, so the field can say so. */
+        private const val MAX_DELAY_DIGITS = 7
+
         private const val TAG = "SelectSubgroupAdminsViewModel"
 
         fun factory(

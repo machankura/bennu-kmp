@@ -554,12 +554,12 @@
     <string name="the_subgroup_s_wallet">The subgroup's wallet</string>
     <string name="guarded_wallet">Guarded wallet</string>
     <string name="unguarded_wallet">Unguarded wallet</string>
-    <string name="this_group_can_spend_its_coins_once">This group can spend any coin in it once it has %1$d confirmations.</string>
-    <string name="this_group_and_the_d_above_it_can_spend">This group and the %1$d above it can spend any coin in it once it has %2$d confirmations.</string>
+    <string name="this_group_can_spend_its_coins_once">This group can spend any coin in it once it has waited as long as the delay below.</string>
+    <string name="this_group_and_the_d_above_it_can_spend">This group, after the delay below, and the %1$d above it, after the delays they chose, can spend any coin in it.</string>
     <string name="only_the_subgroup_can_spend_from_its_wallet">Only the subgroup can spend from its wallet. Groups above it can't reach it or anything beneath it.</string>
     <string name="this_group_is_guarded_so_its_subgroups_are_too">This group is guarded, so its subgroups are too.</string>
     <string name="this_group_s_guardian_keys_can_t_be_read">This group's own guardian keys can't be read, so it can't guard a subgroup.</string>
-    <string name="the_subgroup_s_wallet_will_be_guarded">The subgroup's wallet will be guarded: this group, and every group above it, can spend any coin in it once it has %1$d confirmations.</string>
+    <string name="the_subgroup_s_wallet_will_be_guarded">The subgroup's wallet will be guarded: this group can spend any coin in it once it has waited %1$s, and each group above it after the delay it chose.</string>
     <string name="the_subgroup_s_wallet_will_not_be_guarded">The subgroup's wallet will not be guarded: only the subgroup can spend from it.</string>
     <string name="the_group_above_decided_this_wallet_is_guarded">The group above this one decided this group's wallet is guarded. Each group above it can spend any coin in it that has waited as long as its own delay, without this group agreeing:</string>
     <string name="the_group_above_decided_this_wallet_is_not_guarded">The group above this one decided this group's wallet is not guarded. Only this group can spend from it.</string>
@@ -567,6 +567,17 @@
     <!-- A guardian's delay in blocks and roughly in time: docs/guardian-delay.md, D5 -->
     <string name="blocks_and_about">%1$s, %2$s</string>
     <string name="guardian_after">%1$s: after %2$s</string>
+    <string name="how_long_before_this_group_can_spend_a_coin">How long before this group can spend a coin</string>
+    <string name="delay_one_hour">1 hour</string>
+    <string name="delay_two_hours">2 hours</string>
+    <string name="delay_one_day">1 day</string>
+    <string name="delay_one_week">1 week</string>
+    <string name="delay_one_month">1 month</string>
+    <string name="delay_six_months">6 months</string>
+    <string name="delay_longest">Longest</string>
+    <string name="delay_custom">Custom</string>
+    <string name="delay_in_blocks">Delay in blocks</string>
+    <string name="a_coin_the_subgroup_moves_starts_waiting_again">A coin the subgroup moves starts waiting again, so a long delay lets it keep its coins out of reach by moving them.</string>
     <string name="a_group_above_this_one">A group above this one</string>
     <string name="this_group_s_delay_in_this_wallet">This group can spend a coin here after %1$s</string>
     <string name="guarded_wallet_after">Guarded wallet, after %1$s</string>
