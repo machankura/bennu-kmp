@@ -90,7 +90,9 @@ wallet to two payers in the same hour hand out the same address, and the group
 reuses it. Offering `current + 1` and `current + 2` beside it gives a second and
 third member something else to hand out. Both are already watched, because the
 look-ahead keeps the wallet subscribed to `current … current + 9`, so a payment
-to either is seen the moment it reaches the mempool.
+to either is seen the moment it reaches the mempool. An ancestor funding a
+guarded wallet starts at the top of that window, `current + 2`, and goes up, so
+it stays out of the members' way -- [guarded-wallet-funding.md](./guarded-wallet-funding.md), D2.
 
 **Why `highest used`.** `firstUnusedDerivedAddress` takes the *lowest* unused
 index, so a payment above `current` does not move `current`. If `/0/3` is

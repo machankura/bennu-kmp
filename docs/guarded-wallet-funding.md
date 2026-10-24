@@ -17,8 +17,27 @@ the forwarded statement from the first, the send form and its reservations from
 the second, and the "current plus two" rule from the third. It changes no
 format, no derivation and no schema.
 
-**Not built.** Written against the code as it stood at `8cb6f04e`, schema v29,
-with the `lightning-kmp-app` submodule at `e0d2b82`.
+**Built**, phases 1-6, one commit each, written against the code as it stood
+at `8cb6f04e`, schema v29, with the `lightning-kmp-app` submodule at `e0d2b82`;
+the build changes no schema. `GroupWalletState.fundingAddress`,
+`GroupSpendBuilder.Destination.Funding`, `GroupSpend.fundingsOf` and
+`GroupSendRoute.fundChatRoomId` are the entry points. The phases below are kept
+as written; where the build chose differently the table says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 1 tests `claimedFundingIndices` | Phase 2 does: until the builder writes a claim there is no PSBT to read one from. Phase 1's watched-window test also counts the slots, eight, so the bound and the look-ahead cannot drift apart unnoticed |
+| Phase 2: `send` and `sendAll` take a destination rather than an address string | both, as overloads: the string versions build a `Destination.Address` and call through, so the thirty-odd existing call sites, most of them tests, did not change. The claim always goes on output 0, where both builders put the payment |
+| Phase 3: the check runs in `acceptSpendProposal` and `checkedSpend` | and in `proposeSpend` and `proposeGuardianSpend`, so a proposal every other device would refuse is refused before it is sent. It is one extension, `GroupSpend.Result.withFundings`, and a spend none of whose payments claims anything reads no guarded wallets at all |
+| nothing about bumping | `GroupSpendBuilder.bump` rebuilt the PSBT without the claim, so a bumped funding would have read as a payment to a bare address and released its index. It carries `Checked.fundings` across |
+| Phase 3's test is in the shape of `GuardianSpendRoundTest` | it is three tests in `GuardianSigningJvmTest`, which already holds an ancestor, a guarded child and the forwarding. The refusal test has the lie proposed by a device never told about the wallet -- the realistic way one arrives, since a device that holds the wallet refuses to propose it |
+| Phase 4: the card says *To* and then the wallet's name | *To* and then *Savings's guarded wallet*. The title already says *Fund …*, and the card repeating it read twice. The index uses the address list's own *Address %1$s* |
+| Phase 4: `MiddleEllipsis` on the address | as written, and on the desktop target it ellipsises at the end, as the address list does there |
+| Phase 5: the name stays on one line | two: at 200% text a one-line name was cut to a word, and the name is what says which wallet the buttons act on |
+| Phase 5: a `GroupWalletViewModelJvmTest` case for `arriving` | `GuardedWalletRowTest` in commonTest, since `arriving` is a property of the row and needs no view model; and `GuardedWalletCardJvmTest` renders the card, including at twice the text size |
+
+Still to do by hand: the signet funding between two real devices that the end
+of Phase 6 asks for.
 
 The headline: **the group already watches every guarded wallet below it, so its
 devices already know which of that wallet's receive addresses are unused. A
