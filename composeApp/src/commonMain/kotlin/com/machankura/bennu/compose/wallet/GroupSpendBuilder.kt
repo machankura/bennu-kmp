@@ -190,17 +190,20 @@ object GroupSpendBuilder {
         if (reduced < DUST) return Result.NotEnough
 
         val tx = spend.tx.copy(txOut = spend.tx.txOut.mapIndexed { index, out -> if (index == target.index) out.copy(amount = reduced) else out })
+        // A funding keeps its claim, or the bump would read as a payment to a bare address.
         val psbt = GroupSpend.psbtOf(
             tx,
             spend.inputs.map { it.txOut to it.derivation },
             spend.outputs.mapNotNull { output -> output.change?.let { output.index to it } }.toMap(),
             spend.account,
+            funding = spend.fundings.associate { it.outputIndex to (it.wallet.account to it.derived) },
         )
         return Result.Built(
             psbt = psbt,
             amount = if (target.isChange) spend.amountSent else reduced,
             fee = fee,
             change = if (target.isChange) reduced else null,
+            funded = spend.fundings.singleOrNull()?.let { Destination.Funding(it.wallet.account, it.derived) },
         )
     }
 

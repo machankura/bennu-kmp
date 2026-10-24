@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.wallet
 
 import com.machankura.bennu.compose.managers.FrostSigningManager
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.managers.GuardianManager
 import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.ByteVector
@@ -149,6 +150,12 @@ object GroupSpend {
          */
         val weight: Int,
         val spender: Spender = Spender.Owner,
+        /**
+         * The payments that fund a descendant's guarded wallet, each claim derived
+         * again -- [fundingsOf]. Empty until a caller holding the room's guarded
+         * wallets has read them, which [check] alone cannot.
+         */
+        val fundings: List<Funding> = emptyList(),
     ) {
         val tx: Transaction get() = psbt.global.tx
 
@@ -171,6 +178,59 @@ object GroupSpend {
     sealed interface Result {
         data class Ok(val checked: Checked) : Result
         data class Refused(val reason: String) : Result
+    }
+
+    /** A payment into a descendant's guarded wallet, at [derived] under its account -- the claim, derived again. */
+    data class Funding(
+        val outputIndex: Int,
+        val wallet: GuardianManager.GuardedWallet,
+        val derived: GroupWalletDerivation.Derived,
+    )
+
+    sealed interface FundingReading {
+        data class Ok(val fundings: List<Funding>) : FundingReading
+        data class Refused(val reason: String) : FundingReading
+    }
+
+    /**
+     * Which of [checked]'s payments fund one of [guarded] -- the descendants'
+     * guarded wallets the room holds -- read off each payment's derivation and
+     * derived again, the way change is. `docs/guarded-wallet-funding.md`, D4:
+     *
+     *  - a claim under a wallet in [guarded] that derives to the payment's script
+     *    is a funding;
+     *  - a claim under a wallet in [guarded] that does not -- another index,
+     *    another branch, another key -- refuses the spend, so no proposer can put
+     *    a descendant's name on a payment to an address it does not own;
+     *  - a claim under any other account is not this device's to check, and the
+     *    payment is read as the bare address it is.
+     *
+     * Fingerprints are four bytes, so every held wallet sharing one is tried
+     * before a claim is refused.
+     */
+    fun fundingsOf(checked: Checked, guarded: List<GuardianManager.GuardedWallet>): FundingReading {
+        val fundings = checked.payments.mapNotNull { payment ->
+            val paths = checked.psbt.outputs[payment.index].taprootDerivationPaths
+            val (internalKey, path, candidates) = paths.entries.firstNotNullOfOrNull { (internalKey, path) ->
+                guarded.filter { it.chain == checked.account.chain && isOurs(path, it.account) }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { Triple(internalKey, path, it) }
+            } ?: return@mapNotNull null
+
+            val (branch, index) = path.keyPath.path.takeIf { it.size == 2 && path.leaves.isEmpty() }
+                ?: return FundingReading.Refused("output ${payment.index} claims a place in a guarded wallet that is not one")
+            if (branch != GroupWalletDerivation.RECEIVE || index !in 0L..MAX_ADDRESS_INDEX) {
+                return FundingReading.Refused("output ${payment.index} claims $branch/$index, which is not a receive address")
+            }
+            candidates.firstNotNullOfOrNull { wallet ->
+                GroupWalletDerivation.derive(wallet.account, branch, index)
+                    .takeIf { it.pubkeyScript == payment.txOut.publicKeyScript && it.internalKey == internalKey }
+                    ?.let { Funding(payment.index, wallet, it) }
+            } ?: return FundingReading.Refused(
+                "output ${payment.index} claims $branch/$index of ${candidates.first().name ?: "a subgroup"}'s guarded wallet, which is not where it pays"
+            )
+        }
+        return FundingReading.Ok(fundings)
     }
 
     /**
