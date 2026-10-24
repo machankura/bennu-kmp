@@ -563,4 +563,31 @@
     <string name="the_subgroup_s_wallet_will_not_be_guarded">The subgroup's wallet will not be guarded: only the subgroup can spend from it.</string>
     <string name="the_group_above_decided_this_wallet_is_guarded">The group above this one decided this group's wallet is guarded. Each group above it can spend any coin in it once it has %1$d confirmations, without this group agreeing.</string>
     <string name="the_group_above_decided_this_wallet_is_not_guarded">The group above this one decided this group's wallet is not guarded. Only this group can spend from it.</string>
+
+    <!-- A guardian's delay in blocks and roughly in time: docs/guardian-delay.md, D5 -->
+    <string name="blocks_and_about">%1$s, %2$s</string>
+    <plurals name="n_blocks">
+        <item quantity="one">%1$s block</item>
+        <item quantity="other">%1$s blocks</item>
+    </plurals>
+    <plurals name="about_n_minutes">
+        <item quantity="one">about %1$d minute</item>
+        <item quantity="other">about %1$d minutes</item>
+    </plurals>
+    <plurals name="about_n_hours">
+        <item quantity="one">about %1$d hour</item>
+        <item quantity="other">about %1$d hours</item>
+    </plurals>
+    <plurals name="about_n_days">
+        <item quantity="one">about %1$d day</item>
+        <item quantity="other">about %1$d days</item>
+    </plurals>
+    <plurals name="about_n_months">
+        <item quantity="one">about %1$d month</item>
+        <item quantity="other">about %1$d months</item>
+    </plurals>
+    <plurals name="about_n_years">
+        <item quantity="one">about %1$d year</item>
+        <item quantity="other">about %1$d years</item>
+    </plurals>
 </resources>
