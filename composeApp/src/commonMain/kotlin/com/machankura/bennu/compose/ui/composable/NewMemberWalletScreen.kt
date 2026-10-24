@@ -55,7 +55,6 @@ import bennu.composeapp.generated.resources.s_can_take_any_coin_without_asking_y
 import bennu.composeapp.generated.resources.this_device_does_not_know_what_this_group_signs_with
 import bennu.composeapp.generated.resources.this_group_s_guardian_keys_can_t_be_read_to_guard_a_wallet
 import bennu.composeapp.generated.resources.this_profile_cannot_sign_a_request
-import bennu.composeapp.generated.resources.this_profile_cannot_watch_its_own_coins
 import bennu.composeapp.generated.resources.none_of_your_groups_guards_members_wallets_yet
 import com.machankura.bennu.compose.managers.MemberWalletManager
 import com.machankura.bennu.compose.repository.MemberWalletRepository
@@ -90,7 +89,6 @@ fun NewMemberWalletScreen(
     activeUserPublicKey: HexKey,
     chatRoomId: String?,
     chain: Chain,
-    canWatch: Boolean,
     initialUIState: NewMemberWalletUIState = NewMemberWalletUIState.Loading,
     memberWalletRepository: MemberWalletRepository,
     onNavigateBack: () -> Unit,
@@ -100,7 +98,6 @@ fun NewMemberWalletScreen(
             activeUserPublicKey = activeUserPublicKey,
             chatRoomId = chatRoomId,
             chain = chain,
-            canWatch = canWatch,
             initialUIState = initialUIState,
             memberWalletRepository = memberWalletRepository,
         )
@@ -245,7 +242,6 @@ private fun refusalText(refusal: MemberWalletManager.Refusal): String = stringRe
         MemberWalletManager.Refusal.KEY_UNKNOWN -> Res.string.this_device_does_not_know_what_this_group_signs_with
         MemberWalletManager.Refusal.GUARDIANS_UNREADABLE -> Res.string.this_group_s_guardian_keys_can_t_be_read_to_guard_a_wallet
         MemberWalletManager.Refusal.NOT_ON_THIS_NETWORK -> Res.string.member_wallets_are_not_offered_on_this_network
-        MemberWalletManager.Refusal.CANNOT_WATCH -> Res.string.this_profile_cannot_watch_its_own_coins
         MemberWalletManager.Refusal.NOT_OFFERED -> Res.string.this_group_doesn_t_guard_members_wallets
         MemberWalletManager.Refusal.CLOSED -> Res.string.this_group_has_stopped_guarding_members_wallets
     }

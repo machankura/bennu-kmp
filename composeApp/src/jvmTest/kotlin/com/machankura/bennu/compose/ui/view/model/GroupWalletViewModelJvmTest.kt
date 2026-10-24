@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
+import com.machankura.bennu.compose.wallet.FakeElectrum
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
 import kotlin.test.assertTrue
 import com.machankura.bennu.compose.nostr.subgroup.WalletPolicyReading
 import com.machankura.bennu.compose.nostr.subgroup.SubgroupWalletPolicy
@@ -49,8 +54,14 @@ class GroupWalletViewModelJvmTest {
     @BeforeTest
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
+    /** A chain with nothing on it: the wallet screen's rules, not its coins. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     @AfterTest
-    fun tearDown() = Dispatchers.resetMain()
+    fun tearDown() {
+        scope.cancel()
+        Dispatchers.resetMain()
+    }
 
     private val chatRoomId = "d4c3b2a1".repeat(8)
     private val me = "a".repeat(64)
@@ -118,7 +129,7 @@ class GroupWalletViewModelJvmTest {
             initialGroupWalletUIState = GroupWalletUIState.Loading,
             chatRepository = chat,
             frostSigningRepository = signing,
-            wallets = null,
+            wallets = GroupOnchainWallets(FakeElectrum(), scope),
         )
 
     private fun GroupWalletViewModel.settled(): GroupWalletUIState = runBlocking {
@@ -146,12 +157,10 @@ class GroupWalletViewModelJvmTest {
     }
 
     @Test
-    fun `an open wallet on a profile with no node is shown, and says it cannot watch`() {
+    fun `an open wallet is shown`() {
         val state = assertIs<GroupWalletUIState.Loaded>(viewModel(repository(opened = wallet)).apply { initiate() }.settled())
 
         assertEquals(wallet, state.wallet)
-        assertFalse(state.canWatch)
-        assertNull(state.walletState)
     }
 
     @Test

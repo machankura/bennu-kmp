@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
+import com.machankura.bennu.compose.wallet.FakeElectrum
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
 import com.machankura.bennu.compose.managers.GuardianDerivation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -200,7 +204,8 @@ class GroupSendScreenJvmTest {
                                 initialGroupSendUIState = ready(chain).let { if (funded) it.copy(funding = funding(chain)) else it },
                                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
-                                wallets = null,
+                                // Never asked: the state is given, so nothing is watched.
+                                wallets = GroupOnchainWallets(FakeElectrum(), CoroutineScope(SupervisorJob())),
                                 onNavigateToRouteAndPopUpInclusive = {},
                                 onNavigateBack = {},
                             )

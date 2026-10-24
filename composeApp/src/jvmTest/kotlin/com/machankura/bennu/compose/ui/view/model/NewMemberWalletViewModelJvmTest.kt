@@ -57,7 +57,7 @@ class NewMemberWalletViewModelJvmTest {
     }
 
     private fun picking(groups: Map<LocalChatRoom, Refusal?>): NewMemberWalletUIState.Picking {
-        val viewModel = NewMemberWalletViewModel(me, null, Chain.Regtest, canWatch = true, NewMemberWalletUIState.Loading, repository(groups))
+        val viewModel = NewMemberWalletViewModel(me, null, Chain.Regtest, NewMemberWalletUIState.Loading, repository(groups))
         viewModel.initiate()
         runBlocking { withTimeout(5_000) { while (viewModel.uiState == NewMemberWalletUIState.Loading) delay(10) } }
         return assertIs<NewMemberWalletUIState.Picking>(viewModel.uiState)

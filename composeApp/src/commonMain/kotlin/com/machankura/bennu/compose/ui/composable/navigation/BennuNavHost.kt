@@ -1160,6 +1160,9 @@ fun BennuNavHost(
             }
             composable<GroupWalletRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<GroupWalletRoute>()
+                // Null only with no identity, for the frame between a profile
+                // switch and the startup screen: there is no chain to show yet.
+                val wallets = groupOnchainWallets ?: return@composable
 
                 GroupWalletScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
@@ -1167,7 +1170,7 @@ fun BennuNavHost(
                     chain = NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     watcher = groupTransactionWatcher,
                     onNavigateToRoute = { actionRoute ->
                         navController.navigate(route = actionRoute)
@@ -1179,12 +1182,13 @@ fun BennuNavHost(
             }
             composable<MemberWalletRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<MemberWalletRoute>()
+                val wallets = groupOnchainWallets ?: return@composable
 
                 MemberWalletScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     walletId = route.walletId,
                     memberWalletRepository = databaseMemberWalletRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     onSend = { walletId ->
                         navController.navigate(route = MemberSendRoute(activeUserPublicKey = route.activeUserPublicKey, walletId = walletId))
                     },
@@ -1195,13 +1199,14 @@ fun BennuNavHost(
             }
             composable<MemberSendRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<MemberSendRoute>()
+                val wallets = groupOnchainWallets ?: return@composable
 
                 MemberSendScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     walletId = route.walletId,
                     chain = NodeParamsManager.chain,
                     memberWalletRepository = databaseMemberWalletRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
@@ -1231,7 +1236,6 @@ fun BennuNavHost(
                     activeUserPublicKey = route.activeUserPublicKey,
                     chatRoomId = route.chatRoomId,
                     chain = NodeParamsManager.chain,
-                    canWatch = groupOnchainWallets != null,
                     memberWalletRepository = databaseMemberWalletRepository,
                     onNavigateBack = {
                         navController.popBackStack()
@@ -1240,12 +1244,13 @@ fun BennuNavHost(
             }
             composable<GroupWalletAddressesRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<GroupWalletAddressesRoute>()
+                val wallets = groupOnchainWallets ?: return@composable
 
                 GroupWalletAddressesScreen(
                     chatRoomId = route.chatRoomId,
                     chain = NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
@@ -1253,6 +1258,7 @@ fun BennuNavHost(
             }
             composable<GroupSendRoute> { backStackEntry ->
                 val route = backStackEntry.toRoute<GroupSendRoute>()
+                val wallets = groupOnchainWallets ?: return@composable
 
                 GroupSendScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
@@ -1260,7 +1266,7 @@ fun BennuNavHost(
                     chain = NodeParamsManager.chain,
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
-                    wallets = groupOnchainWallets,
+                    wallets = wallets,
                     guardedChatRoomId = route.guardedChatRoomId,
                     fundChatRoomId = route.fundChatRoomId,
                     onNavigateToRouteAndPopUpInclusive = { signingRoute ->

@@ -139,7 +139,6 @@ import bennu.composeapp.generated.resources.s_dot_s
 import bennu.composeapp.generated.resources.s_sats
 import bennu.composeapp.generated.resources.s_sats_on_the_way
 import bennu.composeapp.generated.resources.this_group_has_not_opened_a_wallet
-import bennu.composeapp.generated.resources.this_profile_cannot_watch_the_chain
 import bennu.composeapp.generated.resources.waiting_for_a_confirmation
 import bennu.composeapp.generated.resources.watch_only_descriptors_copied
 import com.machankura.bennu.compose.managers.GroupWalletDerivation
@@ -190,7 +189,7 @@ fun GroupWalletScreen(
     initialGroupWalletUIState: GroupWalletUIState = GroupWalletUIState.Loading,
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
-    wallets: GroupOnchainWallets?,
+    wallets: GroupOnchainWallets,
     watcher: GroupTransactionWatcher? = null,
     onNavigateToRoute: (Route) -> Unit,
     onNavigateBack: () -> Unit,
@@ -367,7 +366,7 @@ fun GroupWalletScreen(
                         notify = notify,
                         // Behind both gates: a share to propose with, and a node to
                         // see the coins with -- a spend built blind is not one.
-                        onSend = if (state.canSign && state.canWatch) {
+                        onSend = if (state.canSign) {
                             {
                                 onNavigateToRoute(
                                     GroupSendRoute(
@@ -397,8 +396,8 @@ fun GroupWalletScreen(
                         } else null,
                         isPending = groupWalletViewModel.isActionPending.value,
                         onShare = onShare,
-                        onSpend = if (state.canSign && state.canWatch) toGuardianSpend else null,
-                        onFund = if (state.canSign && state.canWatch) toGuardianFund else null,
+                        onSpend = if (state.canSign) toGuardianSpend else null,
+                        onFund = if (state.canSign) toGuardianFund else null,
                         onOpenPerson = toPerson,
                     )
                 }
@@ -539,14 +538,6 @@ private fun OpenWallet(
         }
 
         when {
-            !state.canWatch -> item {
-                Text(
-                    text = stringResource(Res.string.this_profile_cannot_watch_the_chain),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
             walletState?.receiveAddress == null -> item {
                 LoadingDataIndicator(
                     fillScreen = false,

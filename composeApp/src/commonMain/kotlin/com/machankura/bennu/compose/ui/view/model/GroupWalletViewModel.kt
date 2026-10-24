@@ -48,8 +48,8 @@ import kotlinx.coroutines.withContext
  * coins are a watch, because a payment arriving while the screen is open is the
  * one moment somebody is looking at it.
  *
- * [wallets] is null for a profile with no node of its own -- an nsec or an npub
- * -- which can see that the group keeps a wallet, and cannot see the chain.
+ * [wallets] watch on the identity's Electrum client: its node's, or for an nsec
+ * or npub profile one of its own (docs/standalone-electrum.md).
  */
 class GroupWalletViewModel(
     val activeUserPublicKey: HexKey,
@@ -58,7 +58,7 @@ class GroupWalletViewModel(
     initialGroupWalletUIState: GroupWalletUIState,
     val chatRepository: ChatRepository,
     val frostSigningRepository: FrostSigningRepository,
-    private val wallets: GroupOnchainWallets?,
+    private val wallets: GroupOnchainWallets,
     private val watcher: GroupTransactionWatcher? = null,
 ): ViewModel() {
     private val logger = Logger.withTag(TAG)
@@ -121,7 +121,6 @@ class GroupWalletViewModel(
                 localChatRoom = localChatRoom,
                 wallet = wallet,
                 walletState = null,
-                canWatch = wallets != null,
                 canSign = canSign,
                 guardedWallets = guardedRows,
                 shareable = shareable,
@@ -132,7 +131,7 @@ class GroupWalletViewModel(
             // The chain, the room's spends and the wallets it guards, as one
             // state: any of them changing redraws the screen, and none may
             // overwrite another.
-            val chainState = wallets?.walletFor(wallet.account)?.state ?: flowOf(null)
+            val chainState = wallets.walletFor(wallet.account).state
             noticeGuardianSpends(wallet.account)
             watching = viewModelScope.launch(Dispatchers.IO) {
                 combine(
@@ -149,10 +148,6 @@ class GroupWalletViewModel(
     }
 
     /**
-     * Each guarded wallet with what the chain says of it, on the identity's own
-     * Electrum client -- or with nothing, for a profile that cannot watch.
-     */
-    /**
      * What this device calls each of [guardians]' rooms, for the ones it holds:
      * the wallet screen lists each guardian with its own delay, and a room id is
      * not a name. A guardian whose room this device does not have is left out,
@@ -163,9 +158,9 @@ class GroupWalletViewModel(
             chatRepository.getChatRoomByIdentifier(guardian.chatRoomId)?.chatRoom?.subject?.let { guardian.chatRoomId to it }
         }.toMap()
 
+    /** Each guarded wallet with what the chain says of it, on the identity's Electrum client. */
     private suspend fun guardedStates(guarded: List<GuardianManager.GuardedWallet>): Flow<List<GuardedWalletRow>> {
-        val wallets = wallets
-        if (wallets == null || guarded.isEmpty()) return flowOf(guarded.map { GuardedWalletRow(it, walletState = null) })
+        if (guarded.isEmpty()) return flowOf(emptyList())
 
         val states = guarded.map { wallet -> wallets.walletFor(wallet.account).state.map { GuardedWalletRow(wallet, it) } }
         return combine(states) { it.toList() }
@@ -179,7 +174,6 @@ class GroupWalletViewModel(
      * has none -- the group's only notice, since nobody in it signed them.
      */
     private suspend fun noticeGuardianSpends(account: GroupWalletDerivation.Account) {
-        val wallets = wallets ?: return
         if (!account.isGuarded) return
         val onchain = wallets.walletFor(account)
 
@@ -329,7 +323,7 @@ class GroupWalletViewModel(
             initialGroupWalletUIState: GroupWalletUIState = GroupWalletUIState.Loading,
             chatRepository: ChatRepository,
             frostSigningRepository: FrostSigningRepository,
-            wallets: GroupOnchainWallets?,
+            wallets: GroupOnchainWallets,
             watcher: GroupTransactionWatcher? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
