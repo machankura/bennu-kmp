@@ -77,6 +77,10 @@ import bennu.composeapp.generated.resources.this_profile_cannot_watch_its_own_co
 import bennu.composeapp.generated.resources.waiting_for_someone_in_s_to_put_it_to_the_group
 import bennu.composeapp.generated.resources.whoever_holds_these_descriptors_holds_the_coins
 import bennu.composeapp.generated.resources.you_re_no_longer_in_s
+import bennu.composeapp.generated.resources.your_spends
+import bennu.composeapp.generated.resources.confirmed
+import bennu.composeapp.generated.resources.in_the_mempool
+import bennu.composeapp.generated.resources.sent_waiting_for_the_network
 import com.machankura.bennu.compose.managers.MemberWalletManager.WalletState
 import com.machankura.bennu.compose.repository.MemberWalletRepository
 import com.machankura.bennu.compose.text.grouped
@@ -271,6 +275,26 @@ fun MemberWalletScreen(
                                                 CoinRow(utxo = utxo, confirmations = walletState.confirmations(utxo))
                                             }
                                         }
+                                    }
+                                }
+
+                                if (state.spends.isNotEmpty()) {
+                                    item { Text(stringResource(Res.string.your_spends), style = MaterialTheme.typography.titleMedium) }
+                                    items(state.spends, key = { "spend-" + it.txid }) { spend ->
+                                        ListItem(
+                                            headlineContent = { Text(spend.txid, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                            supportingContent = {
+                                                Text(
+                                                    stringResource(
+                                                        when {
+                                                            spend.confirmedAt != null -> Res.string.confirmed
+                                                            spend.seenAt != null -> Res.string.in_the_mempool
+                                                            else -> Res.string.sent_waiting_for_the_network
+                                                        }
+                                                    )
+                                                )
+                                            },
+                                        )
                                     }
                                 }
 

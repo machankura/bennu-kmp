@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.view.state
 
+import com.machankura.bennu.compose.database.model.MemberWalletSpend
 import com.machankura.bennu.compose.managers.MemberWalletManager
 import com.machankura.bennu.compose.wallet.GroupWalletState
 import fr.acinq.bitcoin.Satoshi
@@ -17,6 +18,8 @@ sealed interface MemberWalletUIState {
         val canWatch: Boolean,
         /** What the wallet's guardians took from it, read off the chain: never stored, found again on each look. */
         val taken: List<TakenLine> = emptyList(),
+        /** The spends the member signed from it, newest first. */
+        val spends: List<MemberWalletSpend> = emptyList(),
         /** How many groups guard it, for the line under the title. */
         val reach: Int = wallet.account.guardians.size,
     ) : MemberWalletUIState

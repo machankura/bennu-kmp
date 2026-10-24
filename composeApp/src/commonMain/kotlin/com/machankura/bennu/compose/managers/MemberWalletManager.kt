@@ -4,6 +4,12 @@ import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.MemberWallet
+import com.machankura.bennu.compose.database.model.MemberWalletSpend
+import com.machankura.bennu.compose.wallet.GroupSpend
+import fr.acinq.bitcoin.ScriptFlags
+import fr.acinq.bitcoin.Transaction
+import fr.acinq.bitcoin.psbt.Psbt
+import fr.acinq.secp256k1.Hex
 import com.machankura.bennu.compose.database.model.MarmotInnerEvent
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.FrostSigningStage
@@ -345,6 +351,62 @@ object MemberWalletManager {
         val row = walletOf(database, ownerPublicKey, walletId) ?: return null
         val key = row.stored?.walletPrivateKey?.let { PrivateKey.fromHex(it) } ?: return null
         return MemberWalletDerivation.privateDescriptors(key, row.account)
+    }
+
+    /**
+     * Signs [psbt] as [walletId]'s own key and files the spend, returning the
+     * finished transaction for the caller to broadcast.
+     *
+     * Checked the way a group member checks a group spend -- `GroupSpend.check`
+     * against the account the wallet rederives to, never against the PSBT's own
+     * claims -- because the builder is shared and so are its mistakes; and then
+     * `correctlySpends`, the last word on whether the network will take it.
+     *
+     * @throws IllegalStateException when the key is not here, the wallet is not
+     * certified, the spend fails a check or is over the cap
+     */
+    suspend fun signSpend(database: BennuDatabase, ownerPublicKey: HexKey, walletId: String, psbt: Psbt, at: Instant = Clock.System.now()): Transaction {
+        val row = walletOf(database, ownerPublicKey, walletId) ?: throw IllegalStateException("No such wallet")
+        check(row.state == WalletState.OPEN) { "Only a certified wallet whose key is here can spend" }
+        val key = PrivateKey.fromHex(checkNotNull(row.stored).walletPrivateKey)
+
+        val checked = when (val result = GroupSpend.check(psbt, row.account, GroupSpend.Spender.Owner)) {
+            is GroupSpend.Result.Ok -> result.checked
+            is GroupSpend.Result.Refused -> throw IllegalStateException("This spend ${result.reason}")
+        }
+        GroupWalletRollout.memberCapFor(row.chain)?.let { cap ->
+            check(checked.amountSent <= cap) { "This spend sends more than ${cap.sat} sats while member wallets are new" }
+        }
+
+        val signed = checked.witnessed(checked.inputs.map { MemberWalletDerivation.sign(key, row.chain, it) })
+        signed.correctlySpends(checked.inputs.associate { it.outPoint to it.txOut }, ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)
+
+        database.memberWalletDao().upsertSpend(
+            MemberWalletSpend(
+                txid = signed.txid.toString(),
+                walletId = walletId,
+                psbt = GroupSpend.encode(psbt),
+                signedTransaction = Hex.encode(Transaction.write(signed)),
+                createdAt = at,
+            )
+        )
+        logger.i("Signed ${signed.txid} from wallet ${walletId.take(8)}")
+        return signed
+    }
+
+    /**
+     * Files what the chain said of [txid]: handed to Electrum at [broadcastAt],
+     * and -- with [confirmations] non-null -- seen, and confirmed once it is at
+     * least one deep.
+     */
+    suspend fun recordChain(database: BennuDatabase, txid: String, confirmations: Int?, broadcastAt: Instant? = null, at: Instant = Clock.System.now()) {
+        val spend = database.memberWalletDao().getSpend(txid) ?: return
+        val updated = spend.copy(
+            broadcastAt = broadcastAt ?: spend.broadcastAt,
+            seenAt = spend.seenAt ?: at.takeIf { confirmations != null },
+            confirmedAt = spend.confirmedAt ?: at.takeIf { (confirmations ?: 0) >= 1 },
+        )
+        if (updated != spend) database.memberWalletDao().upsertSpend(updated)
     }
 
     // ---- The group's side ------------------------------------------------

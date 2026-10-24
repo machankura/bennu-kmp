@@ -141,6 +141,8 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletR
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletAddressesRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.NewMemberWalletRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberWalletRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.MemberSendRoute
+import com.machankura.bennu.compose.ui.composable.MemberSendScreen
 import com.machankura.bennu.compose.ui.composable.MemberWalletScreen
 import com.machankura.bennu.compose.ui.composable.NewMemberWalletScreen
 import com.machankura.bennu.compose.database.repository.DatabaseMemberWalletRepository
@@ -1166,6 +1168,23 @@ fun BennuNavHost(
                 MemberWalletScreen(
                     activeUserPublicKey = route.activeUserPublicKey,
                     walletId = route.walletId,
+                    memberWalletRepository = databaseMemberWalletRepository,
+                    wallets = groupOnchainWallets,
+                    onSend = { walletId ->
+                        navController.navigate(route = MemberSendRoute(activeUserPublicKey = route.activeUserPublicKey, walletId = walletId))
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<MemberSendRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<MemberSendRoute>()
+
+                MemberSendScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    walletId = route.walletId,
+                    chain = NodeParamsManager.chain,
                     memberWalletRepository = databaseMemberWalletRepository,
                     wallets = groupOnchainWallets,
                     onNavigateBack = {

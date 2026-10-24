@@ -3,6 +3,11 @@ package com.machankura.bennu.compose.database.repository
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.MemberWallet
+import com.machankura.bennu.compose.database.model.MemberWalletSpend
+import fr.acinq.bitcoin.Transaction
+import fr.acinq.bitcoin.psbt.Psbt
+import kotlinx.coroutines.flow.Flow
+import kotlin.time.Instant
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.identity.Identity
 import com.machankura.bennu.compose.managers.MemberWalletManager
@@ -81,6 +86,16 @@ class DatabaseMemberWalletRepository(
 
     override suspend fun roomName(chatRoomId: String): String? =
         database.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom?.subject?.takeIf { it.isNotBlank() }
+
+    override suspend fun signSpend(walletId: String, psbt: Psbt): Transaction {
+        val owner = activeIdentity.value?.nostrPublicKey ?: throw IllegalStateException("No profile is active")
+        return MemberWalletManager.signSpend(database, owner, walletId, psbt)
+    }
+
+    override suspend fun recordChain(txid: String, confirmations: Int?, broadcastAt: Instant?) =
+        MemberWalletManager.recordChain(database, txid, confirmations, broadcastAt)
+
+    override fun observeSpends(walletId: String): Flow<List<MemberWalletSpend>> = database.memberWalletDao().observeSpends(walletId)
 
     companion object {
         private const val TAG = "DatabaseMemberWalletRepository"

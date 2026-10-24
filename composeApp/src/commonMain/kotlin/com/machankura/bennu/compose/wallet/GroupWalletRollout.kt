@@ -57,4 +57,11 @@ object GroupWalletRollout {
     const val MEMBER_WALLETS_ON_MAINNET: Boolean = false
 
     fun offersMemberWalletsOn(chain: Chain): Boolean = MEMBER_WALLETS_ON_MAINNET || !chain.isMainnet()
+
+    /**
+     * The most a member's own spend from their guarded wallet may send on
+     * [chain]: [MAINNET_CAP] on mainnet until [MEMBER_WALLETS_ON_MAINNET] lifts,
+     * since the member's spend is signed by a path no group spend goes through.
+     */
+    fun memberCapFor(chain: Chain): Satoshi? = capFor(chain).takeIf { !MEMBER_WALLETS_ON_MAINNET }
 }

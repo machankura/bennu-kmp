@@ -1,6 +1,12 @@
 package com.machankura.bennu.compose.repository
 
 import com.machankura.bennu.compose.database.model.MemberWallet
+import com.machankura.bennu.compose.database.model.MemberWalletSpend
+import fr.acinq.bitcoin.Transaction
+import fr.acinq.bitcoin.psbt.Psbt
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlin.time.Instant
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.managers.MemberWalletManager
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -46,6 +52,15 @@ interface MemberWalletRepository {
     /** What [chatRoomId] is called on this device, or null when it has no room for it. */
     suspend fun roomName(chatRoomId: String): String?
 
+    /** Signs [psbt] as [walletId]'s own key, files the spend, and returns the transaction to broadcast. */
+    suspend fun signSpend(walletId: String, psbt: Psbt): Transaction
+
+    /** Files what the chain said of a member's spend. */
+    suspend fun recordChain(txid: String, confirmations: Int?, broadcastAt: Instant? = null)
+
+    /** The spends the member signed from [walletId], newest first. */
+    fun observeSpends(walletId: String): Flow<List<MemberWalletSpend>>
+
     companion object {
         val NO_OP = object : MemberWalletRepository {
             override suspend fun groupsOf(ownerPublicKey: HexKey): List<LocalChatRoom> = emptyList()
@@ -60,6 +75,9 @@ interface MemberWalletRepository {
             override suspend fun discard(walletId: String) = Unit
             override suspend fun exportKey(walletId: String): Pair<String, String>? = null
             override suspend fun roomName(chatRoomId: String): String? = null
+            override suspend fun signSpend(walletId: String, psbt: Psbt): Transaction = throw UnsupportedOperationException("no repository")
+            override suspend fun recordChain(txid: String, confirmations: Int?, broadcastAt: Instant?) = Unit
+            override fun observeSpends(walletId: String): Flow<List<MemberWalletSpend>> = flowOf(emptyList())
         }
     }
 }

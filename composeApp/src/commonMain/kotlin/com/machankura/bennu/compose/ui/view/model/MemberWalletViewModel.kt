@@ -17,7 +17,11 @@ import com.machankura.bennu.compose.wallet.GroupOnchainWallets
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import com.machankura.bennu.compose.database.model.MemberWalletSpend
+import fr.acinq.bitcoin.Transaction
+import kotlin.time.Clock
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -63,18 +67,42 @@ class MemberWalletViewModel(
             if (!wallet.isCertified || wallets == null) return@launch
             watching = viewModelScope.launch(Dispatchers.IO) {
                 var taken = emptyList<TakenLine>()
-                wallets.walletFor(wallet.account).state
-                    .distinctUntilChangedBy { state -> state.utxos.map { it.utxo.outPoint } to state.tipHeight }
-                    .collect { state ->
-                        uiState = loaded.copy(walletState = state, taken = taken)
+                combine(
+                    wallets.walletFor(wallet.account).state
+                        .distinctUntilChangedBy { state -> state.utxos.map { it.utxo.outPoint } to state.tipHeight },
+                    memberWalletRepository.observeSpends(walletId),
+                ) { state, spends -> state to spends }
+                    .collect { (state, spends) ->
+                        uiState = loaded.copy(walletState = state, taken = taken, spends = spends)
+                        follow(spends)
                         // History, not a watch: a device asleep when a guardian took a
                         // coin still finds it, since the chain keeps the record.
                         taken = wallets.guardianSpends(state).map { spend ->
                             TakenLine(spend.txid.toString(), memberWalletRepository.roomName(spend.guardian.chatRoomId), spend.amount)
                         }
-                        uiState = loaded.copy(walletState = state, taken = taken)
+                        uiState = loaded.copy(walletState = state, taken = taken, spends = spends)
                     }
             }
+        }
+    }
+
+    /**
+     * Asks the chain where each of the member's unsettled spends has got to,
+     * and sends again any Electrum has not heard of. There is no session for
+     * `GroupTransactionWatcher` to follow, so the wallet screen follows its own
+     * spends while it is open -- the economy the guardian-spend notice makes: a
+     * device that never opens the screen writes nothing, and the chain keeps the
+     * record for the next one that does.
+     */
+    private suspend fun follow(spends: List<MemberWalletSpend>) {
+        val wallets = wallets ?: return
+        spends.filter { it.confirmedAt == null && it.replacedByTxid == null }.forEach { spend ->
+            val tx = runCatching { Transaction.read(spend.signedTransaction) }.getOrNull() ?: return@forEach
+            val confirmations = wallets.confirmationsOf(tx)
+            val resent = if (confirmations == null) {
+                runCatching { wallets.broadcast(tx) }.getOrNull()?.let { Clock.System.now() }
+            } else null
+            memberWalletRepository.recordChain(spend.txid, confirmations, broadcastAt = resent)
         }
     }
 
