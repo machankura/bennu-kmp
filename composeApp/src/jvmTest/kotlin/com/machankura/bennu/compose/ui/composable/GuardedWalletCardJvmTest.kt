@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
+import com.machankura.bennu.compose.wallet.FakeElectrum
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
 import com.machankura.bennu.compose.managers.GuardianDerivation
 import com.machankura.bennu.compose.managers.LineageExample
 import com.machankura.bennu.compose.managers.LineageExample.heldBy
@@ -110,7 +114,6 @@ class GuardedWalletCardJvmTest {
             localChatRoom = room,
             wallet = wallet,
             walletState = holding(own, 100_000, height = 100, tip = 200),
-            canWatch = true,
             canSign = true,
             guardedWallets = listOf(GuardedWalletRow(guarded, holding(descendant, 50_000, height = 0, tip = 200))),
         )
@@ -130,7 +133,8 @@ class GuardedWalletCardJvmTest {
                                     initialGroupWalletUIState = state,
                                     chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                                     frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
-                                    wallets = null,
+                                    // Never asked: the state is given, so nothing is watched.
+                                    wallets = GroupOnchainWallets(FakeElectrum(), CoroutineScope(SupervisorJob())),
                                     onNavigateToRoute = onRoute,
                                     onNavigateBack = {},
                                 )

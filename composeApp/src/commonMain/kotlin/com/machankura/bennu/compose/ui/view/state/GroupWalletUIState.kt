@@ -51,15 +51,12 @@ sealed interface GroupWalletUIState {
     /**
      * An open wallet.
      *
-     * [walletState] is null in two different situations, told apart by
-     * [canWatch]: before Electrum's first answer, and for a profile with no node
-     * to watch the chain with at all.
+     * [walletState] is null before Electrum's first answer.
      */
     data class Loaded(
         val localChatRoom: LocalChatRoom,
         val wallet: GroupWallet,
         val walletState: GroupWalletState?,
-        val canWatch: Boolean,
         val canSign: Boolean,
         /** The room's spends, newest first. */
         val spends: List<SpendRow> = emptyList(),

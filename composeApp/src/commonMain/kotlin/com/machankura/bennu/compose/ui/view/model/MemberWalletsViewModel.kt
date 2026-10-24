@@ -21,8 +21,8 @@ import kotlinx.coroutines.launch
 
 /**
  * A member's guarded wallets, as their profile lists them: each one's state,
- * and -- for the ones a group has certified, on a profile that can watch the
- * chain -- its balance.
+ * and -- for the ones a group has certified -- its balance. [wallets] is null
+ * only where the profile is composed without an identity: previews and tests.
  */
 class MemberWalletsViewModel(
     private val ownerPublicKey: HexKey,

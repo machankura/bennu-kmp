@@ -105,8 +105,8 @@ fun ActiveProfileScreen(
     // pending route for every kind.
     signOut: SignOutDependencies? = null,
     // The member's guarded wallets (docs/member-guarded-wallets.md). The no-op
-    // repository lists none, for previews and tests; null wallets is a profile
-    // that cannot watch the chain, whose rows show no balance.
+    // repository lists none, and null wallets watch nothing: both for previews
+    // and tests, which compose the screen without an identity.
     memberWalletRepository: MemberWalletRepository = MemberWalletRepository.NO_OP,
     wallets: GroupOnchainWallets? = null,
 ) {

@@ -78,7 +78,6 @@ import bennu.composeapp.generated.resources.s_took_s_sats_in_s
 import bennu.composeapp.generated.resources.show_key
 import bennu.composeapp.generated.resources.taken_by_guardians
 import bennu.composeapp.generated.resources.the_key_of_this_wallet_is_on_another_device
-import bennu.composeapp.generated.resources.this_profile_cannot_watch_its_own_coins
 import bennu.composeapp.generated.resources.waiting_for_someone_in_s_to_put_it_to_the_group
 import bennu.composeapp.generated.resources.whoever_holds_these_descriptors_holds_the_coins
 import bennu.composeapp.generated.resources.you_re_no_longer_in_s
@@ -123,7 +122,7 @@ fun MemberWalletScreen(
     walletId: String,
     initialUIState: MemberWalletUIState = MemberWalletUIState.Loading,
     memberWalletRepository: MemberWalletRepository,
-    wallets: GroupOnchainWallets?,
+    wallets: GroupOnchainWallets,
     /** The send form for this wallet, or null where there is none to offer. */
     onSend: ((walletId: String) -> Unit)? = null,
     onNavigateBack: () -> Unit,
@@ -254,19 +253,11 @@ fun MemberWalletScreen(
                                     }
                                 }
 
-                                onSend?.takeIf { wallet.state == WalletState.OPEN && state.canWatch }?.let { send ->
+                                onSend?.takeIf { wallet.state == WalletState.OPEN }?.let { send ->
                                     item { SendButton(onClick = { send(wallet.walletId) }) }
                                 }
 
                                 when {
-                                    !state.canWatch -> item {
-                                        Text(
-                                            stringResource(Res.string.this_profile_cannot_watch_its_own_coins),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-
                                     walletState?.receiveAddress == null -> item {
                                         LoadingDataIndicator(fillScreen = false, text = stringResource(Res.string.finding_your_coins))
                                     }

@@ -47,7 +47,7 @@ class MemberSendViewModel(
     val chain: Chain,
     initialUIState: MemberSendUIState,
     private val memberWalletRepository: MemberWalletRepository,
-    private val wallets: GroupOnchainWallets?,
+    private val wallets: GroupOnchainWallets,
 ) : ViewModel() {
     private val logger = Logger.withTag(TAG)
 
@@ -70,7 +70,7 @@ class MemberSendViewModel(
                 uiState = MemberSendUIState.Error("Couldn't find this wallet")
                 return@launch
             }
-            if (wallet.state != MemberWalletManager.WalletState.OPEN || wallets == null) {
+            if (wallet.state != MemberWalletManager.WalletState.OPEN) {
                 uiState = MemberSendUIState.Unavailable
                 return@launch
             }
@@ -151,7 +151,6 @@ class MemberSendViewModel(
     /** Signs what the form describes and hands it to Electrum. [onSent] when it went, [onFailure] when it did not. */
     fun send(onSent: () -> Unit, onFailure: () -> Unit) {
         val built = preview() as? GroupSpendBuilder.Result.Built ?: return
-        val wallets = wallets ?: return
         if (isActionPending.value) return
         isActionPending.value = true
 
@@ -178,7 +177,7 @@ class MemberSendViewModel(
             chain: Chain,
             initialUIState: MemberSendUIState = MemberSendUIState.Loading,
             memberWalletRepository: MemberWalletRepository,
-            wallets: GroupOnchainWallets?,
+            wallets: GroupOnchainWallets,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer { MemberSendViewModel(ownerPublicKey, walletId, chain, initialUIState, memberWalletRepository, wallets) }
         }

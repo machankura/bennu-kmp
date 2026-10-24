@@ -1,5 +1,10 @@
 package com.machankura.bennu.compose.ui.view.model
 
+import com.machankura.bennu.compose.wallet.GroupOnchainWallets
+import com.machankura.bennu.compose.wallet.FakeElectrum
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import com.machankura.bennu.compose.database.model.ChatRoom
 import com.machankura.bennu.compose.database.model.FrostSigningSession
@@ -63,8 +68,15 @@ class GroupSendViewModelJvmTest {
     @BeforeTest
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
+    /** A chain with nothing on it: what is under test here is the form, not the coins. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val wallets = GroupOnchainWallets(FakeElectrum(), scope)
+
     @AfterTest
-    fun tearDown() = Dispatchers.resetMain()
+    fun tearDown() {
+        scope.cancel()
+        Dispatchers.resetMain()
+    }
 
     private val chatRoomId = "d4c3b2a1".repeat(8)
     private val localChatRoom = LocalChatRoom(
@@ -113,13 +125,13 @@ class GroupSendViewModelJvmTest {
         chat: ChatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
         signing: FrostSigningRepository = RecordingSigning(),
         chain: Chain = Chain.Regtest,
-    ) = GroupSendViewModel("a".repeat(64), chatRoomId, chain, initial, chat, signing, wallets = null)
+    ) = GroupSendViewModel("a".repeat(64), chatRoomId, chain, initial, chat, signing, wallets = wallets)
 
     @Test
-    fun `a profile with no node is not offered the form`() {
+    fun `a member with no share is not offered the form`() {
         val chat = object : ChatRepository by ChatRepository.NO_OP_CHAT_REPOSITORY {
             override suspend fun getChatRoomByIdentifier(identifier: String) = localChatRoom
-            override suspend fun canSign(chatRoomId: String) = true
+            override suspend fun canSign(chatRoomId: String) = false
             override suspend fun groupWallet(chatRoomId: String, chain: Chain) = wallet
         }
         val model = viewModel(GroupSendUIState.Loading, chat).apply { initiate() }
@@ -345,13 +357,13 @@ class GroupSendViewModelJvmTest {
             override suspend fun groupWallet(chatRoomId: String, chain: Chain) = wallet
             override suspend fun guardedWallets(chatRoomId: String): List<GuardianManager.GuardedWallet> { asked++; return emptyList() }
         }
-        val both = GroupSendViewModel("a".repeat(64), chatRoomId, Chain.Regtest, GroupSendUIState.Loading, chat, RecordingSigning(), wallets = null,
+        val both = GroupSendViewModel("a".repeat(64), chatRoomId, Chain.Regtest, GroupSendUIState.Loading, chat, RecordingSigning(), wallets = wallets,
             guardedChatRoomId = descendantRoomId, fundChatRoomId = descendantRoomId).apply { initiate() }
         runBlocking { withTimeout(5_000) { while (both.groupSendUIState == GroupSendUIState.Loading) delay(10) } }
         assertEquals(GroupSendUIState.Unavailable, both.groupSendUIState)
         assertEquals(0, asked, "refused before either wallet is looked for")
 
-        val unknown = GroupSendViewModel("a".repeat(64), chatRoomId, Chain.Regtest, GroupSendUIState.Loading, chat, RecordingSigning(), wallets = null,
+        val unknown = GroupSendViewModel("a".repeat(64), chatRoomId, Chain.Regtest, GroupSendUIState.Loading, chat, RecordingSigning(), wallets = wallets,
             fundChatRoomId = descendantRoomId).apply { initiate() }
         runBlocking { withTimeout(5_000) { while (unknown.groupSendUIState == GroupSendUIState.Loading) delay(10) } }
         assertEquals(GroupSendUIState.Unavailable, unknown.groupSendUIState)

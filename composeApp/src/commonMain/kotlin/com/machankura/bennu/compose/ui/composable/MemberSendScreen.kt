@@ -66,7 +66,7 @@ fun MemberSendScreen(
     chain: Chain,
     initialUIState: MemberSendUIState = MemberSendUIState.Loading,
     memberWalletRepository: MemberWalletRepository,
-    wallets: GroupOnchainWallets?,
+    wallets: GroupOnchainWallets,
     onNavigateBack: () -> Unit,
 ) {
     val viewModel: MemberSendViewModel = viewModel(

@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,11 +50,9 @@ import bennu.composeapp.generated.resources.not_used_yet
 import bennu.composeapp.generated.resources.paid_s_sats
 import bennu.composeapp.generated.resources.paid_spent_since
 import bennu.composeapp.generated.resources.show_as_a_qr_code
-import bennu.composeapp.generated.resources.this_profile_cannot_watch_the_chain
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.text.grouped
 import com.machankura.bennu.compose.ui.composable.widgets.Decorative
-import com.machankura.bennu.compose.ui.composable.widgets.EmptyState
 import com.machankura.bennu.compose.ui.composable.widgets.ErrorState
 import com.machankura.bennu.compose.ui.composable.widgets.LoadingDataIndicator
 import com.machankura.bennu.compose.ui.composable.widgets.LocalSnackbarHostState
@@ -97,7 +94,7 @@ fun GroupWalletAddressesScreen(
     chain: Chain,
     initialUIState: GroupWalletAddressesUIState = GroupWalletAddressesUIState.Loading,
     chatRepository: ChatRepository,
-    wallets: GroupOnchainWallets?,
+    wallets: GroupOnchainWallets,
     onNavigateBack: () -> Unit,
 ) {
     val addressesViewModel: GroupWalletAddressesViewModel = viewModel(
@@ -146,14 +143,6 @@ fun GroupWalletAddressesScreen(
 
                 GroupWalletAddressesUIState.Loading -> {
                     LoadingDataIndicator(modifier = Modifier.fillMaxWidth().padding(padding))
-                }
-
-                GroupWalletAddressesUIState.CannotWatch -> {
-                    EmptyState(
-                        modifier = Modifier.padding(padding).readableContent(),
-                        message = stringResource(Res.string.this_profile_cannot_watch_the_chain),
-                        icon = Icons.Default.Visibility,
-                    )
                 }
 
                 is GroupWalletAddressesUIState.Loaded -> {

@@ -255,7 +255,8 @@ on the old behaviour.
   the identity's life, so this is the same instance the wallet screen is already
   watching: it adds no subscriptions and does not need a second Electrum answer.
   Its own `GroupWalletAddressesUIState` has `Loading`, `Error`, `CannotWatch`
-  (no node, the same case as `this_profile_cannot_watch_the_chain`) and
+  (no node, the same case as `this_profile_cannot_watch_the_chain`; both removed
+  by [standalone-electrum.md](./standalone-electrum.md)) and
   `Loaded(addresses: List<GroupAddress>?)`, where a null list is the
   waiting-for-Electrum state.
 - **Four states**, through `ScreenStateTransition` over the whole body:
