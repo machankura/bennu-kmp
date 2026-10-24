@@ -28,7 +28,7 @@ signs to agree to it.
 code as it stood at `8cb6f04e`, schema v29; the build is schema v30.
 `MemberWalletDerivation`, `MemberWalletRequestEvent`, `MemberWalletCertificateEvent`,
 `MemberWalletManager` and `GuardianManager.GuardedSubject` are the entry points,
-and `GroupWalletRollout.MEMBER_WALLETS_ON_MAINNET` is the gate, shut. The phases
+and `GroupWalletRollout.MEMBER_WALLETS_ON_MAINNET` is the gate. The phases
 below are kept as written; where the build chose differently the table says so.
 
 | what the plan said | what it turned out to be |
@@ -45,7 +45,17 @@ below are kept as written; where the build chose differently the table says so.
 | Phase 9: `GroupTransactionWatcher` generalised | a member's spend has no session, so `MemberWalletViewModel` follows the member's spends while the wallet screen is open, sending again any Electrum has not heard of -- the economy the guardian-spend notice makes. *Bump the fee* is not built for a member's spend |
 | Phase 10: `descendantChatRoomId` becomes `subject.id`, `statement` becomes `signedEvent` | both keep their names -- `descendantChatRoomId` is `subject.id`, and `statement` is the 30334 for a member -- so the guardian spend path did not change a line. `Spender.Guardian.name` is `@name` for a member |
 | Phase 11: the person's page shows the amount within each group's reach | it does not watch the chain, so it shows the guarding group and *Spend*; the group's wallet screen has the amount. On one's own profile the section is not drawn: the profile's own list is the answer there |
-| Phase 12: the three-emulator run | not made. It is what lifts the gate |
+| Phase 12: the three-emulator run lifts the gate | the gate was lifted by decision before the run; see below |
+| D8: the member's own spend is capped until the gate lifts | capped on mainnet by `MAINNET_CAP` regardless, since the gate lifted without the run that was to justify lifting both |
+
+**The mainnet gate is open.** It was to lift on Phase 12's run -- a three-level
+hierarchy on signet watching one member's wallet, the root making a guardian
+spend from it -- and was lifted by decision before that run, as the guardians
+note's gate was. The run is still worth making. Until it has been, a member's
+own spend on mainnet is held to `GroupWalletRollout.MAINNET_CAP`, as every
+group spend and every guardian spend is; `memberCapFor` is where that lifts.
+The mixed-version risk below is unchanged: a group whose signers are not all on
+a build from Phase 7 onward should not be asked to guard a member's wallet.
 
 Still to do by hand: Phase 12's run on signet.
 
