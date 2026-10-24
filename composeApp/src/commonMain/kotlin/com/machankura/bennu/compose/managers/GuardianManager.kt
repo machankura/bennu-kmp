@@ -12,6 +12,7 @@ import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.nostr.wallet.GuardedWalletNoticeEvent
 import com.machankura.bennu.compose.nostr.wallet.MemberWalletCertificateEvent
 import com.machankura.bennu.compose.wallet.GroupSpend
+import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.EventHasher
@@ -396,6 +397,18 @@ object GuardianManager {
         }
         if (targets.isNotEmpty()) share(database, statement, targets, sender)
         return targets
+    }
+
+    /**
+     * [forward] on arrival, from the inbound path: elected, behind
+     * `GroupWalletRollout.FORWARDS_GUARDED_WALLETS`, and never failing the
+     * arrival it rides on -- forwarding is an extra, and the arrival is the thing.
+     */
+    suspend fun forwardOnArrival(database: BennuDatabase, statement: Event, chatRoomId: String) {
+        if (!GroupWalletRollout.FORWARDS_GUARDED_WALLETS) return
+        runCatching { forward(database, statement, chatRoomId, whenElected = true) }
+            .onSuccess { told -> if (told.isNotEmpty()) logger.i("Forwarded ${statement.id.take(8)} from $chatRoomId to ${told.size} group(s) above") }
+            .onFailure { logger.e("Could not forward ${statement.id.take(8)} from $chatRoomId", it) }
     }
 
     /**

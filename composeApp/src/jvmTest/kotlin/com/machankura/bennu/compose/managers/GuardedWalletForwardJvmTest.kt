@@ -181,4 +181,68 @@ class GuardedWalletForwardJvmTest {
         assertTrue(GuardianManager.forward(db, forged, groupRoom, whenElected = false).isEmpty())
         assertFalse(noticesIn(middleRoom).isNotEmpty())
     }
+
+    // ---- Phase 3: on arrival, with nobody calling share -------------------
+
+    /** [event] arriving in [chatRoomId] as the inbound path and a completed signing session both deliver it. */
+    private suspend fun arrives(event: Event, chatRoomId: String) {
+        com.machankura.bennu.compose.database.model.ChatMessage.applyInnerEvent(
+            database = db,
+            groupId = chatRoomId,
+            event = event,
+            marmotGroupEventId = null,
+            marmotInnerEventId = null,
+            senderPublicKey = chatRoomId,
+            isUserMessage = false,
+            createdAt = kotlin.time.Instant.fromEpochSeconds(event.createdAt),
+        )
+    }
+
+    @Test
+    fun `a member's certificate signed in the group reaches the root two generations up`(): Unit = runBlocking {
+        inAllThree()
+        signedInGroup()
+
+        arrives(certificate, groupRoom)
+        assertEquals(listOf(certificate.id), noticesIn(middleRoom).map { it.id }, "the group's devices told the middle group")
+        assertEquals(listOf(certificate.id), noticesIn(rootRoom).map { it.id }, "and, being in the root too, the root")
+
+        // The notice arriving in the middle group goes on, and not back down.
+        GuardianManager.forwardOnArrival(db, noticesIn(middleRoom).single(), middleRoom)
+        assertEquals(1, noticesIn(rootRoom).size, "the root was told once")
+        assertTrue(noticesIn(groupRoom).isEmpty())
+    }
+
+    @Test
+    fun `a notice arriving in the middle group is carried to the root`(): Unit = runBlocking {
+        // This device sits in the middle group and the root, not in the group below.
+        inRoom(middle, middleCertificate)
+        inRoom(root, null)
+        GuardianManager.share(db, certificate, listOfNotNull(db.chatRoomDao().findChatRoomById(middleRoom)), memberPublicKey)
+
+        GuardianManager.forwardOnArrival(db, certificate, middleRoom)
+        assertEquals(listOf(certificate.id), noticesIn(rootRoom).map { it.id })
+        assertEquals(1, GuardianManager.guardedWalletsOf(db, rootRoom).size, "and the root lists it")
+    }
+
+    @Test
+    fun `a subgroup's own guarded wallet reaches every group above it`(): Unit = runBlocking {
+        inAllThree()
+        val guardians = SubgroupBirthCertificateEvent.parseGuardians(groupCertificate.tags)!!
+        val account = GroupWalletDerivation.account(thresholdKeyOf(group), chain, 0, guardians)
+        val template = com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent.template(account, groupCertificate)
+        val statement = signedAsRoom(group, template.kind, template.tags, template.content, template.createdAt)
+
+        arrives(statement, groupRoom)
+        assertEquals(listOf(statement.id), noticesIn(middleRoom).map { it.id })
+        assertEquals(listOf(statement.id), noticesIn(rootRoom).map { it.id })
+    }
+
+    @Test
+    fun `a plain wallet statement is told to nobody`(): Unit = runBlocking {
+        inAllThree()
+        val template = com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent.template(GroupWalletDerivation.account(thresholdKeyOf(middle), chain))
+        arrives(signedAsRoom(middle, template.kind, template.tags, template.content, template.createdAt), middleRoom)
+        assertTrue(noticesIn(rootRoom).isEmpty())
+    }
 }
