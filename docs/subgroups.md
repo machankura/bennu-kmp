@@ -168,6 +168,10 @@ tags:
   ["p",            <each of the child's admins>]
 ```
 
+A member's guarded wallet is not a subgroup and never a 30329: every reader of
+this kind assumes a room. It has its own certificate, 30334 --
+[member-guarded-wallets.md](./member-guarded-wallets.md).
+
 With those, a parent admin's device can check the thing that actually matters
 before it signs — `marmotGroupId(subgroup_key, frost_path) == content` — and
 `ProposedEvent` can render "Translation team, for Alice, Bob and Carol" rather

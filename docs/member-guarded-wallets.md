@@ -24,7 +24,30 @@ grant, the leaf, the tree, the signing cache, the forwarding notice and the
 guardian spend. What is new is who holds the key path, and the artefact the group
 signs to agree to it.
 
-**Not built.** Written against the code as it stood at `8cb6f04e`, schema v29.
+**Built**, phases 1-12, one commit each (Phase 9 in two), written against the
+code as it stood at `8cb6f04e`, schema v29; the build is schema v30.
+`MemberWalletDerivation`, `MemberWalletRequestEvent`, `MemberWalletCertificateEvent`,
+`MemberWalletManager` and `GuardianManager.GuardedSubject` are the entry points,
+and `GroupWalletRollout.MEMBER_WALLETS_ON_MAINNET` is the gate, shut. The phases
+below are kept as written; where the build chose differently the table says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 2: the answer carries the signed `GroupKeyStateEvent`, whole | it carries the threshold key, its path and the group's certificate. A `GroupKeyState` row keeps what the state said and not the event, and nothing in the event is needed beyond what checks itself: the key at the path rederives the room, and the certificate certifies it and names that key |
+| Phase 2: the first share-holder by npub answers at once, the rest after a minute | every device holding the verified state answers a request no answer names yet, as the chronicle's request is answered. Duplicates cost bandwidth and nothing else |
+| Phase 3: the request is an inner event signed by the member | an inner event is an unsigned rumor, and the row it travels in keeps no `sig`. The signed request travels whole as the content of an inner event of the same kind -- `MemberWalletRequestEvent.carried` -- the way a 30333 notice carries a statement, and only from the member who signed it |
+| Phase 5: `MemberWalletSpend` in a later bump | the same bump, v30, beside `MemberWallet` |
+| Phase 6: the screens talk to `ChatRepository` | a `MemberWalletRepository` of their own, which holds the active identity: nothing above it touches a key |
+| Phase 6: the gate arrives in Phase 12 | with Phase 6, where an entrance is first offered, as the guardians note's gate came with its Phase 5 |
+| Phase 7: requests join `observeProposalsAwaitingYou` | *Put to the group* is on the request's row in the group page's *Members' guarded wallets* (Phase 11). The transcript says a request arrived; the proposal list still lists only sessions |
+| Phase 7: the summary names the member | `ProposedEvent.summarize` takes a `nameOf`, and the callers that have no profiles to hand pass none, so the proposal list and signing screen say *Guard a member's wallet* without the name. The certificate's `p` tag is the member either way |
+| Phase 8: the wipe callers warn first | `wipeDatabase` has no callers and `BennuDatabase.wipeData` deletes nothing. There is nothing to guard yet; a note on `wipeData` says what a caller must do once it does |
+| Phase 9: `GroupTransactionWatcher` generalised | a member's spend has no session, so `MemberWalletViewModel` follows the member's spends while the wallet screen is open, sending again any Electrum has not heard of -- the economy the guardian-spend notice makes. *Bump the fee* is not built for a member's spend |
+| Phase 10: `descendantChatRoomId` becomes `subject.id`, `statement` becomes `signedEvent` | both keep their names -- `descendantChatRoomId` is `subject.id`, and `statement` is the 30334 for a member -- so the guardian spend path did not change a line. `Spender.Guardian.name` is `@name` for a member |
+| Phase 11: the person's page shows the amount within each group's reach | it does not watch the chain, so it shows the guarding group and *Spend*; the group's wallet screen has the amount. On one's own profile the section is not drawn: the profile's own list is the answer there |
+| Phase 12: the three-emulator run | not made. It is what lifts the gate |
+
+Still to do by hand: Phase 12's run on signet.
 
 ---
 

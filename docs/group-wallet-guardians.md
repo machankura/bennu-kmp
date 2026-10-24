@@ -330,6 +330,10 @@ every address and a root that cannot find a coin to use it on. A statement
 forwarded into the middle group can be forwarded again from there, so overlap is
 needed one level at a time, not between the grandchild and the root directly.
 
+Since [member-guarded-wallets.md](./member-guarded-wallets.md) the thing
+forwarded may also be a member wallet certificate, which the guarding group
+signed itself and so needs no forwarding into that group.
+
 Once it has the statement, the ancestor watches the descendant's addresses on the
 Electrum client it already holds — unknown script hashes are ignored, so this
 costs subscriptions and nothing else — and its wallet screen grows a *Guarded
@@ -419,6 +423,13 @@ One commit each.
 ---
 
 ## What this does not do
+
+**It does not, on its own, guard one person.** That is
+[member-guarded-wallets.md](./member-guarded-wallets.md): a wallet whose key
+path is one member's random key, carrying exactly the leaves a guarded subgroup
+of their group would, under a member wallet certificate (30334) the group signs
+over the member's own request. Forwarding, the ancestor's walk and the guardian
+spend are the ones here, with the line of descent ending in the wallet's id.
 
 **It does not guard a wallet that is already open.** A subgroup that opened a
 plain wallet before its certificate carried keys keeps it. Guarding it would be a

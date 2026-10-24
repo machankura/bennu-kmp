@@ -54,10 +54,11 @@ Phases 4 and 5 first, and its own table of where the build chose differently
 before the code.
 The group-wallet-guardians note is a phased plan that has been built; it assumes the subgroups and group-chain-wallet notes, and changes one sentence in
 each.
-The member-guarded-wallets note is a phased plan that has not been built. It
+The member-guarded-wallets note is a phased plan that has been built. It
 takes the guardians note's derivation unchanged and gives the key path to one
 person: read that note and the policy note's D2 first, then this note's table
-of why a birth certificate will not do, and its Phase 0.
+of why a birth certificate will not do, its Phase 0, and its table of where the
+build chose differently before the code.
 The subgroup-wallet-policy note is a phased plan that has been built. It
 reads as the guardians note's *whose choice it is* reversed: read
 that section, then this note's Phase 0, whose five decisions shape every phase
