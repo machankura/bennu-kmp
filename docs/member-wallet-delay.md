@@ -30,9 +30,26 @@ Read [member-guarded-wallets.md](./member-guarded-wallets.md) and
 the certificate, the key notice and the signer check from the first, and the
 delay range, the formatter and the delay chooser from the second.
 
-**Not built.** Written against the code as it stood at `05bd6ed6`, schema v31.
-D1 (a group-signed event, not the birth certificate) is decided; the opt-in
-(D8) and the `closed` tag (D9) were added on review.
+**Built**, phases 1-7, one commit each, written against the code as it stood at
+`05bd6ed6`, schema v31, with no schema change. D1 (a group-signed event, not the
+birth certificate) was decided before the build; the opt-in (D8) and the
+`closed` tag (D9) were added on review. `MemberWalletPolicyEvent`,
+`MemberWalletManager.policyFor` and `judgePolicy`, and `MemberWalletPolicyScreen`
+are the entry points. The phases below are kept as written; where the build
+chose differently the table says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 1: `verify` only | also `read`, the shape without the signature, for `ProposedEvent`: a signer reads a policy before the group has signed it. `ORDER` is public, for the signers' staleness check |
+| Phase 4: a `POLICY_UNKNOWN` refusal | not built. `KEY_UNKNOWN` already covers a member who has had no key answer, with its button to ask, and the answer carries the policy. A member whose answer came from a device that held no policy reads `NOT_OFFERED` until an answer that does arrives |
+| Phase 4: `verified()` refuses a request carrying no policy | it accepts one. Certificates signed before policies embed a request with none, and refusing it would stop every wallet already guarded from verifying. That a *new* request must carry an open policy is the signers' rule, in `judgePolicy` |
+| Phase 4: *set by #Council* beside the group's line | not added: the reach sentence already names the group whose delay it is |
+| Phase 5: the group page's request row says why | the member's wallet screen does, through `MemberWalletRow.refusedBecause` and `MemberWalletManager.Why`. *Ask again* on a refused request makes a new one under the newest policy with a new key and discards the old -- `askAgain` takes the member's key and returns the wallet now asked for, and the wallet screen follows it. For a closed group only *Discard* is offered |
+| Phase 6: `MemberWalletPolicyViewModel` holds the input as typed | in `GuardianDelayInput`, shared with the subgroup picker, as `GuardianDelayChooser` is |
+| Phase 6: the row shows for every member | for every member of a Marmot group that is not disbanded (`showsMemberWalletPolicy`); a device that cannot sign sees the state and no button |
+| nothing about test fixtures | `GroupFixtures.openToMembers`: every member-wallet test now opens its group first, since D8 closes a group with no policy |
+
+Still to do by hand: the three-emulator run in Phase 7.
 
 ---
 

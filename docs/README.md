@@ -71,10 +71,11 @@ the guardians note's *Why 12, and why for everybody* and reuses the
 wallet-policy note's plumbing one field further: read both, then its table of
 what is already per leaf, then its Phase 0, and its table of where the build
 chose differently before the code.
-The member-wallet-delay note is a phased plan that has not been built. It
+The member-wallet-delay note is a phased plan that has been built. It
 reads as the guardian-delay note's last build-table row answered: read the
 member-wallets note and the guardian-delay note first, then its table of where
-the delay should live, then its Phase 0.
+the delay should live, then its Phase 0, and its table of where the build chose
+differently before the code.
 The guarded-wallet-funding note is a phased plan that has been built. It
 reads as the guardians note run the other way, coins in rather than out: read
 that note and the address note's *Why `+ 2`* first, then its seven decisions

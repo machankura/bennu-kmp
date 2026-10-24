@@ -197,7 +197,12 @@ Three parties, and each one signs what it is agreeing to:
 
 The member can spend every coin, at any time, alone. No script stops a key-path
 spend. The group, and every group above it, can also take any coin that has sat
-confirmed for 12 blocks, without asking and without warning. That is the
+confirmed long enough, without asking and without warning. How long is each
+guardian's own delay: the group's own leaf at the delay its member-wallet
+policy sets, and every group above at the delay it chose for the group below it
+-- see [member-wallet-delay.md](./member-wallet-delay.md) and
+[guardian-delay.md](./guardian-delay.md). It was 12 blocks for every leaf when
+this note was written. That is the
 guardians note's *the child gives up a real thing*, said about one person. The
 consent screen says it in these words before a key is made (Phase 6).
 
@@ -261,7 +266,10 @@ up under the appendix.
 ### D3. Which members may ask?
 
 **Recommended: any member of the group whose profile can sign and can watch the
-chain.** Not only admins. The group has to be a Marmot room with a threshold key.
+chain.** Not only admins. The group has to be a Marmot room with a threshold key,
+and, since [member-wallet-delay.md](./member-wallet-delay.md), one that has
+opened to its members' wallets: a group that has signed no member-wallet policy,
+or whose newest one is closed, takes no request.
 A read-only profile cannot sign the request. A profile with no Electrum client
 (`GroupOnchainWallets` is null for it) could not see its own coins, so it is not
 offered a wallet it cannot see.
@@ -428,6 +436,7 @@ tags:
   ["descriptor",  tr(…,{…}), "receive"]
   ["descriptor",  tr(…,{…}), "change"]
   ["label",       "Savings"]                            optional
+  ["member_wallet_policy", <the group's open 30337>]    since member-wallet-delay.md: what the request was built under
   ["possession",  <BIP340 signature by k>]
 ```
 
