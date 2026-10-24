@@ -639,6 +639,8 @@
     <string name="this_group_s_guardian_keys_can_t_be_read_to_guard_a_wallet">This group's guardian keys can't be read by this version of the app.</string>
     <string name="member_wallets_are_not_offered_on_this_network">Guarded wallets for members aren't offered on this network yet.</string>
     <string name="this_profile_cannot_watch_its_own_coins">This profile has no wallet of its own to watch the chain with, so it couldn't see its own coins.</string>
+    <string name="this_group_doesn_t_guard_members_wallets">This group doesn't guard members' wallets.</string>
+    <string name="this_group_has_stopped_guarding_members_wallets">This group has stopped guarding members' wallets.</string>
     <string name="you_have_no_guarded_wallets">You have no guarded wallets.</string>
     <string name="waiting_for_someone_in_s_to_put_it_to_the_group">Waiting for someone in %1$s to put it to the group</string>
     <string name="s_is_signing">%1$s is signing</string>

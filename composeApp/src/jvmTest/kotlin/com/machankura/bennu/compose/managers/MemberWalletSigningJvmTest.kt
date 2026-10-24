@@ -68,6 +68,7 @@ class MemberWalletSigningJvmTest {
 
     private suspend fun groupRoomHere() = signingRoom(db, group, members = listOf(memberPublicKey)).also {
         fileKeyState(db, group, guardedCertificate(parent, group))
+        GroupFixtures.openToMembers(db, group)
     }
 
     private fun request(guardians: List<GuardianDerivation.Guardian> = grant, by: PrivateKey = member, asking: String = groupRoom) =
@@ -133,6 +134,7 @@ class MemberWalletSigningJvmTest {
         // A root group: no certificate, so nothing to pass down.
         signingRoom(db, group, members = listOf(memberPublicKey))
         fileKeyState(db, group, certificate = null)
+        GroupFixtures.openToMembers(db, group)
         assertNull(refusal(request(guardians = grant.take(1))))
         assertEquals("grants guardian keys this group does not", refusal(request()))
     }

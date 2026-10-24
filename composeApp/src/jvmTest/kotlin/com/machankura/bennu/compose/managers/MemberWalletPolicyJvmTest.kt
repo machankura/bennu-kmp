@@ -1,5 +1,15 @@
 package com.machankura.bennu.compose.managers
 
+import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
+import kotlin.test.assertFailsWith
+import com.machankura.bennu.compose.managers.GroupFixtures.thresholdKeyOf
+import com.machankura.bennu.compose.nostr.wallet.MemberWalletRequestEvent
+import com.vitorpamplona.quartz.nip01Core.core.Event
+import fr.acinq.secp256k1.Hex
+import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.bitcoin.ByteVector32
+import fr.acinq.bitcoin.Chain
 import androidx.room3.Room
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.builder.getRoomDatabase
@@ -67,5 +77,62 @@ class MemberWalletPolicyJvmTest {
 
         val closed = memberWalletPolicy(group, null)
         assertEquals("no new ones · wallets already guarded stay guarded", ProposedEvent.summarize(closed).detail)
+    }
+
+    // ---- Phase 4: the member builds under it -------------------------------
+
+    private val parent = keyMaterial("9a9e")
+    private val chain = Chain.Regtest
+    private val member = PrivateKey(ByteVector32(Hex.decode("3e3be7".padStart(64, '0'))))
+    private val memberPublicKey = member.xOnlyPublicKey().value.toHex()
+
+    private suspend fun asMember() {
+        GroupFixtures.signingRoom(db, group, members = listOf(memberPublicKey), holdsShare = false)
+        GroupFixtures.fileKeyState(db, group, GroupFixtures.guardedCertificate(parent, group))
+    }
+
+    @Test
+    fun `a member asks only a group that has opened`(): Unit = runBlocking {
+        asMember()
+        assertEquals(MemberWalletManager.Refusal.NOT_OFFERED, MemberWalletManager.refusal(db, groupRoom, canSign = true, chain))
+        assertFailsWith<IllegalStateException> { MemberWalletManager.request(db, groupRoom, member, chain, label = null) }
+        assertNull(MemberWalletManager.delaysOf(db, groupRoom))
+
+        filePolicy(db, group, memberWalletPolicy(group, null))
+        assertEquals(MemberWalletManager.Refusal.CLOSED, MemberWalletManager.refusal(db, groupRoom, canSign = true, chain))
+        assertFailsWith<IllegalStateException> { MemberWalletManager.request(db, groupRoom, member, chain, label = null) }
+        assertTrue(db.memberWalletDao().getByOwner(memberPublicKey).isEmpty(), "a refused request makes no key")
+    }
+
+    @Test
+    fun `a request is built at the group's delay and carries the policy it was built under`(): Unit = runBlocking {
+        asMember()
+        val policy = memberWalletPolicy(group, 4_320)
+        filePolicy(db, group, policy)
+
+        assertNull(MemberWalletManager.refusal(db, groupRoom, canSign = true, chain))
+        assertEquals(listOf(4_320L, GuardianDerivation.DEFAULT_DELAY), MemberWalletManager.delaysOf(db, groupRoom), "the parent's keeps its own")
+
+        val wallet = MemberWalletManager.request(db, groupRoom, member, chain, label = null)
+        val verified = assertNotNull(MemberWalletRequestEvent.verified(Event.fromJson(wallet.requestJson)))
+        assertEquals(4_320L, verified.reading.guardians.first().delay)
+        assertEquals(policy.id, verified.policy?.event?.id)
+    }
+
+    @Test
+    fun `a request whose leaf disagrees with the policy it carries does not check out`(): Unit = runBlocking {
+        asMember()
+        val walletKey = MemberWalletDerivation.generate()
+        val walletId = MemberWalletDerivation.walletId(walletKey.publicKey())
+        val atDefault = GuardianDerivation.grant(thresholdKeyOf(group), groupRoom, emptyList(), walletId)
+        val account = MemberWalletDerivation.account(walletKey.publicKey(), chain, atDefault)
+        fun build(policy: Event?) = MemberWalletRequestEvent.build(member, groupRoom, walletKey, account, label = null, policy = policy)
+
+        assertNull(MemberWalletRequestEvent.verified(build(memberWalletPolicy(group, 4_320))), "built at 12 under a policy of 4,320")
+        assertNull(MemberWalletRequestEvent.verified(build(memberWalletPolicy(group, null))), "built under a closed policy")
+        assertNull(MemberWalletRequestEvent.verified(build(memberWalletPolicy(stranger, 12))), "under another group's policy")
+        assertNotNull(MemberWalletRequestEvent.verified(build(memberWalletPolicy(group, 12))))
+        // A request from before policies still reads: old certificates embed one.
+        assertNotNull(MemberWalletRequestEvent.verified(build(null)))
     }
 }

@@ -63,6 +63,7 @@ class MemberWalletPagesJvmTest {
         GroupFixtures.seedProfile(db, alicePublicKey, name = "alice")
         signingRoom(db, group, members = listOf(alicePublicKey, bobPublicKey), holdsShare = false)
         fileKeyState(db, group, guardedCertificate(parent, group))
+        GroupFixtures.openToMembers(db, group)
 
         val certified = MemberWalletManager.request(db, groupRoom, alice, chain, label = "Savings")
         certify(certified.requestJson)
@@ -80,8 +81,10 @@ class MemberWalletPagesJvmTest {
     fun `the person's page lists every group here that guards them`(): Unit = runBlocking {
         signingRoom(db, group, members = listOf(alicePublicKey))
         fileKeyState(db, group, guardedCertificate(parent, group))
+        GroupFixtures.openToMembers(db, group)
         signingRoom(db, parent, members = listOf(alicePublicKey), holdsShare = false, subject = "#Root")
         fileKeyState(db, parent)
+        GroupFixtures.openToMembers(db, parent)
 
         val wallet = MemberWalletManager.request(db, groupRoom, alice, chain, label = null)
         val certificate = certify(wallet.requestJson)

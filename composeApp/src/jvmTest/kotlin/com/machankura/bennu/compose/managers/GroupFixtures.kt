@@ -76,6 +76,16 @@ internal object GroupFixtures {
         return signedAsRoom(group, template.kind, template.tags, template.content, createdAt)
     }
 
+    /**
+     * [group] opened to its members' wallets at [delay]: the policy every member
+     * wallet test needs before a member can ask, since a group with none does
+     * not guard members' wallets. `docs/member-wallet-delay.md`, D8.
+     */
+    suspend fun openToMembers(db: BennuDatabase, group: KeyMaterial, delay: Long = GuardianDerivation.DEFAULT_DELAY, createdAt: Long = 1_600_000_000) {
+        if (db.chatRoomDao().findChatRoomById(roomOf(group)) == null) seedRoom(db, roomOf(group))
+        filePolicy(db, group, memberWalletPolicy(group, delay, createdAt))
+    }
+
     /** [policy] filed as [group]'s room files a signed event: a `GroupSignedEvent` row. */
     suspend fun filePolicy(db: BennuDatabase, group: KeyMaterial, policy: Event) {
         db.groupSignedEventDao().upsert(

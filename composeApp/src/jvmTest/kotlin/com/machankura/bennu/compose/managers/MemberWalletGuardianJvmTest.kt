@@ -95,6 +95,7 @@ class MemberWalletGuardianJvmTest {
     private suspend fun inRoom(material: fr.acinq.bitcoin.crypto.frost.KeyMaterial, certificate: Event? = null) {
         signingRoom(db, material, members = listOf(memberPublicKey), subject = "#" + roomOf(material).take(4))
         fileKeyState(db, material, certificate)
+        GroupFixtures.openToMembers(db, material)
     }
 
     private suspend fun fileSigned(certificate: Event) =

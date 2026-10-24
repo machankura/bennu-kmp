@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.this_group_has_stopped_guarding_members_wallets
+import bennu.composeapp.generated.resources.this_group_doesn_t_guard_members_wallets
 import com.machankura.bennu.compose.ui.composable.widgets.delayText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -244,5 +246,7 @@ private fun refusalText(refusal: MemberWalletManager.Refusal): String = stringRe
         MemberWalletManager.Refusal.GUARDIANS_UNREADABLE -> Res.string.this_group_s_guardian_keys_can_t_be_read_to_guard_a_wallet
         MemberWalletManager.Refusal.NOT_ON_THIS_NETWORK -> Res.string.member_wallets_are_not_offered_on_this_network
         MemberWalletManager.Refusal.CANNOT_WATCH -> Res.string.this_profile_cannot_watch_its_own_coins
+        MemberWalletManager.Refusal.NOT_OFFERED -> Res.string.this_group_doesn_t_guard_members_wallets
+        MemberWalletManager.Refusal.CLOSED -> Res.string.this_group_has_stopped_guarding_members_wallets
     }
 )

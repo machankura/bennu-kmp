@@ -58,6 +58,7 @@ class MemberWalletRequestJvmTest {
     private suspend fun asMember(knowsKey: Boolean = true) {
         signingRoom(db, group, members = listOf(memberPublicKey), holdsShare = false)
         if (knowsKey) fileKeyState(db, group, guardedCertificate(parent, group))
+        GroupFixtures.openToMembers(db, group)
     }
 
     private suspend fun requestsSent(): List<Event> =
@@ -104,6 +105,7 @@ class MemberWalletRequestJvmTest {
         // A share-holding member: one of the ceremony's participants on this device.
         signingRoom(db, group, members = listOf(memberPublicKey))
         fileKeyState(db, group, guardedCertificate(parent, group))
+        GroupFixtures.openToMembers(db, group)
 
         val wallet = MemberWalletManager.request(db, groupRoom, member, chain, label = null)
 

@@ -154,6 +154,15 @@ object MemberWalletManager {
 
         /** The profile has no Electrum client, so it could not see its own coins. Read by the screen, not here. */
         CANNOT_WATCH,
+
+        /**
+         * The group has not said it guards members' wallets: no policy, as far as
+         * this device knows. `docs/member-wallet-delay.md`, D8.
+         */
+        NOT_OFFERED,
+
+        /** The group's newest policy closed it to new members' wallets. D9. */
+        CLOSED,
     }
 
     /** Why [chatRoomId] cannot guard a wallet for this profile on [chain], or null when it can. */
@@ -166,7 +175,14 @@ object MemberWalletManager {
         if (groupKey.certificate != null && SubgroupBirthCertificateEvent.parseGuardians(groupKey.certificate.tags) == null) {
             return Refusal.GUARDIANS_UNREADABLE
         }
-        return null
+        // Only a group that has opened guards members' wallets, at the delay it
+        // chose -- and a late member learns it with the key, so no key and no
+        // policy is KEY_UNKNOWN above, with its button to ask.
+        return when (policyFor(database, chatRoomId)) {
+            null -> Refusal.NOT_OFFERED
+            is MemberWalletPolicyEvent.Policy.Closed -> Refusal.CLOSED
+            is MemberWalletPolicyEvent.Policy.Open -> null
+        }
     }
 
     /**
@@ -179,13 +195,16 @@ object MemberWalletManager {
 
     /**
      * How long a coin in a wallet [chatRoomId] guards would wait for each of its
-     * guardians, nearest first: the group's own leaf at the default, and every
-     * group above it at the delay it chose -- `docs/guardian-delay.md`. The same
-     * list the grant in [request] carries. Null when this device does not know
-     * the group's key.
+     * guardians, nearest first: the group's own leaf at the delay its open policy
+     * sets, and every group above it at the delay it chose -- the same list the
+     * grant in [request] carries. Null when this device does not know the
+     * group's key, or the group is not open. `docs/member-wallet-delay.md`.
      */
-    suspend fun delaysOf(database: BennuDatabase, chatRoomId: String): List<Long>? =
-        groupKeyFor(database, chatRoomId)?.let { key -> listOf(GuardianDerivation.DEFAULT_DELAY) + key.guardians.map { it.delay } }
+    suspend fun delaysOf(database: BennuDatabase, chatRoomId: String): List<Long>? {
+        val key = groupKeyFor(database, chatRoomId) ?: return null
+        val policy = policyFor(database, chatRoomId) as? MemberWalletPolicyEvent.Policy.Open ?: return null
+        return listOf(policy.delay) + key.guardians.map { it.delay }
+    }
 
     /**
      * Steps 1 and 2: makes a random key, works out every ancestor's leaf and
@@ -213,9 +232,15 @@ object MemberWalletManager {
         val groupKey = groupKeyFor(database, chatRoomId) ?: throw IllegalStateException("Cannot ask: ${Refusal.KEY_UNKNOWN}")
         val memberPublicKey = memberPrivateKey.xOnlyPublicKey().value.toHex()
 
+        // The group's own leaf at the delay its newest policy sets, which the
+        // request carries so every signer judges it by what the group signed.
+        // refusal() has already refused a group that is not open.
+        val policy = policyFor(database, chatRoomId) as? MemberWalletPolicyEvent.Policy.Open
+            ?: throw IllegalStateException("Cannot ask: ${Refusal.NOT_OFFERED}")
+
         val walletPrivateKey = MemberWalletDerivation.generate()
         val walletId = MemberWalletDerivation.walletId(walletPrivateKey.publicKey())
-        val grant = GuardianDerivation.grant(groupKey.thresholdPublicKey, chatRoomId.lowercase(), groupKey.guardians, walletId)
+        val grant = GuardianDerivation.grant(groupKey.thresholdPublicKey, chatRoomId.lowercase(), groupKey.guardians, walletId, policy.delay)
         val account = MemberWalletDerivation.account(walletPrivateKey.publicKey(), chain, grant)
 
         val request = MemberWalletRequestEvent.build(
@@ -225,6 +250,7 @@ object MemberWalletManager {
             account = account,
             label = label,
             createdAt = createdAt.epochSeconds,
+            policy = policy.event,
         )
         checkNotNull(MemberWalletRequestEvent.verified(request)) { "The request this device built does not check out" }
 
