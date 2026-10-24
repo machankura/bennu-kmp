@@ -93,14 +93,15 @@ class GuardingGroupNameJvmTest {
     private suspend fun fileSigned(certificate: Event, signer: String) =
         db.groupSignedEventDao().upsert(GroupSignedEvent.fromEvent(certificate, chatRoomId = signer, derivationPath = SharedKeyDerivation.formatPath(GroupFixtures.path), frostSigningSessionId = null))
 
-    private suspend fun noticeIn(room: String, statement: Event) =
+    /** A notice of [statement] told to [room], carrying [certificate] as today's build does, or not as an older one did. */
+    private suspend fun noticeIn(room: String, statement: Event, certificate: Event? = null) =
         db.marmotInnerEventDao().upsert(
             MarmotInnerEvent(
-                id = statement.id.take(60) + "0000",
+                id = statement.id.take(60) + if (certificate == null) "0000" else "0001",
                 publicKey = memberPublicKey,
                 kind = GuardedWalletNoticeEvent.KIND,
                 createdAt = Instant.fromEpochSeconds(1_700_000_100),
-                tags = arrayOf(arrayOf("h", room)),
+                tags = listOfNotNull(arrayOf("h", room), certificate?.let(GuardedWalletNoticeEvent::certificateTag)).toTypedArray(),
                 content = statement.toJson(),
                 chatRoomId = room,
             )
@@ -165,5 +166,85 @@ class GuardingGroupNameJvmTest {
         noticeIn(rRoom, savings)
 
         assertEquals("#Here", heldByR().guardianName)
+    }
+
+    // ---- Phase 3: the notice carries the guardian's certificate ----------
+
+    @Test
+    fun `a notice carrying M's certificate lets a device in R only name M`(): Unit = runBlocking {
+        inRoom(r)
+        noticeIn(rRoom, savings, certificate = mCertificate)
+
+        val listed = GuardianManager.guardedWalletsOf(db, rRoom).single()
+        assertEquals("#M", assertIs<GuardedSubject.Member>(listed.subject).guardianName)
+        assertEquals(mCertificate.id, listed.guardianCertificate?.id)
+    }
+
+    @Test
+    fun `a carried certificate that does not certify M is ignored, and the wallet is still listed`(): Unit = runBlocking {
+        inRoom(r)
+        // P's own certificate, naming P rather than M; and one for M a stranger signed.
+        noticeIn(rRoom, savings, certificate = pCertificate)
+        db.marmotInnerEventDao().upsert(
+            MarmotInnerEvent(
+                id = "ab".repeat(32),
+                publicKey = memberPublicKey,
+                kind = GuardedWalletNoticeEvent.KIND,
+                createdAt = Instant.fromEpochSeconds(1_700_000_200),
+                tags = arrayOf(arrayOf("h", rRoom), GuardedWalletNoticeEvent.certificateTag(birthCertificate(stranger, m, mGrant, name = "#Impostor"))),
+                content = savings.toJson(),
+                chatRoomId = rRoom,
+            )
+        )
+
+        val listed = GuardianManager.guardedWalletsOf(db, rRoom).single()
+        assertNull(assertIs<GuardedSubject.Member>(listed.subject).guardianName)
+        assertNull(listed.guardianCertificate)
+    }
+
+    @Test
+    fun `a room told before notices carried the certificate is offered again, once`(): Unit = runBlocking {
+        inRoom(m, mCertificate)
+        inRoom(p)
+        fileSigned(savings, signer = mRoom)
+        noticeIn(pRoom, savings)
+
+        val again = GuardianManager.shareableFrom(db, mRoom, chain).single()
+        assertEquals(listOf(pRoom), again.rooms.map { it.chatRoom.id })
+        assertEquals(mCertificate.id, again.certificate?.id)
+
+        GuardianManager.share(db, again.statement, again.rooms, memberPublicKey, certificate = again.certificate)
+        assertEquals(emptyList(), GuardianManager.shareableFrom(db, mRoom, chain))
+    }
+
+    @Test
+    fun `with no certificate to add, a room already told is not offered again`(): Unit = runBlocking {
+        inRoom(m)
+        inRoom(p)
+        fileSigned(savings, signer = mRoom)
+        noticeIn(pRoom, savings)
+
+        assertEquals(emptyList(), GuardianManager.shareableFrom(db, mRoom, chain))
+    }
+
+    @Test
+    fun `forwarding from M to P and on to R carries the certificate at both hops`(): Unit = runBlocking {
+        inRoom(m, mCertificate)
+        inRoom(p)
+        fileSigned(savings, signer = mRoom)
+
+        val first = GuardianManager.shareableFrom(db, mRoom, chain).single()
+        GuardianManager.share(db, first.statement, first.rooms, memberPublicKey, certificate = first.certificate)
+
+        // R joins this device later, so the second hop is P's to make.
+        inRoom(r)
+        val second = GuardianManager.shareableFrom(db, pRoom, chain).single()
+        assertEquals(listOf(rRoom), second.rooms.map { it.chatRoom.id })
+        GuardianManager.share(db, second.statement, second.rooms, memberPublicKey, certificate = second.certificate)
+
+        listOf(pRoom, rRoom).forEach { room ->
+            val notice = db.marmotInnerEventDao().getByChatRoomAndKinds(room, listOf(GuardedWalletNoticeEvent.KIND)).single()
+            assertEquals(mCertificate.id, GuardedWalletNoticeEvent.certificateIn(notice.tags)?.id, "the notice in $room")
+        }
     }
 }

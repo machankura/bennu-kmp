@@ -193,7 +193,7 @@ class DatabaseChatRepository(
     }
 
     override suspend fun shareGuardedWallet(shareable: GuardianManager.Shareable, userPublicKey: HexKey): Int = try {
-        GuardianManager.share(database, shareable.statement, shareable.rooms, userPublicKey)
+        GuardianManager.share(database, shareable.statement, shareable.rooms, userPublicKey, certificate = shareable.certificate)
     } catch (e: Throwable) {
         logger.e("Error telling the groups above about ${shareable.statement.pubKey}'s guarded wallet", e)
         0
