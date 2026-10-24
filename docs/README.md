@@ -15,6 +15,7 @@ silent, or a decision that looked arbitrary and was not.
 | [group-send-an-amount.md](./group-send-an-amount.md) | sending an amount in sats from the group's wallet, with change — why the gate as written could never lift and is removed in favour of the mainnet cap, the decimal point the gated form multiplies by ten, and change addresses reserved like coins |
 | [group-wallet-guardians.md](./group-wallet-guardians.md) | letting an ancestor group spend from a subgroup's wallet through a taproot leaf — why the parent signs the guardian keys into the child's certificate, why every inherited key is derived one step further per child, and why every ancestor waits 12 blocks |
 | [subgroup-wallet-policy.md](./subgroup-wallet-policy.md) | the parent deciding, at a subgroup's birth, whether its wallet is guarded or unguarded — why the choice is signed three times, why *unguarded* means no keys in the certificate, why a guarded group's subgroups are all guarded, and why the rule is every honest client's rather than the chain's |
+| [member-guarded-wallets.md](./member-guarded-wallets.md) | a guarded wallet a group keeps for one member — why the member makes the key and the leaves before asking, why the group signs a certificate of its own kind rather than a birth certificate, and why a member's wallet shows as `@name` and opens their profile |
 | [group-wallet-addresses.md](./group-wallet-addresses.md) | listing the group wallet's receive addresses as Phoenix lists its swap-in ones — why the list stops at the current address plus two, why a paid address past that still shows, and why a used address can be copied but never shown as a QR code |
 | [frost-session-resend.md](./frost-session-resend.md) | asking the members who never got a signing proposal to look again — why a proposer can repeat only what it wrote, why a member's availability signal needs no repeating, and the one half that has to come from the silent member's own device |
 | [marmot-membership.md](./marmot-membership.md) | how members join an MLS group, and the epoch race that makes a missing member look like a successful invite |
@@ -53,6 +54,10 @@ Phases 4 and 5 first, and its own table of where the build chose differently
 before the code.
 The group-wallet-guardians note is a phased plan that has been built; it assumes the subgroups and group-chain-wallet notes, and changes one sentence in
 each.
+The member-guarded-wallets note is a phased plan that has not been built. It
+takes the guardians note's derivation unchanged and gives the key path to one
+person: read that note and the policy note's D2 first, then this note's table
+of why a birth certificate will not do, and its Phase 0.
 The subgroup-wallet-policy note is a phased plan that has been built. It
 reads as the guardians note's *whose choice it is* reversed: read
 that section, then this note's Phase 0, whose five decisions shape every phase
