@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.repository.GroupLightningRepository
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
@@ -92,6 +93,7 @@ class NavigateBackButtonJvmTest {
                     chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                     frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
                     dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
+                    lightningRepository = GroupLightningRepository.NO_OP_GROUP_LIGHTNING_REPOSITORY,
                     onNavigateToRouteAndPopUpInclusive = {},
                     onNavigateToRoute = {},
                     onNavigateBack = onNavigateBack,

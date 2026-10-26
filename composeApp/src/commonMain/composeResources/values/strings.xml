@@ -377,6 +377,8 @@
     <string name="send_your_contribution_to_the_key">Send your contribution to the key</string>
     <string name="check_the_combined_result">Check the combined result and confirm it</string>
     <string name="the_group_has_its_key_finish_setting_it_up">The group has its key — finish setting it up</string>
+    <string name="the_lightning_wallet_s_key_ceremony_needs_you">The Lightning wallet's key ceremony needs you</string>
+    <string name="the_lightning_wallet_s_key_is_ready">The Lightning wallet's key is ready</string>
     <string name="open">Open</string>
     <string name="ask_again">Ask again</string>
     <!-- Sign in: docs/nsec-sign-in.md, phase 4. -->

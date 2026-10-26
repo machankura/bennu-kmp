@@ -1048,6 +1048,7 @@ fun BennuNavHost(
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
                     dkgRepository = databaseDkgRepository,
+                    lightningRepository = databaseGroupLightningRepository,
                 )
             }
             composable<BlankRoute> {
@@ -1206,6 +1207,7 @@ fun BennuNavHost(
                     chatRepository = databaseChatRepository,
                     frostSigningRepository = databaseFrostSigningRepository,
                     dkgRepository = databaseDkgRepository,
+                    lightningRepository = databaseGroupLightningRepository,
                     onNavigateToRouteAndPopUpInclusive = { chatRoomDetailRoute ->
                         navController.navigate(
                             route = chatRoomDetailRoute

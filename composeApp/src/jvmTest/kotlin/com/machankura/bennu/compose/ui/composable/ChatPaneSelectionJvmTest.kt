@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.repository.GroupLightningRepository
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -132,6 +133,7 @@ class ChatPaneSelectionJvmTest {
                     chatRepository = TwoRooms,
                     frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
                     dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
+                    lightningRepository = GroupLightningRepository.NO_OP_GROUP_LIGHTNING_REPOSITORY,
                 )
             }
         }

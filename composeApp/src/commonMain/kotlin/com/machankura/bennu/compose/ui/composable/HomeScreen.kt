@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.repository.GroupLightningRepository
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -101,6 +102,7 @@ fun HomeScreen(
     // loses its detail pane on a desktop is a worse failure than a compile error.
     frostSigningRepository: FrostSigningRepository,
     dkgRepository: DkgRepository,
+    lightningRepository: GroupLightningRepository,
 ) {
     val sheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
@@ -344,6 +346,7 @@ fun HomeScreen(
                                                 chatRepository = chatRepository,
                                                 frostSigningRepository = frostSigningRepository,
                                                 dkgRepository = dkgRepository,
+                                                lightningRepository = lightningRepository,
                                                 // "Replace what is on screen" is a route push
                                                 // on a phone and a change of selection here.
                                                 // It fires when a conversation that did not
@@ -443,6 +446,7 @@ It has survived not only five centuries, but also the leap into electronic types
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
                 dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
+                lightningRepository = GroupLightningRepository.NO_OP_GROUP_LIGHTNING_REPOSITORY,
             )
         }
     }

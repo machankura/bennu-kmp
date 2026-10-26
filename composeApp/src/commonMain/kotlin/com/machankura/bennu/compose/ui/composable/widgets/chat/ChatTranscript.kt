@@ -27,6 +27,14 @@ import bennu.composeapp.generated.resources.the_subgroups_key_ceremony_needs_you
 import bennu.composeapp.generated.resources.the_key_ceremony_needs_you
 import bennu.composeapp.generated.resources.ceremonies_need_you
 import com.machankura.bennu.compose.database.model.types.DkgApprovalStep
+import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
+import androidx.compose.material.icons.filled.Bolt
+import bennu.composeapp.generated.resources.the_lightning_wallet_s_key_ceremony_needs_you
+import bennu.composeapp.generated.resources.the_lightning_wallet_s_key_is_ready
+import bennu.composeapp.generated.resources.join_the_ceremony
+import bennu.composeapp.generated.resources.send_your_contributions
+import bennu.composeapp.generated.resources.confirm_what_you_saw
+import bennu.composeapp.generated.resources.open_a_lightning_wallet
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
@@ -114,6 +122,8 @@ fun ChatTranscript(
     onOpenSharedKey: (dkgSessionId: String) -> Unit,
     /** Opens the Lightning wallet key ceremony an [ChatMessage.ICEBERG_TYPES] line is about. */
     onOpenIcebergCeremony: (sessionId: String?) -> Unit = {},
+    /** Opens the room's Lightning wallet, where a finished key is opened as a wallet. */
+    onOpenLightningWallet: () -> Unit,
     /**
      * Opens the signing this line is about, by session id -- or the room's
      * whole list of proposals when the line predates [ChatMessage.frostSigningSessionId]
@@ -204,8 +214,19 @@ fun ChatTranscript(
                                 item {
                                     CeremoniesAwaitingYouNotice(
                                         ceremonies = ceremoniesAwaitingYou,
-                                        onClick = { dkgSessionId ->
-                                            onOpenSharedKey(dkgSessionId)
+                                        // Each ceremony has its own screen, and a
+                                        // finished Lightning key is opened from the
+                                        // wallet's.
+                                        onClick = { ceremony ->
+                                            when (ceremony.ask) {
+                                                is ChatMessageListViewModel.Ask.SharedKeyStep,
+                                                is ChatMessageListViewModel.Ask.RoomCreation ->
+                                                    onOpenSharedKey(ceremony.sessionId)
+                                                is ChatMessageListViewModel.Ask.LightningKeyStep ->
+                                                    onOpenIcebergCeremony(ceremony.sessionId)
+                                                ChatMessageListViewModel.Ask.LightningWalletOpening ->
+                                                    onOpenLightningWallet()
+                                            }
                                         }
                                     )
                                 }
@@ -613,12 +634,17 @@ fun ChatTranscript(
 @Composable
 private fun CeremoniesAwaitingYouNotice(
     ceremonies: List<ChatMessageListViewModel.AwaitingCeremony>,
-    onClick: (dkgSessionId: String) -> Unit,
+    onClick: (ChatMessageListViewModel.AwaitingCeremony) -> Unit,
 ) {
     val single = ceremonies.singleOrNull()
+    val isLightning = single?.ask is ChatMessageListViewModel.Ask.LightningKeyStep ||
+        single?.ask == ChatMessageListViewModel.Ask.LightningWalletOpening
 
     val headline = when {
         single == null -> stringResource(Res.string.ceremonies_need_you, ceremonies.size)
+        single.ask == ChatMessageListViewModel.Ask.LightningWalletOpening ->
+            stringResource(Res.string.the_lightning_wallet_s_key_is_ready)
+        isLightning -> stringResource(Res.string.the_lightning_wallet_s_key_ceremony_needs_you)
         single.isSubgroup -> stringResource(Res.string.the_subgroups_key_ceremony_needs_you)
         else -> stringResource(Res.string.the_key_ceremony_needs_you)
     }
@@ -626,18 +652,27 @@ private fun CeremoniesAwaitingYouNotice(
     // What it wants, in the words the approval screens use for the same step, so
     // a member is not asked twice in two vocabularies. The gate comes first: an
     // approval is owed by this member and cannot be done by anybody else, while
-    // finishing the setup is work the coordinator can come back to.
+    // finishing the setup is work the coordinator can come back to. The Lightning
+    // wallet's gates are buttons on its ceremony screen, and say what those say.
     val detail = single?.let {
-        when (it.step) {
-            DkgApprovalStep.HOST_KEY -> stringResource(Res.string.join_the_ceremony_by_publishing_your_key)
-            DkgApprovalStep.ROUND_1 -> stringResource(Res.string.send_your_contribution_to_the_key)
-            DkgApprovalStep.ROUND_2 -> stringResource(Res.string.check_the_combined_result)
-            null -> stringResource(Res.string.the_group_has_its_key_finish_setting_it_up)
+        when (val ask = it.ask) {
+            is ChatMessageListViewModel.Ask.SharedKeyStep -> when (ask.step) {
+                DkgApprovalStep.HOST_KEY -> stringResource(Res.string.join_the_ceremony_by_publishing_your_key)
+                DkgApprovalStep.ROUND_1 -> stringResource(Res.string.send_your_contribution_to_the_key)
+                DkgApprovalStep.ROUND_2 -> stringResource(Res.string.check_the_combined_result)
+            }
+            is ChatMessageListViewModel.Ask.RoomCreation -> stringResource(Res.string.the_group_has_its_key_finish_setting_it_up)
+            is ChatMessageListViewModel.Ask.LightningKeyStep -> when (ask.step) {
+                IcebergApprovalStep.JOIN -> stringResource(Res.string.join_the_ceremony)
+                IcebergApprovalStep.REVEAL -> stringResource(Res.string.send_your_contributions)
+                IcebergApprovalStep.CONFIRM -> stringResource(Res.string.confirm_what_you_saw)
+            }
+            ChatMessageListViewModel.Ask.LightningWalletOpening -> stringResource(Res.string.open_a_lightning_wallet)
         }
     }
 
     Card(
-        onClick = { onClick(ceremonies.first().sessionId) },
+        onClick = { onClick(ceremonies.first()) },
         modifier = Modifier.fillMaxWidth().padding(horizontal = MaterialTheme.spacing.space50),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -649,7 +684,7 @@ private fun CeremoniesAwaitingYouNotice(
             horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.space125),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Key, contentDescription = Decorative)
+            Icon(if (isLightning) Icons.Default.Bolt else Icons.Default.Key, contentDescription = Decorative)
 
             Column(
                 modifier = Modifier.weight(1f),

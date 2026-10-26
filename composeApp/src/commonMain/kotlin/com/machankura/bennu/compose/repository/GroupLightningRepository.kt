@@ -15,6 +15,7 @@ import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
 import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Reads, opens and approves a group's Lightning wallet: for now, the Iceberg ceremony its key comes
@@ -58,6 +59,9 @@ interface GroupLightningRepository {
     /** Whether the room has a completed Lightning wallet key no wallet uses yet, for a new wallet to open under. */
     suspend fun hasUnusedKey(chatRoomId: String, chain: Chain): Boolean
 
+    /** That key itself, the newest of them, or null: what the chat's standing notice names. */
+    suspend fun unusedKey(chatRoomId: String, chain: Chain): IcebergKeySession?
+
     suspend fun operator(chatRoomId: String, chain: Chain, wallet: Long): GroupLightningOperatorManager.Operator?
 
     /** The LSP a Lightning wallet on [chain] opens channels with, or null for a network with none. */
@@ -95,4 +99,42 @@ interface GroupLightningRepository {
 
     /** Proposes sweeping [inputs] into the onchain wallet. */
     suspend fun proposeSweep(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, inputs: List<GroupSweep.Input>): FrostSigningSession
+
+    companion object {
+        /**
+         * For previews and for screens that only read: every flow empty, every read empty or
+         * null, and every proposal refused, since there is no room behind it to propose in.
+         */
+        val NO_OP_GROUP_LIGHTNING_REPOSITORY: GroupLightningRepository = object : GroupLightningRepository {
+            override fun observeCeremony(sessionId: String): Flow<IcebergKeySession?> = flowOf(null)
+            override fun observeCeremonies(chatRoomId: String): Flow<List<IcebergKeySession>> = flowOf(emptyList())
+            override suspend fun ceremonyMessages(sessionId: String): List<IcebergParticipantMessage> = emptyList()
+            override suspend fun pendingApproval(session: IcebergKeySession): IcebergApprovalStep? = null
+            override suspend fun ceremonyThresholds(chatRoomId: String): List<Int> = emptyList()
+            override suspend fun keyHolderCount(chatRoomId: String): Int = 0
+            override suspend fun hasOnchainWallet(chatRoomId: String, chain: Chain): Boolean = false
+            override suspend fun proposeCeremony(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, threshold: Int, chain: Chain): IcebergKeySession = error("No room to propose in")
+            override suspend fun approveCeremony(localChatRoom: LocalChatRoom, sessionId: String, step: IcebergApprovalStep, nostrPrivateKey: ByteArray) = Unit
+            override suspend fun completedCeremony(chatRoomId: String): IcebergKeySession? = null
+            override suspend fun lightningWallet(chatRoomId: String, chain: Chain): GroupLightningWalletManager.Wallet? = null
+            override suspend fun earlierWallets(chatRoomId: String, chain: Chain): List<GroupLightningWalletManager.Wallet> = emptyList()
+            override suspend fun departed(wallet: GroupLightningWalletManager.Wallet): List<HexKey> = emptyList()
+            override suspend fun hasUnusedKey(chatRoomId: String, chain: Chain): Boolean = false
+            override suspend fun unusedKey(chatRoomId: String, chain: Chain): IcebergKeySession? = null
+            override suspend fun operator(chatRoomId: String, chain: Chain, wallet: Long): GroupLightningOperatorManager.Operator? = null
+            override fun lspNodeId(chain: Chain): HexKey? = null
+            override suspend fun proposeWallet(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, chain: Chain): FrostSigningSession = error("No room to propose in")
+            override suspend fun nominateSelf(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long): FrostSigningSession = error("No room to propose in")
+            override suspend fun stepDown(localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long): FrostSigningSession = error("No room to propose in")
+            override fun observeReport(chatRoomId: String, chain: Chain, wallet: Long): Flow<GroupLightningReports.Report?> = flowOf(null)
+            override fun observePayments(chatRoomId: String, chain: Chain, wallet: Long): Flow<List<GroupLightningPaymentRow>> = flowOf(emptyList())
+            override suspend fun requestInvoice(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, amountMsat: Long?, description: String): String = error("No room to ask in")
+            override fun observeInvoice(chatRoomId: String, chain: Chain, wallet: Long, requestId: String): Flow<GroupLightningInvoiceRow?> = flowOf(null)
+            override suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession = error("No room to propose in")
+            override suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession = error("No room to propose in")
+            override suspend fun proposeCloseAll(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelIds: List<String>): FrostSigningSession = error("No room to propose in")
+            override suspend fun unswept(chatRoomId: String, report: GroupLightningReports.Report?): List<GroupSweep.Input> = emptyList()
+            override suspend fun proposeSweep(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, inputs: List<GroupSweep.Input>): FrostSigningSession = error("No room to propose in")
+        }
+    }
 }

@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.ui.composable
 
+import com.machankura.bennu.compose.repository.GroupLightningRepository
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsEqualTo
@@ -98,6 +99,7 @@ class ChatPaneLayoutJvmTest {
                 chatRepository = NoRooms,
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
                 dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
+                lightningRepository = GroupLightningRepository.NO_OP_GROUP_LIGHTNING_REPOSITORY,
             )
             }
         }

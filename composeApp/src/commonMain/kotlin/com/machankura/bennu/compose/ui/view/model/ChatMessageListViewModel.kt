@@ -28,6 +28,14 @@ import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.database.model.types.DkgRitualStage
 import com.machankura.bennu.compose.database.model.types.DkgApprovalStep
 import com.machankura.bennu.compose.repository.DkgRepository
+import com.machankura.bennu.compose.repository.GroupLightningRepository
+import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
+import com.machankura.bennu.compose.database.model.types.IcebergRitualStage
+import com.machankura.bennu.compose.database.model.types.FrostSigningStage
+import com.machankura.bennu.compose.database.model.intermdiate.LocalFrostSigningSession
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
+import kotlinx.coroutines.flow.combine
 import com.machankura.bennu.compose.repository.FrostSigningRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.text.ProposedEvent
@@ -47,7 +55,8 @@ class ChatMessageListViewModel(
     val nostrRepository: NostrRepository,
     val chatRepository: ChatRepository,
     val frostSigningRepository: FrostSigningRepository,
-    val dkgRepository: DkgRepository
+    val dkgRepository: DkgRepository,
+    val lightningRepository: GroupLightningRepository,
 ): ViewModel() {
     val logger = Logger.withTag(TAG)
     var chatMessageListUIState: ChatMessageListUIState by mutableStateOf(initialChatMessageListUIState)
@@ -108,27 +117,47 @@ class ChatMessageListViewModel(
      * before this the only way to find one that wanted you was to scroll the
      * transcript to its request line -- which for a subgroup means scrolling past
      * whatever else the room has been used for.
+     *
+     * Either of the room's two ceremonies: the shared key's, and the Lightning
+     * wallet's. They open different screens, so [ask] says which this is as well
+     * as what it wants. docs/group-lightning-transcript.md, Phase 2.
      */
     data class AwaitingCeremony(
         val sessionId: String,
 
-        /** What it wants, or null when what it wants is the next step rather than a signature. */
-        val step: DkgApprovalStep?,
+        val ask: Ask,
+
+        /** Whether this ceremony is making a subgroup, for what the notice says. */
+        val isSubgroup: Boolean,
+    )
+
+    /** What a ceremony wants of this member. */
+    sealed interface Ask {
+        /** One of the shared key ceremony's approval gates. */
+        data class SharedKeyStep(val step: DkgApprovalStep) : Ask
 
         /**
-         * The room this ceremony's key derives, when that room does not exist
-         * yet and this member is the one who would make it.
+         * The room the shared key derives, when that room does not exist yet and
+         * this member is the one who would make it.
          *
          * A ceremony reaching COMPLETE finishes nothing on its own: the group has
          * a key and somebody still has to get its state signed and create the
          * room. That somebody is whoever opened it, and nothing else in the app
          * would ever tell them so.
          */
-        val roomAwaitingCreation: String?,
+        data class RoomCreation(val chatRoomId: String) : Ask
 
-        /** Whether this ceremony is making a subgroup, for what the notice says. */
-        val isSubgroup: Boolean,
-    )
+        /** One of the Lightning wallet's key ceremony's approval gates. */
+        data class LightningKeyStep(val step: IcebergApprovalStep) : Ask
+
+        /**
+         * The Lightning wallet's key, finished, that no wallet uses yet -- the
+         * Lightning counterpart to [RoomCreation], and asked of the same person:
+         * whoever opened the ceremony. A key is not a wallet until the group signs
+         * a statement for it, and until then nothing can be paid into it.
+         */
+        data object LightningWalletOpening : Ask
+    }
 
     /**
      * The ceremonies in this room that still want something from this member.
@@ -263,31 +292,72 @@ class ChatMessageListViewModel(
      * A ceremony whose room exists wants nothing from anybody, which is what
      * `roomAwaitingCreation` is asking. That keeps the notice from becoming
      * permanent furniture in every room that has ever held a ceremony.
+     *
+     * The Lightning wallet's ceremony is read the same way beside it: its gates
+     * from the same `pendingApproval` its screen reads, and its finished key from
+     * whether a wallet uses it -- see [lightningWalletAwaitingYou].
      */
     private fun observeCeremoniesAwaitingYou() {
+        val roomId = localChatRoom.chatRoom.id
         viewModelScope.launch(Dispatchers.IO) {
-            dkgRepository
-                .observeSessionsForChatRoom(localChatRoom.chatRoom.id)
-                .collect { sessions ->
-                    ceremoniesAwaitingYou = sessions
-                        .filter { it.stage != DkgRitualStage.FAILED }
-                        .mapNotNull { session ->
-                            val step = dkgRepository.pendingApproval(session)
-                            val roomAwaitingCreation = session
+            combine(
+                dkgRepository.observeSessionsForChatRoom(roomId),
+                lightningRepository.observeCeremonies(roomId),
+                // Only for whether a wallet statement is already being signed:
+                // once it is, the key has been put to the group and asking its
+                // opener to open it again would start a second proposal.
+                frostSigningRepository.observeSessionsForChatRoom(roomId),
+                ::Triple,
+            ).collect { (sessions, lightningCeremonies, signings) ->
+                val sharedKey = sessions
+                    .filter { it.stage != DkgRitualStage.FAILED }
+                    .mapNotNull { session ->
+                        val ask = dkgRepository.pendingApproval(session)?.let { Ask.SharedKeyStep(it) }
+                            ?: session
                                 .takeIf { it.coordinatorPublicKey == it.userPublicKey }
                                 ?.let { dkgRepository.roomAwaitingCreation(it) }
+                                ?.let { Ask.RoomCreation(it) }
+                            ?: return@mapNotNull null
 
-                            if (step == null && roomAwaitingCreation == null) return@mapNotNull null
+                        AwaitingCeremony(
+                            sessionId = session.id,
+                            ask = ask,
+                            isSubgroup = session.parentChatRoomId != null,
+                        )
+                    }
 
-                            AwaitingCeremony(
-                                sessionId = session.id,
-                                step = step,
-                                roomAwaitingCreation = roomAwaitingCreation,
-                                isSubgroup = session.parentChatRoomId != null,
-                            )
+                val lightningKey = lightningCeremonies
+                    .filter { it.stage != IcebergRitualStage.FAILED }
+                    .mapNotNull { session ->
+                        lightningRepository.pendingApproval(session)?.let {
+                            AwaitingCeremony(session.id, Ask.LightningKeyStep(it), isSubgroup = false)
                         }
-                }
+                    }
+
+                ceremoniesAwaitingYou = sharedKey + lightningKey + listOfNotNull(lightningWalletAwaitingYou(signings))
+            }
         }
+    }
+
+    /**
+     * The finished Lightning wallet key this member opened the ceremony for, while no
+     * wallet uses it and no statement for it is being signed; null otherwise, and
+     * always on a build that does not offer the wallet.
+     */
+    private suspend fun lightningWalletAwaitingYou(signings: List<LocalFrostSigningSession>): AwaitingCeremony? {
+        if (!GroupLightningRollout.ENABLED) return null
+        val key = lightningRepository.unusedKey(localChatRoom.chatRoom.id, GroupLightningRollout.NETWORK)
+            ?.takeIf { it.coordinatorPublicKey.equals(it.userPublicKey, ignoreCase = true) }
+            ?: return null
+
+        val beingSigned = signings
+            .filter { it.session.stage != FrostSigningStage.FAILED }
+            .flatMap { it.items }
+            .mapNotNull { Event.fromJsonOrNull(it.unsignedEventJson) }
+            .filter { it.kind == GroupLightningWalletStatementEvent.KIND }
+            .any { GroupLightningWalletStatementEvent.read(it.tags)?.ceremonyId == key.id }
+
+        return if (beingSigned) null else AwaitingCeremony(key.id, Ask.LightningWalletOpening, isSubgroup = false)
     }
 
     /**
@@ -477,7 +547,8 @@ class ChatMessageListViewModel(
             nostrRepository: NostrRepository,
             chatRepository: ChatRepository,
             frostSigningRepository: FrostSigningRepository,
-            dkgRepository: DkgRepository
+            dkgRepository: DkgRepository,
+            lightningRepository: GroupLightningRepository,
         ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 ChatMessageListViewModel(
@@ -486,7 +557,8 @@ class ChatMessageListViewModel(
                     nostrRepository = nostrRepository,
                     chatRepository = chatRepository,
                     frostSigningRepository = frostSigningRepository,
-                    dkgRepository = dkgRepository
+                    dkgRepository = dkgRepository,
+                    lightningRepository = lightningRepository,
                 )
             }
         }

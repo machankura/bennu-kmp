@@ -1,6 +1,8 @@
 package com.machankura.bennu.compose.ui.composable
 
 import com.machankura.bennu.compose.ui.composable.navigation.routes.IcebergCeremonyRoute
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningWalletRoute
+import com.machankura.bennu.compose.repository.GroupLightningRepository
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,6 +90,7 @@ fun ChatRoomMessagingScreen(
     chatRepository: ChatRepository,
     frostSigningRepository: FrostSigningRepository,
     dkgRepository: DkgRepository,
+    lightningRepository: GroupLightningRepository,
     onNavigateToRouteAndPopUpInclusive: (Route) -> Unit,
     onNavigateToRoute: (Route) -> Unit,
     /**
@@ -133,7 +136,8 @@ fun ChatRoomMessagingScreen(
                         nostrRepository = nostrRepository,
                         chatRepository = chatRepository,
                         frostSigningRepository = frostSigningRepository,
-                        dkgRepository = dkgRepository
+                        dkgRepository = dkgRepository,
+                        lightningRepository = lightningRepository,
                     )
                 )
 
@@ -193,6 +197,14 @@ fun ChatRoomMessagingScreen(
                                                 activeUserPublicKey = activeUserPublicKey,
                                                 chatRoomId = chatRoomId,
                                                 sessionId = sessionId
+                                            )
+                                        )
+                                    },
+                                    onOpenLightningWallet = {
+                                        onNavigateToRoute.invoke(
+                                            GroupLightningWalletRoute(
+                                                activeUserPublicKey = activeUserPublicKey,
+                                                chatRoomId = chatRoomId,
                                             )
                                         )
                                     },
@@ -501,6 +513,7 @@ private fun ChatRoomMessagingScreenPreview() {
                 chatRepository = ChatRepository.NO_OP_CHAT_REPOSITORY,
                 frostSigningRepository = FrostSigningRepository.NO_OP_FROST_SIGNING_REPOSITORY,
                 dkgRepository = DkgRepository.NO_OP_DKG_REPOSITORY,
+                lightningRepository = GroupLightningRepository.NO_OP_GROUP_LIGHTNING_REPOSITORY,
                 onNavigateToRouteAndPopUpInclusive = {},
                 onNavigateToRoute = {},
                 onNavigateBack = {},

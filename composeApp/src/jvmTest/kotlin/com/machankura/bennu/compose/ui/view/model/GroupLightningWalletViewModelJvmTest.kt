@@ -130,6 +130,7 @@ class GroupLightningWalletViewModelJvmTest {
         override suspend fun earlierWallets(chatRoomId: String, chain: Chain): List<GroupLightningWalletManager.Wallet> = earlier
         override suspend fun departed(wallet: GroupLightningWalletManager.Wallet): List<HexKey> = departedMembers
         override suspend fun hasUnusedKey(chatRoomId: String, chain: Chain): Boolean = unusedKey
+        override suspend fun unusedKey(chatRoomId: String, chain: Chain): IcebergKeySession? = completed?.takeIf { unusedKey }
         override suspend fun proposeCloseAll(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelIds: List<String>): FrostSigningSession = error("unused")
         override suspend fun unswept(chatRoomId: String, report: GroupLightningReports.Report?): List<GroupSweep.Input> = report?.snapshot?.heldOutputs.orEmpty()
         override suspend fun proposeSweep(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, inputs: List<GroupSweep.Input>): FrostSigningSession = error("unused")

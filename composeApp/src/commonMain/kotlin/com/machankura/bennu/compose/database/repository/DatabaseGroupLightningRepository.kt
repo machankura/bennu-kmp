@@ -42,6 +42,9 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
     override suspend fun hasUnusedKey(chatRoomId: String, chain: Chain): Boolean =
         GroupLightningWalletManager.unusedKey(database, chatRoomId, chain) != null
 
+    override suspend fun unusedKey(chatRoomId: String, chain: Chain): IcebergKeySession? =
+        GroupLightningWalletManager.unusedKey(database, chatRoomId, chain)
+
     override suspend fun operator(chatRoomId: String, chain: Chain, wallet: Long): GroupLightningOperatorManager.Operator? =
         GroupLightningOperatorManager.current(database, chatRoomId, chain, wallet)
 
