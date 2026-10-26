@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.ChatMessage
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.IcebergChannelLedger
@@ -193,6 +194,12 @@ object GroupLightningCoSigner {
         val refusal = check(database, roomId, wallet, request)
         if (refusal != null) {
             logger.w("Refusing request ${request.requestId}: $refusal")
+            // Its owner is never shown a commitment, so a refusal is the one thing about
+            // co-signing a person sees -- and on this device only, which is whose check it was.
+            GroupLightningLines.writeFact(
+                database, roomId, ChatMessage.TYPE_LIGHTNING_REFUSED, request.requestId, userPublicKey,
+                "Your device refused to co-sign for the Lightning node: $refusal.", Clock.System.now(),
+            )
             return
         }
         val message = messageOf(request)
@@ -203,6 +210,7 @@ object GroupLightningCoSigner {
         val existing = dao.ledgerFor(request.wallet, request.label)
         if (existing != null && existing.messageHash != message.toHex()) {
             logger.w("Refusing request ${request.requestId}: label ${request.label.take(16)} was already echoed for another message")
+            raiseEquivocation(database, roomId, request.label, event.pubKey)
             return
         }
         commitLedger(database, roomId, wallet, request)
@@ -222,6 +230,17 @@ object GroupLightningCoSigner {
         maybeSign(database, localChatRoom, wallet, echo.wallet, echo.label, userPublicKey)
     }
 
+    /**
+     * The alarm the echo rule exists to raise: the operator's node asked for two messages under one
+     * label. Said once per label, in the error tint, attributed to the operator whose node asked.
+     */
+    private suspend fun raiseEquivocation(database: BennuDatabase, chatRoomId: String, label: String, operator: HexKey) =
+        GroupLightningLines.writeFact(
+            database, chatRoomId, ChatMessage.TYPE_LIGHTNING_EQUIVOCATION, label, operator,
+            "The operator's node asked the group to sign two different things under one label. Nobody will sign either.",
+            Clock.System.now(),
+        )
+
     /** Signs under [label] once enough participants echoed this device's hash and nobody echoed another. */
     private suspend fun maybeSign(database: BennuDatabase, localChatRoom: LocalChatRoom, wallet: GroupLightningWalletManager.Wallet, key: String, label: String, userPublicKey: HexKey) {
         val dao = database.icebergCoSigningDao()
@@ -230,6 +249,8 @@ object GroupLightningCoSigner {
         val echoes = dao.echoesFor(key, label)
         if (echoes.any { it.messageHash != mine.messageHash }) {
             logger.e("Label ${label.take(16)} was echoed for two different messages: the operator is equivocating, and nobody signs it")
+            val operator = GroupLightningOperatorManager.current(database, localChatRoom.chatRoom.id, wallet.statement.chain, wallet.statement.wallet)
+            raiseEquivocation(database, localChatRoom.chatRoom.id, label, operator?.publicKey ?: userPublicKey)
             return
         }
         val n = wallet.statement.participants.size

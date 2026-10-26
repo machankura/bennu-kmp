@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.wallet.GroupLightningRollout
@@ -245,6 +246,16 @@ abstract class GroupLightningCoSigningCases(chain: Chain) {
         val (lying, _) = channel.commitment(0, channel.spec.copy(toLocal = 900_000_000.msat, toRemote = 100_000_000.msat), honestContext.remotePerCommitmentPoint)
         val result = groupSigns(group, signer, channel, lying, honestContext)
         assertIs<IcebergSigningTimeout>(assertIs<Either.Left<Throwable>>(result).value)
+        // And each member's device says so, once, to its own owner and nobody else.
+        group.all.drop(1).forEach { d ->
+            val refused = fixture.lines(d, ChatMessage.TYPE_LIGHTNING_REFUSED)
+            assertEquals(1, refused.size, "device ${d.index}")
+            assertEquals(
+                "Your device refused to co-sign for the Lightning node: the commitment its context rebuilds to is not the one it asks to sign.",
+                refused.single().content,
+            )
+            assertTrue(refused.single().isUserMessage)
+        }
     }
 
     @Test
@@ -316,6 +327,12 @@ abstract class GroupLightningCoSigningCases(chain: Chain) {
         val again = RemoteIcebergFundingSigner(PublicKey.fromHex(group.wallet.statement.icebergKey), reusing, 3.seconds)
         val (other, otherContext) = channel.commitment(1, channel.spec.copy(toLocal = 550_000_000.msat, toRemote = 450_000_000.msat))
         assertIs<Either.Left<Throwable>>(groupSigns(group, again, channel, other, otherContext))
+        // Which every member that answered the first is told, once per label, in words.
+        group.all.drop(1).forEach { d ->
+            val alarm = fixture.lines(d, ChatMessage.TYPE_LIGHTNING_EQUIVOCATION)
+            assertEquals(1, alarm.size, "device ${d.index}")
+            assertEquals(group.all[0].publicKey, alarm.single().senderPublicKey, "attributed to the operator whose node asked")
+        }
     }
 }
 

@@ -616,6 +616,21 @@ data class ChatMessage(
         const val TYPE_LIGHTNING_PAYMENT_SENT = "lightningPaymentSent"
         const val TYPE_LIGHTNING_PAYMENT_FAILED = "lightningPaymentFailed"
 
+        /**
+         * This device's co-signer refused what the operator's node asked it to sign, and why --
+         * written on this device only, once per request, since a refusal names a check the
+         * operator's node failed and the other members' devices made their own. Keyed on
+         * [lightningFactKey], the request's id.
+         */
+        const val TYPE_LIGHTNING_REFUSED = "lightningRefused"
+
+        /**
+         * The operator's node asked for two different things to be signed under one label, which
+         * is the one thing a co-signer must never answer (docs/group-lightning-wallet.md, the echo
+         * rule). Written by every device that sees both, once per label.
+         */
+        const val TYPE_LIGHTNING_EQUIVOCATION = "lightningEquivocation"
+
         /** Every Lightning wallet line, for the one check the transcript dispatches on. */
         val LIGHTNING_TYPES = setOf(
             TYPE_LIGHTNING_SEED_SHARED,
@@ -627,6 +642,8 @@ data class ChatMessage(
             TYPE_LIGHTNING_PAYMENT_RECEIVED,
             TYPE_LIGHTNING_PAYMENT_SENT,
             TYPE_LIGHTNING_PAYMENT_FAILED,
+            TYPE_LIGHTNING_REFUSED,
+            TYPE_LIGHTNING_EQUIVOCATION,
         )
 
         /** As [DKG_AUTHORED_TYPES]: content written to follow the actor's name. The node's answer has no actor. */
