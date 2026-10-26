@@ -293,4 +293,54 @@ class IcebergCeremonyJvmTest {
         assertTrue(refused.isFailure)
         assertTrue(refused.exceptionOrNull()!!.message!!.contains("onchain wallet"))
     }
+
+    /** Opening a ceremony is agreeing to be in it, so its opener is never asked to join it. */
+    @Test
+    fun `the member who opened a ceremony is not asked to join it`() = runBlocking {
+        val all = group()
+        val proposed = IcebergRitualManager.proposeCeremony(all[0].db, all[0].room, all[0].publicKey, all[0].privateKey, 2, chain)
+        pump(all, GroupLightningEvents.CEREMONY)
+
+        fun joinRequests(d: Device) = runBlocking {
+            d.db.chatMessageDao().getChatMessagesByChatRoomId(roomId).map { it.chatMessage }
+                .filter { it.messageType == ChatMessage.TYPE_ICEBERG_APPROVAL_NEEDED_JOIN && it.dkgSessionId == proposed.id }
+        }
+        assertTrue(joinRequests(all[0]).isEmpty(), "the opener has nothing to approve")
+        all.drop(1).forEach { assertEquals(1, joinRequests(it).size, "device ${it.index} is asked once") }
+    }
+
+    /**
+     * A fault is said as a sentence naming the member at fault -- not their index in an order of
+     * keys nobody sees, and not an exception's message -- and that sentence is what the other
+     * devices are sent and keep. docs/group-lightning-transcript.md, Phase 3.
+     */
+    @Test
+    fun `an abandoned ceremony says why in a sentence, naming the member`() = runBlocking {
+        val all = group()
+        val proposed = IcebergRitualManager.proposeCeremony(all[0].db, all[0].room, all[0].publicKey, all[0].privateKey, 2, chain)
+        pump(all, GroupLightningEvents.CEREMONY)
+        val session = all[1].ceremony(proposed.id)!!
+        val accused = session.participants()[1]
+        val name = ChatMessage.memberName(all[1].db, accused)
+
+        val reason = IcebergRitualManager.describe(all[1].db, session, IcebergDkg.Fault.BadReveal(2))
+        assertEquals("@$name sent a contribution that does not match what they committed to.", reason)
+        assertEquals("Something went wrong on this device.", IcebergRitualManager.describe(all[1].db, session, IllegalStateException("index 7 out of bounds")))
+
+        // Device 1 stops the ceremony with that reason; device 2 hears it.
+        val tags = arrayOf(arrayOf("iceberg_session", proposed.id))
+        val createdAt = 1_700_000_000L
+        val failure = Event(
+            EventHasher.hashId(pubKey = all[1].publicKey, createdAt = createdAt, kind = GroupLightningEvents.CEREMONY_FAILURE, tags = tags, content = reason),
+            all[1].publicKey, createdAt, GroupLightningEvents.CEREMONY_FAILURE, tags, reason, "",
+        )
+        IcebergRitualManager.processCeremonyPayload(all[2].db, all[2].room, failure, all[2].publicKey, all[2].privateKey)
+
+        val failed = all[2].ceremony(proposed.id)!!
+        assertEquals(IcebergRitualStage.FAILED, failed.stage)
+        assertEquals(reason, failed.failureReason, "the sender's sentence, with no key prefix in front of it")
+        val line = all[2].db.chatMessageDao().getChatMessagesByChatRoomId(roomId).map { it.chatMessage }
+            .single { it.messageType == ChatMessage.TYPE_ICEBERG_FAILED }
+        assertEquals(all[1].publicKey, line.senderPublicKey, "the line names who stopped it")
+    }
 }

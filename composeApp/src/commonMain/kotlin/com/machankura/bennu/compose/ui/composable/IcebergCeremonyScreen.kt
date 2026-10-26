@@ -1,5 +1,7 @@
 package com.machankura.bennu.compose.ui.composable
 
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,7 +35,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import bennu.composeapp.generated.resources.Res
 import bennu.composeapp.generated.resources.a_lightning_wallet_needs_four_signers
-import bennu.composeapp.generated.resources.abandoned_s
+import bennu.composeapp.generated.resources.the_ceremony_was_abandoned
+import bennu.composeapp.generated.resources.nothing_was_created_and_no_key_exists_it_is
 import bennu.composeapp.generated.resources.confirm_what_you_saw
 import bennu.composeapp.generated.resources.confirming_publishes_your_public_share
 import bennu.composeapp.generated.resources.couldn_t_approve_this_step
@@ -197,7 +200,7 @@ private fun Ceremony(modifier: Modifier, state: IcebergCeremonyUIState.Loaded, i
                     IcebergRitualStage.COLLECTING_REVEALS -> stringResource(Res.string.waiting_for_contributions)
                     IcebergRitualStage.COLLECTING_CONFIRMATIONS -> stringResource(Res.string.waiting_for_everyone_to_confirm)
                     IcebergRitualStage.COMPLETE -> stringResource(Res.string.the_group_has_a_lightning_wallet_key)
-                    IcebergRitualStage.FAILED -> stringResource(Res.string.abandoned_s, session.failureReason.orEmpty())
+                    IcebergRitualStage.FAILED -> stringResource(Res.string.the_ceremony_was_abandoned)
                 },
                 style = MaterialTheme.typography.titleMedium,
             )
@@ -206,6 +209,31 @@ private fun Ceremony(modifier: Modifier, state: IcebergCeremonyUIState.Loaded, i
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        // As the shared key's ceremony says it: why, in the sentence the device that
+        // stopped it wrote, and that nothing was made.
+        if (session.stage == IcebergRitualStage.FAILED) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(MaterialTheme.spacing.containerPadding),
+                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.ErrorOutline, contentDescription = Decorative)
+                        Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
+                            session.failureReason?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                            Text(stringResource(Res.string.nothing_was_created_and_no_key_exists_it_is), style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
         }
         state.pending?.let { step ->
             item {

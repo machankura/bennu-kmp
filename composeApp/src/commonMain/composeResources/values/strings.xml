@@ -379,6 +379,10 @@
     <string name="the_group_has_its_key_finish_setting_it_up">The group has its key — finish setting it up</string>
     <string name="the_lightning_wallet_s_key_ceremony_needs_you">The Lightning wallet's key ceremony needs you</string>
     <string name="the_lightning_wallet_s_key_is_ready">The Lightning wallet's key is ready</string>
+    <string name="open_the_shared_key_ceremony">Open the shared key ceremony</string>
+    <string name="open_the_lightning_wallet_s_key_ceremony">Open the Lightning wallet's key ceremony</string>
+    <string name="open_the_proposal">Open the proposal</string>
+    <string name="you_approved_this">You approved this</string>
     <string name="open">Open</string>
     <string name="ask_again">Ask again</string>
     <!-- Sign in: docs/nsec-sign-in.md, phase 4. -->
@@ -571,7 +575,6 @@
     <string name="waiting_for_contributions">Waiting for everyone's contributions</string>
     <string name="waiting_for_everyone_to_confirm">Waiting for everyone to confirm</string>
     <string name="the_group_has_a_lightning_wallet_key">The group has a key for a Lightning wallet.</string>
-    <string name="abandoned_s">Abandoned: %1$s</string>
     <string name="join_the_ceremony">Join the ceremony</string>
     <string name="send_your_contributions">Send your contributions</string>
     <string name="confirm_what_you_saw">Confirm what you saw</string>

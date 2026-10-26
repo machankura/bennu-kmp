@@ -1215,7 +1215,7 @@ data class ChatMessage(
          * writes carries it.
          */
         /** A member as a transcript line names them: their profile's name, or the start of their key. */
-        private suspend fun memberName(database: BennuDatabase, publicKey: HexKey): String =
+        internal suspend fun memberName(database: BennuDatabase, publicKey: HexKey): String =
             database.profileDao().getProfileByPublicKey(publicKey)?.humanReadableNameOrPubkey() ?: publicKey.take(8)
 
         internal suspend fun applyInnerEvent(

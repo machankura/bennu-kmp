@@ -277,7 +277,10 @@ object IcebergRitualManager {
                 }
             }
             GroupLightningEvents.CEREMONY_FAILURE -> {
-                fail(database, session, "Abandoned by ${sender.take(8)}: ${innerEvent.content}", sender)
+                // The sender's own account of why, which is a sentence from any build
+                // with [describe]. The line names the sender; the reason is not the
+                // place for a key prefix.
+                fail(database, session, innerEvent.content.ifBlank { "Something went wrong on their device." }, sender)
                 return false
             }
         }
@@ -337,9 +340,9 @@ object IcebergRitualManager {
             if (confirmations.size < params.n) return
             val byIndex = confirmations.associate { m -> indexOf(session, m.participantPublicKey)!! to CommonJson.decodeFromString(Round3.serializer(), m.payload) }
             val disagreeing = byIndex.filterValues { it.transcript != transcript.toHex() }.keys
-            check(disagreeing.isEmpty()) { "participants ${disagreeing.sorted()} saw a different set of commitments" }
+            if (disagreeing.isNotEmpty()) throw Disagreement(disagreeing.sorted())
             val publicShares = (1..params.n).map { PublicShare(byIndex.getValue(it).publicShare) }
-            check(publicShares[me - 1] == myPublicShare) { "the public share published for this device is not the one its share gives" }
+            if (publicShares[me - 1] != myPublicShare) throw WrongPublicShare()
             val groupKey = when (val key = IcebergDkg.groupPublicKey(params, publicShares)) {
                 is Either.Left -> throw key.value
                 is Either.Right -> key.value
@@ -363,8 +366,43 @@ object IcebergRitualManager {
             throw e
         } catch (e: Throwable) {
             logger.e("Iceberg ceremony ${session.id} failed", e)
-            fail(database, session, e.message ?: e::class.simpleName ?: "Unknown error")
-            broadcast(database, localChatRoom, session, GroupLightningEvents.CEREMONY_FAILURE, e.message ?: "Ceremony failed")
+            // Said, not thrown: the exception is in the log, and what the group is told
+            // -- here, and on every other device through the failure message -- is a
+            // sentence naming the member at fault where the fault names one.
+            val reason = describe(database, session, e)
+            fail(database, session, reason)
+            broadcast(database, localChatRoom, session, GroupLightningEvents.CEREMONY_FAILURE, reason)
+        }
+    }
+
+    /** Some participants' transcript hashes are not this device's: they saw different commitments. */
+    private class Disagreement(val participants: List<Int>) : Exception("participants $participants saw a different set of commitments")
+
+    private class WrongPublicShare : Exception("the public share published for this device is not the one its share gives")
+
+    /**
+     * Why a ceremony stopped on this device, as a sentence for the group: in its failure line's
+     * reason, on its screen, and in the failure message the other devices read. Shaped like
+     * ChillDKG's blame -- the member at fault is the actionable part -- but with their name rather
+     * than their index, since the index is an order of keys nobody sees.
+     */
+    internal suspend fun describe(database: BennuDatabase, session: IcebergKeySession, failure: Throwable): String {
+        suspend fun named(index: Int?): String = index
+            ?.let { session.participants().getOrNull(it - 1) }
+            ?.let { "@" + ChatMessage.memberName(database, it) }
+            ?: "A member"
+
+        return when (failure) {
+            is IcebergDkg.Fault.MissingCommitment -> "${named(failure.participant)} sent no commitment to their contributions."
+            is IcebergDkg.Fault.MissingReveal -> "${named(failure.participant)} sent this device nothing in the second round."
+            is IcebergDkg.Fault.BadReveal -> "${named(failure.participant)} sent a contribution that does not match what they committed to."
+            is IcebergDkg.Fault.MalformedMessage -> "${named(failure.participant)} sent a message this device could not read."
+            is IcebergDkg.Fault.InconsistentShares -> "The members' public shares do not make one key."
+            is IcebergDkg.Fault.RepairMismatch -> "A repaired share does not match the public share published for it."
+            is Disagreement -> failure.participants.map { named(it) }.joinToString(", ") +
+                " saw a different set of commitments from this device."
+            is WrongPublicShare -> "The public share published for this device is not the one its share gives."
+            else -> "Something went wrong on this device."
         }
     }
 

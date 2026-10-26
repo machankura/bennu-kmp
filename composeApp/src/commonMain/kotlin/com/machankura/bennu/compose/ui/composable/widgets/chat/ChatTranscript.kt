@@ -35,6 +35,10 @@ import bennu.composeapp.generated.resources.join_the_ceremony
 import bennu.composeapp.generated.resources.send_your_contributions
 import bennu.composeapp.generated.resources.confirm_what_you_saw
 import bennu.composeapp.generated.resources.open_a_lightning_wallet
+import bennu.composeapp.generated.resources.open_the_shared_key_ceremony
+import bennu.composeapp.generated.resources.open_the_lightning_wallet_s_key_ceremony
+import bennu.composeapp.generated.resources.open_the_proposal
+import bennu.composeapp.generated.resources.you_approved_this
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
@@ -296,7 +300,8 @@ fun ChatTranscript(
                                         // subgroup's got buried under another.
                                         onClick = localChatMessage.chatMessage.dkgSessionId?.let { dkgSessionId ->
                                             { onOpenSharedKey(dkgSessionId) }
-                                        }
+                                        },
+                                        opens = stringResource(Res.string.open_the_shared_key_ceremony),
                                     )
                                     return@items
                                 }
@@ -308,7 +313,8 @@ fun ChatTranscript(
                                         localChatMessage = localChatMessage,
                                         isAnswered = localChatMessage.chatMessage.id in answeredRequests,
                                         isSettled = localChatMessage.chatMessage.id in settledRequests,
-                                        onClick = { onOpenIcebergCeremony(localChatMessage.chatMessage.dkgSessionId) }
+                                        onClick = { onOpenIcebergCeremony(localChatMessage.chatMessage.dkgSessionId) },
+                                        opens = stringResource(Res.string.open_the_lightning_wallet_s_key_ceremony),
                                     )
                                     return@items
                                 }
@@ -338,7 +344,8 @@ fun ChatTranscript(
                                         localChatMessage = localChatMessage,
                                         isAnswered = true,
                                         isSettled = true,
-                                        onClick = {}
+                                        onClick = null,
+                                        opens = null,
                                     )
                                     return@items
                                 }
@@ -356,7 +363,8 @@ fun ChatTranscript(
                                         localChatMessage = localChatMessage,
                                         isAnswered = true,
                                         isSettled = true,
-                                        onClick = {}
+                                        onClick = null,
+                                        opens = null,
                                     )
                                     return@items
                                 }
@@ -377,7 +385,8 @@ fun ChatTranscript(
                                         localChatMessage = localChatMessage,
                                         isAnswered = true,
                                         isSettled = true,
-                                        onClick = {}
+                                        onClick = null,
+                                        opens = null,
                                     )
                                     return@items
                                 }
@@ -392,7 +401,8 @@ fun ChatTranscript(
                                         localChatMessage = localChatMessage,
                                         isAnswered = true,
                                         isSettled = true,
-                                        onClick = {}
+                                        onClick = null,
+                                        opens = null,
                                     )
                                     return@items
                                 }
@@ -411,7 +421,8 @@ fun ChatTranscript(
                                             onOpenSigning(
                                                 localChatMessage.chatMessage.frostSigningSessionId
                                             )
-                                        }
+                                        },
+                                        opens = stringResource(Res.string.open_the_proposal),
                                     )
                                     return@items
                                 }
@@ -842,8 +853,14 @@ private fun RitualNotice(
     localChatMessage: LocalChatMessage,
     isAnswered: Boolean,
     isSettled: Boolean,
-    /** Null for a line that names no ceremony, which then opens nothing. */
+    /** Null for a line that leads nowhere, or names no ceremony, which then opens nothing. */
     onClick: (() -> Unit)?,
+    /**
+     * What a tap opens, as the chevron's description; null draws no chevron. Each family
+     * opens its own screen, and one description for all of them told a screen reader
+     * every signing line opened the shared key ceremony.
+     */
+    opens: String?,
 ) {
     val chatMessage = localChatMessage.chatMessage
 
@@ -915,11 +932,10 @@ private fun RitualNotice(
     // So is a settled one -- declined, abandoned, or signed by a quorum that did
     // not need this member. Nothing was answered there, so it gets no tick, but
     // offering to review it would be offering a decision that has already gone by.
-    val isRequest = (
-        chatMessage.messageType in ChatMessage.DKG_REQUEST_TYPES ||
-            chatMessage.messageType in ChatMessage.ICEBERG_REQUEST_TYPES ||
-            chatMessage.messageType in ChatMessage.FROST_REQUEST_TYPES
-        ) && !isAnswered && !isSettled
+    val asks = chatMessage.messageType in ChatMessage.DKG_REQUEST_TYPES ||
+        chatMessage.messageType in ChatMessage.ICEBERG_REQUEST_TYPES ||
+        chatMessage.messageType in ChatMessage.FROST_REQUEST_TYPES
+    val isRequest = asks && !isAnswered && !isSettled
 
     val tint = when {
         chatMessage.messageType == ChatMessage.TYPE_DKG_FAILED ||
@@ -996,18 +1012,23 @@ private fun RitualNotice(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary
             )
-        } else if (isAnswered) {
+        } else if (asks && isAnswered) {
+            // Only a request can have been approved. The lines that report rather
+            // than ask are passed as answered to keep them quiet, and a tick on
+            // "the group made a subgroup" would claim the reader approved it.
             Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = "You approved this",
+                contentDescription = stringResource(Res.string.you_approved_this),
                 tint = MaterialTheme.colorScheme.primary
             )
         }
 
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = "Open the shared key ceremony",
-            tint = tint
-        )
+        if (opens != null && onClick != null) {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = opens,
+                tint = tint
+            )
+        }
     }
 }
