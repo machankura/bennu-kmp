@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import kotlin.time.Instant
 import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.database.model.IcebergChannelLedger
 import com.machankura.bennu.compose.database.model.MarmotGroupEvent
@@ -215,5 +216,58 @@ class GroupLightningReportsJvmTest {
         val lying = WalletWire.Snapshot(key, 1, wallet.statement.nodeId, Clock.System.now().epochSeconds + 60, emptyList(), emptyList(), offer = someoneElse)
         GroupLightningReports.process(all[3].db, all[3].room, snapshotEvent(all[1], lying))
         assertNull(GroupLightningReports.latest(all[3].db, key)!!.snapshot.offer, "an offer that pays some other node is dropped")
+    }
+
+    /**
+     * What the snapshots say happened, said once per fact however many snapshots repeat it
+     * (docs/group-lightning-transcript.md, Phase 5): a channel opening and closing, a payment
+     * received, sent and failed -- on every device, the operator's own included.
+     */
+    @Test
+    fun `what the snapshots say happened is said once, on every device`() = runBlocking<Unit> {
+        val (all, node) = running()
+        val sent = WalletWire.PaymentView("p2", incoming = false, amountMsat = 5_000_000, feesMsat = 1_500, completedAt = 1_700_000_100_000, succeeded = true)
+        val failed = WalletWire.PaymentView("p3", incoming = false, amountMsat = 7_000_000, feesMsat = 0, completedAt = 1_700_000_200_000, succeeded = false)
+        val pending = WalletWire.PaymentView("p4", incoming = true, amountMsat = 1_000_000, feesMsat = 0, completedAt = null, succeeded = false)
+        nodes.single().channels = listOf(channel)
+        nodes.single().payments += listOf(payment, sent, failed, pending)
+        node.report(term = 1)
+        fixture.pump(all, setOf(GroupLightningEvents.SNAPSHOT))
+        // The same facts again, and then the channel closing.
+        nodes.single().channels = listOf(channel.copy(commitIndex = 4))
+        node.report(term = 1)
+        fixture.pump(all, setOf(GroupLightningEvents.SNAPSHOT))
+        nodes.single().channels = listOf(channel.copy(state = "Closing", commitIndex = 5))
+        node.report(term = 1)
+        fixture.pump(all, setOf(GroupLightningEvents.SNAPSHOT))
+
+        all.forEach { d ->
+            fun one(type: String) = runBlocking { fixture.lines(d, type) }.also { assertEquals(1, it.size, "device ${d.index}: $type") }.single().content
+            assertEquals("The group's Lightning node opened a channel of 1,000,000 sats.", one(ChatMessage.TYPE_LIGHTNING_CHANNEL_OPENED))
+            assertEquals("A Lightning channel closed. Its 400,000 sats go to the onchain wallet.", one(ChatMessage.TYPE_LIGHTNING_CHANNEL_CLOSED))
+            assertEquals("The group's Lightning wallet received 21,000 sats, for \u201clunch\u201d.", one(ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED))
+            assertEquals("The group's Lightning wallet sent 5,000 sats, with 2 sats in fees.", one(ChatMessage.TYPE_LIGHTNING_PAYMENT_SENT))
+            assertEquals("A Lightning payment of 7,000 sats failed. Nothing left the wallet.", one(ChatMessage.TYPE_LIGHTNING_PAYMENT_FAILED))
+            assertEquals(
+                Instant.fromEpochMilliseconds(payment.completedAt!!),
+                fixture.lines(d, ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED).single().createdAt,
+                "a payment's line sits where the payment happened",
+            )
+        }
+    }
+
+    @Test
+    fun `a channel a newer snapshot no longer holds has closed`() = runBlocking<Unit> {
+        val (all, node) = running()
+        nodes.single().channels = listOf(channel)
+        node.report(term = 1)
+        fixture.pump(all, setOf(GroupLightningEvents.SNAPSHOT))
+        // A payment beside it, so this snapshot is not byte for byte the empty one the node
+        // started with, which in the same second would be the same event.
+        nodes.single().channels = emptyList()
+        nodes.single().payments += payment
+        node.report(term = 1)
+        fixture.pump(all, setOf(GroupLightningEvents.SNAPSHOT))
+        all.forEach { d -> assertEquals(1, fixture.lines(d, ChatMessage.TYPE_LIGHTNING_CHANNEL_CLOSED).size, "device ${d.index}") }
     }
 }

@@ -48,4 +48,36 @@ internal object GroupLightningLines {
             )
         )
     }
+
+    /**
+     * Writes the line for one fact the operator's snapshots report, unless the room already has it.
+     * There is no message to hang it off: the same fact arrives in every snapshot until it stops
+     * being true, so [factKey] -- the channel, the payment -- is what makes it one line.
+     */
+    suspend fun writeFact(
+        database: BennuDatabase,
+        chatRoomId: String,
+        messageType: String,
+        factKey: String,
+        reportedBy: HexKey,
+        content: String,
+        createdAt: Instant,
+    ) {
+        if (database.chatMessageDao().getLightningFactLine(chatRoomId, messageType, factKey) != null) return
+        val reader = database.chatRoomDao().findChatRoomById(chatRoomId)?.chatRoom?.userPublicKey
+        database.chatMessageDao().upsert(
+            ChatMessage(
+                senderPublicKey = reportedBy,
+                isUserMessage = reader != null && reader.equals(reportedBy, ignoreCase = true),
+                giftWrapPayloadId = null,
+                marmotGroupEventId = null,
+                marmotInnerEventId = null,
+                chatRoomId = chatRoomId,
+                content = content,
+                messageType = messageType,
+                lightningFactKey = factKey,
+                createdAt = createdAt,
+            )
+        )
+    }
 }

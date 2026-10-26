@@ -188,7 +188,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 33,
+    version = 34,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -411,6 +411,11 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // v33 deletes the raw-JSON chat lines the group Lightning wallet's own messages left
         // (docs/group-lightning-transcript.md, Phase 1). Manual -- it deletes rows -- so it is
         // MIGRATION_32_33 in `getRoomDatabase`, not an entry here.
+        //
+        // v34 adds the nullable ChatMessage.lightningFactKey: the channel or payment a Lightning
+        // wallet line reports (docs/group-lightning-transcript.md, Phase 5). Null on every line
+        // before it, none of which is one.
+        AutoMigration(from = 33, to = 34),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)

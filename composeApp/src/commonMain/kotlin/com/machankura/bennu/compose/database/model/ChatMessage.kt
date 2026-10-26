@@ -154,6 +154,18 @@ data class ChatMessage(
      */
     val dkgSessionId: String? = null,
 
+    /**
+     * The fact a Lightning wallet line reports, for the lines that come from the operator's
+     * snapshots rather than from a message: a channel's id, or a payment's. Null for
+     * anything else.
+     *
+     * A snapshot restates the whole wallet every few minutes, so the message it came in
+     * cannot be what makes its line one line -- the channel or the payment is. Kept on the
+     * row, like [frostSigningSessionId], because nothing in its type or time can say which
+     * channel it was. docs/group-lightning-transcript.md, Phase 5.
+     */
+    val lightningFactKey: String? = null,
+
     override val createdAt: Instant = Clock.System.now(),
     override val updatedAt: Instant = createdAt,
     override val savedAt: Instant = Clock.System.now(),
@@ -592,12 +604,29 @@ data class ChatMessage(
         const val TYPE_LIGHTNING_INVOICE_ISSUED = "lightningInvoiceIssued"
         const val TYPE_LIGHTNING_OPERATOR_STOPPED = "lightningOperatorStopped"
 
+        /**
+         * What the operator's snapshots say happened, one line per fact rather than per
+         * snapshot: a channel opening and closing, a payment settling or failing. No actor --
+         * the node did these, and naming the operator would read as them having chosen to.
+         * Keyed on [lightningFactKey]. docs/group-lightning-transcript.md, Phase 5.
+         */
+        const val TYPE_LIGHTNING_CHANNEL_OPENED = "lightningChannelOpened"
+        const val TYPE_LIGHTNING_CHANNEL_CLOSED = "lightningChannelClosed"
+        const val TYPE_LIGHTNING_PAYMENT_RECEIVED = "lightningPaymentReceived"
+        const val TYPE_LIGHTNING_PAYMENT_SENT = "lightningPaymentSent"
+        const val TYPE_LIGHTNING_PAYMENT_FAILED = "lightningPaymentFailed"
+
         /** Every Lightning wallet line, for the one check the transcript dispatches on. */
         val LIGHTNING_TYPES = setOf(
             TYPE_LIGHTNING_SEED_SHARED,
             TYPE_LIGHTNING_INVOICE_REQUESTED,
             TYPE_LIGHTNING_INVOICE_ISSUED,
             TYPE_LIGHTNING_OPERATOR_STOPPED,
+            TYPE_LIGHTNING_CHANNEL_OPENED,
+            TYPE_LIGHTNING_CHANNEL_CLOSED,
+            TYPE_LIGHTNING_PAYMENT_RECEIVED,
+            TYPE_LIGHTNING_PAYMENT_SENT,
+            TYPE_LIGHTNING_PAYMENT_FAILED,
         )
 
         /** As [DKG_AUTHORED_TYPES]: content written to follow the actor's name. The node's answer has no actor. */

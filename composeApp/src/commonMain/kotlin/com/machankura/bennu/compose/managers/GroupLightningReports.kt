@@ -44,7 +44,7 @@ object GroupLightningReports {
     /** Sends [snapshot] to the room, and files it here as every member would. */
     suspend fun publishSnapshot(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, snapshot: WalletWire.Snapshot) {
         GroupLightningWalletManager.queue(database, localChatRoom, userPublicKey, GroupLightningEvents.SNAPSHOT, CommonJson.encodeToString(WalletWire.Snapshot.serializer(), snapshot))
-        file(database, userPublicKey, snapshot)
+        file(database, localChatRoom.chatRoom.id, userPublicKey, snapshot)
     }
 
     /** Routes one inbound snapshot or invoice. Invoice requests are read by the running node, not here. */
@@ -67,7 +67,7 @@ object GroupLightningReports {
         val operator = GroupLightningOperatorManager.ofTerm(database, localChatRoom.chatRoom.id, wallet.statement.chain, wallet.statement.wallet, snapshot.term)
         if (operator?.publicKey != innerEvent.pubKey) return logger.w("Snapshot ${innerEvent.id} is not from the operator of term ${snapshot.term}")
         // An offer is kept only if it is the one the group's node derives: the seed says which.
-        file(database, innerEvent.pubKey, snapshot.copy(offer = snapshot.offer?.takeIf { it == offerOf(wallet) }))
+        file(database, localChatRoom.chatRoom.id, innerEvent.pubKey, snapshot.copy(offer = snapshot.offer?.takeIf { it == offerOf(wallet) }))
         // The round-one labels the operator handed out, so whoever operates next signs under them.
         val dao = database.icebergCoSigningDao()
         snapshot.assignments.forEach { (purpose, counter) ->
@@ -88,9 +88,10 @@ object GroupLightningReports {
         return OfferManager.deterministicOffer(wallet.statement.chain.chainHash, nodeKey, PublicKey.fromHex(wallet.statement.lspNodeId), null, null, null).offer.encode()
     }
 
-    private suspend fun file(database: BennuDatabase, sentBy: HexKey, snapshot: WalletWire.Snapshot) {
+    private suspend fun file(database: BennuDatabase, chatRoomId: String, sentBy: HexKey, snapshot: WalletWire.Snapshot) {
         val dao = database.groupLightningRecordsDao()
         val held = dao.snapshot(snapshot.wallet)
+        val previous = held?.let { runCatching { CommonJson.decodeFromString(WalletWire.Snapshot.serializer(), it.content) }.getOrNull() }
         val newer = held == null || snapshot.term > held.term || (snapshot.term == held.term && snapshot.sentAt >= held.sentAt.epochSeconds)
         if (newer) {
             dao.upsertSnapshot(GroupLightningSnapshotRow(snapshot.wallet, sentBy, snapshot.term, CommonJson.encodeToString(WalletWire.Snapshot.serializer(), snapshot), Instant.fromEpochSeconds(snapshot.sentAt)))
@@ -98,6 +99,70 @@ object GroupLightningReports {
         // Payments are kept whatever the snapshot's age: a list of what happened only grows.
         snapshot.payments.forEach { p ->
             dao.upsertPayment(GroupLightningPaymentRow(snapshot.wallet, p.id, p.incoming, p.amountMsat, p.feesMsat, p.paymentHash, p.description, p.completedAt?.let(Instant::fromEpochMilliseconds), p.succeeded))
+        }
+        sayWhatHappened(database, chatRoomId, sentBy, snapshot, previous.takeIf { newer })
+    }
+
+    /** lightning-kmp's channel states from the moment a close begins: what a snapshot says a closing channel is. */
+    private val CLOSING_STATES = setOf("ShuttingDown", "Negotiating", "Closing", "Closed")
+
+    /**
+     * The lines for what [snapshot] says happened (docs/group-lightning-transcript.md, Phase 5): a
+     * channel this room has not been told of, a channel that began to close, a payment that settled or
+     * failed. Each is written once whatever the number of snapshots that repeat it, because the line is
+     * keyed on the channel or the payment. [previous] is the snapshot this one replaces, when it does:
+     * a channel it held that this one does not is gone, and closed.
+     */
+    private suspend fun sayWhatHappened(
+        database: BennuDatabase,
+        chatRoomId: String,
+        sentBy: HexKey,
+        snapshot: WalletWire.Snapshot,
+        previous: WalletWire.Snapshot?,
+    ) {
+        val sentAt = Instant.fromEpochSeconds(snapshot.sentAt)
+        fun sats(msat: Long) = "${Satoshi(msat / 1000).grouped()} sats"
+
+        suspend fun closed(channel: WalletWire.ChannelView) = GroupLightningLines.writeFact(
+            database, chatRoomId, ChatMessage.TYPE_LIGHTNING_CHANNEL_CLOSED, channel.channelId, sentBy,
+            if (channel.oursMsat >= 1000) "A Lightning channel closed. Its ${sats(channel.oursMsat)} go to the onchain wallet."
+            else "A Lightning channel closed, with nothing of the group's in it.",
+            sentAt,
+        )
+
+        snapshot.channels.forEach { channel ->
+            if (channel.state in CLOSING_STATES) {
+                closed(channel)
+            } else {
+                GroupLightningLines.writeFact(
+                    database, chatRoomId, ChatMessage.TYPE_LIGHTNING_CHANNEL_OPENED, channel.channelId, sentBy,
+                    "The group's Lightning node opened a channel of ${Satoshi(channel.capacitySat).grouped()} sats.",
+                    sentAt,
+                )
+            }
+        }
+        previous?.channels
+            ?.filter { held -> snapshot.channels.none { it.channelId == held.channelId } }
+            ?.forEach { closed(it) }
+
+        snapshot.payments.forEach { payment ->
+            val completedAt = payment.completedAt?.let(Instant::fromEpochMilliseconds) ?: return@forEach
+            val (type, content) = when {
+                payment.incoming && payment.succeeded -> ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED to buildString {
+                    append("The group's Lightning wallet received ${sats(payment.amountMsat)}")
+                    payment.description?.takeIf { it.isNotBlank() }?.let { append(", for \u201c$it\u201d") }
+                    append(".")
+                }
+                payment.incoming -> return@forEach
+                payment.succeeded -> ChatMessage.TYPE_LIGHTNING_PAYMENT_SENT to buildString {
+                    append("The group's Lightning wallet sent ${sats(payment.amountMsat)}")
+                    if (payment.feesMsat > 0) append(", with ${Satoshi((payment.feesMsat + 999) / 1000).grouped()} sats in fees")
+                    append(".")
+                }
+                else -> ChatMessage.TYPE_LIGHTNING_PAYMENT_FAILED to
+                    "A Lightning payment of ${sats(payment.amountMsat)} failed. Nothing left the wallet."
+            }
+            GroupLightningLines.writeFact(database, chatRoomId, type, payment.id, sentBy, content, completedAt)
         }
     }
 

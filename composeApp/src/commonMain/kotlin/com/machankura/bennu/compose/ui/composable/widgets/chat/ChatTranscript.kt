@@ -1,5 +1,9 @@
 package com.machankura.bennu.compose.ui.composable.widgets.chat
 
+import androidx.compose.material.icons.filled.CallMade
+import androidx.compose.material.icons.filled.CallReceived
+import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.AddLink
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -951,6 +955,11 @@ private fun RitualNotice(
         ChatMessage.TYPE_LIGHTNING_INVOICE_REQUESTED -> Icons.Default.RequestQuote
         ChatMessage.TYPE_LIGHTNING_INVOICE_ISSUED -> Icons.Default.Receipt
         ChatMessage.TYPE_LIGHTNING_OPERATOR_STOPPED -> Icons.Default.PowerSettingsNew
+        ChatMessage.TYPE_LIGHTNING_CHANNEL_OPENED -> Icons.Default.AddLink
+        ChatMessage.TYPE_LIGHTNING_CHANNEL_CLOSED -> Icons.Default.LinkOff
+        ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED -> Icons.Default.CallReceived
+        ChatMessage.TYPE_LIGHTNING_PAYMENT_SENT -> Icons.Default.CallMade
+        ChatMessage.TYPE_LIGHTNING_PAYMENT_FAILED -> Icons.Default.ErrorOutline
 
         else -> Icons.Default.PanTool
     }
@@ -973,6 +982,7 @@ private fun RitualNotice(
             chatMessage.messageType == ChatMessage.TYPE_ICEBERG_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_FROST_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_MEMBER_INVITE_FAILED ||
+            chatMessage.messageType == ChatMessage.TYPE_LIGHTNING_PAYMENT_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_CHANGE_REJECTED ->
             MaterialTheme.colorScheme.error
         isRequest -> MaterialTheme.colorScheme.primary

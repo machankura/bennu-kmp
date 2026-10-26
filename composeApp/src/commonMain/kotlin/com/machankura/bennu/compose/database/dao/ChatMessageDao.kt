@@ -45,6 +45,10 @@ interface ChatMessageDao {
     @Query("SELECT * FROM ChatMessage WHERE marmotInnerEventId = :marmotInnerEventId ORDER BY createdAt DESC")
     suspend fun getChatMessagesByMarmotInnerEventId(marmotInnerEventId: HexKey): ChatMessage?
 
+    /** The room's line of [messageType] about one Lightning wallet fact, if it has one. */
+    @Query("SELECT * FROM ChatMessage WHERE chatRoomId = :chatRoomId AND messageType = :messageType AND lightningFactKey = :lightningFactKey LIMIT 1")
+    suspend fun getLightningFactLine(chatRoomId: String, messageType: String, lightningFactKey: String): ChatMessage?
+
     @Query("SELECT * FROM ChatMessage WHERE marmotGroupEventId = :marmotGroupEventId ORDER BY createdAt DESC")
     suspend fun getChatMessagesByMarmotGroupEventId(marmotGroupEventId: HexKey): ChatMessage?
 
