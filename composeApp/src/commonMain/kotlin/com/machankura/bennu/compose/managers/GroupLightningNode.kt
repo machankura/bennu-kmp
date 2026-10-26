@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
 import com.machankura.bennu.compose.wallet.GroupChainClients
 import com.machankura.bennu.compose.wallet.lightning.GroupNodeKeyManager
@@ -59,11 +60,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The group's Lightning node, on the operator's device (`docs/group-lightning-wallet.md`, Phase 8).
@@ -151,6 +157,9 @@ class GroupLightningNode(
     private var transport: GroupIcebergTransport? = null
     private var watching: Job? = null
     private var connecting: Job? = null
+    private var waking: Job? = null
+    /** Held while the node acts on what the room asked of it, so no two callers act on one request at once. */
+    private val acting = Mutex()
     private var lastReported: Triple<List<WalletWire.ChannelView>, List<WalletWire.PaymentView>, List<GroupSweep.Input>>? = null
     private var lastReportedAt: kotlin.time.Instant? = null
 
@@ -194,6 +203,7 @@ class GroupLightningNode(
         lastReported = null
         report(term, force = true)
         watchForHandover(term)
+        wakeOnRequests()
         logger.i("The group's node ${wallet.statement.nodeId.take(16)} is running, term $term")
         return _state.value
     }
@@ -211,6 +221,8 @@ class GroupLightningNode(
         // First, or the disconnect below would read as a drop and be redialled.
         connecting?.cancel()
         connecting = null
+        waking?.cancel()
+        waking = null
         peer?.disconnect()
         transport?.stop()
         peer = null
@@ -242,8 +254,8 @@ class GroupLightningNode(
     }
 
     /** Makes an invoice for every request in the room that has none yet. */
-    internal suspend fun answerInvoiceRequests() {
-        val handle = peer ?: return
+    internal suspend fun answerInvoiceRequests() = acting.withLock {
+        val handle = peer ?: return@withLock
         GroupLightningReports.unanswered(database, localChatRoom.chatRoom.id, walletKey).forEach { request ->
             val bolt11 = handle.createInvoice(request.amountMsat, request.description)
             GroupLightningReports.answer(database, localChatRoom, userPublicKey, request, bolt11)
@@ -257,8 +269,8 @@ class GroupLightningNode(
      * that fails is not tried again: the group signs a new authorisation for another attempt, and the
      * co-signers' budgets are what stop either from paying twice.
      */
-    internal suspend fun payAuthorised() {
-        val handle = peer ?: return
+    internal suspend fun payAuthorised() = acting.withLock {
+        val handle = peer ?: return@withLock
         GroupLightningAuthorisations.toPay(database, wallet, now()).forEach { pay ->
             if (pay.paymentHash in paying || handle.hasPaid(pay.paymentHash)) return@forEach
             paying += pay.paymentHash
@@ -277,12 +289,12 @@ class GroupLightningNode(
      * the onchain wallet's first address, which is where the channel's own closing script already
      * points, or by force.
      */
-    internal suspend fun closeAuthorised() {
-        val handle = peer ?: return
+    internal suspend fun closeAuthorised() = acting.withLock {
+        val handle = peer ?: return@withLock
         val open = handle.channels().map { it.channelId }.toSet()
         val actions = GroupLightningAuthorisations.channelActions(database, localChatRoom.chatRoom.id, wallet.statement, now())
-        if (actions.isEmpty()) return
-        val onchain = GroupWalletManager.walletFor(database, localChatRoom.chatRoom.id, chain, wallet.statement.onchainAccount) ?: return
+        if (actions.isEmpty()) return@withLock
+        val onchain = GroupWalletManager.walletFor(database, localChatRoom.chatRoom.id, chain, wallet.statement.onchainAccount) ?: return@withLock
         val closeTo = GroupWalletDerivation.derive(onchain.account, GroupWalletDerivation.RECEIVE, 0).pubkeyScript
         actions.filter { it.channelId in open }.forEach { action ->
             if (!closing.add("${action.action}:${action.channelId}")) return@forEach
@@ -339,10 +351,37 @@ class GroupLightningNode(
                     return@launch
                 }
                 runCatching { report(term) }.onFailure { logger.e("Could not report the wallet to the room", it) }
-                runCatching { answerInvoiceRequests() }.onFailure { logger.e("Could not answer an invoice request", it) }
-                runCatching { payAuthorised() }.onFailure { logger.e("Could not make an authorised payment", it) }
-                runCatching { closeAuthorised() }.onFailure { logger.e("Could not close an authorised channel", it) }
+                act()
             }
+        }
+    }
+
+    /**
+     * Answers invoice requests, and makes the payments and channel actions the group has authorised. Each
+     * takes [acting] itself, so the poll, a wakeup and a direct call never pay or answer the same thing twice.
+     */
+    private suspend fun act() {
+        runCatching { answerInvoiceRequests() }.onFailure { logger.e("Could not answer an invoice request", it) }
+        runCatching { payAuthorised() }.onFailure { logger.e("Could not make an authorised payment", it) }
+        runCatching { closeAuthorised() }.onFailure { logger.e("Could not close an authorised channel", it) }
+    }
+
+    /**
+     * Acts the moment the room's invoice requests or authorisations change, rather than at the next
+     * [handoverCheck]: on the first mainnet run that poll was most of the wait for an invoice and for a
+     * payment to leave once the group had signed it. The poll still runs, for expiries and snapshots.
+     */
+    private fun wakeOnRequests() {
+        waking?.cancel()
+        val roomId = localChatRoom.chatRoom.id
+        waking = scope.launch {
+            combine(
+                database.marmotInnerEventDao().observeCountByChatRoomAndKinds(roomId, listOf(GroupLightningEvents.INVOICE_REQUEST)),
+                database.groupSignedEventDao().observeCountByChatRoomIdAndKind(roomId, GroupLightningAuthorisationEvent.KIND),
+            ) { requests, authorisations -> requests to authorisations }
+                .distinctUntilChanged()
+                .conflate()
+                .collect { act() }
         }
     }
 

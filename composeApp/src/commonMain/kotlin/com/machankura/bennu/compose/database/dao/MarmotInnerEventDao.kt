@@ -62,6 +62,13 @@ interface MarmotInnerEventDao {
     @Query("SELECT * FROM MarmotInnerEvent WHERE chatRoomId = :chatRoomId AND kind IN (:kinds) ORDER BY createdAt ASC")
     suspend fun getByChatRoomAndKinds(chatRoomId: String, kinds: List<Int>): List<MarmotInnerEvent>
 
+    /**
+     * How many of a room's inner events are of the given kinds, as it changes: what the group's Lightning
+     * node watches to answer an invoice request the moment one arrives, rather than at its next poll.
+     */
+    @Query("SELECT COUNT(*) FROM MarmotInnerEvent WHERE chatRoomId = :chatRoomId AND kind IN (:kinds)")
+    fun observeCountByChatRoomAndKinds(chatRoomId: String, kinds: List<Int>): Flow<Int>
+
     @Query("DELETE FROM MarmotInnerEvent WHERE id = :id")
     suspend fun deleteById(id: String)
 

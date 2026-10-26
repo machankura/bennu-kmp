@@ -29,6 +29,13 @@ abstract class GroupSignedEventDao {
     abstract suspend fun getByChatRoomIdAndKind(chatRoomId: String, kind: Kind): List<GroupSignedEvent>
 
     /**
+     * How many events of one kind a room has signed, as it changes: what the group's Lightning node watches
+     * to act on a payment or channel action the moment the group authorises it, rather than at its next poll.
+     */
+    @Query("SELECT COUNT(*) FROM GroupSignedEvent WHERE chatRoomId = :chatRoomId AND kind = :kind")
+    abstract fun observeCountByChatRoomIdAndKind(chatRoomId: String, kind: Kind): Flow<Int>
+
+    /**
      * Every signed event of one kind, whatever room it was signed in.
      *
      * The one query here that is not about a room, and it exists for the one

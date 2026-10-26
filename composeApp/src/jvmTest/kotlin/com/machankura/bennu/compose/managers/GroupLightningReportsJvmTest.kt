@@ -27,12 +27,15 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /**
  * What the operator's node tells the room, and what each member makes of it
@@ -160,6 +163,18 @@ class GroupLightningReportsJvmTest {
             assertEquals(21_000_000.msat, invoice.amount)
             assertEquals("lunch", invoice.description)
         }
+    }
+
+    @Test
+    fun `a request is answered as it arrives, not at the next poll`() = runBlocking<Unit> {
+        // The poll is ten minutes off: only the node's watch on the room can answer in time.
+        val (all, _) = running()
+        val wallet = GroupLightningWalletManager.walletFor(all[3].db, fixture.roomId, fixture.chain)!!
+        GroupLightningReports.requestInvoice(all[3].db, all[3].room, all[3].publicKey, wallet, 21_000_000, "lunch")
+        fixture.pump(all, setOf(GroupLightningEvents.INVOICE_REQUEST))
+        withTimeout(5.seconds) { while (nodes.single().invoices.isEmpty()) delay(20) }
+        delay(200)
+        assertEquals(1, nodes.single().invoices.size, "a request is answered once")
     }
 
     @Test

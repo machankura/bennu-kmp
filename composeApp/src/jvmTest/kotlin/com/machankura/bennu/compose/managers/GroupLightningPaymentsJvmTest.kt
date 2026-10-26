@@ -147,6 +147,29 @@ class GroupLightningPaymentsJvmTest {
     }
 
     @Test
+    fun `a payment leaves as the group signs it, not at the next poll`() = runBlocking<Unit> {
+        val (all, _) = opened()
+        val operator = all[1]
+        val id = randomBytes32().toHex()
+        operator.db.nostrEventDao().upsert(NostrEvent(id = id, pubKey = operator.publicKey, kind = 445, tags = emptyArray(), content = "", sig = "0".repeat(128)))
+        operator.db.marmotGroupEventDao().upsert(MarmotGroupEvent(id = id, userPublicKey = operator.publicKey, publicKey = operator.publicKey, chatRoomId = fixture.roomId, signature = "", encryptedContent = "", expiresAt = null, savedAt = Clock.System.now()))
+        val node = GroupLightningNode(
+            operator.db, operator.room, operator.publicKey, GroupLightningWalletManager.walletFor(operator.db, fixture.roomId, fixture.chain)!!, scope,
+            { configuration -> FakeGroupNode(configuration).also { nodes += it } },
+            handoverCheck = 10.minutes,
+            minimumPool = 0,
+        )
+        assertIs<GroupLightningNode.State.Running>(node.start())
+        val wallet = GroupLightningWalletManager.walletFor(all[3].db, fixture.roomId, fixture.chain)!!
+        val bolt11 = invoice().write()
+        authorise(all, GroupLightningAuthorisations.prepare(wallet, bolt11, null, 1_000_000).getOrThrow())
+        withTimeout(5.seconds) { while (nodes.single().paid.isEmpty()) delay(20) }
+        delay(200)
+        assertEquals(listOf(bolt11 to 12_000_000L), nodes.single().paid)
+        node.stop()
+    }
+
+    @Test
     fun `a close the group authorises is made once, to the onchain wallet, and a force close by force`() = runBlocking<Unit> {
         val (all, wallet) = opened()
         val operator = all[1]
