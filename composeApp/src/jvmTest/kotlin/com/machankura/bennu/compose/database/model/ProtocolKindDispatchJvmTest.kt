@@ -23,6 +23,7 @@ import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.builder.getRoomDatabase
 import com.machankura.bennu.compose.nostr.dkg.DkgRitualEvents
 import com.machankura.bennu.compose.nostr.frost.FrostSigningEvents
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 
 /**
  * A key ceremony's or a signing session's message, arriving in a Marmot room,
@@ -176,5 +177,38 @@ class ProtocolKindDispatchJvmTest {
             database.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId).isEmpty(),
             "and the room's transcript is untouched",
         )
+    }
+
+    /**
+     * The Lightning wallet's protocol is the third family, and the one that was missed:
+     * every kind of it left a raw-JSON bubble, attributed to whoever sent it, beside the
+     * lines its managers write. docs/group-lightning-transcript.md, Phase 1.
+     */
+    @Test
+    fun `a Lightning wallet message writes no chat line`(): Unit = runBlocking {
+        GroupLightningEvents.PROTOCOL.forEach { kind ->
+            val (_, line) = arrive(kind, content = """{"wallet":"w"}""")
+            assertNull(line, "kind $kind is the Lightning wallet's protocol")
+        }
+
+        assertTrue(
+            database.chatMessageDao().getChatMessagesByChatRoomId(chatRoomId).isEmpty(),
+            "and the room's transcript is untouched",
+        )
+        assertEquals(
+            GroupLightningEvents.PROTOCOL,
+            database.marmotInnerEventDao()
+                .getByChatRoomAndKinds(chatRoomId, GroupLightningEvents.PROTOCOL.toList())
+                .map { it.kind }
+                .toSet(),
+            "every one is still stored, for the managers that replay them",
+        )
+    }
+
+    /** The three the group signs are not protocol: their arms check them and describe them. */
+    @Test
+    fun `none of the kinds the group signs is protocol`() {
+        assertTrue((GroupLightningEvents.PROTOCOL intersect GroupLightningEvents.GROUP_SIGNED).isEmpty())
+        assertEquals(GroupLightningEvents.ALL, GroupLightningEvents.PROTOCOL + GroupLightningEvents.GROUP_SIGNED)
     }
 }

@@ -6,6 +6,7 @@ import com.machankura.bennu.compose.text.grouped
 import fr.acinq.bitcoin.Satoshi
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.text.describe
 import com.machankura.bennu.compose.text.BlockDuration
 import com.machankura.bennu.compose.nostr.wallet.MemberWalletPolicyEvent
@@ -943,9 +944,18 @@ data class ChatMessage(
                     // carries: an envelope holds a gift wrap, a decline does not.
                     // Treating every 30330 as a decline dropped every direct
                     // message in a current-profile room.
+                    //
+                    // The Lightning wallet's protocol is the third family, and was
+                    // missed: its ceremony, its co-signing and the operator's
+                    // traffic each left a raw-JSON bubble beside the lines their
+                    // managers write. docs/group-lightning-transcript.md, Phase 1.
+                    // The kinds the group signs are not among them -- they reach
+                    // `applyInnerEvent`, which checks and describes them.
                     val isDirectMessageEnvelope = MarmotDirectMessage.wrapInside(event) != null
                     val isProtocolMessage = !isDirectMessageEnvelope && (
-                        event.kind in DkgRitualEvents.ALL || event.kind in FrostSigningEvents.ALL
+                        event.kind in DkgRitualEvents.ALL ||
+                            event.kind in FrostSigningEvents.ALL ||
+                            event.kind in GroupLightningEvents.PROTOCOL
                     )
 
                     database.marmotInnerEventDao().upsert(
@@ -1259,6 +1269,13 @@ data class ChatMessage(
                 // line at all is an "unsupported" one for a ceremony that is
                 // none of their business.
                 in DkgRitualEvents.ALL -> null
+
+                // The Lightning wallet's ceremony, its co-signing and the
+                // operator's traffic, for the same reason again: the managers
+                // `NostrDao` dispatches them to act on them and write what is
+                // worth a line. Not the three the group signs, which have arms
+                // of their own below.
+                in GroupLightningEvents.PROTOCOL -> null
 
                 ChatEvent.KIND -> {
                     ChatMessage(

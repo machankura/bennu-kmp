@@ -79,5 +79,12 @@ object GroupLightningEvents {
     /** The three kinds the group signs with its FROST key, filed as `GroupSignedEvent`s. */
     val GROUP_SIGNED: Set<Kind> = setOf(WALLET_STATEMENT, OPERATOR_STATEMENT, AUTHORISATION)
 
-    val ALL: Set<Kind> = CEREMONY + CO_SIGNING + WALLET_TRAFFIC + GROUP_SIGNED
+    /**
+     * What members' devices say to each other, as opposed to what the group signs. Never a chat
+     * line as it arrives: the manager that acts on one writes the line, if it is worth one
+     * (`docs/group-lightning-transcript.md`).
+     */
+    val PROTOCOL: Set<Kind> = CEREMONY + CO_SIGNING + WALLET_TRAFFIC
+
+    val ALL: Set<Kind> = PROTOCOL + GROUP_SIGNED
 }
