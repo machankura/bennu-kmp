@@ -18,10 +18,12 @@ import fr.acinq.bitcoin.Satoshi
 import fr.acinq.bitcoin.utils.Either
 import fr.acinq.lightning.Feature
 import fr.acinq.lightning.FeatureSupport
+import fr.acinq.lightning.Features
 import fr.acinq.lightning.Lightning
 import fr.acinq.lightning.MilliSatoshi
 import fr.acinq.lightning.NodeParams
 import fr.acinq.lightning.PaymentEvents
+import fr.acinq.lightning.PeerConnected
 import fr.acinq.lightning.WalletParams
 import fr.acinq.lightning.blockchain.Feerates
 import fr.acinq.lightning.blockchain.electrum.ElectrumWatcher
@@ -45,7 +47,9 @@ import fr.acinq.lightning.io.WrappedChannelCommand
 import fr.acinq.lightning.logging.LoggerFactory
 import fr.acinq.lightning.payment.Bolt11Invoice
 import fr.acinq.lightning.payment.LiquidityPolicy
+import fr.acinq.lightning.utils.Connection
 import fr.acinq.lightning.utils.msat
+import fr.acinq.lightning.wire.Init
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -55,6 +59,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -83,6 +90,8 @@ class GroupLightningNode(
     /** How many pool counters must hold round one before the node connects; 0 for a test with no co-signers. */
     private val minimumPool: Int = MINIMUM_POOL,
     private val poolWait: Duration = POOL_WAIT,
+    /** How long to wait before redialling the LSP after [failures] attempts in a row that did not hold. */
+    private val reconnectAfter: (failures: Int) -> Duration = ::reconnectDelay,
 ) {
     private val logger = Logger.withTag("GroupLightningNode")
     private val chain = wallet.statement.chain
@@ -99,8 +108,11 @@ class GroupLightningNode(
 
     /** What this class needs of a running node. */
     interface PeerHandle {
+        /** Dials the LSP; true once the handshake is done, false when it could not be. */
         suspend fun connect(): Boolean
         fun disconnect()
+        /** Suspends until the connection to the LSP is down -- at once, when it is down already -- and says why. */
+        suspend fun awaitDisconnect(): String
         /** Each channel's local commitment number, by channel id: what the stopped message reports. */
         fun commitmentNumbers(): Map<String, Long>
         /** The node's channels, as a snapshot reports them. */
@@ -135,6 +147,7 @@ class GroupLightningNode(
     private var peer: PeerHandle? = null
     private var transport: GroupIcebergTransport? = null
     private var watching: Job? = null
+    private var connecting: Job? = null
     private var lastReported: Triple<List<WalletWire.ChannelView>, List<WalletWire.PaymentView>, List<GroupSweep.Input>>? = null
     private var lastReportedAt: kotlin.time.Instant? = null
 
@@ -174,7 +187,7 @@ class GroupLightningNode(
         this.transport = transport
         peer = handle
         _state.value = State.Running(term)
-        handle.connect()
+        stayConnected(handle, runCatching { handle.connect() })
         lastReported = null
         report(term, force = true)
         watchForHandover(term)
@@ -192,6 +205,9 @@ class GroupLightningNode(
     private suspend fun halt() {
         val running = _state.value as? State.Running ?: return
         val numbers = peer?.commitmentNumbers().orEmpty()
+        // First, or the disconnect below would read as a drop and be redialled.
+        connecting?.cancel()
+        connecting = null
         peer?.disconnect()
         transport?.stop()
         peer = null
@@ -275,6 +291,38 @@ class GroupLightningNode(
         }
     }
 
+    /**
+     * Redials the LSP each time the connection ends, logging why it ended, until the node stops. lightning-kmp
+     * does not reconnect by itself, and the identity's own node has Phoenix's connection daemon to do it; this
+     * one had nothing, so a single drop left it offline for the rest of the term.
+     *
+     * A connection that ends inside [STABLE_CONNECTION] counts against the backoff like one that never came
+     * up: an LSP that completes the handshake and hangs up on reading our features would otherwise be redialled
+     * every few seconds for as long as the term lasts.
+     */
+    private fun stayConnected(handle: PeerHandle, first: Result<Boolean>) {
+        connecting?.cancel()
+        connecting = scope.launch {
+            var attempt = first
+            var since = now()
+            var failures = 0
+            while (isActive) {
+                val reason = attempt.fold({ handle.awaitDisconnect() }, { it.message ?: it::class.simpleName.orEmpty() })
+                val connected = attempt.getOrDefault(false)
+                val lasted = now() - since
+                failures = if (connected && lasted >= STABLE_CONNECTION) 1 else failures + 1
+                val wait = reconnectAfter(failures)
+                logger.w(
+                    if (connected) "The group's node lost the LSP after $lasted: $reason. Reconnecting in $wait"
+                    else "The group's node could not reach the LSP: $reason. Trying again in $wait"
+                )
+                delay(wait)
+                since = now()
+                attempt = runCatching { handle.connect() }
+            }
+        }
+    }
+
     /** Stops the node as soon as the room's newest operator statement names a later term. */
     private fun watchForHandover(term: Long) {
         watching?.cancel()
@@ -324,6 +372,34 @@ class GroupLightningNode(
         val REPORT_EVERY: Duration = 5.minutes
         /** How many of the newest payments a snapshot carries; members keep every one they have seen. */
         const val REPORTED_PAYMENTS = 50
+
+        /** How long a connection to the LSP has to last to reset the backoff. */
+        val STABLE_CONNECTION: Duration = 1.minutes
+        val RECONNECT_FIRST: Duration = 2.seconds
+        val RECONNECT_MAX: Duration = 5.minutes
+        /** How long a drop's reason waits for the LSP's init, which can reach the node after the socket closes. */
+        val INIT_GRACE: Duration = 1.seconds
+
+        /** [RECONNECT_FIRST], doubling with each attempt in a row that did not hold, up to [RECONNECT_MAX]. */
+        fun reconnectDelay(failures: Int): Duration =
+            if (failures >= 20) RECONNECT_MAX else (RECONNECT_FIRST * (1 shl (failures - 1).coerceAtLeast(0))).coerceAtMost(RECONNECT_MAX)
+
+        /**
+         * Why a connection to the LSP ended, from the socket's reason and the features each side sent. The
+         * features come first when they explain it: an LSP that does not offer a feature we require hangs up
+         * after the Init exchange, and the socket only says it was closed.
+         */
+        internal fun dropReason(ours: Features, theirs: Features?, closed: Connection.CLOSED): String {
+            val socket = closed.reason?.message ?: "closed by this node"
+            if (theirs == null) return "$socket, before the LSP sent its features"
+            val missing = ours.activated.filter { (feature, support) -> support == FeatureSupport.Mandatory && !theirs.hasFeature(feature) }.keys.map { it.rfcName }
+            val unknownToUs = theirs.unknown.filter { it.bitIndex % 2 == 0 }.map { "bit ${it.bitIndex}" }
+            return when {
+                missing.isNotEmpty() -> "$socket: the LSP does not offer ${missing.joinToString()}, which this node requires"
+                unknownToUs.isNotEmpty() -> "$socket: the LSP requires ${unknownToUs.joinToString()}, which this node does not know"
+                else -> socket
+            }
+        }
 
         /**
          * Builds real lightning-kmp nodes: simple taproot channels only, peer storage on, zero-conf with the
@@ -379,9 +455,12 @@ class GroupLightningNode(
                 }
             }
             val payments = mutableListOf<WalletWire.PaymentView>()
+            // The LSP's features as it sent them on the current connection, for saying why one ended.
+            val lspInit = MutableStateFlow<Init?>(null)
             scope.launch {
                 nodeParams.nodeEvents.collect { event ->
                     when (event) {
+                        is PeerConnected -> lspInit.value = event.theirInit
                         is PaymentEvents.PaymentReceived -> payments += paymentView(event.payment, incoming = true)
                         is PaymentEvents.PaymentSent -> payments += paymentView(event.payment, incoming = false)
                         else -> {}
@@ -389,8 +468,18 @@ class GroupLightningNode(
                 }
             }
             object : PeerHandle {
-                override suspend fun connect(): Boolean = peer.connect(connectTimeout = 10.seconds, handshakeTimeout = 10.seconds)
+                override suspend fun connect(): Boolean {
+                    lspInit.value = null
+                    return peer.connect(connectTimeout = 10.seconds, handshakeTimeout = 10.seconds)
+                }
                 override fun disconnect() = peer.disconnect()
+                override suspend fun awaitDisconnect(): String {
+                    val closed = peer.connectionState.first { it is Connection.CLOSED } as Connection.CLOSED
+                    // An LSP that hangs up on our features does so milliseconds after its own init, and the
+                    // socket reads as closed before the peer's event for that init has reached us: wait for it.
+                    val theirs = withTimeoutOrNull(INIT_GRACE) { lspInit.filterNotNull().first() }
+                    return dropReason(nodeParams.features.initFeatures(), theirs?.features, closed)
+                }
                 override fun commitmentNumbers(): Map<String, Long> = peer.channelsFlow.value.mapNotNull { (id, state) ->
                     (state as? ChannelStateWithCommitments)?.let { id.toHex() to it.commitments.localCommitIndex }
                 }.toMap()

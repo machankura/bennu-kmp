@@ -8,7 +8,13 @@ import com.machankura.bennu.compose.wallet.lightning.GroupLightningNodes
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import fr.acinq.bitcoin.PublicKey
+import fr.acinq.lightning.Feature
+import fr.acinq.lightning.FeatureSupport
+import fr.acinq.lightning.Features
 import fr.acinq.lightning.Lightning.randomBytes32
+import fr.acinq.lightning.UnknownFeature
+import fr.acinq.lightning.io.TcpSocket
+import fr.acinq.lightning.utils.Connection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +27,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -73,11 +80,21 @@ class GroupLightningNodeJvmTest {
         )
     }
 
-    private suspend fun node(device: GroupLightningFixture.Device) = GroupLightningNode(
+    private suspend fun node(device: GroupLightningFixture.Device, reconnectAfter: (Int) -> Duration = { 10.milliseconds }) = GroupLightningNode(
         device.db, device.room, device.publicKey, GroupLightningWalletManager.walletFor(device.db, fixture.roomId, fixture.chain)!!, scope, factory,
         handoverCheck = 100.milliseconds,
         minimumPool = 0,
+        reconnectAfter = reconnectAfter,
     )
+
+    private suspend fun runningNode(reconnectAfter: (Int) -> Duration = { 10.milliseconds }): Pair<GroupLightningNode, FakeGroupNode> {
+        val all = ready()
+        elect(all, all[1])
+        heardFromRoom(all[1])
+        val node = node(all[1], reconnectAfter)
+        assertIs<GroupLightningNode.State.Running>(node.start())
+        return node to peers.single()
+    }
 
     @Test
     fun `the node runs on the group's keys`() = runBlocking<Unit> {
@@ -155,5 +172,65 @@ class GroupLightningNodeJvmTest {
         )
         assertIs<GroupLightningNode.State.Refused>(node.start())
         assertTrue(peers.isEmpty(), "it never connected")
+    }
+
+    @Test
+    fun `a node the LSP drops dials it again`() = runBlocking<Unit> {
+        val (node, peer) = runningNode()
+        assertEquals(1, peer.connects)
+        peer.drops.send("Connection closed")
+        withTimeout(5.seconds) { while (peer.connects < 2) delay(10) }
+        peer.drops.send("Connection closed")
+        withTimeout(5.seconds) { while (peer.connects < 3) delay(10) }
+        assertIs<GroupLightningNode.State.Running>(node.state.value)
+        node.stop()
+    }
+
+    @Test
+    fun `connections that drop at once back off further each time`() = runBlocking<Unit> {
+        val failures = mutableListOf<Int>()
+        val (node, peer) = runningNode(reconnectAfter = { failures += it; 10.milliseconds })
+        repeat(3) { i ->
+            peer.drops.send("Connection closed")
+            withTimeout(5.seconds) { while (peer.connects < i + 2) delay(10) }
+        }
+        assertEquals(listOf(1, 2, 3), failures)
+        node.stop()
+    }
+
+    @Test
+    fun `a stopped node does not dial again`() = runBlocking<Unit> {
+        val (node, peer) = runningNode()
+        node.stop()
+        peer.drops.send("Connection closed")
+        delay(200)
+        assertEquals(1, peer.connects)
+        assertTrue(peer.disconnected)
+    }
+
+    @Test
+    fun `the backoff doubles from two seconds to five minutes`() {
+        assertEquals(
+            listOf(2.seconds, 4.seconds, 8.seconds, 16.seconds, 32.seconds, 64.seconds, 128.seconds, 256.seconds, 5.minutes, 5.minutes),
+            (1..10).map(GroupLightningNode::reconnectDelay),
+        )
+        assertEquals(5.minutes, GroupLightningNode.reconnectDelay(1_000))
+    }
+
+    @Test
+    fun `a drop names the feature the LSP would not offer`() {
+        val ours = Features(Feature.SimpleTaprootChannels to FeatureSupport.Mandatory, Feature.VariableLengthOnion to FeatureSupport.Mandatory)
+        val closed = Connection.CLOSED(TcpSocket.IOException.ConnectionClosed())
+        assertEquals(
+            "Connection closed: the LSP does not offer simple_taproot_channels, which this node requires",
+            GroupLightningNode.dropReason(ours, Features(Feature.VariableLengthOnion to FeatureSupport.Mandatory), closed),
+        )
+        assertEquals(
+            "Connection closed: the LSP requires bit 600, which this node does not know",
+            GroupLightningNode.dropReason(ours, Features(ours.activated, setOf(UnknownFeature(600), UnknownFeature(601))), closed),
+        )
+        assertEquals("Connection closed", GroupLightningNode.dropReason(ours, ours, closed))
+        assertEquals("Connection closed, before the LSP sent its features", GroupLightningNode.dropReason(ours, null, closed))
+        assertEquals("closed by this node", GroupLightningNode.dropReason(ours, ours, Connection.CLOSED(null)))
     }
 }

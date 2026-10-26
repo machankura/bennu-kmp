@@ -12,6 +12,7 @@ import fr.acinq.lightning.Lightning.randomBytes32
 import fr.acinq.lightning.MilliSatoshi
 import fr.acinq.lightning.payment.Bolt11Invoice
 import fr.acinq.lightning.payment.OfferManager
+import kotlinx.coroutines.channels.Channel
 
 /**
  * A stand-in for the group's lightning-kmp node: no LSP to connect to, channels and payments as a test
@@ -21,6 +22,10 @@ import fr.acinq.lightning.payment.OfferManager
 class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfiguration) : GroupLightningNode.PeerHandle {
     var connected = false
     var disconnected = false
+    /** How many times the node has dialled the LSP. */
+    var connects = 0
+    /** A reason sent here ends the current connection, as the LSP hanging up would, with that reason. */
+    val drops = Channel<String>(Channel.UNLIMITED)
     var channels = listOf<WalletWire.ChannelView>()
     val payments = mutableListOf<WalletWire.PaymentView>()
     val invoices = mutableListOf<Bolt11Invoice>()
@@ -32,8 +37,9 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
     val forceClosed = mutableListOf<String>()
     var heldOutputs = listOf<GroupSweep.Input>()
 
-    override suspend fun connect(): Boolean { connected = true; return true }
+    override suspend fun connect(): Boolean { connected = true; connects++; return true }
     override fun disconnect() { disconnected = true }
+    override suspend fun awaitDisconnect(): String = drops.receive().also { connected = false }
     override fun commitmentNumbers(): Map<String, Long> = mapOf("ab".repeat(32) to 7L)
     override fun channels(): List<WalletWire.ChannelView> = channels
     override fun payments(): List<WalletWire.PaymentView> = payments.toList()
