@@ -249,7 +249,7 @@ class GroupLightningRegtestJvmTest {
                     cloudKit = null,
                 )
             },
-            walletParamsFor = { walletParams },
+            walletParamsFor = { _, _ -> walletParams },
             loggerFactory = loggerFactory,
             scope = scope,
         )

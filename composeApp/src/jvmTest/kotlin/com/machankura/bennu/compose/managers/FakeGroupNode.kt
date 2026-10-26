@@ -24,6 +24,8 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
     var disconnected = false
     /** How many times the node has dialled the LSP. */
     var connects = 0
+    /** The attempt number each dial carried. */
+    val attempts = mutableListOf<Int>()
     /** A reason sent here ends the current connection, as the LSP hanging up would, with that reason. */
     val drops = Channel<String>(Channel.UNLIMITED)
     var channels = listOf<WalletWire.ChannelView>()
@@ -37,7 +39,7 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
     val forceClosed = mutableListOf<String>()
     var heldOutputs = listOf<GroupSweep.Input>()
 
-    override suspend fun connect(): Boolean { connected = true; connects++; return true }
+    override suspend fun connect(attempt: Int): Boolean { connected = true; connects++; attempts += attempt; return true }
     override fun disconnect() { disconnected = true }
     override suspend fun awaitDisconnect(): String = drops.receive().also { connected = false }
     override fun commitmentNumbers(): Map<String, Long> = mapOf("ab".repeat(32) to 7L)

@@ -159,6 +159,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletAddressesRoute
@@ -307,8 +308,9 @@ fun BennuNavHost(
     // profile with no node -- an nsec or an npub, which has one now -- can run it too.
     val groupLightningNodes = remember(groupChainClients) {
         val clients = groupChainClients
-        val user = activeIdentityForWallets?.nostrPublicKey
-        if (!GroupLightningRollout.ENABLED || clients == null || user == null) null else {
+        val identity = activeIdentityForWallets
+        val user = identity?.nostrPublicKey
+        if (!GroupLightningRollout.ENABLED || clients == null || identity == null || user == null) null else {
             val ctx = phoenixGlobal.ctx
             GroupLightningNodes(
                 database = auxDatabaseManager.auxDatabase,
@@ -323,9 +325,15 @@ fun BennuNavHost(
                             cloudKit = null,
                         )
                     },
-                    walletParamsFor = { chain -> LSP.from(chain).walletParams },
+                    // Phoenix's own choice of address: the LSP's onion while Tor is on, on the one network it has one.
+                    walletParamsFor = { chain, tor ->
+                        LSP.from(chain).walletParams.let { params ->
+                            if (tor && chain == NodeParamsManager.chain) params.copy(trampolineNode = NodeParamsManager.trampolineNodeOnionUri) else params
+                        }
+                    },
                     loggerFactory = phoenixGlobal.loggerFactory,
                     scope = applicationIOScope,
+                    torIsEnabled = { identity.userPrefs.getIsTorEnabled.first() },
                 ),
             ).also { it.start() }
         }

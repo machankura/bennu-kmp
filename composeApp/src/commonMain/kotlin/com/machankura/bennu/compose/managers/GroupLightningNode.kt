@@ -16,7 +16,6 @@ import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.PublicKey
 import fr.acinq.bitcoin.Satoshi
 import fr.acinq.bitcoin.utils.Either
-import fr.acinq.lightning.Feature
 import fr.acinq.lightning.FeatureSupport
 import fr.acinq.lightning.Features
 import fr.acinq.lightning.Lightning
@@ -50,6 +49,7 @@ import fr.acinq.lightning.payment.LiquidityPolicy
 import fr.acinq.lightning.utils.Connection
 import fr.acinq.lightning.utils.msat
 import fr.acinq.lightning.wire.Init
+import fr.acinq.phoenix.utils.extensions.isOnion
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -108,8 +108,11 @@ class GroupLightningNode(
 
     /** What this class needs of a running node. */
     interface PeerHandle {
-        /** Dials the LSP; true once the handshake is done, false when it could not be. */
-        suspend fun connect(): Boolean
+        /**
+         * Dials the LSP; true once the handshake is done, false when it could not be. [attempt] counts the tries
+         * in a row, from 1, for the timeouts to grow with as Phoenix's do.
+         */
+        suspend fun connect(attempt: Int = 1): Boolean
         fun disconnect()
         /** Suspends until the connection to the LSP is down -- at once, when it is down already -- and says why. */
         suspend fun awaitDisconnect(): String
@@ -187,7 +190,7 @@ class GroupLightningNode(
         this.transport = transport
         peer = handle
         _state.value = State.Running(term)
-        stayConnected(handle, runCatching { handle.connect() })
+        stayConnected(handle, runCatching { handle.connect(attempt = 1) })
         lastReported = null
         report(term, force = true)
         watchForHandover(term)
@@ -318,7 +321,7 @@ class GroupLightningNode(
                 )
                 delay(wait)
                 since = now()
-                attempt = runCatching { handle.connect() }
+                attempt = runCatching { handle.connect(attempt = failures + 1) }
             }
         }
     }
@@ -402,35 +405,55 @@ class GroupLightningNode(
         }
 
         /**
-         * Builds real lightning-kmp nodes: simple taproot channels only, peer storage on, zero-conf with the
-         * LSP alone, on the chain's Electrum connection, persisted in the databases [databasesFor] opens for
-         * the node's id.
+         * Phoenix's connect and handshake timeouts for the [attempt]th try in a row (`AppConnectionsDaemon`),
+         * three times as long over Tor.
+         */
+        fun connectTimeouts(attempt: Int, torIsEnabled: Boolean): Pair<Duration, Duration> = when {
+            attempt <= 1 -> 1.seconds to 2.seconds
+            attempt <= 3 -> 2.seconds to 4.seconds
+            attempt <= 6 -> 4.seconds to 7.seconds
+            attempt <= 10 -> 7.seconds to 10.seconds
+            else -> 10.seconds to 15.seconds
+        }.let { (connect, handshake) -> if (torIsEnabled) connect * 3 to handshake * 3 else connect to handshake }
+
+        /**
+         * Builds real lightning-kmp nodes, set up as Phoenix sets up its own (`NodeParamsManager`, `PeerManager`,
+         * `AppConnectionsDaemon`): lightning-kmp's default features, zero-conf with the LSP alone, the LSP reached
+         * at its onion address while the identity has Tor on, on the chain's Electrum connection, persisted in
+         * the databases [databasesFor] opens for the node's id.
+         *
+         * Simple taproot channels stay optional, as in Phoenix: lightning-kmp asks for that channel type in every
+         * channel it opens, and the co-signers rebuild every funding output and commitment as taproot, so the
+         * group never signs for another kind. Requiring the feature in `init` gained nothing and cost the
+         * connection: ACINQ's LSP does not list it in its own `init`, and a peer must hang up on a required
+         * feature it does not offer.
          */
         fun lightningKmpPeers(
             clients: GroupChainClients,
             databasesFor: (nodeId: PublicKey, chain: Chain) -> Databases,
-            walletParamsFor: (Chain) -> WalletParams,
+            walletParamsFor: (chain: Chain, torIsEnabled: Boolean) -> WalletParams,
             loggerFactory: LoggerFactory,
             scope: CoroutineScope,
+            /** Whether the identity reaches the network over Tor, read as each node starts, as Phoenix reads it as its peer is made. */
+            torIsEnabled: suspend () -> Boolean = { false },
         ): suspend (NodeConfiguration) -> PeerHandle = { configuration ->
             val base = NodeParams(configuration.chain, loggerFactory, configuration.keyManager)
             val nodeParams = base.copy(
-                features = base.features.copy(activated = base.features.activated + (Feature.SimpleTaprootChannels to FeatureSupport.Mandatory)),
                 zeroConfPeers = setOf(configuration.lspNodeId),
-                usePeerStorage = true,
-                // The group's own limit, not lightning-kmp's default of 2,000 sats: the statement it signed
-                // names what a channel opened on the fly may cost.
+                // Phoenix's default policy, except that the most one payment's liquidity may cost is the group's,
+                // from the statement it signed, rather than one member's setting.
                 liquidityPolicy = MutableStateFlow(
                     LiquidityPolicy.Auto(
                         inboundLiquidityTarget = null,
                         maxAbsoluteFee = configuration.maxLiquidityFee,
-                        maxRelativeFeeBasisPoints = 3_000,
+                        maxRelativeFeeBasisPoints = 50_00,
                         skipAbsoluteFeeCheck = false,
                         maxAllowedFeeCredit = 0.msat,
                     )
                 ),
             )
-            val walletParams = walletParamsFor(configuration.chain)
+            val tor = torIsEnabled()
+            val walletParams = walletParamsFor(configuration.chain, tor)
             require(walletParams.trampolineNode.id == configuration.lspNodeId) { "the wallet's LSP is not the node it would connect to" }
             val client = clients.clientFor(configuration.chain)
             val watcher = ElectrumWatcher(client, scope, loggerFactory)
@@ -468,9 +491,13 @@ class GroupLightningNode(
                 }
             }
             object : PeerHandle {
-                override suspend fun connect(): Boolean {
+                override suspend fun connect(attempt: Int): Boolean {
+                    // As Phoenix refuses to: over Tor, a clearnet address would leave Tor for the one connection
+                    // that says the most about the group's money.
+                    check(!tor || walletParams.trampolineNode.isOnion) { "Tor is on, and the LSP has no onion address on ${configuration.chain.name}" }
                     lspInit.value = null
-                    return peer.connect(connectTimeout = 10.seconds, handshakeTimeout = 10.seconds)
+                    val (connectTimeout, handshakeTimeout) = connectTimeouts(attempt, tor)
+                    return peer.connect(connectTimeout = connectTimeout, handshakeTimeout = handshakeTimeout)
                 }
                 override fun disconnect() = peer.disconnect()
                 override suspend fun awaitDisconnect(): String {

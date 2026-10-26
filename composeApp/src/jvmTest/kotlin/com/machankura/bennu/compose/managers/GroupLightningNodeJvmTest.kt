@@ -195,6 +195,8 @@ class GroupLightningNodeJvmTest {
             withTimeout(5.seconds) { while (peer.connects < i + 2) delay(10) }
         }
         assertEquals(listOf(1, 2, 3), failures)
+        // Each dial carries its place in the run, for Phoenix's growing timeouts.
+        assertEquals(listOf(1, 2, 3, 4), peer.attempts)
         node.stop()
     }
 
@@ -215,6 +217,14 @@ class GroupLightningNodeJvmTest {
             (1..10).map(GroupLightningNode::reconnectDelay),
         )
         assertEquals(5.minutes, GroupLightningNode.reconnectDelay(1_000))
+    }
+
+    @Test
+    fun `the timeouts grow as Phoenix's do, three times as long over Tor`() {
+        assertEquals(1.seconds to 2.seconds, GroupLightningNode.connectTimeouts(1, torIsEnabled = false))
+        assertEquals(4.seconds to 7.seconds, GroupLightningNode.connectTimeouts(5, torIsEnabled = false))
+        assertEquals(10.seconds to 15.seconds, GroupLightningNode.connectTimeouts(50, torIsEnabled = false))
+        assertEquals(3.seconds to 6.seconds, GroupLightningNode.connectTimeouts(1, torIsEnabled = true))
     }
 
     @Test
