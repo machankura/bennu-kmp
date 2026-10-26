@@ -5,7 +5,29 @@ every other piece of group business already does: its key ceremony as a ladder o
 lines and a standing ask above the composer, and the operator's traffic as
 sentences rather than raw events.
 
-**Plan, not built.** Written against `515ddea2`. Read
+**Built**, phases 1–6, one commit each: `638c5aab`, `03833a1c`, `3922c15d`,
+`1b4ed097`, `3ec79b95`, `a660fabd`, and Phase 7 is the commit that changed this
+paragraph. Written against `515ddea2`. The phases are kept as written; where the
+build chose differently the table below says so.
+
+| what the plan said | what it turned out to be |
+|---|---|
+| a manual migration 32 → 33, and Phase 5's column in it if both landed together | two steps: `MIGRATION_32_33` deletes the bubbles and changes no shape, and v34 is an `AutoMigration` that adds `ChatMessage.lightningFactKey` |
+| `AwaitingCeremony` gains a `kind` and a small sealed step | one sealed `Ask` replaces both `step` and `roomAwaitingCreation`: `SharedKeyStep`, `RoomCreation`, `LightningKeyStep`, `LightningWalletOpening`. A kind beside a step could disagree with it; the ask cannot |
+| the unused-key notice is asked of any member who holds a share | of whoever opened the ceremony only, as ChillDKG's room creation is. Every holder being asked to open the wallet is how a room gets four proposals for one wallet |
+| the chat's view model takes a `GroupLightningRepository` | and so does every screen between it and the nav host. `GroupLightningRepository.NO_OP_GROUP_LIGHTNING_REPOSITORY` joins the other repositories' no-ops, for the previews and the screen tests |
+| `RitualNotice`'s chevron says what each family opens | and the families that lead nowhere draw none and are not clickable. The approved tick moved to request lines only: a chronicle line, passed as answered to keep it quiet, was showing "You approved this" |
+| the invoice request line drops its accent once answered | it never has one. Nobody but the operator's node can answer it, so it is a quiet line like the rest, and the node's answer is a line of its own naming whoever asked |
+| the authorisation line names a closing channel's peer and amount | unchanged. The line is written from the signed event alone, before any snapshot that would say the amount; Phase 5's closed line says it when the channel does close |
+| a channel's balance disagreeing with this device's ledger is an error line (Phase 6) | not built. The wallet screen already flags it per channel, and a snapshot can lag a commitment the device has just signed, so a line would raise alarms that settle themselves a minute later |
+| refusals are said once per request | from `check()`'s own reasons, which were already sentences. A request from a member who is not the operator is still only logged: after a handover the old operator's requests are in flight for a while, and each would be a line |
+
+Every phase was checked with `:composeApp:jvmTest` (1,598 tests; one,
+`IdentitySwitchJvmTest`, timed out under the full run's load and passes alone),
+`:composeApp:compileDebugKotlinAndroid` and `m3-audit.sh --check`. The four-device
+regtest run and a look at a room on a device have not been done.
+
+Read
 [group-lightning-wallet.md](./group-lightning-wallet.md) for the wallet itself and
 [shared-key-ceremony.md](./shared-key-ceremony.md) for the transcript conventions
 this plan holds the Lightning wallet to. The UI rules in
