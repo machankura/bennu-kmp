@@ -7,18 +7,22 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.NostrRepository
 import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.activeUserPublicKey
 import com.machankura.bennu.compose.ui.composable.GroupSignedWorkFixtures.chatRoomId
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningWalletRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupWalletRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.Route
 import com.machankura.bennu.compose.ui.composable.widgets.ProvideSnackbarHost
 import com.machankura.bennu.compose.ui.theme.BennuTheme
 import com.machankura.bennu.compose.ui.view.state.ChatRoomDetailUIState
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.machankura.bennu.compose.wallet.GroupWalletRollout
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -53,11 +57,34 @@ class GroupSignedWorkRowsJvmTest {
         var opened: Route? = null
 
         render(state(), onNavigateToRoute = { opened = it }) {
-            onNodeWithText("Not opened yet").assertIsDisplayed()
+            // This row's own status: the testnet3 wallet's row, below it, says the same of its wallet.
+            onNode(hasText(WALLET_ROW) and hasText("Not opened yet")).assertIsDisplayed()
             onNodeWithText(WALLET_ROW).performClick()
         }
 
         assertEquals(GroupWalletRoute(activeUserPublicKey, chatRoomId, relayHint = null), opened)
+    }
+
+    @Test
+    fun `the Lightning wallet's rows open it, and the testnet3 wallet it closes to`() {
+        if (!GroupWalletRollout.ENABLED || !GroupLightningRollout.ENABLED) return
+        val network = GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK)
+        val opened = mutableListOf<Route>()
+
+        render(state(), onNavigateToRoute = { opened += it }) {
+            onNode(hasText("Lightning wallet") and hasText(network)).assertIsDisplayed()
+            onNode(hasText("Group onchain wallet on $network") and hasText("Not opened yet")).assertIsDisplayed()
+            onNodeWithText("Lightning wallet").performClick()
+            onNodeWithText("Group onchain wallet on $network").performClick()
+        }
+
+        assertEquals(
+            listOf(
+                GroupLightningWalletRoute(activeUserPublicKey, chatRoomId),
+                GroupWalletRoute(activeUserPublicKey, chatRoomId, relayHint = null, chain = network),
+            ),
+            opened,
+        )
     }
 
     @Test

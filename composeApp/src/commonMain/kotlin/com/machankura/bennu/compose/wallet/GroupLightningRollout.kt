@@ -12,9 +12,12 @@ import fr.acinq.bitcoin.Chain
 object GroupLightningRollout {
     /**
      * Whether the group's screen offers a Lightning wallet, and the test-network on-chain wallet it closes
-     * to. Lifts when Phases 0 to 12 are in, the JVM suite passes and a regtest end-to-end run passes.
+     * to, and whether this device runs the group nodes it is elected to. On, on testnet3 only: the phases
+     * are in, the JVM suite passes and the regtest end-to-end run passes. Phase 0's measurement of how
+     * long the LSP waits for a signature was still to be made on testnet3 when it was lifted, so the
+     * signing deadline is a guess until the first groups run there.
      */
-    const val ENABLED: Boolean = false
+    const val ENABLED: Boolean = true
 
     /**
      * The only network a Lightning wallet may be opened on. Iceberg says not to put money behind it, so
