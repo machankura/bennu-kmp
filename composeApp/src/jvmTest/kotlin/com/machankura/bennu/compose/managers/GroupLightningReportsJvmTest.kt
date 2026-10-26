@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.database.model.IcebergChannelLedger
 import com.machankura.bennu.compose.database.model.MarmotGroupEvent
 import com.machankura.bennu.compose.database.model.NostrEvent
@@ -162,6 +163,13 @@ class GroupLightningReportsJvmTest {
             assertEquals(wallet.statement.nodeId, invoice.nodeId.toString())
             assertEquals(21_000_000.msat, invoice.amount)
             assertEquals("lunch", invoice.description)
+
+            // Who asked, for how much, and that the node answered, on every device.
+            val asked = fixture.lines(d, ChatMessage.TYPE_LIGHTNING_INVOICE_REQUESTED).single()
+            assertEquals(all[3].publicKey, asked.senderPublicKey)
+            assertEquals("asked the operator's node for an invoice of 21,000 sats, for \u201clunch\u201d.", asked.content)
+            val issued = fixture.lines(d, ChatMessage.TYPE_LIGHTNING_INVOICE_ISSUED).single()
+            assertEquals("The operator's node made @${ChatMessage.memberName(d.db, all[3].publicKey)}'s invoice.", issued.content)
         }
     }
 

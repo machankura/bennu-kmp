@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.database.dao
 
+import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
 import com.machankura.bennu.compose.managers.GroupLightningCoSigner
 import com.machankura.bennu.compose.managers.GroupLightningReports
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
@@ -1626,8 +1627,18 @@ abstract class NostrDao(
 
                         // What the operator says about the Lightning wallet, and the
                         // invoices it makes for members who ask.
-                        innerEvent.kind == GroupLightningEvents.SNAPSHOT || innerEvent.kind == GroupLightningEvents.INVOICE ->
+                        innerEvent.kind == GroupLightningEvents.SNAPSHOT ||
+                            innerEvent.kind == GroupLightningEvents.INVOICE ||
+                            innerEvent.kind == GroupLightningEvents.INVOICE_REQUEST ->
                             GroupLightningReports.process(
+                                database = database,
+                                localChatRoom = localChatRoom,
+                                innerEvent = innerEvent,
+                            )
+
+                        // An operator's node stopping: a line, from whoever ran that term.
+                        innerEvent.kind == GroupLightningEvents.STOPPED ->
+                            GroupLightningOperatorManager.receiveStopped(
                                 database = database,
                                 localChatRoom = localChatRoom,
                                 innerEvent = innerEvent,

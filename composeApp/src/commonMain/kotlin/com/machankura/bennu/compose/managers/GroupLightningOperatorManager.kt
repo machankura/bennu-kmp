@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.vitorpamplona.quartz.nip01Core.core.Event
+import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.GroupSignedEvent
@@ -87,12 +90,31 @@ object GroupLightningOperatorManager {
         return current(database, chatRoomId, chain, wallet)?.publicKey == userPublicKey
     }
 
+    private const val STOPPED = "stopped running the group's Lightning node."
+
     /** Tells the room this device's node stopped, and where its channels were (kind 30366). */
     suspend fun announceStopped(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, chain: Chain, wallet: Long, term: Long, commitmentNumbers: Map<String, Long>) {
-        GroupLightningWalletManager.queue(
+        val queued = GroupLightningWalletManager.queue(
             database, localChatRoom, userPublicKey, GroupLightningEvents.STOPPED,
             CommonJson.encodeToString(Stopped.serializer(), Stopped(term, commitmentNumbers)),
             tags = arrayOf(arrayOf("d", GroupLightningWalletStatementEvent.identifier(chain, wallet))),
+        )
+        GroupLightningLines.write(database, localChatRoom.chatRoom.id, queued.id, ChatMessage.TYPE_LIGHTNING_OPERATOR_STOPPED, userPublicKey, STOPPED, queued.createdAt)
+    }
+
+    /**
+     * An operator's stop, as its line: only from whoever ran that term's node. Their commitment
+     * numbers are read by the next operator's node from the stored event, not from here.
+     */
+    suspend fun receiveStopped(database: BennuDatabase, localChatRoom: LocalChatRoom, innerEvent: Event) {
+        val identifier = innerEvent.tags.firstOrNull { it.size >= 2 && it[0] == "d" }?.get(1)?.split(':') ?: return
+        val chain = identifier.getOrNull(0)?.let(GroupWalletStatementEvent::chainNamed) ?: return
+        val wallet = identifier.getOrNull(1)?.toLongOrNull() ?: return
+        val stopped = runCatching { CommonJson.decodeFromString(Stopped.serializer(), innerEvent.content) }.getOrNull() ?: return
+        if (ofTerm(database, localChatRoom.chatRoom.id, chain, wallet, stopped.term)?.publicKey != innerEvent.pubKey) return
+        GroupLightningLines.write(
+            database, localChatRoom.chatRoom.id, innerEvent.id, ChatMessage.TYPE_LIGHTNING_OPERATOR_STOPPED,
+            innerEvent.pubKey, STOPPED, Instant.fromEpochSeconds(innerEvent.createdAt),
         )
     }
 }

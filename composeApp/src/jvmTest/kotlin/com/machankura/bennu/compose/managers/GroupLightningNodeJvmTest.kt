@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.ChatMessage
 import com.machankura.bennu.compose.database.model.MarmotGroupEvent
 import com.machankura.bennu.compose.database.model.NostrEvent
 import com.machankura.bennu.compose.network.serialization.CommonJson
@@ -142,6 +143,19 @@ class GroupLightningNodeJvmTest {
         val body = CommonJson.decodeFromString(GroupLightningOperatorManager.Stopped.serializer(), stopped.content)
         assertEquals(1, body.term)
         assertEquals(mapOf("ab".repeat(32) to 7L), body.commitmentNumbers)
+
+        // The room is told in words too, on every device, by the operator of the term it names.
+        fixture.pump(all, setOf(GroupLightningEvents.STOPPED))
+        all.forEach { d ->
+            val line = fixture.lines(d, ChatMessage.TYPE_LIGHTNING_OPERATOR_STOPPED).single()
+            assertEquals(all[1].publicKey, line.senderPublicKey)
+            assertEquals("stopped running the group's Lightning node.", line.content)
+        }
+        // A stop from anybody else is nobody's.
+        val forged = with(fixture) { stopped.copy(id = "f".repeat(64), publicKey = all[3].publicKey).asEvent() }
+        all[2].db.marmotInnerEventDao().upsert(stopped.copy(id = "f".repeat(64), publicKey = all[3].publicKey))
+        GroupLightningOperatorManager.receiveStopped(all[2].db, all[2].room, forged)
+        assertEquals(1, fixture.lines(all[2], ChatMessage.TYPE_LIGHTNING_OPERATOR_STOPPED).size)
     }
 
     @Test

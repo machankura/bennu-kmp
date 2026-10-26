@@ -564,6 +564,49 @@ data class ChatMessage(
             TYPE_MEMBER_WALLET_POLICY,
         )
 
+        /** The lines in [GROUP_IDENTITY_TYPES] about the Lightning wallet, which open its screen. */
+        val GROUP_LIGHTNING_SIGNED_TYPES = setOf(
+            TYPE_GROUP_LIGHTNING_WALLET_OPENED,
+            TYPE_GROUP_LIGHTNING_OPERATOR_ELECTED,
+            TYPE_GROUP_LIGHTNING_PAYMENT_AUTHORISED,
+        )
+
+        /**
+         * What the group Lightning wallet's devices tell each other outside its two protocols,
+         * as lines: a member handing out the node's seed, a member asking the operator's node
+         * to be paid and the node's answer, and an operator stopping. docs/group-lightning-
+         * transcript.md, Phase 4.
+         *
+         * One line per message, written by the manager that acts on it -- on the way out by
+         * the device that sends it, which cannot read its own message back, and on arrival by
+         * every other -- and keyed on the message's inner event, so a redelivery is not a
+         * second line. Nonce batches, echoes, signing requests and signature shares are never
+         * lines: there are thousands of them and none says anything a member would tell
+         * another.
+         *
+         * Not group-signed, so not in [GROUP_IDENTITY_TYPES], and none asks the reader for
+         * anything: an invoice request is answered by the operator's node, not by a person.
+         */
+        const val TYPE_LIGHTNING_SEED_SHARED = "lightningSeedShared"
+        const val TYPE_LIGHTNING_INVOICE_REQUESTED = "lightningInvoiceRequested"
+        const val TYPE_LIGHTNING_INVOICE_ISSUED = "lightningInvoiceIssued"
+        const val TYPE_LIGHTNING_OPERATOR_STOPPED = "lightningOperatorStopped"
+
+        /** Every Lightning wallet line, for the one check the transcript dispatches on. */
+        val LIGHTNING_TYPES = setOf(
+            TYPE_LIGHTNING_SEED_SHARED,
+            TYPE_LIGHTNING_INVOICE_REQUESTED,
+            TYPE_LIGHTNING_INVOICE_ISSUED,
+            TYPE_LIGHTNING_OPERATOR_STOPPED,
+        )
+
+        /** As [DKG_AUTHORED_TYPES]: content written to follow the actor's name. The node's answer has no actor. */
+        val LIGHTNING_AUTHORED_TYPES = setOf(
+            TYPE_LIGHTNING_SEED_SHARED,
+            TYPE_LIGHTNING_INVOICE_REQUESTED,
+            TYPE_LIGHTNING_OPERATOR_STOPPED,
+        )
+
         /**
          * Every subgroup line, for the one check the transcript dispatches on.
          *
@@ -1491,10 +1534,11 @@ data class ChatMessage(
                         isUserMessage = isUserMessage,
                         chatRoomId = groupId,
                         createdAt = createdAt,
-                        content = if (statement.operator == null) {
-                            "Nobody runs the group's Lightning wallet now (term ${statement.term}). It stops until someone is chosen."
-                        } else {
-                            "The group chose who runs its Lightning wallet (term ${statement.term})."
+                        // Who, since that is the one thing the line is for. The term is
+                        // a counter the wallet's screen keeps; it means nothing to a reader.
+                        content = when (val operator = statement.operator) {
+                            null -> "Nobody runs the group's Lightning wallet now. It stops until someone is chosen."
+                            else -> "@${memberName(database, operator)} runs the group's Lightning wallet now."
                         }
                     )
                 }

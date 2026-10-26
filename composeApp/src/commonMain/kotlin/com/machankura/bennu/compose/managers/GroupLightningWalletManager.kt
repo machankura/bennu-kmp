@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.ChatMessage
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.FrostSigningSession
@@ -174,7 +175,8 @@ object GroupLightningWalletManager {
         val to = ceremony.participants().filter { it != userPublicKey.lowercase() }.associateWith { recipient ->
             Nip44.encrypt(seed.toHex(), nostrPrivateKey, recipient.hexToByteArray()).encodePayload()
         }
-        queue(database, localChatRoom, userPublicKey, GroupLightningEvents.NODE_SEED, CommonJson.encodeToString(SeedMessage.serializer(), SeedMessage(chainName, wallet, nodeId, to)))
+        val seedMessage = queue(database, localChatRoom, userPublicKey, GroupLightningEvents.NODE_SEED, CommonJson.encodeToString(SeedMessage.serializer(), SeedMessage(chainName, wallet, nodeId, to)))
+        GroupLightningLines.write(database, roomId, seedMessage.id, ChatMessage.TYPE_LIGHTNING_SEED_SHARED, userPublicKey, SEED_SHARED, seedMessage.createdAt)
 
         val statement = GroupLightningWalletStatementEvent.Statement(
             chain = chain,
@@ -200,7 +202,14 @@ object GroupLightningWalletManager {
     suspend fun receiveSeed(database: BennuDatabase, localChatRoom: LocalChatRoom, innerEvent: Event, userPublicKey: HexKey, nostrPrivateKey: ByteArray) {
         val message = runCatching { CommonJson.decodeFromString(SeedMessage.serializer(), innerEvent.content) }.getOrNull() ?: return
         val chain = GroupWalletStatementEvent.chainNamed(message.chain) ?: return
-        val ciphertext = message.to[userPublicKey.lowercase()] ?: return
+        suspend fun line() = GroupLightningLines.write(
+            database, localChatRoom.chatRoom.id, innerEvent.id, ChatMessage.TYPE_LIGHTNING_SEED_SHARED,
+            innerEvent.pubKey, SEED_SHARED, Instant.fromEpochSeconds(innerEvent.createdAt),
+        )
+        // A member it was not sent to cannot check it, and is told it happened all the same:
+        // that the node has a seed, and who made it, is the group's business. A member it was
+        // sent to is told only once the seed proves to be the node's.
+        val ciphertext = message.to[userPublicKey.lowercase()] ?: return line()
         val seedHex = runCatching { Nip44.decrypt(ciphertext, nostrPrivateKey, innerEvent.pubKey.hexToByteArray()) }.getOrNull() ?: return
         val seed = runCatching { ByteVector(seedHex) }.getOrNull()?.takeIf { it.size() == 32 } ?: return
         val nodeId = nodeIdOf(seed, chain).value.toHex()
@@ -209,14 +218,21 @@ object GroupLightningWalletManager {
             return
         }
         database.groupLightningSeedDao().insertIfAbsent(GroupLightningSeed(localChatRoom.chatRoom.id, nodeId, message.chain, message.wallet, seed.toHex(), innerEvent.pubKey))
+        line()
     }
 
-    /** Queues one of this device's messages as a Marmot inner event for the room, as the ritual managers do. */
-    internal suspend fun queue(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, kind: Int, content: String, tags: Array<Array<String>> = emptyArray()) {
+    /**
+     * Queues one of this device's messages as a Marmot inner event for the room, as the ritual managers do,
+     * and returns the row: a message worth a line gets it from here, since this device never reads its own back.
+     */
+    internal suspend fun queue(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, kind: Int, content: String, tags: Array<Array<String>> = emptyArray()): MarmotInnerEvent {
         val createdAt = Clock.System.now().epochSeconds
         val id = EventHasher.hashId(pubKey = userPublicKey, createdAt = createdAt, kind = kind, tags = tags, content = content)
-        database.marmotInnerEventDao().upsert(
-            MarmotInnerEvent(id = id, publicKey = userPublicKey, kind = kind, createdAt = Instant.fromEpochSeconds(createdAt), tags = tags, content = content, chatRoomId = localChatRoom.chatRoom.id)
-        )
+        val queued = MarmotInnerEvent(id = id, publicKey = userPublicKey, kind = kind, createdAt = Instant.fromEpochSeconds(createdAt), tags = tags, content = content, chatRoomId = localChatRoom.chatRoom.id)
+        database.marmotInnerEventDao().upsert(queued)
+        return queued
     }
+
+    private const val SEED_SHARED = "gave each key holder the Lightning node's seed, encrypted to each of them."
+
 }

@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.text.grouped
+import fr.acinq.bitcoin.Satoshi
+import com.machankura.bennu.compose.database.model.ChatMessage
 import co.touchlab.kermit.Logger
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.GroupLightningInvoiceRow
@@ -50,6 +53,7 @@ object GroupLightningReports {
             when (innerEvent.kind) {
                 GroupLightningEvents.SNAPSHOT -> receiveSnapshot(database, localChatRoom, innerEvent)
                 GroupLightningEvents.INVOICE -> receiveInvoice(database, localChatRoom, innerEvent)
+                GroupLightningEvents.INVOICE_REQUEST -> receiveInvoiceRequest(database, localChatRoom, innerEvent)
             }
         }.onFailure { logger.w("Could not read wallet report ${innerEvent.id}: ${it.message}") }
     }
@@ -119,8 +123,35 @@ object GroupLightningReports {
         val key = GroupLightningCoSigner.walletKey(localChatRoom.chatRoom.id, wallet.statement.chain, wallet.statement.wallet)
         val requestId = RandomInstance.bytes(16).toHex()
         val request = WalletWire.InvoiceRequest(key, requestId, amountMsat, description)
-        GroupLightningWalletManager.queue(database, localChatRoom, userPublicKey, GroupLightningEvents.INVOICE_REQUEST, CommonJson.encodeToString(WalletWire.InvoiceRequest.serializer(), request))
+        val queued = GroupLightningWalletManager.queue(database, localChatRoom, userPublicKey, GroupLightningEvents.INVOICE_REQUEST, CommonJson.encodeToString(WalletWire.InvoiceRequest.serializer(), request))
+        GroupLightningLines.write(database, localChatRoom.chatRoom.id, queued.id, ChatMessage.TYPE_LIGHTNING_INVOICE_REQUESTED, userPublicKey, asked(request), queued.createdAt)
         return requestId
+    }
+
+    /** A member's invoice request, as its line: only for a wallet this room has. The operator's node answers it. */
+    private suspend fun receiveInvoiceRequest(database: BennuDatabase, localChatRoom: LocalChatRoom, innerEvent: Event) {
+        val request = CommonJson.decodeFromString(WalletWire.InvoiceRequest.serializer(), innerEvent.content)
+        GroupLightningCoSigner.walletOf(database, localChatRoom.chatRoom.id, request.wallet) ?: return
+        GroupLightningLines.write(
+            database, localChatRoom.chatRoom.id, innerEvent.id, ChatMessage.TYPE_LIGHTNING_INVOICE_REQUESTED,
+            innerEvent.pubKey, asked(request), Instant.fromEpochSeconds(innerEvent.createdAt),
+        )
+    }
+
+    /** What a member asked for, to follow their name. The description is theirs and is quoted as it is. */
+    private fun asked(request: WalletWire.InvoiceRequest): String = buildString {
+        append("asked the operator's node for an invoice")
+        request.amountMsat?.let { append(" of ${Satoshi(it / 1000).grouped()} sats") }
+        request.description.takeIf { it.isNotBlank() }?.let { append(", for \u201c$it\u201d") }
+        append(".")
+    }
+
+    /** The node's answer to [requestId], as its line: naming whoever asked, when this device has their request. */
+    private suspend fun invoiceIssued(database: BennuDatabase, chatRoomId: String, requestId: String): String {
+        val asker = database.marmotInnerEventDao().getByChatRoomAndKinds(chatRoomId, listOf(GroupLightningEvents.INVOICE_REQUEST))
+            .firstOrNull { runCatching { CommonJson.decodeFromString(WalletWire.InvoiceRequest.serializer(), it.content) }.getOrNull()?.requestId == requestId }
+            ?.publicKey
+        return if (asker == null) "The operator's node made an invoice." else "The operator's node made @${ChatMessage.memberName(database, asker)}'s invoice."
     }
 
     /** The invoice requests for [walletKey] in the room that no invoice answers yet, oldest first. */
@@ -133,8 +164,12 @@ object GroupLightningReports {
     /** Sends the room the operator's invoice for [request], and files it here. */
     suspend fun answer(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, request: WalletWire.InvoiceRequest, bolt11: String) {
         val reply = WalletWire.InvoiceReply(request.wallet, request.requestId, bolt11)
-        GroupLightningWalletManager.queue(database, localChatRoom, userPublicKey, GroupLightningEvents.INVOICE, CommonJson.encodeToString(WalletWire.InvoiceReply.serializer(), reply))
+        val queued = GroupLightningWalletManager.queue(database, localChatRoom, userPublicKey, GroupLightningEvents.INVOICE, CommonJson.encodeToString(WalletWire.InvoiceReply.serializer(), reply))
         database.groupLightningRecordsDao().upsertInvoice(GroupLightningInvoiceRow(request.wallet, request.requestId, bolt11))
+        GroupLightningLines.write(
+            database, localChatRoom.chatRoom.id, queued.id, ChatMessage.TYPE_LIGHTNING_INVOICE_ISSUED,
+            userPublicKey, invoiceIssued(database, localChatRoom.chatRoom.id, request.requestId), queued.createdAt,
+        )
     }
 
     private suspend fun receiveInvoice(database: BennuDatabase, localChatRoom: LocalChatRoom, innerEvent: Event) {
@@ -146,5 +181,9 @@ object GroupLightningReports {
         val invoice = Bolt11Invoice.read(reply.bolt11).get()
         if (invoice.nodeId.toString() != wallet.statement.nodeId) return logger.w("Invoice ${innerEvent.id} pays a node that is not the group's")
         database.groupLightningRecordsDao().upsertInvoice(GroupLightningInvoiceRow(reply.wallet, reply.requestId, reply.bolt11))
+        GroupLightningLines.write(
+            database, localChatRoom.chatRoom.id, innerEvent.id, ChatMessage.TYPE_LIGHTNING_INVOICE_ISSUED,
+            innerEvent.pubKey, invoiceIssued(database, localChatRoom.chatRoom.id, reply.requestId), Instant.fromEpochSeconds(innerEvent.createdAt),
+        )
     }
 }

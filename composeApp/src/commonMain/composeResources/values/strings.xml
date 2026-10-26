@@ -382,6 +382,7 @@
     <string name="open_the_shared_key_ceremony">Open the shared key ceremony</string>
     <string name="open_the_lightning_wallet_s_key_ceremony">Open the Lightning wallet's key ceremony</string>
     <string name="open_the_proposal">Open the proposal</string>
+    <string name="open_the_lightning_wallet">Open the Lightning wallet</string>
     <string name="you_approved_this">You approved this</string>
     <string name="open">Open</string>
     <string name="ask_again">Ask again</string>

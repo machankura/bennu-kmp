@@ -63,7 +63,16 @@ class GroupLightningWalletJvmTest {
         all.forEach { d ->
             val lines = d.db.chatMessageDao().getChatMessagesByChatRoomId(fixture.roomId).map { it.chatMessage.messageType }
             assertTrue(ChatMessage.TYPE_GROUP_LIGHTNING_WALLET_OPENED in lines)
+            // And who handed the seed out: one line, written by the proposer on the way out
+            // and by everyone else as it arrived. docs/group-lightning-transcript.md, Phase 4.
+            val seedLine = fixture.lines(d, ChatMessage.TYPE_LIGHTNING_SEED_SHARED).single()
+            assertEquals(all[0].publicKey, seedLine.senderPublicKey)
+            assertEquals(d === all[0], seedLine.isUserMessage)
         }
+        // Delivered again, it is not a second line.
+        all.forEach { it.received.clear() }
+        fixture.pump(all, setOf(GroupLightningEvents.NODE_SEED))
+        all.forEach { assertEquals(1, fixture.lines(it, ChatMessage.TYPE_LIGHTNING_SEED_SHARED).size) }
     }
 
     @Test
@@ -75,8 +84,10 @@ class GroupLightningWalletJvmTest {
         val body = CommonJson.parseToJsonElement(message.content).jsonObject
         val lying = JsonObject(body + ("nodeId" to JsonPrimitive("02" + "ab".repeat(32))))
         val event = with(fixture) { message.copy(content = lying.toString()).asEvent() }
+        all[1].db.marmotInnerEventDao().upsert(message.copy(content = lying.toString()))
         GroupLightningWalletManager.receiveSeed(all[1].db, all[1].room, event, all[1].publicKey, all[1].privateKey)
         assertNull(all[1].db.groupLightningSeedDao().get(fixture.roomId, "02" + "ab".repeat(32)))
+        assertTrue(fixture.lines(all[1], ChatMessage.TYPE_LIGHTNING_SEED_SHARED).isEmpty(), "and the room is not told a seed was shared")
     }
 
     @Test
@@ -119,6 +130,9 @@ class GroupLightningWalletJvmTest {
             val current = assertNotNull(GroupLightningOperatorManager.current(d.db, fixture.roomId, fixture.chain))
             assertEquals(all[1].publicKey, current.publicKey)
             assertEquals(1, current.term)
+            // The line says who, which is the one thing it is for.
+            val elected = fixture.lines(d, ChatMessage.TYPE_GROUP_LIGHTNING_OPERATOR_ELECTED).single()
+            assertEquals("@${ChatMessage.memberName(d.db, all[1].publicKey)} runs the group's Lightning wallet now.", elected.content)
         }
         val second = GroupLightningOperatorManager.nominateSelf(all[2].db, all[2].room, all[2].publicKey, fixture.chain)
         fixture.signSession(all, all[2], second.id)

@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.ChatMessage
 import androidx.room3.Room
 import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.builder.getRoomDatabase
@@ -109,9 +110,14 @@ class GroupLightningFixture(val n: Int = 4, val frostThreshold: Int = 3, val cha
             in FrostSigningEvents.ALL -> FrostSigningManager.processSigningPayload(to.db, to.room, event, to.publicKey)
             in GroupLightningEvents.CEREMONY -> IcebergRitualManager.processCeremonyPayload(to.db, to.room, event, to.publicKey, to.privateKey)
             GroupLightningEvents.NODE_SEED -> GroupLightningWalletManager.receiveSeed(to.db, to.room, event, to.publicKey, to.privateKey)
-            GroupLightningEvents.SNAPSHOT, GroupLightningEvents.INVOICE -> GroupLightningReports.process(to.db, to.room, event)
+            GroupLightningEvents.SNAPSHOT, GroupLightningEvents.INVOICE, GroupLightningEvents.INVOICE_REQUEST -> GroupLightningReports.process(to.db, to.room, event)
+            GroupLightningEvents.STOPPED -> GroupLightningOperatorManager.receiveStopped(to.db, to.room, event)
         }
     }
+
+    /** The Lightning wallet's lines of [type] in [device]'s copy of the room. */
+    suspend fun lines(device: Device, type: String): List<ChatMessage> =
+        device.db.chatMessageDao().getChatMessagesByChatRoomId(roomId).map { it.chatMessage }.filter { it.messageType == type }
 
     suspend fun pump(between: List<Device>, kinds: Set<Int>) {
         var moved = true

@@ -38,6 +38,12 @@ import bennu.composeapp.generated.resources.open_a_lightning_wallet
 import bennu.composeapp.generated.resources.open_the_shared_key_ceremony
 import bennu.composeapp.generated.resources.open_the_lightning_wallet_s_key_ceremony
 import bennu.composeapp.generated.resources.open_the_proposal
+import bennu.composeapp.generated.resources.open_the_lightning_wallet
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.RequestQuote
+import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import bennu.composeapp.generated.resources.you_approved_this
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Block
@@ -391,18 +397,35 @@ fun ChatTranscript(
                                     return@items
                                 }
 
-                                // Something the group signed. Same treatment and for
-                                // the same reason: nobody said it. Answered and
-                                // settled because it reports rather than asks -- a
-                                // quorum has already signed by the time this line
-                                // exists. It leads nowhere.
-                                if (localChatMessage.chatMessage.messageType in ChatMessage.GROUP_IDENTITY_TYPES) {
+                                // What the Lightning wallet's devices told each other.
+                                // Reports, not asks -- an invoice request is the
+                                // operator's node's to answer -- so they stay quiet,
+                                // and each leads to the wallet it is about.
+                                if (localChatMessage.chatMessage.messageType in ChatMessage.LIGHTNING_TYPES) {
                                     RitualNotice(
                                         localChatMessage = localChatMessage,
                                         isAnswered = true,
                                         isSettled = true,
-                                        onClick = null,
-                                        opens = null,
+                                        onClick = onOpenLightningWallet,
+                                        opens = stringResource(Res.string.open_the_lightning_wallet),
+                                    )
+                                    return@items
+                                }
+
+                                // Something the group signed. Same treatment and for
+                                // the same reason: nobody said it. Answered and
+                                // settled because it reports rather than asks -- a
+                                // quorum has already signed by the time this line
+                                // exists. It leads nowhere, except the Lightning
+                                // wallet's, which lead to the wallet.
+                                if (localChatMessage.chatMessage.messageType in ChatMessage.GROUP_IDENTITY_TYPES) {
+                                    val isLightning = localChatMessage.chatMessage.messageType in ChatMessage.GROUP_LIGHTNING_SIGNED_TYPES
+                                    RitualNotice(
+                                        localChatMessage = localChatMessage,
+                                        isAnswered = true,
+                                        isSettled = true,
+                                        onClick = if (isLightning) onOpenLightningWallet else null,
+                                        opens = if (isLightning) stringResource(Res.string.open_the_lightning_wallet) else null,
                                     )
                                     return@items
                                 }
@@ -921,6 +944,14 @@ private fun RitualNotice(
         ChatMessage.TYPE_MEMBER_INVITE_FAILED -> Icons.Default.ErrorOutline
         ChatMessage.TYPE_CHANGE_REJECTED -> Icons.Default.ErrorOutline
 
+        ChatMessage.TYPE_GROUP_LIGHTNING_WALLET_OPENED -> Icons.Default.Bolt
+        ChatMessage.TYPE_GROUP_LIGHTNING_OPERATOR_ELECTED -> Icons.Default.Badge
+        ChatMessage.TYPE_GROUP_LIGHTNING_PAYMENT_AUTHORISED -> Icons.Default.Payments
+        ChatMessage.TYPE_LIGHTNING_SEED_SHARED -> Icons.Default.Key
+        ChatMessage.TYPE_LIGHTNING_INVOICE_REQUESTED -> Icons.Default.RequestQuote
+        ChatMessage.TYPE_LIGHTNING_INVOICE_ISSUED -> Icons.Default.Receipt
+        ChatMessage.TYPE_LIGHTNING_OPERATOR_STOPPED -> Icons.Default.PowerSettingsNew
+
         else -> Icons.Default.PanTool
     }
 
@@ -976,7 +1007,8 @@ private fun RitualNotice(
                     // placeholder a member is given the moment they are first seen.
                     if (chatMessage.messageType in ChatMessage.DKG_AUTHORED_TYPES ||
                         chatMessage.messageType in ChatMessage.ICEBERG_AUTHORED_TYPES ||
-                        chatMessage.messageType in ChatMessage.FROST_AUTHORED_TYPES
+                        chatMessage.messageType in ChatMessage.FROST_AUTHORED_TYPES ||
+                        chatMessage.messageType in ChatMessage.LIGHTNING_AUTHORED_TYPES
                     ) {
                         withStyle(
                             SpanStyle(color = ProfileColor.fromPublicKey(chatMessage.senderPublicKey))
