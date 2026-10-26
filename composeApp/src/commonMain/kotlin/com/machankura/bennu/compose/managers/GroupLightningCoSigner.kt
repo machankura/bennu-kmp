@@ -12,6 +12,7 @@ import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.network.serialization.CommonJson
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.machankura.bennu.compose.wallet.lightning.CoSignerPolicy
 import com.machankura.bennu.compose.wallet.lightning.CoSigningWire
 import com.vitorpamplona.quartz.nip01Core.core.Event
@@ -33,8 +34,9 @@ import fr.acinq.lightning.channel.Commitments
 import fr.acinq.lightning.crypto.LocalKeyManager
 import fr.acinq.lightning.transactions.Scripts
 import fr.acinq.lightning.transactions.Transactions
-import kotlinx.serialization.Serializable
+import fr.acinq.phoenixd.conf.LSP
 import kotlin.time.Clock
+import kotlinx.serialization.Serializable
 
 /**
  * The co-signer every Iceberg participant runs: it answers the operator's node for the group, without a
@@ -62,8 +64,16 @@ object GroupLightningCoSigner {
     /** The most a single provision request makes a co-signer publish. */
     const val MAX_BATCH: Long = 128
 
-    /** A swap-in xpub for [LocalKeyManager], which wants one; a group node never swaps in, so any valid one does. */
+    /**
+     * A swap-in xpub for [LocalKeyManager], which wants one; a group node never swaps in, so any valid one
+     * does -- for the network. lightning-kmp checks the prefix: a tpub on mainnet throws, and so would the
+     * first key manager every co-signer and the operator's node built. So mainnet takes the mainnet LSP's
+     * published one, and every other network this tpub. Nothing derives from either: the node id and
+     * every channel key come from the seed.
+     */
     internal const val UNUSED_SWAP_IN_TPUB = "tpubDAmCFB21J9ExKBRPDcVxSvGs9jtcf8U1wWWbS1xTYmnUsuUHPCoFdCnEGxLE3THSWcQE48GHJnyz8XPbYUivBMbLSMBifFd3G9KmafkM9og"
+
+    private fun unusedSwapInXpub(chain: Chain): String = if (chain.isMainnet()) LSP.from(Chain.Mainnet).swapInXpub else UNUSED_SWAP_IN_TPUB
 
     fun walletKey(chatRoomId: String, chain: Chain, wallet: Long): String = "$chatRoomId:${GroupWalletStatementEvent.chainName(chain)}:$wallet"
 
@@ -72,7 +82,7 @@ object GroupLightningCoSigner {
         Crypto.taggedHash(ByteVector(icebergKey).toByteArray() + Pack.writeInt64BE(counter), "bennu/iceberg/pool/v1")
 
     /** The key manager a group node runs, and a co-signer rebuilds commitments with. */
-    fun keyManagerOf(seed: ByteVector, chain: Chain): LocalKeyManager = LocalKeyManager(seed, chain, UNUSED_SWAP_IN_TPUB)
+    fun keyManagerOf(seed: ByteVector, chain: Chain): LocalKeyManager = LocalKeyManager(seed, chain, unusedSwapInXpub(chain))
 
     /** What a co-signer stores of a channel's ledger, in JSON. */
     @Serializable
@@ -359,6 +369,12 @@ object GroupLightningCoSigner {
         pinned: IcebergChannelLedger?,
     ): String? {
         val seed = wallet.seed ?: return "this device does not hold the node's seed, and cannot rebuild the commitment"
+        // On mainnet a channel holds at most the rollout's cap. Refusing its commitments means a bigger
+        // channel never opens; one that opened smaller cannot grow, since splices are refused.
+        GroupLightningRollout.channelCapFor(wallet.statement.chain)?.let { cap ->
+            val capacity = CoSigningWire.inputInfo(request.input).txOut.amount
+            if (capacity > cap) return "the channel holds ${capacity.sat} sats, over the ${cap.sat} a channel may hold on mainnet for now"
+        }
         val commitParams = CoSigningWire.commit(context.commit ?: return "no commitment parameters")
         val commitIndex = context.commitIndex ?: return "no commitment number"
         val perCommitmentPoint = PublicKey.fromHex(context.remotePerCommitmentPoint ?: return "no per-commitment point")

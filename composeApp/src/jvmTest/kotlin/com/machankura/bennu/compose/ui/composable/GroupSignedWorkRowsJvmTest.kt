@@ -57,7 +57,6 @@ class GroupSignedWorkRowsJvmTest {
         var opened: Route? = null
 
         render(state(), onNavigateToRoute = { opened = it }) {
-            // This row's own status: the testnet3 wallet's row, below it, says the same of its wallet.
             onNode(hasText(WALLET_ROW) and hasText("Not opened yet")).assertIsDisplayed()
             onNodeWithText(WALLET_ROW).performClick()
         }
@@ -66,25 +65,17 @@ class GroupSignedWorkRowsJvmTest {
     }
 
     @Test
-    fun `the Lightning wallet's rows open it, and the testnet3 wallet it closes to`() {
+    fun `the Lightning wallet's row opens it, and there is no second onchain wallet`() {
         if (!GroupWalletRollout.ENABLED || !GroupLightningRollout.ENABLED) return
-        val network = GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK)
-        val opened = mutableListOf<Route>()
+        var opened: Route? = null
 
-        render(state(), onNavigateToRoute = { opened += it }) {
-            onNode(hasText("Lightning wallet") and hasText(network)).assertIsDisplayed()
-            onNode(hasText("Group onchain wallet on $network") and hasText("Not opened yet")).assertIsDisplayed()
+        render(state(), onNavigateToRoute = { opened = it }) {
+            onNode(hasText("Lightning wallet") and hasText(GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK))).assertIsDisplayed()
+            onNodeWithText("Group onchain wallet on", substring = true).assertDoesNotExist()
             onNodeWithText("Lightning wallet").performClick()
-            onNodeWithText("Group onchain wallet on $network").performClick()
         }
 
-        assertEquals(
-            listOf(
-                GroupLightningWalletRoute(activeUserPublicKey, chatRoomId),
-                GroupWalletRoute(activeUserPublicKey, chatRoomId, relayHint = null, chain = network),
-            ),
-            opened,
-        )
+        assertEquals(GroupLightningWalletRoute(activeUserPublicKey, chatRoomId), opened)
     }
 
     @Test

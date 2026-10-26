@@ -106,9 +106,6 @@ class ChatRoomDetailViewModel(
                     walletPolicy = chatRepository.walletPolicyOf(chatRoomId),
                     guardianDelay = chatRepository.guardiansOf(chatRoomId)?.firstOrNull()?.delay,
                     groupWallet = chatRepository.groupWallet(chatRoomId, NodeParamsManager.chain),
-                    testNetworkWallet = if (GroupLightningRollout.ENABLED && GroupLightningRollout.NETWORK != NodeParamsManager.chain) {
-                        chatRepository.groupWallet(chatRoomId, GroupLightningRollout.NETWORK)
-                    } else null,
                     lightningParticipants = if (GroupLightningRollout.ENABLED) chatRepository.lightningParticipants(chatRoomId, GroupLightningRollout.NETWORK) else emptySet(),
                     canAddSubgroup = canSign,
                     canGovern = canGovern,

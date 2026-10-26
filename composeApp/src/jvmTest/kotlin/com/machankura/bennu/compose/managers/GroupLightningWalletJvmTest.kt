@@ -5,15 +5,13 @@ import com.machankura.bennu.compose.network.serialization.CommonJson
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningOperatorStatementEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
-import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
+import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.Satoshi
 import fr.acinq.lightning.crypto.LocalKeyManager
-import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -24,6 +22,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 
 /**
  * Opening a group's Lightning wallet and choosing who runs it, between four devices
@@ -94,12 +96,16 @@ class GroupLightningWalletJvmTest {
     }
 
     @Test
-    // That no statement leaves the group needs no test of its own: nothing in the app sends a
-    // group-signed event to a relay any more.
-    fun `there is no Lightning wallet on mainnet`() = runBlocking {
+    fun `a Lightning wallet is opened on the node's network, and nowhere else`() = runBlocking {
+        assertEquals(Chain.Mainnet, GroupLightningRollout.NETWORK)
+        assertTrue(GroupLightningRollout.allows(Chain.Mainnet))
+        assertTrue(GroupLightningRollout.allows(Chain.Regtest), "regtest, for tests and development")
+        assertTrue(!GroupLightningRollout.allows(Chain.Testnet3) && !GroupLightningRollout.allows(Chain.Signet))
+        assertEquals(Satoshi(1_000_000), GroupLightningRollout.channelCapFor(Chain.Mainnet))
+        assertEquals(null, GroupLightningRollout.channelCapFor(Chain.Regtest))
         val all = fixture.group()
         fixture.runCeremony(all)
-        val refused = runCatching { GroupLightningWalletManager.proposeWallet(all[0].db, all[0].room, all[0].publicKey, all[0].privateKey, Chain.Mainnet, lsp) }
+        val refused = runCatching { GroupLightningWalletManager.proposeWallet(all[0].db, all[0].room, all[0].publicKey, all[0].privateKey, Chain.Testnet3, lsp) }
         assertTrue(refused.isFailure)
     }
 

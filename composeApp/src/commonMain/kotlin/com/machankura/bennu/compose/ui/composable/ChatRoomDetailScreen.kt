@@ -4,8 +4,6 @@ import androidx.compose.material.icons.filled.Bolt
 import bennu.composeapp.generated.resources.lightning_wallet
 import bennu.composeapp.generated.resources.member_removal_requested_lightning
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningWalletRoute
-import bennu.composeapp.generated.resources.group_wallet_on_s
-import fr.acinq.phoenix.managers.NodeParamsManager
 import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
@@ -403,7 +401,7 @@ fun ChatRoomDetailScreen(
                                 }
 
                                 // The group's Lightning wallet, which closes to the onchain
-                                // wallet on its own network -- the row above this one.
+                                // wallet -- the row above this one, on the same network.
                                 if (GroupLightningRollout.ENABLED) item {
                                     SignedWorkRow(
                                         icon = Icons.Default.Bolt,
@@ -414,29 +412,6 @@ fun ChatRoomDetailScreen(
                                                 GroupLightningWalletRoute(
                                                     activeUserPublicKey = activeUserPublicKey,
                                                     chatRoomId = chatRoomId
-                                                )
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // The same wallet on the network the Lightning wallet is
-                                // tried on, which it closes to: a Lightning wallet cannot
-                                // be opened without one there (docs/group-lightning-wallet.md).
-                                if (GroupWalletRollout.ENABLED && GroupLightningRollout.ENABLED && GroupLightningRollout.NETWORK != NodeParamsManager.chain) item {
-                                    val network = GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK)
-                                    SignedWorkRow(
-                                        icon = Icons.Default.AccountBalanceWallet,
-                                        headline = stringResource(Res.string.group_wallet_on_s, network),
-                                        supporting = chatRoomDetailUIState.testNetworkWallet?.let { stringResource(Res.string.open_on_s, network) }
-                                            ?: stringResource(Res.string.not_opened_yet),
-                                        onOpen = {
-                                            onNavigateToRoute.invoke(
-                                                GroupWalletRoute(
-                                                    activeUserPublicKey = activeUserPublicKey,
-                                                    chatRoomId = chatRoomId,
-                                                    relayHint = relayHint,
-                                                    chain = network
                                                 )
                                             )
                                         }

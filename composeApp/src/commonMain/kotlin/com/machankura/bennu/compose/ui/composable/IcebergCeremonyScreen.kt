@@ -42,7 +42,7 @@ import bennu.composeapp.generated.resources.hasn_t_answered_the_proposal_yet
 import bennu.composeapp.generated.resources.join_the_ceremony
 import bennu.composeapp.generated.resources.joining_publishes_commitments
 import bennu.composeapp.generated.resources.lightning_wallet_key
-import bennu.composeapp.generated.resources.open_an_onchain_wallet_on_s_first
+import bennu.composeapp.generated.resources.open_the_group_s_onchain_wallet_first
 import bennu.composeapp.generated.resources.s_of_3_steps
 import bennu.composeapp.generated.resources.send_your_contributions
 import bennu.composeapp.generated.resources.sending_contributions_encrypts_each
@@ -129,7 +129,7 @@ fun IcebergCeremonyScreen(
                     EmptyState(
                         modifier = Modifier.padding(padding).readableContent(),
                         message = when {
-                            !state.hasOnchainWallet -> stringResource(Res.string.open_an_onchain_wallet_on_s_first, GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK))
+                            !state.hasOnchainWallet -> stringResource(Res.string.open_the_group_s_onchain_wallet_first)
                             state.thresholds.isEmpty() -> stringResource(Res.string.a_lightning_wallet_needs_four_signers)
                             else -> stringResource(Res.string.this_group_has_no_lightning_wallet_key_yet)
                         },

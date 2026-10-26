@@ -59,7 +59,7 @@ import bennu.composeapp.generated.resources.couldn_t_propose_this
 import bennu.composeapp.generated.resources.couldn_t_send_s_sats
 import bennu.composeapp.generated.resources.earlier_wallet_s
 import bennu.composeapp.generated.resources.force_close
-import bennu.composeapp.generated.resources.group_wallet_on_s
+import bennu.composeapp.generated.resources.group_wallet
 import bennu.composeapp.generated.resources.lightning_wallet
 import bennu.composeapp.generated.resources.lsp_s
 import bennu.composeapp.generated.resources.make_a_key
@@ -70,7 +70,7 @@ import bennu.composeapp.generated.resources.nobody_runs_this_wallet_s_node
 import bennu.composeapp.generated.resources.node_s
 import bennu.composeapp.generated.resources.open_a_lightning_wallet
 import bennu.composeapp.generated.resources.open_a_new_lightning_wallet
-import bennu.composeapp.generated.resources.open_an_onchain_wallet_on_s_first
+import bennu.composeapp.generated.resources.open_the_group_s_onchain_wallet_first
 import bennu.composeapp.generated.resources.opening_a_lightning_wallet_asks
 import bennu.composeapp.generated.resources.payments
 import bennu.composeapp.generated.resources.receive
@@ -160,7 +160,6 @@ fun GroupLightningWalletScreen(
 
     val notify = rememberNotifier(rememberCoroutineScope())
     val couldNotPropose = stringResource(Res.string.couldn_t_propose_this)
-    val network = GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK)
     val toSession = { sessionId: String -> onNavigateToRoute(FrostSigningRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId, sessionId = sessionId)) }
     val toCeremony = { sessionId: String? -> onNavigateToRoute(IcebergCeremonyRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId, sessionId = sessionId)) }
 
@@ -181,11 +180,11 @@ fun GroupLightningWalletScreen(
 
                 is GroupLightningWalletUIState.NeedsOnchainWallet -> EmptyState(
                     modifier = Modifier.padding(padding).readableContent(),
-                    message = stringResource(Res.string.open_an_onchain_wallet_on_s_first, network),
+                    message = stringResource(Res.string.open_the_group_s_onchain_wallet_first),
                     icon = Icons.Default.AccountBalanceWallet,
                     action = {
-                        Button(onClick = { onNavigateToRoute(GroupWalletRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId, relayHint = null, chain = network)) }) {
-                            Text(stringResource(Res.string.group_wallet_on_s, network))
+                        Button(onClick = { onNavigateToRoute(GroupWalletRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId, relayHint = null)) }) {
+                            Text(stringResource(Res.string.group_wallet))
                         }
                     }
                 )
@@ -209,7 +208,7 @@ fun GroupLightningWalletScreen(
 
                 is GroupLightningWalletUIState.NotOpened -> EmptyState(
                     modifier = Modifier.padding(padding).readableContent(),
-                    message = stringResource(Res.string.opening_a_lightning_wallet_asks, network),
+                    message = stringResource(Res.string.opening_a_lightning_wallet_asks, GroupLightningRollout.channelCapFor(GroupLightningRollout.NETWORK)?.grouped() ?: ""),
                     icon = Icons.Default.Bolt,
                     action = if (state.canPropose) {
                         {

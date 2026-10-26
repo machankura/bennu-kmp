@@ -457,7 +457,6 @@
     <string name="s_hasn_t_set_up_messaging_on_bennu_yet">%1$s hasn't set up messaging on Bennu yet. Try again later, or ask them to open Bennu.</string>
     <!-- The group's on-chain wallet. -->
     <string name="group_wallet">Group onchain wallet</string>
-    <string name="group_wallet_on_s">Group onchain wallet on %1$s</string>
     <!-- The group's on-chain wallet, named for its group: "Treasury onchain wallet". -->
     <string name="s_onchain_wallet">%1$s onchain wallet</string>
     <string name="open_a_group_wallet">Open a group onchain wallet</string>
@@ -561,7 +560,7 @@
     <string name="while_the_wallet_is_new_at_most_s_sats">While the wallet is new, a spend on mainnet can send at most %1$s sats.</string>
     <string name="lightning_wallet_key">Lightning wallet key</string>
     <string name="this_group_has_no_lightning_wallet_key_yet">This group has no key for a Lightning wallet yet.</string>
-    <string name="open_an_onchain_wallet_on_s_first">A Lightning wallet closes to the group's onchain wallet. Open one on %1$s first.</string>
+    <string name="open_the_group_s_onchain_wallet_first">A Lightning wallet closes to the group's onchain wallet. Open that first.</string>
     <string name="a_lightning_wallet_needs_four_signers">A Lightning wallet needs at least four members who hold the onchain wallet's key.</string>
     <string name="the_lightning_wallet_key_is_made_by_everyone">The key is made by everyone who holds the onchain wallet's key. Every payment will need %1$s of their devices online.</string>
     <string name="start_a_key_ceremony">Start a key ceremony</string>
@@ -584,7 +583,7 @@
     <string name="make_a_key">Make a key</string>
     <string name="see_the_key_ceremony">See the key ceremony</string>
     <string name="open_a_lightning_wallet">Open a Lightning wallet</string>
-    <string name="opening_a_lightning_wallet_asks">Opening a Lightning wallet asks the group to sign for its node, its LSP and how much can be in flight at once. The scheme behind its key has not been reviewed outside the project, so it is offered on %1$s only.</string>
+    <string name="opening_a_lightning_wallet_asks">Opening a Lightning wallet asks the group to sign for its node, its LSP and how much can be in flight at once. The scheme behind its key has not been reviewed outside the project, so for now a channel holds at most %1$s sats: keep in it only what the group can afford to lose.</string>
     <string name="node_s">Node %1$s</string>
     <string name="lsp_s">LSP %1$s</string>
     <string name="at_most_s_sats_in_flight">At most %1$s sats in flight</string>

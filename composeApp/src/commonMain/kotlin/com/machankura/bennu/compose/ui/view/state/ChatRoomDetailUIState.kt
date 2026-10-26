@@ -67,12 +67,6 @@ sealed interface ChatRoomDetailUIState {
          * `GroupWalletScreen`.
          */
         val groupWallet: GroupWallet? = null,
-        /**
-         * The wallet this group has opened on the Lightning wallet's test network, which is not the app's
-         * own network while the Lightning wallet is tried there. Null when it has not, or when the
-         * Lightning wallet is not offered on this build (`GroupLightningRollout`).
-         */
-        val testNetworkWallet: GroupWallet? = null,
         /** Who holds a share of the group's Lightning wallet key, so removing one of them can say what it leaves. */
         val lightningParticipants: Set<HexKey> = emptySet(),
         /**

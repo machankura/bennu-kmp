@@ -1,35 +1,48 @@
 package com.machankura.bennu.compose.wallet
 
 import fr.acinq.bitcoin.Chain
+import fr.acinq.bitcoin.Satoshi
+import fr.acinq.phoenix.managers.NodeParamsManager
 
 /**
  * The gates the group Lightning wallet ships behind -- `docs/group-lightning-wallet.md`, Phase 15 --
  * in one place, each with the condition that lifts it.
  *
  * As with [GroupWalletRollout], these decide what this device offers, never what it accepts: a device
- * with a gate closed still verifies and co-signs for a wallet another member opened.
+ * with a gate closed still verifies and co-signs for a wallet another member opened -- except the
+ * channel cap, which every co-signer holds to, since it is the one gate that bounds what can be lost.
  */
 object GroupLightningRollout {
     /**
-     * Whether the group's screen offers a Lightning wallet, and the test-network on-chain wallet it closes
-     * to, and whether this device runs the group nodes it is elected to. On, on testnet3 only: the phases
-     * are in, the JVM suite passes and the regtest end-to-end run passes. Phase 0's measurement of how
-     * long the LSP waits for a signature was still to be made on testnet3 when it was lifted, so the
-     * signing deadline is a guess until the first groups run there.
+     * Whether the group's screen offers a Lightning wallet, and whether this device runs the group nodes
+     * it is elected to. On: the phases are in, the JVM suite passes and the regtest end-to-end run passes.
      */
     const val ENABLED: Boolean = true
 
     /**
-     * The only network a Lightning wallet may be opened on. Iceberg says not to put money behind it, so
-     * mainnet is refused in code rather than hidden; this lifts only when the scheme and the DKG have
-     * been reviewed outside the project and a testnet3 group has run for a month without a refused label
-     * or a lost channel.
+     * The network a Lightning wallet is opened on: the node's own, mainnet, where the group's onchain
+     * wallet already is. Lifted to mainnet by decision, ahead of what the plan named for it -- a review
+     * of the Iceberg scheme and the DKG outside the project, and a month of a testnet3 group with no
+     * refused label and no lost channel. The Iceberg library itself says not to put money behind it.
+     * What bounds the loss meanwhile is [MAINNET_CHANNEL_CAP], the statement's in-flight cap, and
+     * every co-signer's checks.
      */
-    val NETWORK: Chain = Chain.Testnet3
+    val NETWORK: Chain = NodeParamsManager.chain
 
     /**
-     * Whether a Lightning wallet may be opened on [chain] at all. [NETWORK], and regtest for tests and
-     * development; never mainnet, whatever a screen offers.
+     * The most one channel may hold on mainnet. Every co-signer refuses to sign the first commitment of a
+     * bigger channel, so it never opens, and a channel never grows: the co-signers refuse splices. Lifts
+     * on the same condition as [GroupWalletRollout.MAINNET_CAP]: a release that has run real channels,
+     * payments and closes with no refused label and no lost channel.
+     */
+    val MAINNET_CHANNEL_CAP: Satoshi = Satoshi(1_000_000)
+
+    /** The most a channel on [chain] may hold, or null where there is no cap. */
+    fun channelCapFor(chain: Chain): Satoshi? = MAINNET_CHANNEL_CAP.takeIf { chain.isMainnet() }
+
+    /**
+     * Whether a Lightning wallet may be opened on [chain] at all: [NETWORK], and regtest for tests and
+     * development.
      */
     fun allows(chain: Chain): Boolean = chain == NETWORK || chain == Chain.Regtest
 }

@@ -2,10 +2,12 @@ package com.machankura.bennu.compose.managers
 
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import fr.acinq.bitcoin.ByteVector
 import fr.acinq.bitcoin.ByteVector32
+import fr.acinq.bitcoin.Chain
 import fr.acinq.bitcoin.PrivateKey
 import fr.acinq.bitcoin.PublicKey
 import fr.acinq.bitcoin.Satoshi
@@ -65,8 +67,8 @@ import kotlinx.coroutines.withTimeout
  * that every member rebuilds the same transaction from the same context and signs it only if it leaves
  * the group what the group agreed to.
  */
-class GroupLightningCoSigningJvmTest {
-    private val fixture = GroupLightningFixture()
+abstract class GroupLightningCoSigningCases(chain: Chain) {
+    private val fixture = GroupLightningFixture(chain = chain)
     private val lspKey = PrivateKey(Random.nextBytes(32).byteVector32())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -98,13 +100,13 @@ class GroupLightningCoSigningJvmTest {
     }
 
     /** A channel with the LSP, as the operator's node would hold it. */
-    private inner class Channel(group: Group, ours: Long, theirs: Long) {
+    private inner class Channel(group: Group, ours: Long, theirs: Long, capacity: Satoshi = Satoshi(1_000_000)) {
         val seed = ByteVector(group.wallet.seed!!.seed)
         val keyManager = GroupLightningCoSigner.keyManagerOf(seed, fixture.chain)
         val groupKey = PublicKey.fromHex(group.wallet.statement.icebergKey)
         val remoteFundingKey = PrivateKey(Random.nextBytes(32).byteVector32())
         val fundingTxId = TxId(Random.nextBytes(32).byteVector32())
-        val input = Transactions.makeFundingInputInfo(fundingTxId, 0, Satoshi(1_000_000), groupKey, remoteFundingKey.publicKey(), Transactions.CommitmentFormat.SimpleTaprootChannels)
+        val input = Transactions.makeFundingInputInfo(fundingTxId, 0, capacity, groupKey, remoteFundingKey.publicKey(), Transactions.CommitmentFormat.SimpleTaprootChannels)
         val onchain = fixture.account
         val params = ChannelParams(
             channelId = Random.nextBytes(32).byteVector32(),
@@ -221,6 +223,19 @@ class GroupLightningCoSigningJvmTest {
     }
 
     @Test
+    fun `on mainnet no member signs for a channel over the rollout's cap`() = runBlocking<Unit> {
+        val cap = GroupLightningRollout.channelCapFor(fixture.chain) ?: return@runBlocking
+        val group = group()
+        val (signer, _) = operatorSigner(group, deadline = 3.seconds)
+        val atCap = Channel(group, ours = 400_000_000, theirs = cap.sat * 1000 - 400_000_000, capacity = cap)
+        val (fits, fitsContext) = atCap.commitment(0, atCap.spec)
+        assertIs<Either.Right<Transaction>>(groupSigns(group, signer, atCap, fits, fitsContext), "a channel of exactly the cap opens")
+        val over = Channel(group, ours = 400_000_000, theirs = cap.sat * 1000, capacity = cap + Satoshi(400_000))
+        val (big, bigContext) = over.commitment(0, over.spec)
+        assertIs<IcebergSigningTimeout>(assertIs<Either.Left<Throwable>>(groupSigns(group, signer, over, big, bigContext)).value, "a bigger one never gets a signature")
+    }
+
+    @Test
     fun `a transaction its context does not rebuild to is refused by every member`() = runBlocking<Unit> {
         val group = group()
         val channel = Channel(group, ours = 400_000_000, theirs = 600_000_000)
@@ -303,3 +318,6 @@ class GroupLightningCoSigningJvmTest {
         assertIs<Either.Left<Throwable>>(groupSigns(group, again, channel, other, otherContext))
     }
 }
+
+/** The cases on regtest, the network every other four-device test runs on. */
+class GroupLightningCoSigningJvmTest : GroupLightningCoSigningCases(Chain.Regtest)
