@@ -2,6 +2,7 @@ package com.machankura.bennu.compose.ui.composable
 
 import androidx.compose.material.icons.filled.Bolt
 import bennu.composeapp.generated.resources.lightning_wallet
+import bennu.composeapp.generated.resources.lightning_needs_an_onchain_wallet
 import bennu.composeapp.generated.resources.member_removal_requested_lightning
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningWalletRoute
 import com.machankura.bennu.compose.wallet.GroupLightningRollout
@@ -26,6 +27,7 @@ import bennu.composeapp.generated.resources.at_s
 import bennu.composeapp.generated.resources.s_dot_s
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.text.style.TextOverflow
@@ -402,11 +404,21 @@ fun ChatRoomDetailScreen(
 
                                 // The group's Lightning wallet, which closes to the onchain
                                 // wallet -- the row above this one, on the same network.
+                                // Its key is made by the onchain wallet's signers and its
+                                // channels close to that wallet, so until the group has
+                                // opened one there is nothing behind this row: it stays,
+                                // disabled, and says what it is waiting for.
                                 if (GroupLightningRollout.ENABLED) item {
+                                    val hasOnchainWallet = chatRoomDetailUIState.groupWallet != null
                                     SignedWorkRow(
                                         icon = Icons.Default.Bolt,
                                         headline = stringResource(Res.string.lightning_wallet),
-                                        supporting = GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK),
+                                        supporting = if (hasOnchainWallet) {
+                                            GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK)
+                                        } else {
+                                            stringResource(Res.string.lightning_needs_an_onchain_wallet)
+                                        },
+                                        enabled = hasOnchainWallet,
                                         onOpen = {
                                             onNavigateToRoute.invoke(
                                                 GroupLightningWalletRoute(
@@ -1134,16 +1146,23 @@ private fun SignedWorkRow(
     icon: ImageVector,
     headline: String,
     supporting: String,
+    enabled: Boolean = true,
     onOpen: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth(), onClick = onOpen) {
+    Card(modifier = Modifier.fillMaxWidth(), onClick = onOpen, enabled = enabled) {
         ListItem(
+            // A disabled row dims its headline and icon to M3's 38%, but not its
+            // supporting text, which is where it says why it is disabled.
+            colors = if (enabled) ListItemDefaults.colors() else ListItemDefaults.colors(
+                headlineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                leadingIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+            ),
             leadingContent = {
                 Icon(icon, contentDescription = Decorative)
             },
-            trailingContent = {
-                Icon(Icons.Default.ChevronRight, contentDescription = Decorative)
-            },
+            trailingContent = if (enabled) {
+                { Icon(Icons.Default.ChevronRight, contentDescription = Decorative) }
+            } else null,
             headlineContent = {
                 Text(text = headline)
             },

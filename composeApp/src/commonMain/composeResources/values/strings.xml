@@ -586,6 +586,7 @@
     <string name="couldn_t_approve_this_step">Couldn't approve this step.</string>
     <string name="your_share_of_this_key_is_stored_unencrypted">Your share of this key is stored unencrypted on this device, as the onchain wallet's is.</string>
     <string name="lightning_wallet">Lightning wallet</string>
+    <string name="lightning_needs_an_onchain_wallet">Lightning is only available once the group has an onchain wallet.</string>
     <string name="make_a_key">Make a key</string>
     <string name="see_the_key_ceremony">See the key ceremony</string>
     <string name="open_a_lightning_wallet">Open a Lightning wallet</string>
