@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.ChatMessage
 import co.touchlab.kermit.Severity
 import co.touchlab.kermit.StaticConfig
 import co.touchlab.kermit.platformLogWriter
@@ -312,6 +313,30 @@ class GroupLightningRegtestJvmTest {
         assertTrue(swept - beforeSweep > 70_000, "the sweep paid the onchain wallet")
         assertNotNull(sweeper.db.groupTransactionDao().getByChatRoomId(fixture.roomId).firstOrNull { it.confirmedAt != null || it.seenAt != null })
         assertEquals(1, held.size)
+
+        // The room's account of all that, on every device (docs/group-lightning-transcript.md,
+        // Phase 5): one line per fact however many snapshots repeated it, and no raw JSON. Waited
+        // for, since the last snapshots are still reaching the members.
+        val channels = setOf(channel.channelId, second.channelId)
+        mineUntil("every member to be told both channels closed") {
+            all.all { d -> fixture.lines(d, ChatMessage.TYPE_LIGHTNING_CHANNEL_CLOSED).mapNotNull { it.lightningFactKey }.toSet() == channels }.takeIf { it }
+        }
+        all.forEach { d ->
+            suspend fun count(type: String) = fixture.lines(d, type).size
+            d.db.chatMessageDao().getChatMessagesByChatRoomId(fixture.roomId).map { it.chatMessage }
+                .filter { it.messageType in ChatMessage.LIGHTNING_TYPES || it.messageType in ChatMessage.GROUP_LIGHTNING_SIGNED_TYPES }
+                .forEach { println("REGTEST line, device ${d.index}: ${it.messageType} ${it.content}") }
+            assertEquals(2, count(ChatMessage.TYPE_LIGHTNING_CHANNEL_OPENED), "device ${d.index}: one opened line per channel")
+            assertEquals(2, count(ChatMessage.TYPE_LIGHTNING_CHANNEL_CLOSED), "device ${d.index}: one closed line per channel")
+            assertEquals(2, count(ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED), "device ${d.index}: the two payments in")
+            assertEquals(1, count(ChatMessage.TYPE_LIGHTNING_PAYMENT_SENT), "device ${d.index}: the payment out")
+            assertEquals(1, count(ChatMessage.TYPE_LIGHTNING_SEED_SHARED), "device ${d.index}")
+            assertEquals(1, count(ChatMessage.TYPE_LIGHTNING_INVOICE_REQUESTED), "device ${d.index}")
+            assertEquals(1, count(ChatMessage.TYPE_LIGHTNING_INVOICE_ISSUED), "device ${d.index}")
+            assertEquals(0, count(ChatMessage.TYPE_LIGHTNING_REFUSED), "device ${d.index}: an honest operator is never refused")
+            assertEquals(0, count(ChatMessage.TYPE_LIGHTNING_EQUIVOCATION), "device ${d.index}")
+            assertEquals(0, count("unsupported"), "device ${d.index}: no raw JSON in the room")
+        }
         node.stop()
     }
 }

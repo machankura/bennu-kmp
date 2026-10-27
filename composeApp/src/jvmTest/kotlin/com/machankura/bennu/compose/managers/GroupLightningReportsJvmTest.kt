@@ -226,11 +226,14 @@ class GroupLightningReportsJvmTest {
     @Test
     fun `what the snapshots say happened is said once, on every device`() = runBlocking<Unit> {
         val (all, node) = running()
-        val sent = WalletWire.PaymentView("p2", incoming = false, amountMsat = 5_000_000, feesMsat = 1_500, completedAt = 1_700_000_100_000, succeeded = true)
-        val failed = WalletWire.PaymentView("p3", incoming = false, amountMsat = 7_000_000, feesMsat = 0, completedAt = 1_700_000_200_000, succeeded = false)
+        // As lightning-kmp reports them: an outgoing amount includes its fee, and a channel's close is
+        // an outgoing payment with no payment hash.
+        val sent = WalletWire.PaymentView("p2", incoming = false, amountMsat = 5_001_500, feesMsat = 1_500, paymentHash = "ab".repeat(32), completedAt = 1_700_000_100_000, succeeded = true)
+        val close = WalletWire.PaymentView("p5", incoming = false, amountMsat = 400_000_000, feesMsat = 0, completedAt = 1_700_000_300_000, succeeded = true)
+        val failed = WalletWire.PaymentView("p3", incoming = false, amountMsat = 7_000_000, feesMsat = 0, paymentHash = "cd".repeat(32), completedAt = 1_700_000_200_000, succeeded = false)
         val pending = WalletWire.PaymentView("p4", incoming = true, amountMsat = 1_000_000, feesMsat = 0, completedAt = null, succeeded = false)
         nodes.single().channels = listOf(channel)
-        nodes.single().payments += listOf(payment, sent, failed, pending)
+        nodes.single().payments += listOf(payment, sent, failed, pending, close)
         node.report(term = 1)
         fixture.pump(all, setOf(GroupLightningEvents.SNAPSHOT))
         // The same facts again, and then the channel closing.

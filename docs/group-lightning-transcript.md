@@ -24,8 +24,17 @@ build chose differently the table below says so.
 
 Every phase was checked with `:composeApp:jvmTest` (1,598 tests; one,
 `IdentitySwitchJvmTest`, timed out under the full run's load and passes alone),
-`:composeApp:compileDebugKotlinAndroid` and `m3-audit.sh --check`. The four-device
-regtest run and a look at a room on a device have not been done.
+`:composeApp:compileDebugKotlinAndroid` and `m3-audit.sh --check`.
+
+The regtest run (`GroupLightningRegtestJvmTest`) now checks the transcript too: on every
+device, one opened and one closed line per channel, one line per payment, the seed, the
+invoice pair, and no raw JSON, refusal or alarm. Its first run found two things Phase 5's
+unit test had not: lightning-kmp files a channel's close as an outgoing payment with no
+payment hash, which wrote a "sent" line beside each closed one, and an outgoing payment's
+amount includes its fee, so 20,000 sats with an 84-sat fee read as 20,084 sent. Both are
+fixed, and the unit test's payments are now shaped as lightning-kmp reports them. The
+wallet screen's payment list reads the same two fields the same way and still shows both;
+that is the screen's, and not changed here. A look at a room on a device has not been done.
 
 Read
 [group-lightning-wallet.md](./group-lightning-wallet.md) for the wallet itself and

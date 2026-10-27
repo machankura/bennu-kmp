@@ -147,6 +147,10 @@ object GroupLightningReports {
 
         snapshot.payments.forEach { payment ->
             val completedAt = payment.completedAt?.let(Instant::fromEpochMilliseconds) ?: return@forEach
+            // lightning-kmp files a channel's close as an outgoing payment, with no payment hash: every
+            // Lightning payment has one. The channel's closed line already says it, and a second line
+            // would read as the group having paid the money away. Found by the regtest run.
+            if (!payment.incoming && payment.paymentHash == null) return@forEach
             val (type, content) = when {
                 payment.incoming && payment.succeeded -> ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED to buildString {
                     append("The group's Lightning wallet received ${sats(payment.amountMsat)}")
@@ -154,8 +158,10 @@ object GroupLightningReports {
                     append(".")
                 }
                 payment.incoming -> return@forEach
+                // An outgoing payment's amount is what left the wallet, its fee included; the line
+                // says what reached the recipient and the fee beside it.
                 payment.succeeded -> ChatMessage.TYPE_LIGHTNING_PAYMENT_SENT to buildString {
-                    append("The group's Lightning wallet sent ${sats(payment.amountMsat)}")
+                    append("The group's Lightning wallet sent ${sats(payment.amountMsat - payment.feesMsat)}")
                     if (payment.feesMsat > 0) append(", with ${Satoshi((payment.feesMsat + 999) / 1000).grouped()} sats in fees")
                     append(".")
                 }
