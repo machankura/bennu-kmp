@@ -1,0 +1,41 @@
+package com.machankura.bennu.compose.ui.composable
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.runDesktopComposeUiTest
+import com.machankura.bennu.compose.database.model.GroupLightningPaymentRow
+import com.machankura.bennu.compose.ui.theme.BennuTheme
+import kotlin.test.Test
+
+/**
+ * The Lightning wallet's payment list says what the node's payments were, as lightning-kmp reports
+ * them: a sent amount with its fee already in it, and a channel's close filed as an outgoing payment
+ * with no payment hash. Found by the regtest run, which listed a close as "sent" and 20,000 sats with
+ * an 84-sat fee as 20,084 sent. docs/group-lightning-transcript.md.
+ */
+@OptIn(ExperimentalTestApi::class)
+class LightningPaymentRowJvmTest {
+
+    private fun row(id: String, incoming: Boolean, amountMsat: Long, feesMsat: Long, paymentHash: String?, succeeded: Boolean) =
+        GroupLightningPaymentRow("w", id, incoming, amountMsat, feesMsat, paymentHash, description = null, completedAt = null, succeeded = succeeded)
+
+    @Test
+    fun `a payment sent is what reached the recipient, and a close is said as a close`() = runDesktopComposeUiTest {
+        setContent {
+            BennuTheme {
+                Column {
+                    PaymentRow(row("in", incoming = true, amountMsat = 96_900_000, feesMsat = 0, paymentHash = "aa".repeat(32), succeeded = true))
+                    PaymentRow(row("out", incoming = false, amountMsat = 20_084_000, feesMsat = 84_000, paymentHash = "bb".repeat(32), succeeded = true))
+                    PaymentRow(row("closed", incoming = false, amountMsat = 76_816_000, feesMsat = 0, paymentHash = null, succeeded = true))
+                    PaymentRow(row("closing", incoming = false, amountMsat = 50_000_000, feesMsat = 0, paymentHash = null, succeeded = false))
+                }
+            }
+        }
+        onNodeWithText("Received 96,900 sats").assertIsDisplayed()
+        onNodeWithText("Sent 20,000 sats, with a fee of 84 sats").assertIsDisplayed()
+        onNodeWithText("A channel closed: 76,816 sats to the onchain wallet").assertIsDisplayed()
+        onNodeWithText("A channel is closing: 50,000 sats to the onchain wallet").assertIsDisplayed()
+    }
+}

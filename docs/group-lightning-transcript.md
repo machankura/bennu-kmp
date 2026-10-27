@@ -33,8 +33,10 @@ unit test had not: lightning-kmp files a channel's close as an outgoing payment 
 payment hash, which wrote a "sent" line beside each closed one, and an outgoing payment's
 amount includes its fee, so 20,000 sats with an 84-sat fee read as 20,084 sent. Both are
 fixed, and the unit test's payments are now shaped as lightning-kmp reports them. The
-wallet screen's payment list reads the same two fields the same way and still shows both;
-that is the screen's, and not changed here. A look at a room on a device has not been done.
+wallet screen's payment list read the same two fields the same way, and now reads them
+through the same two rules, `GroupLightningReports.isChannelClose` and `recipientMsat`: a
+close is listed as a close, or as closing until it confirms, and a sent payment as what
+reached the recipient with the fee beside it. A look at a room on a device has not been done.
 
 Read
 [group-lightning-wallet.md](./group-lightning-wallet.md) for the wallet itself and

@@ -613,6 +613,8 @@
     <string name="received_s_sats">Received %1$s sats</string>
     <string name="sent_s_sats_with_a_fee_of_s_sats">Sent %1$s sats, with a fee of %2$s sats</string>
     <string name="couldn_t_send_s_sats">Couldn't send %1$s sats</string>
+    <string name="a_channel_closed_s_sats_to_the_onchain_wallet">A channel closed: %1$s sats to the onchain wallet</string>
+    <string name="a_channel_is_closing_s_sats_to_the_onchain_wallet">A channel is closing: %1$s sats to the onchain wallet</string>
     <string name="receive">Receive</string>
     <string name="what_it_is_for">What it's for</string>
     <string name="leave_the_amount_empty_to_let_the_payer_choose">Leave the amount empty to let the payer choose.</string>

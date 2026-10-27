@@ -1,5 +1,8 @@
 package com.machankura.bennu.compose.ui.composable
 
+import bennu.composeapp.generated.resources.a_channel_closed_s_sats_to_the_onchain_wallet
+import bennu.composeapp.generated.resources.a_channel_is_closing_s_sats_to_the_onchain_wallet
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -418,15 +421,36 @@ private fun ChannelRow(check: GroupLightningReports.ChannelCheck, onClose: ((for
     )
 }
 
+/**
+ * One payment the operator's node reported. A channel's close comes in this list too -- lightning-kmp
+ * files it as an outgoing payment -- and is said as a close, since the money went to the group's own
+ * onchain wallet rather than to anybody. A payment sent is said as what reached the recipient, with the
+ * fee beside it, not the two added together.
+ */
 @Composable
-private fun PaymentRow(payment: GroupLightningPaymentRow) {
-    val amount = Satoshi(payment.amountMsat / 1000).grouped()
+internal fun PaymentRow(payment: GroupLightningPaymentRow) {
+    val isClose = GroupLightningReports.isChannelClose(payment.incoming, payment.paymentHash)
+    val amount = Satoshi(
+        if (payment.incoming || isClose) payment.amountMsat / 1000
+        else GroupLightningReports.recipientMsat(payment.amountMsat, payment.feesMsat) / 1000
+    ).grouped()
     ListItem(
-        leadingContent = { Icon(if (payment.incoming) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade, contentDescription = Decorative) },
+        leadingContent = {
+            Icon(
+                when {
+                    isClose -> Icons.Default.LinkOff
+                    payment.incoming -> Icons.AutoMirrored.Filled.CallReceived
+                    else -> Icons.AutoMirrored.Filled.CallMade
+                },
+                contentDescription = Decorative,
+            )
+        },
         headlineContent = {
             Text(
                 when {
                     payment.incoming -> stringResource(Res.string.received_s_sats, amount)
+                    isClose && payment.succeeded -> stringResource(Res.string.a_channel_closed_s_sats_to_the_onchain_wallet, amount)
+                    isClose -> stringResource(Res.string.a_channel_is_closing_s_sats_to_the_onchain_wallet, amount)
                     payment.succeeded -> stringResource(Res.string.sent_s_sats_with_a_fee_of_s_sats, amount, Satoshi(payment.feesMsat / 1000).grouped())
                     else -> stringResource(Res.string.couldn_t_send_s_sats, amount)
                 }

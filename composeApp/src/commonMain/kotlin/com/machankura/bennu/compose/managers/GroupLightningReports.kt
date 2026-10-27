@@ -41,6 +41,16 @@ object GroupLightningReports {
         val agrees: Boolean? get() = signedOursMsat?.let { it == channel.oursMsat }
     }
 
+    /**
+     * Whether a payment the node reports is a channel's close. lightning-kmp files a close as an
+     * outgoing payment, and gives it no payment hash: every Lightning payment has one. Read here
+     * for the wallet's payment list and the room's lines alike, so the two cannot disagree.
+     */
+    fun isChannelClose(incoming: Boolean, paymentHash: String?): Boolean = !incoming && paymentHash == null
+
+    /** What reached an outgoing payment's recipient: lightning-kmp reports its amount with the fee in it. */
+    fun recipientMsat(amountMsat: Long, feesMsat: Long): Long = amountMsat - feesMsat
+
     /** Sends [snapshot] to the room, and files it here as every member would. */
     suspend fun publishSnapshot(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, snapshot: WalletWire.Snapshot) {
         GroupLightningWalletManager.queue(database, localChatRoom, userPublicKey, GroupLightningEvents.SNAPSHOT, CommonJson.encodeToString(WalletWire.Snapshot.serializer(), snapshot))
@@ -150,7 +160,7 @@ object GroupLightningReports {
             // lightning-kmp files a channel's close as an outgoing payment, with no payment hash: every
             // Lightning payment has one. The channel's closed line already says it, and a second line
             // would read as the group having paid the money away. Found by the regtest run.
-            if (!payment.incoming && payment.paymentHash == null) return@forEach
+            if (isChannelClose(payment.incoming, payment.paymentHash)) return@forEach
             val (type, content) = when {
                 payment.incoming && payment.succeeded -> ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED to buildString {
                     append("The group's Lightning wallet received ${sats(payment.amountMsat)}")
@@ -161,12 +171,12 @@ object GroupLightningReports {
                 // An outgoing payment's amount is what left the wallet, its fee included; the line
                 // says what reached the recipient and the fee beside it.
                 payment.succeeded -> ChatMessage.TYPE_LIGHTNING_PAYMENT_SENT to buildString {
-                    append("The group's Lightning wallet sent ${sats(payment.amountMsat - payment.feesMsat)}")
+                    append("The group's Lightning wallet sent ${sats(recipientMsat(payment.amountMsat, payment.feesMsat))}")
                     if (payment.feesMsat > 0) append(", with ${Satoshi((payment.feesMsat + 999) / 1000).grouped()} sats in fees")
                     append(".")
                 }
                 else -> ChatMessage.TYPE_LIGHTNING_PAYMENT_FAILED to
-                    "A Lightning payment of ${sats(payment.amountMsat)} failed. Nothing left the wallet."
+                    "A Lightning payment of ${sats(recipientMsat(payment.amountMsat, payment.feesMsat))} failed. Nothing left the wallet."
             }
             GroupLightningLines.writeFact(database, chatRoomId, type, payment.id, sentBy, content, completedAt)
         }
