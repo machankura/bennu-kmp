@@ -48,6 +48,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 /**
@@ -155,7 +157,7 @@ class IcebergCeremonyJvmTest {
 
     private suspend fun group(): List<Device> = (0 until n).map { device(it) }.also { openOnchainWallet(it) }
 
-    /** Runs the ceremony from [proposer], each other device approving every step when it is asked. */
+    /** Runs the ceremony from [proposer], each other device approving when it is asked: joining, only. */
     private suspend fun runCeremony(all: List<Device>, proposer: Device = all[0], threshold: Int = 2): IcebergKeySession {
         val proposed = IcebergRitualManager.proposeCeremony(proposer.db, proposer.room, proposer.publicKey, proposer.privateKey, threshold, chain)
         repeat(6) {
@@ -210,7 +212,7 @@ class IcebergCeremonyJvmTest {
     }
 
     @Test
-    fun `nothing of a member's goes out before they approve it`() = runBlocking {
+    fun `nothing of a member's goes out before they join, and joining is the only approval`() = runBlocking {
         val all = group()
         val proposed = IcebergRitualManager.proposeCeremony(all[0].db, all[0].room, all[0].publicKey, all[0].privateKey, 2, chain)
         pump(all, GroupLightningEvents.CEREMONY)
@@ -218,10 +220,82 @@ class IcebergCeremonyJvmTest {
         assertEquals(IcebergApprovalStep.JOIN, IcebergRitualManager.pendingApproval(other.db, other.ceremony(proposed.id)!!))
         assertTrue(outbox(other, GroupLightningEvents.CEREMONY).isEmpty(), "a member who has not joined has published nothing")
 
-        all.drop(1).forEach { IcebergRitualManager.approve(it.db, it.room, proposed.id, IcebergApprovalStep.JOIN, it.privateKey) }
+        // Three of four join: commitments go out, and nothing more, while one is missing.
+        all.drop(1).dropLast(1).forEach { IcebergRitualManager.approve(it.db, it.room, proposed.id, IcebergApprovalStep.JOIN, it.privateKey) }
         pump(all, GroupLightningEvents.CEREMONY)
         assertEquals(setOf(GroupLightningEvents.DKG_ROUND_1), outbox(other, GroupLightningEvents.CEREMONY).map { it.kind }.toSet(), "joining publishes commitments and nothing more")
-        assertEquals(IcebergApprovalStep.REVEAL, IcebergRitualManager.pendingApproval(other.db, other.ceremony(proposed.id)!!))
+
+        // The last joins, and the ceremony runs to its key with nobody asked anything else.
+        IcebergRitualManager.approve(all[3].db, all[3].room, proposed.id, IcebergApprovalStep.JOIN, all[3].privateKey)
+        pump(all, GroupLightningEvents.CEREMONY)
+        all.forEach { d ->
+            val session = d.ceremony(proposed.id)!!
+            assertEquals(IcebergRitualStage.COMPLETE, session.stage, "device ${d.index}: ${session.failureReason}")
+            val asked = d.db.chatMessageDao().getChatMessagesByChatRoomId(roomId).map { it.chatMessage.messageType }
+            assertTrue(ChatMessage.TYPE_ICEBERG_APPROVAL_NEEDED_REVEAL !in asked && ChatMessage.TYPE_ICEBERG_APPROVAL_NEEDED_CONFIRM !in asked)
+        }
+    }
+
+    /**
+     * A ceremony a member never joins is abandoned by the first device past its deadline, naming them,
+     * and the failure that device sends ends it on every other. Then the room can open another.
+     */
+    @Test
+    fun `a ceremony past its deadline is abandoned, naming who had not taken part`() = runBlocking {
+        val all = group()
+        val proposed = IcebergRitualManager.proposeCeremony(all[0].db, all[0].room, all[0].publicKey, all[0].privateKey, 2, chain)
+        pump(all, GroupLightningEvents.CEREMONY)
+        all.drop(1).dropLast(1).forEach { IcebergRitualManager.approve(it.db, it.room, proposed.id, IcebergApprovalStep.JOIN, it.privateKey) }
+        pump(all, GroupLightningEvents.CEREMONY)
+
+        val deadline = IcebergRitualManager.deadlineOf(all[1].ceremony(proposed.id)!!)
+        IcebergRitualManager.abandonOverdue(all[1].db, all[1].publicKey, now = deadline - 1.seconds)
+        assertEquals(IcebergRitualStage.COLLECTING_COMMITMENTS, all[1].ceremony(proposed.id)!!.stage, "not before its deadline")
+
+        IcebergRitualManager.abandonOverdue(all[1].db, all[1].publicKey, now = deadline)
+        val name = ChatMessage.memberName(all[1].db, all[3].publicKey)
+        val expected = "@$name didn't take their part within 24 hours of it being proposed."
+        assertEquals(expected, all[1].ceremony(proposed.id)!!.failureReason)
+
+        pump(all, GroupLightningEvents.CEREMONY)
+        all.forEach { d ->
+            val session = d.ceremony(proposed.id)!!
+            assertEquals(IcebergRitualStage.FAILED, session.stage, "device ${d.index}")
+            assertEquals(expected, session.failureReason, "device ${d.index} keeps the sentence it was sent")
+        }
+        val again = IcebergRitualManager.proposeCeremony(all[0].db, all[0].room, all[0].publicKey, all[0].privateKey, 2, chain)
+        assertTrue(again.id != proposed.id, "the room is free for a new ceremony")
+    }
+
+    @Test
+    fun `any participant can abandon a ceremony, and it ends for everyone`() = runBlocking {
+        val all = group()
+        val proposed = IcebergRitualManager.proposeCeremony(all[0].db, all[0].room, all[0].publicKey, all[0].privateKey, 2, chain)
+        pump(all, GroupLightningEvents.CEREMONY)
+
+        assertTrue(IcebergRitualManager.abandon(all[2].db, all[2].room, proposed.id))
+        assertTrue(!IcebergRitualManager.abandon(all[2].db, all[2].room, proposed.id), "a ceremony is abandoned once")
+        pump(all, GroupLightningEvents.CEREMONY)
+        val expected = "@${ChatMessage.memberName(all[2].db, all[2].publicKey)} abandoned it."
+        all.forEach { d ->
+            val session = d.ceremony(proposed.id)!!
+            assertEquals(IcebergRitualStage.FAILED, session.stage, "device ${d.index}")
+            assertEquals(expected, session.failureReason)
+            assertNull(session.root, "the random root goes with it")
+        }
+    }
+
+    /** A proposal read after its deadline -- by a device reading the room again, say -- is not filed. */
+    @Test
+    fun `a proposal past its deadline is not filed`() = runBlocking {
+        val all = group()
+        val tags = members.drop(1).map { arrayOf("p", it) } + listOf(
+            arrayOf("iceberg_session", Random.nextBytes(32).toHex()), arrayOf("threshold", "2"), arrayOf("onchain_dkg", onchainCeremonyId),
+        )
+        val createdAt = (Clock.System.now() - IcebergRitualManager.DEADLINE - 1.seconds).epochSeconds
+        val event = Event(EventHasher.hashId(pubKey = members[0], createdAt = createdAt, kind = GroupLightningEvents.CEREMONY_PROPOSAL, tags = tags.toTypedArray(), content = ""), members[0], createdAt, GroupLightningEvents.CEREMONY_PROPOSAL, tags.toTypedArray(), "", "")
+        IcebergRitualManager.processCeremonyPayload(all[1].db, all[1].room, event, all[1].publicKey, all[1].privateKey)
+        assertTrue(all[1].db.icebergKeySessionDao().getSessionsForChatRoom(roomId).isEmpty())
     }
 
     @Test

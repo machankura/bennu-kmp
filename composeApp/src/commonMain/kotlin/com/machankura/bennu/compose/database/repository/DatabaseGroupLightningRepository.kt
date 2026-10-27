@@ -115,4 +115,10 @@ class DatabaseGroupLightningRepository(private val database: BennuDatabase) : Gr
 
     override suspend fun approveCeremony(localChatRoom: LocalChatRoom, sessionId: String, step: IcebergApprovalStep, nostrPrivateKey: ByteArray) =
         IcebergRitualManager.approve(database, localChatRoom, sessionId, step, nostrPrivateKey)
+
+    override suspend fun resumeCeremony(localChatRoom: LocalChatRoom, sessionId: String, nostrPrivateKey: ByteArray) =
+        IcebergRitualManager.resume(database, localChatRoom, sessionId, nostrPrivateKey)
+
+    override suspend fun abandonCeremony(localChatRoom: LocalChatRoom, sessionId: String): Boolean =
+        IcebergRitualManager.abandon(database, localChatRoom, sessionId)
 }

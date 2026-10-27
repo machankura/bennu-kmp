@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import co.touchlab.kermit.Logger
+import com.machankura.bennu.compose.database.model.IcebergKeySession
+import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
 import com.machankura.bennu.compose.database.model.types.IcebergRitualStage
 import com.machankura.bennu.compose.identity.Identity
 import com.machankura.bennu.compose.repository.ChatRepository
@@ -26,10 +28,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Watches a group's Lightning wallet key ceremony, opens one, and approves its steps.
+ * Watches a group's Lightning wallet key ceremony, opens one, joins it, and abandons it.
  *
  * Nothing here drives the protocol: [com.machankura.bennu.compose.managers.IcebergRitualManager]
- * advances as messages arrive, and this only reads the session and asks its owner what it is waiting on.
+ * advances as messages arrive, and this only reads the session and asks its owner whether to join.
  */
 class IcebergCeremonyViewModel(
     val activeUserPublicKey: HexKey,
@@ -54,6 +56,9 @@ class IcebergCeremonyViewModel(
 
     private var watching: Job? = null
 
+    /** The ceremonies this screen has nudged once, so a re-read does not nudge them again. */
+    private val resumed = mutableSetOf<String>()
+
     fun initiate() {
         watching?.cancel()
         watching = viewModelScope.launch(Dispatchers.IO) {
@@ -73,6 +78,7 @@ class IcebergCeremonyViewModel(
                 lightningRepository.observeCeremonies(chatRoomId).map { it.firstOrNull() }
             }
             sessions.collect { session ->
+                if (session != null) resume(localChatRoom, session)
                 val messages = session?.let { lightningRepository.ceremonyMessages(it.id) }.orEmpty()
                 uiState = IcebergCeremonyUIState.Loaded(
                     localChatRoom = localChatRoom,
@@ -85,6 +91,18 @@ class IcebergCeremonyViewModel(
                 )
             }
         }
+    }
+
+    /**
+     * A joined ceremony this device has not moved since an earlier build stopped it at a gate that no
+     * longer exists: the others are waiting on it, so nothing will arrive to move it. Once per ceremony.
+     */
+    private suspend fun resume(localChatRoom: LocalChatRoom, session: IcebergKeySession) {
+        val running = session.stage != IcebergRitualStage.FAILED && session.stage != IcebergRitualStage.COMPLETE
+        if (!running || session.joinApprovedAt == null || !resumed.add(session.id)) return
+        val privateKey = activeIdentityStateFlow.value?.nostrPrivateKey?.value?.toByteArray() ?: return
+        runCatching { lightningRepository.resumeCeremony(localChatRoom, session.id, privateKey) }
+            .onFailure { logger.e("Could not resume ${session.id}", it) }
     }
 
     /** Whether this device can open a ceremony: none running, a deployable size, an onchain wallet, a key to sign with. */
@@ -125,6 +143,26 @@ class IcebergCeremonyViewModel(
             if (!done) withContext(Dispatchers.Main) { onFailure() }
             // The ceremony may have moved without a new row being written; read it again.
             initiate()
+        }
+    }
+
+    /** Whether the shown ceremony is still running, which is when a participant may end it. */
+    fun canAbandon(): Boolean {
+        val loaded = uiState as? IcebergCeremonyUIState.Loaded ?: return false
+        return loaded.session?.stage?.let { it != IcebergRitualStage.FAILED && it != IcebergRitualStage.COMPLETE } == true
+    }
+
+    fun abandon(onFailure: () -> Unit) {
+        val loaded = uiState as? IcebergCeremonyUIState.Loaded ?: return
+        val session = loaded.session ?: return
+        if (isActionPending.value) return
+        isActionPending.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val abandoned = runCatching { lightningRepository.abandonCeremony(loaded.localChatRoom, session.id) }
+                .onFailure { logger.e("Could not abandon ${session.id}", it) }
+                .getOrDefault(false)
+            isActionPending.value = false
+            if (!abandoned) withContext(Dispatchers.Main) { onFailure() }
         }
     }
 

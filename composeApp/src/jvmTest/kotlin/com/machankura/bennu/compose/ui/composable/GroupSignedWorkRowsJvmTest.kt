@@ -11,6 +11,9 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
+import com.machankura.bennu.compose.database.model.GroupSignedEvent
+import com.machankura.bennu.compose.managers.GroupWalletDerivation
+import com.machankura.bennu.compose.nostr.wallet.GroupWallet
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.NostrRepository
@@ -24,9 +27,14 @@ import com.machankura.bennu.compose.ui.theme.BennuTheme
 import com.machankura.bennu.compose.ui.view.state.ChatRoomDetailUIState
 import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.machankura.bennu.compose.wallet.GroupWalletRollout
+import fr.acinq.bitcoin.ByteVector32
+import fr.acinq.bitcoin.PrivateKey
+import fr.acinq.secp256k1.Hex
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 /**
  * The row on the group's screen that stands for its signed work, and what it
@@ -69,13 +77,27 @@ class GroupSignedWorkRowsJvmTest {
         if (!GroupWalletRollout.ENABLED || !GroupLightningRollout.ENABLED) return
         var opened: Route? = null
 
-        render(state(), onNavigateToRoute = { opened = it }) {
+        render(state(groupWallet = onchainWallet), onNavigateToRoute = { opened = it }) {
             onNode(hasText("Lightning wallet") and hasText(GroupWalletStatementEvent.chainName(GroupLightningRollout.NETWORK))).assertIsDisplayed()
             onNodeWithText("Group onchain wallet on", substring = true).assertDoesNotExist()
             onNodeWithText("Lightning wallet").performClick()
         }
 
         assertEquals(GroupLightningWalletRoute(activeUserPublicKey, chatRoomId), opened)
+    }
+
+    /** It closes to the onchain wallet, so until there is one it says so and opens nothing. */
+    @Test
+    fun `the Lightning wallet's row waits for an onchain wallet`() {
+        if (!GroupWalletRollout.ENABLED || !GroupLightningRollout.ENABLED) return
+        var opened: Route? = null
+
+        render(state(), onNavigateToRoute = { opened = it }) {
+            onNode(hasText("Lightning wallet") and hasText("Lightning is only available once the group has an onchain wallet.")).assertIsDisplayed()
+            onNodeWithText("Lightning wallet").performClick()
+        }
+
+        assertNull(opened)
     }
 
     @Test
@@ -101,10 +123,32 @@ class GroupSignedWorkRowsJvmTest {
     /** The wallet row is named for its room: the fixture's subject. */
     private val WALLET_ROW = "Translation room onchain wallet"
 
-    private fun state(mlsGroupState: String? = "state") = ChatRoomDetailUIState.Loaded(
+    private fun state(mlsGroupState: String? = "state", groupWallet: GroupWallet? = null) = ChatRoomDetailUIState.Loaded(
         localChatRoom = GroupSignedWorkFixtures.localChatRoom(mlsGroupState),
         groupKeyState = GroupSignedWorkFixtures.groupKeyState,
+        groupWallet = groupWallet,
     )
+
+    /** An onchain wallet on the Lightning wallet's network; only its presence matters to these rows. */
+    private val onchainWallet: GroupWallet by lazy {
+        val account = GroupWalletDerivation.account(
+            PrivateKey(ByteVector32(Hex.decode("1c0ffee".padStart(64, '0')))).publicKey().toString(),
+            GroupLightningRollout.NETWORK,
+        )
+        GroupWallet(
+            signedEvent = GroupSignedEvent(
+                id = "e".repeat(64),
+                chatRoomId = chatRoomId,
+                publicKey = chatRoomId,
+                kind = GroupWalletStatementEvent.KIND,
+                tags = GroupWalletStatementEvent.template(account).tags,
+                content = account.xpub,
+                signature = "f".repeat(128),
+                createdAt = Instant.fromEpochSeconds(1_700_000_000),
+            ),
+            account = account,
+        )
+    }
 
     /**
      * The screen at a phone's width and a window tall enough to compose the whole

@@ -33,6 +33,8 @@ import fr.acinq.bitcoin.utils.Either
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlin.time.Clock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Instant
 
 /**
@@ -40,9 +42,21 @@ import kotlin.time.Instant
  * wallet signs its channels with (`docs/group-lightning-wallet.md`, Phase 5).
  *
  * Built like [ChillDkgRitualManager], and following its rules: every step is a pure function of what
- * this device has stored, so a ceremony survives the app being killed; nothing of this device's own is
- * published until its owner approves, at three gates; faults are values with one failure path; and each
- * device writes the ceremony's transcript lines from what it has received.
+ * this device has stored, so a ceremony survives the app being killed; faults are values with one
+ * failure path; and each device writes the ceremony's transcript lines from what it has received.
+ *
+ * ### One approval, then the device
+ *
+ * Nothing of this device's own is published until its owner agrees to join. After that the device takes
+ * the other two rounds by itself, because every check in them is one the code makes and the person
+ * could not: whether a contribution matches its commitment, whether everyone saw the same commitments,
+ * whether the public shares make one key. Asking a person to tap through them added nothing but the
+ * chance that a member who joined would not come back, holding the ceremony open for everybody.
+ *
+ * A ceremony ends without anyone deciding to end it in two ways. A fault any device detects stops it on
+ * that device, and the failure it broadcasts stops it on every other. A ceremony that has not finished
+ * [DEADLINE] after its proposal is abandoned by the device of whichever participant notices first
+ * ([abandonOverdue]), naming who had not taken their part. Any participant can also [abandon] it.
  *
  * ### Two things it does not need, that ChillDKG does
  *
@@ -70,6 +84,16 @@ object IcebergRitualManager {
     private const val SESSION_TAG = "iceberg_session"
     private const val THRESHOLD_TAG = "threshold"
     private const val ONCHAIN_TAG = "onchain_dkg"
+
+    /**
+     * How long a ceremony has, from its proposal, before any participant's device abandons it. Long
+     * enough for a member to see the request and open the app once; short enough that a member who
+     * never does stops blocking the room, which can only run one ceremony at a time.
+     */
+    val DEADLINE: Duration = 24.hours
+
+    /** When [session] is abandoned if it has not finished: [DEADLINE] after it was proposed. */
+    fun deadlineOf(session: IcebergKeySession): Instant = session.createdAt + DEADLINE
 
     @Serializable
     private data class Round1(val commitments: Map<String, String>)
@@ -209,6 +233,15 @@ object IcebergRitualManager {
         val threshold = innerEvent.tags.firstOrNull { it.size >= 2 && it[0] == THRESHOLD_TAG }?.get(1)?.toIntOrNull()
         val onchainId = innerEvent.tags.firstOrNull { it.size >= 2 && it[0] == ONCHAIN_TAG }?.get(1)
         if (userPublicKey.lowercase() !in members) return null
+        // A proposal read after its deadline is over on every device that took part in it, finished or
+        // not: one that could still be running would need this device, which has not joined. Filing it
+        // would ask its owner to join a ceremony that is about to be abandoned -- or, on a device
+        // reading the room again after a restore, abandon one the group finished long ago.
+        val proposedAt = Instant.fromEpochSeconds(innerEvent.createdAt)
+        if (Clock.System.now() >= proposedAt + DEADLINE) {
+            logger.i("Iceberg proposal $sessionId is past its deadline; not filing it")
+            return null
+        }
         if (threshold == null || !IcebergDkg.isDeployable(members.size, threshold)) {
             logger.w("Iceberg proposal $sessionId asks for $threshold-of-${members.size}, which is not deployable; dropping")
             return null
@@ -236,6 +269,9 @@ object IcebergRitualManager {
             participantPublicKeys = IcebergKeySession.formatParticipants(members),
             onchainDkgSessionId = onchainKey.id,
             root = RandomInstance.bytes(32).toHex(),
+            // When it was proposed, not when this device heard of it: the deadline runs from here,
+            // and every device has to agree on it.
+            createdAt = proposedAt,
         )
         database.icebergKeySessionDao().upsert(session)
         announce(
@@ -308,10 +344,6 @@ object IcebergRitualManager {
             val commitments = commitmentsOf(database, session, params) ?: return
             session = moveTo(database, session, IcebergRitualStage.COLLECTING_REVEALS)
 
-            if (session.revealApprovedAt == null) {
-                announceApprovalNeeded(database, session, IcebergApprovalStep.REVEAL)
-                return
-            }
             if (own(database, session, GroupLightningEvents.DKG_ROUND_2) == null) {
                 val to = (1..params.n).filter { it != me }.associate { k ->
                     val recipient = session.participants()[k - 1]
@@ -327,10 +359,6 @@ object IcebergRitualManager {
             }
             session = moveTo(database, session, IcebergRitualStage.COLLECTING_CONFIRMATIONS)
 
-            if (session.confirmApprovedAt == null) {
-                announceApprovalNeeded(database, session, IcebergApprovalStep.CONFIRM)
-                return
-            }
             val transcript = IcebergDkg.transcriptHash(params, commitments)
             val myPublicShare = Iceberg.publicShare(share, null)
             if (own(database, session, GroupLightningEvents.DKG_ROUND_3) == null) {
@@ -436,19 +464,13 @@ object IcebergRitualManager {
         }
     }
 
-    /** What this ceremony is waiting on its owner for, or null. Mirrors the gates in [advance]. */
+    /**
+     * What this ceremony is waiting on its owner for, or null. Only ever [IcebergApprovalStep.JOIN]: it
+     * is the one gate in [advance].
+     */
     suspend fun pendingApproval(database: BennuDatabase, session: IcebergKeySession): IcebergApprovalStep? {
         if (session.stage == IcebergRitualStage.COMPLETE || session.stage == IcebergRitualStage.FAILED) return null
-        if (session.joinApprovedAt == null) return IcebergApprovalStep.JOIN
-        val dao = database.icebergKeySessionDao()
-        if (session.revealApprovedAt == null) {
-            return if (dao.countMessagesByKind(session.id, GroupLightningEvents.DKG_ROUND_1) >= session.participantCount) IcebergApprovalStep.REVEAL else null
-        }
-        if (session.confirmApprovedAt == null) {
-            val reveals = dao.getMessagesByKind(session.id, GroupLightningEvents.DKG_ROUND_2).count { it.participantPublicKey != session.userPublicKey.lowercase() }
-            return if (reveals >= session.participantCount - 1) IcebergApprovalStep.CONFIRM else null
-        }
-        return null
+        return if (session.joinApprovedAt == null) IcebergApprovalStep.JOIN else null
     }
 
     /** Records that this device's owner agreed to [step] and runs on. A step it is not waiting on is a no-op. */
@@ -467,6 +489,62 @@ object IcebergRitualManager {
             }
         }
         advance(database, localChatRoom, sessionId, nostrPrivateKey)
+    }
+
+    /**
+     * Takes whatever steps [sessionId] can take now. Messages arriving and approvals already do this;
+     * this is for a ceremony that stopped at a gate a build before this one had, and that nothing will
+     * arrive to move, since the others are waiting on this device.
+     */
+    suspend fun resume(database: BennuDatabase, localChatRoom: LocalChatRoom, sessionId: String, nostrPrivateKey: ByteArray) =
+        advance(database, localChatRoom, sessionId, nostrPrivateKey)
+
+    /**
+     * Ends [sessionId] for everyone in it, at its owner's word. Open to any participant, as the shared
+     * key's is (`docs/ceremony-creation.md`, decision 3): any of them could already end it by going
+     * quiet, and saying so lets the others stop waiting. False when it is already over.
+     */
+    suspend fun abandon(database: BennuDatabase, localChatRoom: LocalChatRoom, sessionId: String): Boolean {
+        val session = database.icebergKeySessionDao().getSessionById(sessionId) ?: return false
+        if (session.stage == IcebergRitualStage.COMPLETE || session.stage == IcebergRitualStage.FAILED) return false
+        val reason = "@${ChatMessage.memberName(database, session.userPublicKey)} abandoned it."
+        fail(database, session, reason)
+        broadcast(database, localChatRoom, session, GroupLightningEvents.CEREMONY_FAILURE, reason)
+        return true
+    }
+
+    /**
+     * Abandons every ceremony [userPublicKey] is in that has passed its [deadlineOf] without finishing,
+     * telling the group who had not taken their part. Every participant's device does this, so several
+     * may say it; the first failure each device files is the one it keeps.
+     */
+    suspend fun abandonOverdue(database: BennuDatabase, userPublicKey: HexKey, now: Instant = Clock.System.now()) {
+        for (session in database.icebergKeySessionDao().getRunningSessions()) {
+            if (session.userPublicKey != userPublicKey || now < deadlineOf(session)) continue
+            val localChatRoom = database.chatRoomDao().findChatRoomById(session.chatRoomId) ?: continue
+            val reason = overdueReason(database, session)
+            logger.i("Iceberg ceremony ${session.id} is past its deadline; abandoning it")
+            fail(database, session, reason)
+            broadcast(database, localChatRoom, session, GroupLightningEvents.CEREMONY_FAILURE, reason)
+        }
+    }
+
+    /**
+     * Why an overdue ceremony stopped: the members missing from the first round this device does not
+     * have from everyone, which is who the ceremony was waiting on.
+     */
+    internal suspend fun overdueReason(database: BennuDatabase, session: IcebergKeySession): String {
+        val dao = database.icebergKeySessionDao()
+        val missing = listOf(GroupLightningEvents.DKG_ROUND_1, GroupLightningEvents.DKG_ROUND_2, GroupLightningEvents.DKG_ROUND_3)
+            .firstNotNullOfOrNull { kind ->
+                val sent = dao.getMessagesByKind(session.id, kind).map { it.participantPublicKey.lowercase() }.toSet()
+                session.participants().filter { it !in sent }.takeIf { it.isNotEmpty() }
+            }
+            .orEmpty()
+        val hours = DEADLINE.inWholeHours
+        if (missing.isEmpty()) return "It didn't finish within $hours hours of being proposed."
+        val names = missing.map { "@" + ChatMessage.memberName(database, it) }
+        return "${names.joinToString(", ")} didn't take their part within $hours hours of it being proposed."
     }
 
     /** The share this device holds for the room's newest completed ceremony, with what it is a share of. */

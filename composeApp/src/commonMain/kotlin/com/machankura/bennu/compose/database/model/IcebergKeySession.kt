@@ -61,11 +61,14 @@ data class IcebergKeySession(
     /** Every participant's public share, in participant order, comma-separated hex. */
     val publicShares: String? = null,
     val joinApprovedAt: Instant? = null,
+    /** Written by builds that asked before revealing; nothing reads it now. */
     val revealApprovedAt: Instant? = null,
+    /** Written by builds that asked before confirming; nothing reads it now. */
     val confirmApprovedAt: Instant? = null,
     /** The furthest step this device has asked its owner about, so each request is written once. */
     val approvalRequestedThrough: IcebergApprovalStep? = null,
     val failureReason: String? = null,
+    /** When the ceremony was proposed, by its proposal's timestamp: its deadline runs from here. */
     val createdAt: Instant = Clock.System.now(),
     val updatedAt: Instant = createdAt,
 ) {

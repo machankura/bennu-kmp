@@ -579,7 +579,9 @@
     <string name="join_the_ceremony">Join the ceremony</string>
     <string name="send_your_contributions">Send your contributions</string>
     <string name="confirm_what_you_saw">Confirm what you saw</string>
-    <string name="joining_publishes_commitments">Joining publishes commitments to your contributions. Nothing secret leaves this device.</string>
+    <string name="joining_publishes_commitments">Joining publishes commitments to your contributions. Your device then takes the other two steps by itself, checking each one, and sends your contributions only encrypted to the members who will hold them.</string>
+    <string name="if_it_hasn_t_finished_s_hours_after">If it hasn't finished %1$s hours after it was proposed, it is abandoned and the group can start another.</string>
+    <string name="couldn_t_abandon_the_ceremony">Couldn't abandon the ceremony.</string>
     <string name="sending_contributions_encrypts_each">Each contribution is encrypted to the members who will hold it. Your randomness starts shaping the key here.</string>
     <string name="confirming_publishes_your_public_share">Confirming publishes your public share and a hash of every commitment you saw, so the group can check it agrees.</string>
     <string name="s_of_3_steps">%1$s of 3 steps</string>

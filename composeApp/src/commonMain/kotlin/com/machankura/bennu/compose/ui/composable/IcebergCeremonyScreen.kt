@@ -15,7 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -25,9 +27,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +42,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import bennu.composeapp.generated.resources.Res
 import bennu.composeapp.generated.resources.a_lightning_wallet_needs_four_signers
+import bennu.composeapp.generated.resources.abandon
+import bennu.composeapp.generated.resources.abandon_ceremony
+import bennu.composeapp.generated.resources.abandon_this_key_ceremony_question
+import bennu.composeapp.generated.resources.cancel
+import bennu.composeapp.generated.resources.couldn_t_abandon_the_ceremony
+import bennu.composeapp.generated.resources.if_it_hasn_t_finished_s_hours_after
+import bennu.composeapp.generated.resources.it_ends_for_everyone_in_it_no_key_is_created
 import bennu.composeapp.generated.resources.the_ceremony_was_abandoned
 import bennu.composeapp.generated.resources.nothing_was_created_and_no_key_exists_it_is
 import bennu.composeapp.generated.resources.confirm_what_you_saw
@@ -61,6 +75,7 @@ import bennu.composeapp.generated.resources.your_share_of_this_key_is_stored_une
 import com.machankura.bennu.compose.database.model.types.IcebergApprovalStep
 import com.machankura.bennu.compose.database.model.types.IcebergRitualStage
 import com.machankura.bennu.compose.identity.Identity
+import com.machankura.bennu.compose.managers.IcebergRitualManager
 import com.machankura.bennu.compose.nostr.wallet.GroupWalletStatementEvent
 import com.machankura.bennu.compose.repository.ChatRepository
 import com.machankura.bennu.compose.repository.GroupLightningRepository
@@ -82,8 +97,8 @@ import kotlinx.coroutines.flow.StateFlow
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * A group's Lightning wallet key ceremony: who has done which of its three rounds, what this device is
- * being asked, and -- for a group without one -- the way to start it.
+ * A group's Lightning wallet key ceremony: who has done which of its three rounds, whether this device
+ * has been asked to join, the way to abandon it, and -- for a group without one -- the way to start it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,6 +127,7 @@ fun IcebergCeremonyScreen(
     val notify = rememberNotifier(rememberCoroutineScope())
     val couldNotStart = stringResource(Res.string.couldn_t_start_the_key_ceremony)
     val couldNotApprove = stringResource(Res.string.couldn_t_approve_this_step)
+    val couldNotAbandon = stringResource(Res.string.couldn_t_abandon_the_ceremony)
 
     Scaffold(
         snackbarHost = { SnackbarHost(LocalSnackbarHostState.current) },
@@ -156,6 +172,8 @@ fun IcebergCeremonyScreen(
                         state = state,
                         isPending = viewModel.isActionPending.value,
                         onApprove = { viewModel.approve(onFailure = { notify(couldNotApprove) }) },
+                        canAbandon = viewModel.canAbandon(),
+                        onAbandon = { viewModel.abandon(onFailure = { notify(couldNotAbandon) }) },
                     )
                 }
             }
@@ -186,9 +204,17 @@ private fun StartCeremony(thresholds: List<Int>, participants: Int, chosen: Int?
 }
 
 @Composable
-private fun Ceremony(modifier: Modifier, state: IcebergCeremonyUIState.Loaded, isPending: Boolean, onApprove: () -> Unit) {
+private fun Ceremony(
+    modifier: Modifier,
+    state: IcebergCeremonyUIState.Loaded,
+    isPending: Boolean,
+    onApprove: () -> Unit,
+    canAbandon: Boolean,
+    onAbandon: () -> Unit,
+) {
     val session = state.session ?: return
     val members = state.localChatRoom.localParticipants.associate { it.participant.participantPublicKey.lowercase() to it }
+    var isConfirmingAbandon by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = modifier.readableContent().fillMaxSize().padding(MaterialTheme.spacing.screenMargin),
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.itemGap),
@@ -209,6 +235,14 @@ private fun Ceremony(modifier: Modifier, state: IcebergCeremonyUIState.Loaded, i
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // Said while it runs, so a member who has not joined knows the room is not held forever.
+            if (canAbandon) {
+                Text(
+                    text = stringResource(Res.string.if_it_hasn_t_finished_s_hours_after, IcebergRitualManager.DEADLINE.inWholeHours.toString()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         // As the shared key's ceremony says it: why, in the sentence the device that
         // stopped it wrote, and that nothing was made.
@@ -275,5 +309,41 @@ private fun Ceremony(modifier: Modifier, state: IcebergCeremonyUIState.Loaded, i
                 },
             )
         }
+        // Below the members rather than beside the join button: the consequence is the whole
+        // ceremony's, and reads against who is in it.
+        if (canAbandon) {
+            item {
+                TextButton(
+                    onClick = { isConfirmingAbandon = true },
+                    enabled = !isPending,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Text(stringResource(Res.string.abandon_ceremony))
+                }
+            }
+        }
+    }
+
+    if (isConfirmingAbandon) {
+        AlertDialog(
+            onDismissRequest = { isConfirmingAbandon = false },
+            title = { Text(stringResource(Res.string.abandon_this_key_ceremony_question)) },
+            text = { Text(stringResource(Res.string.it_ends_for_everyone_in_it_no_key_is_created)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        isConfirmingAbandon = false
+                        onAbandon()
+                    }
+                ) {
+                    Text(stringResource(Res.string.abandon))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { isConfirmingAbandon = false }) {
+                    Text(stringResource(Res.string.cancel))
+                }
+            },
+        )
     }
 }

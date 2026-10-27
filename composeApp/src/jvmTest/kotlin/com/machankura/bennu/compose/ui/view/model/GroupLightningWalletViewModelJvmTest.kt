@@ -113,6 +113,8 @@ class GroupLightningWalletViewModelJvmTest {
         override suspend fun hasOnchainWallet(chatRoomId: String, chain: Chain): Boolean = onchain
         override suspend fun proposeCeremony(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, threshold: Int, chain: Chain): IcebergKeySession = error("unused")
         override suspend fun approveCeremony(localChatRoom: LocalChatRoom, sessionId: String, step: IcebergApprovalStep, nostrPrivateKey: ByteArray) = Unit
+        override suspend fun resumeCeremony(localChatRoom: LocalChatRoom, sessionId: String, nostrPrivateKey: ByteArray) = Unit
+        override suspend fun abandonCeremony(localChatRoom: LocalChatRoom, sessionId: String): Boolean = false
         override suspend fun completedCeremony(chatRoomId: String): IcebergKeySession? = completed
         override suspend fun lightningWallet(chatRoomId: String, chain: Chain): GroupLightningWalletManager.Wallet? = wallet
         override suspend fun operator(chatRoomId: String, chain: Chain, wallet: Long): GroupLightningOperatorManager.Operator? = operator

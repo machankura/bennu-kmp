@@ -44,6 +44,12 @@ interface GroupLightningRepository {
 
     suspend fun approveCeremony(localChatRoom: LocalChatRoom, sessionId: String, step: IcebergApprovalStep, nostrPrivateKey: ByteArray)
 
+    /** Takes whatever steps the ceremony can take now, for one a gate of an earlier build left waiting. */
+    suspend fun resumeCeremony(localChatRoom: LocalChatRoom, sessionId: String, nostrPrivateKey: ByteArray)
+
+    /** Ends the ceremony for everyone in it; false when it is already over. */
+    suspend fun abandonCeremony(localChatRoom: LocalChatRoom, sessionId: String): Boolean
+
     /** The newest completed Lightning wallet key this device holds a share of, or null. */
     suspend fun completedCeremony(chatRoomId: String): IcebergKeySession?
 
@@ -115,6 +121,8 @@ interface GroupLightningRepository {
             override suspend fun hasOnchainWallet(chatRoomId: String, chain: Chain): Boolean = false
             override suspend fun proposeCeremony(localChatRoom: LocalChatRoom, userPublicKey: HexKey, nostrPrivateKey: ByteArray, threshold: Int, chain: Chain): IcebergKeySession = error("No room to propose in")
             override suspend fun approveCeremony(localChatRoom: LocalChatRoom, sessionId: String, step: IcebergApprovalStep, nostrPrivateKey: ByteArray) = Unit
+            override suspend fun resumeCeremony(localChatRoom: LocalChatRoom, sessionId: String, nostrPrivateKey: ByteArray) = Unit
+            override suspend fun abandonCeremony(localChatRoom: LocalChatRoom, sessionId: String): Boolean = false
             override suspend fun completedCeremony(chatRoomId: String): IcebergKeySession? = null
             override suspend fun lightningWallet(chatRoomId: String, chain: Chain): GroupLightningWalletManager.Wallet? = null
             override suspend fun earlierWallets(chatRoomId: String, chain: Chain): List<GroupLightningWalletManager.Wallet> = emptyList()

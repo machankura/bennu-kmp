@@ -5,6 +5,7 @@ import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.managers.GroupLightningNode
 import com.machankura.bennu.compose.managers.GroupLightningOperatorManager
 import com.machankura.bennu.compose.managers.GroupLightningWalletManager
+import com.machankura.bennu.compose.managers.IcebergRitualManager
 import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
 import fr.acinq.bitcoin.Chain
@@ -25,6 +26,10 @@ import kotlin.time.Duration.Companion.minutes
  * Made where the identity's node is and stopped with it, like the onchain wallets. Every [CHECK] it looks
  * again at every Lightning wallet this device holds a share of: a node starts once this device is elected
  * and has heard from the room recently, and each running node stops itself when a later term begins.
+ *
+ * The same check abandons any of this identity's Lightning key ceremonies that has passed its deadline
+ * ([IcebergRitualManager.abandonOverdue]): it is the one loop an identity runs for its Lightning wallets,
+ * and a ceremony nobody is looking at is exactly the one that needs it.
  *
  * On Android the node runs while the app does. A foreground service that keeps it running with the app
  * in the background is the next piece of work, and the nomination screen says so meanwhile.
@@ -78,6 +83,7 @@ class GroupLightningNodes(
         job?.cancel()
         job = scope.launch {
             while (isActive) {
+                runCatching { IcebergRitualManager.abandonOverdue(database, userPublicKey) }.onFailure { logger.e("Could not abandon overdue key ceremonies", it) }
                 runCatching { refresh() }.onFailure { logger.e("Could not refresh the group nodes", it) }
                 delay(CHECK)
             }

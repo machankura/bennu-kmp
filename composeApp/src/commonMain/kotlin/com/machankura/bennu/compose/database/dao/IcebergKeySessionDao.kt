@@ -25,6 +25,10 @@ interface IcebergKeySessionDao {
     @Query("SELECT * FROM IcebergKeySession WHERE stage = 'COMPLETE'")
     suspend fun getCompletedSessions(): List<IcebergKeySession>
 
+    /** Every ceremony still under way, on any identity's account: neither finished nor failed. */
+    @Query("SELECT * FROM IcebergKeySession WHERE stage NOT IN ('COMPLETE', 'FAILED')")
+    suspend fun getRunningSessions(): List<IcebergKeySession>
+
     @Upsert
     suspend fun upsert(session: IcebergKeySession)
 
