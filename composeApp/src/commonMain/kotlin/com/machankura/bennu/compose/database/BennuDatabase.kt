@@ -188,7 +188,7 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         UnsignedNostrEvent::class,
         Zap::class
     ],
-    version = 34,
+    version = 35,
     autoMigrations = [
         // v2 only adds the DkgSession/DkgParticipantMessage tables, so Room can
         // generate the migration itself — nothing existing changes shape.
@@ -416,6 +416,10 @@ val GENESIS_AT = Instant.fromEpochMilliseconds(1231006505000L)
         // wallet line reports (docs/group-lightning-transcript.md, Phase 5). Null on every line
         // before it, none of which is one.
         AutoMigration(from = 33, to = 34),
+        // v35 keys IcebergChannelLedger by funding output as well as channel, so a splice's new output
+        // keeps a ledger beside its parent's, and adds fundingTxIndex (0 on every row before it, all of
+        // them first outputs), parentOutPoint and purchaseId (docs/group-lightning-liquidity.md, Phase 5).
+        AutoMigration(from = 34, to = 35),
     ]
 )
 @ConstructedBy(BennuDatabaseConstructor::class)

@@ -85,7 +85,11 @@ object GroupLightningCoSigner {
     /** The key manager a group node runs, and a co-signer rebuilds commitments with. */
     fun keyManagerOf(seed: ByteVector, chain: Chain): LocalKeyManager = LocalKeyManager(seed, chain, unusedSwapInXpub(chain))
 
-    /** What a co-signer stores of a channel's ledger, in JSON. */
+    /**
+     * What a co-signer stores of a funding output's ledger, in JSON. [consumed] is what its last
+     * commitment spent of each authorisation, by payment hash: while a splice is unconfirmed the same
+     * payment settles on both outputs' commitments at one number, and spends its budget once.
+     */
     @Serializable
     private data class StoredLedger(
         val commitIndex: Long,
@@ -94,12 +98,23 @@ object GroupLightningCoSigner {
         val offered: Map<String, List<String>>,
         val incoming: Map<String, Long>,
         val floorMsat: Long,
+        val consumed: Map<String, Long> = emptyMap(),
     )
 
-    internal fun store(l: CoSignerPolicy.Ledger) = CommonJson.encodeToString(
+    internal fun store(l: CoSignerPolicy.Ledger, consumed: Map<String, Long> = emptyMap()) = CommonJson.encodeToString(
         StoredLedger.serializer(),
-        StoredLedger(l.commitIndex, l.commitTxId, l.oursMsat, l.offered.entries.associate { (id, h) -> id.toString() to listOf(h.paymentHash, h.amountMsat.toString()) }, l.incoming.entries.associate { (id, a) -> id.toString() to a }, l.floorMsat),
+        StoredLedger(l.commitIndex, l.commitTxId, l.oursMsat, l.offered.entries.associate { (id, h) -> id.toString() to listOf(h.paymentHash, h.amountMsat.toString()) }, l.incoming.entries.associate { (id, a) -> id.toString() to a }, l.floorMsat, consumed),
     )
+
+    private fun consumedBy(json: String): Map<String, Long> = CommonJson.decodeFromString(StoredLedger.serializer(), json).consumed
+
+    /**
+     * What the other funding outputs' commitments at [commitIndex] already spent of each budget: the
+     * most any of them spent, since each settles the same payments.
+     */
+    private fun spentBySiblings(siblings: List<IcebergChannelLedger>, commitIndex: Long): Map<String, Long> =
+        siblings.filter { load(it.ledger).commitIndex == commitIndex }.map { consumedBy(it.ledger) }
+            .fold(emptyMap()) { acc, m -> (acc.keys + m.keys).associateWith { maxOf(acc[it] ?: 0, m[it] ?: 0) } }
 
     private fun load(json: String): CoSignerPolicy.Ledger = CommonJson.decodeFromString(StoredLedger.serializer(), json).let { s ->
         CoSignerPolicy.Ledger(s.commitIndex, s.commitTxId, s.oursMsat, s.offered.entries.associate { (id, v) -> id.toLong() to CoSignerPolicy.OfferedHtlc(v[0], v[1].toLong()) }, s.incoming.entries.associate { (id, a) -> id.toLong() to a }, s.floorMsat)
@@ -348,19 +363,129 @@ object GroupLightningCoSigner {
         val closeTo = GroupWalletDerivation.derive(onchain.account, GroupWalletDerivation.RECEIVE, 0).pubkeyScript
         if (params.localParams.defaultFinalScriptPubKey != closeTo) return "the channel does not close to the group's onchain wallet"
 
-        // The channel is pinned to its funding output the first time this device signs for it.
-        val pinned = dao.channelLedger(request.wallet, params.channelId.toHex())
-        if (pinned != null && (pinned.fundingOutPoint != "${input.outPoint.txid}:${input.outPoint.index}" || pinned.remoteFundingPubKey != request.remoteFundingPubKey)) {
-            return "the channel's funding output changed"
-        }
+        // The channel is pinned to its funding output the first time this device signs for it, and to
+        // each output a splice it checked moved the channel to. A request on any other output is the
+        // first commitment on a splice's new one, which answers to its parent's ledger, or is refused.
+        val ledgers = dao.channelLedgers(request.wallet, params.channelId.toHex())
+        val pinned = ledgers.firstOrNull { it.fundingOutPoint == outPointOf(input) }
+        if (pinned != null && pinned.remoteFundingPubKey != request.remoteFundingPubKey) return "the channel's funding output changed"
+        if (pinned == null && ledgers.isNotEmpty() && context.type != "remote") return "the channel's funding output changed"
 
         return when (context.type) {
-            "remote" -> checkRemote(database, wallet, request, context, params, tx, pinned)
+            "remote" -> when {
+                pinned == null && ledgers.isNotEmpty() -> when (val opening = openingOf(database, wallet, request, context, params, tx, ledgers)) {
+                    is Opening.Refused -> opening.reason
+                    is Opening.Opens -> null
+                }
+                else -> checkRemote(database, wallet, request, context, params, tx, pinned, ledgers - listOfNotNull(pinned).toSet())
+            }
             "closing" -> checkClosing(statement, context, tx, closeTo)
             "local" -> checkLocal(database, wallet, request, context, params, tx, pinned)
-            SPLICE -> "a splice, which this device does not sign yet"
+            SPLICE -> checkSplice(database, wallet, request, context, tx, pinned ?: return "this device has signed for none of the channel's funding outputs", ledgers)
             else -> "an unknown kind of transaction"
         }
+    }
+
+    private fun outPointOf(input: Transactions.InputInfo) = "${input.outPoint.txid}:${input.outPoint.index}"
+
+    /** The first commitment on a splice's new funding output: refused, or the ledger it opens. */
+    private sealed class Opening {
+        data class Refused(val reason: String) : Opening()
+        data class Opens(val parent: IcebergChannelLedger, val ledger: CoSignerPolicy.Ledger, val purchase: com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent.BuyLiquidity) : Opening()
+    }
+
+    /**
+     * Whether a commitment on a funding output this device has no ledger for is the first commitment on
+     * the new output of a splice the group authorised (`docs/group-lightning-liquidity.md`, Phase 5).
+     * It must follow the newest output this device signed for, by one index; rebuild from its context;
+     * and leave the group what the parent's ledger did, at the same number and with the same HTLCs, less
+     * at most the fee cap of an open `buy-liquidity` for the channel. That authorisation is bound to the
+     * first parent output it was used from: every attempt at the purchase spends that output, so at most
+     * one of them can ever confirm.
+     */
+    private suspend fun openingOf(
+        database: BennuDatabase,
+        wallet: GroupLightningWalletManager.Wallet,
+        request: CoSigningWire.SigningRequest,
+        context: CoSigningWire.Context,
+        params: fr.acinq.lightning.channel.ChannelParams,
+        tx: Transaction,
+        ledgers: List<IcebergChannelLedger>,
+    ): Opening {
+        // The output one index below, and of those -- an earlier splice may have had attempts that never
+        // confirmed -- the one still carrying commitments. A splice's own failed attempt sits beside this
+        // one, at its index, and is never its parent.
+        val parent = ledgers.filter { it.fundingTxIndex == context.fundingTxIndex - 1 }.maxByOrNull { load(it.ledger).commitIndex }
+            ?: return Opening.Refused("a commitment on funding output ${context.fundingTxIndex}, which no splice this device checked would make")
+        if (ledgers.any { it.fundingTxIndex > context.fundingTxIndex }) return Opening.Refused("a commitment on funding output ${context.fundingTxIndex}, older than one this device has signed for")
+        rebuildsRemote(wallet, request, context, params, tx)?.let { return Opening.Refused(it) }
+        val commitIndex = context.commitIndex ?: return Opening.Refused("no commitment number")
+        val spec = CoSigningWire.spec(context.spec ?: return Opening.Refused("no commitment spec"), params.channelId)
+        val channelId = params.channelId.toHex()
+        val purchases = GroupLightningAuthorisations.liquidityPurchases(database, wallet).filter { it.channelId == channelId }
+            .filter { buy -> ledgers.none { it.purchaseId == buy.id && it.parentOutPoint != parent.fundingOutPoint } }
+        if (purchases.isEmpty()) return Opening.Refused("the group has not authorised buying liquidity for this channel")
+        var refusal = "the group has not authorised buying liquidity for this channel"
+        for (buy in purchases) {
+            when (val verdict = CoSignerPolicy.openSplice(load(parent.ledger), commitIndex, tx.txid.toString(), spec, buy.maxFeeSat * 1000)) {
+                is CoSignerPolicy.Verdict.Sign -> return Opening.Opens(parent, verdict.ledger, buy)
+                is CoSignerPolicy.Verdict.Refuse -> refusal = verdict.reason
+            }
+        }
+        return Opening.Refused(refusal)
+    }
+
+    /**
+     * A splice's shared input: the funding output this device has pinned, given up for a new one only
+     * when the splice is the liquidity purchase the group authorised (`docs/group-lightning-liquidity.md`,
+     * Phase 5, rules S1 to S6). Every amount read here is the transaction's own or its spent outputs',
+     * which the signature commits to, so a request that misstates one gets nothing a miner would take.
+     */
+    private suspend fun checkSplice(
+        database: BennuDatabase,
+        wallet: GroupLightningWalletManager.Wallet,
+        request: CoSigningWire.SigningRequest,
+        context: CoSigningWire.Context,
+        tx: Transaction,
+        parent: IcebergChannelLedger,
+        ledgers: List<IcebergChannelLedger>,
+    ): String? {
+        val statement = wallet.statement
+        // S2: it spends the output this device pinned, and says so.
+        val parentInput = CoSigningWire.inputInfo(request.input)
+        if (context.parentFunding?.let(CoSigningWire::inputInfo) != parentInput || context.parentFundingTxIndex != parent.fundingTxIndex) return "the splice does not say it spends the funding output it spends"
+        if (context.fundingTxIndex != parent.fundingTxIndex + 1) return "the splice skips a funding index"
+        // S3: one new funding output, the group's key with the LSP's new one, under the cap.
+        val index = context.fundingOutputIndex?.takeIf { it in tx.txOut.indices } ?: return "the splice names no new funding output"
+        val newKey = PublicKey.fromHex(context.newRemoteFundingPubKey ?: return "the splice names no key for the new funding output")
+        val newOutput = tx.txOut[index]
+        val expected = Transactions.makeFundingInputInfo(tx.txid, index.toLong(), newOutput.amount, PublicKey.fromHex(statement.icebergKey), newKey, Transactions.CommitmentFormat.SimpleTaprootChannels).txOut.publicKeyScript
+        if (newOutput.publicKeyScript != expected) return "the splice's new funding output is not the group's key with the LSP's"
+        if (tx.txOut.count { it.publicKeyScript == expected } != 1) return "the splice pays the group's funding script twice"
+        GroupLightningRollout.channelCapFor(statement.chain)?.let { cap ->
+            if (newOutput.amount > cap) return "the splice makes a channel of ${newOutput.amount.sat} sats, over the ${cap.sat} a channel may hold on mainnet for now"
+        }
+        // S6: this device already approved the first commitment on that output, from this parent.
+        val child = ledgers.firstOrNull { it.fundingOutPoint == "${tx.txid}:$index" } ?: return "this device has not signed the first commitment on the splice's new output"
+        if (child.parentOutPoint != parent.fundingOutPoint || child.remoteFundingPubKey != newKey.toString()) return "the first commitment this device signed on that output came from another splice"
+        // S1: the purchase the group authorised, for the amount it named.
+        val purchase = context.purchase ?: return "the splice buys no liquidity, and the group authorised only buying it"
+        val buy = GroupLightningAuthorisations.liquidityPurchases(database, wallet).firstOrNull { it.id == child.purchaseId } ?: return "the group's authorisation for this purchase is not open"
+        if (purchase.amountSat != buy.amountSat) return "the splice buys ${purchase.amountSat} sats, not the ${buy.amountSat} the group authorised"
+        // S5: paid from the channel balance alone, within the cap.
+        if (purchase.paymentType != CoSigningWire.FROM_CHANNEL_BALANCE || purchase.feeCreditUsedMsat != null) return "the purchase is paid ${purchase.paymentType}, and the group pays only from its balance"
+        val local = context.localContributionSat ?: return "the splice does not say what the group adds"
+        val remote = context.remoteContributionSat ?: return "the splice does not say what the LSP adds"
+        if (local > 0) return "the splice adds the group's own money, which this device does not sign"
+        val fee = -local + purchase.miningFeeSat + purchase.serviceFeeSat
+        if (fee > buy.maxFeeSat) return "the purchase costs $fee sats, over the ${buy.maxFeeSat} the group agreed to"
+        // S4: the LSP put in what it is paid for, and the new output holds exactly what the two added.
+        if (remote < purchase.amountSat) return "the LSP adds $remote sats for a purchase of ${purchase.amountSat}"
+        if (newOutput.amount.sat != parentInput.txOut.amount.sat + local + remote) return "the new funding output does not hold the old one plus what each side added"
+        // And the first commitment on it took from the group exactly what the purchase costs.
+        val taken = load(parent.ledger).valueMsat - load(child.ledger).valueMsat
+        if (taken != fee * 1000) return "the splice's first commitment took $taken msat from the group, not the ${fee * 1000} the purchase costs"
+        return null
     }
 
     /**
@@ -407,10 +532,38 @@ object GroupLightningCoSigner {
         params: fr.acinq.lightning.channel.ChannelParams,
         tx: Transaction,
         pinned: IcebergChannelLedger?,
+        siblings: List<IcebergChannelLedger>,
+    ): String? {
+        rebuildsRemote(wallet, request, context, params, tx)?.let { return it }
+        val commitIndex = context.commitIndex ?: return "no commitment number"
+        val spec = CoSigningWire.spec(context.spec ?: return "no commitment spec", params.channelId)
+
+        // The first commitment a device signs for a channel is where its floor starts; every later one
+        // answers to the ledger of the funding output it is on.
+        if (pinned == null) return null
+        val budgets = withSiblings(GroupLightningAuthorisations.budgets(database, wallet), spentBySiblings(siblings, commitIndex))
+        val closed = GroupLightningAuthorisations.expired(database, wallet)
+        return when (val verdict = CoSignerPolicy.checkRemoteCommitment(load(pinned.ledger), commitIndex, tx.txid.toString(), spec, budgets, closed, wallet.statement.policy.inFlightCapSat * 1000)) {
+            is CoSignerPolicy.Verdict.Refuse -> verdict.reason
+            is CoSignerPolicy.Verdict.Sign -> null
+        }
+    }
+
+    /** [budgets] with what a sibling commitment at the same number already spent given back, since this one spends it too. */
+    private fun withSiblings(budgets: Map<String, Long>, spent: Map<String, Long>): Map<String, Long> =
+        (budgets.keys + spent.keys).associateWith { (budgets[it] ?: 0) + (spent[it] ?: 0) }.filterValues { it > 0 }
+
+    /** Why the commitment's context does not rebuild to [tx], or null when it does. */
+    private fun rebuildsRemote(
+        wallet: GroupLightningWalletManager.Wallet,
+        request: CoSigningWire.SigningRequest,
+        context: CoSigningWire.Context,
+        params: fr.acinq.lightning.channel.ChannelParams,
+        tx: Transaction,
     ): String? {
         val seed = wallet.seed ?: return "this device does not hold the node's seed, and cannot rebuild the commitment"
         // On mainnet a channel holds at most the rollout's cap. Refusing its commitments means a bigger
-        // channel never opens; one that opened smaller cannot grow, since splices are refused.
+        // channel never opens, and a splice to a bigger one is never signed into.
         GroupLightningRollout.channelCapFor(wallet.statement.chain)?.let { cap ->
             val capacity = CoSigningWire.inputInfo(request.input).txOut.amount
             if (capacity > cap) return "the channel holds ${capacity.sat} sats, over the ${cap.sat} a channel may hold on mainnet for now"
@@ -432,17 +585,7 @@ object GroupLightningCoSigner {
             commitmentFormat = Transactions.CommitmentFormat.SimpleTaprootChannels,
             spec = spec,
         )
-        if (rebuilt.tx != tx) return "the commitment its context rebuilds to is not the one it asks to sign"
-
-        // The first commitment a device signs for a channel is where its floor starts; every later one
-        // answers to the ledger.
-        if (pinned == null) return null
-        val budgets = GroupLightningAuthorisations.budgets(database, wallet)
-        val closed = GroupLightningAuthorisations.expired(database, wallet)
-        return when (val verdict = CoSignerPolicy.checkRemoteCommitment(load(pinned.ledger), commitIndex, tx.txid.toString(), spec, budgets, closed, wallet.statement.policy.inFlightCapSat * 1000)) {
-            is CoSignerPolicy.Verdict.Refuse -> verdict.reason
-            is CoSignerPolicy.Verdict.Sign -> null
-        }
+        return if (rebuilt.tx != tx) "the commitment its context rebuilds to is not the one it asks to sign" else null
     }
 
     private fun checkClosing(statement: com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent.Statement, context: CoSigningWire.Context, tx: Transaction, closeTo: ByteVector): String? {
@@ -465,20 +608,35 @@ object GroupLightningCoSigner {
         val tx = CoSigningWire.tx(request.tx)
         val dao = database.icebergCoSigningDao()
         val channelId = params.channelId.toHex()
-        val pinned = dao.channelLedger(request.wallet, channelId)
+        val input = CoSigningWire.inputInfo(request.input)
+        val ledgers = dao.channelLedgers(request.wallet, channelId)
+        val pinned = ledgers.firstOrNull { it.fundingOutPoint == outPointOf(input) }
+        val commitIndex = context.commitIndex ?: return
         val allowance = wallet.statement.policy.commitmentFeeAllowanceSat * 1000
-        val next = when (pinned) {
-            null -> CoSignerPolicy.open(context.commitIndex ?: return, tx.txid.toString(), spec, allowance)
-            else -> when (val verdict = CoSignerPolicy.checkRemoteCommitment(load(pinned.ledger), context.commitIndex ?: return, tx.txid.toString(), spec, GroupLightningAuthorisations.budgets(database, wallet), GroupLightningAuthorisations.expired(database, wallet), wallet.statement.policy.inFlightCapSat * 1000)) {
-                is CoSignerPolicy.Verdict.Refuse -> return
-                is CoSignerPolicy.Verdict.Sign -> {
-                    GroupLightningAuthorisations.consume(database, wallet, verdict.consumed)
-                    verdict.ledger
+        val row = when {
+            ledgers.isEmpty() -> IcebergChannelLedger(request.wallet, channelId, outPointOf(input), request.remoteFundingPubKey, store(CoSignerPolicy.open(commitIndex, tx.txid.toString(), spec, allowance)), fundingTxIndex = context.fundingTxIndex)
+            pinned == null -> when (val opening = openingOf(database, wallet, request, context, params, tx, ledgers)) {
+                is Opening.Refused -> return
+                is Opening.Opens -> IcebergChannelLedger(
+                    request.wallet, channelId, outPointOf(input), request.remoteFundingPubKey, store(opening.ledger),
+                    fundingTxIndex = context.fundingTxIndex, parentOutPoint = opening.parent.fundingOutPoint, purchaseId = opening.purchase.id,
+                )
+            }
+            else -> {
+                val siblings = spentBySiblings(ledgers - pinned, commitIndex)
+                val budgets = withSiblings(GroupLightningAuthorisations.budgets(database, wallet), siblings)
+                when (val verdict = CoSignerPolicy.checkRemoteCommitment(load(pinned.ledger), commitIndex, tx.txid.toString(), spec, budgets, GroupLightningAuthorisations.expired(database, wallet), wallet.statement.policy.inFlightCapSat * 1000)) {
+                    is CoSignerPolicy.Verdict.Refuse -> return
+                    is CoSignerPolicy.Verdict.Sign -> {
+                        // A sibling at this number already spent its share of each budget; spend only what is new.
+                        GroupLightningAuthorisations.consume(database, wallet, verdict.consumed.mapValues { (hash, amount) -> amount - (siblings[hash] ?: 0) }.filterValues { it > 0 })
+                        pinned.copy(ledger = store(verdict.ledger, verdict.consumed), updatedAt = Clock.System.now())
+                    }
                 }
             }
         }
-        val input = CoSigningWire.inputInfo(request.input)
-        dao.upsertChannelLedger(IcebergChannelLedger(request.wallet, channelId, "${input.outPoint.txid}:${input.outPoint.index}", request.remoteFundingPubKey, store(next)))
-        logger.i("Channel ${channelId.take(16)} in $roomId: commitment ${next.commitIndex} leaves the group ${next.valueMsat} msat against a floor of ${next.floorMsat}")
+        dao.upsertChannelLedger(row)
+        val next = load(row.ledger)
+        logger.i("Channel ${channelId.take(16)} in $roomId, funding output ${row.fundingTxIndex}: commitment ${next.commitIndex} leaves the group ${next.valueMsat} msat against a floor of ${next.floorMsat}")
     }
 }

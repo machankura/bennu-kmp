@@ -58,8 +58,13 @@ interface IcebergCoSigningDao {
     @Query("SELECT * FROM IcebergShareRow WHERE wallet = :wallet AND requestId = :requestId")
     suspend fun sharesFor(wallet: String, requestId: String): List<IcebergShareRow>
 
-    @Query("SELECT * FROM IcebergChannelLedger WHERE wallet = :wallet AND channelId = :channelId")
+    /** The ledger of the newest funding output of [channelId] this device has signed for. */
+    @Query("SELECT * FROM IcebergChannelLedger WHERE wallet = :wallet AND channelId = :channelId ORDER BY fundingTxIndex DESC LIMIT 1")
     suspend fun channelLedger(wallet: String, channelId: String): IcebergChannelLedger?
+
+    /** Every funding output of [channelId] this device has signed for, oldest first. */
+    @Query("SELECT * FROM IcebergChannelLedger WHERE wallet = :wallet AND channelId = :channelId ORDER BY fundingTxIndex")
+    suspend fun channelLedgers(wallet: String, channelId: String): List<IcebergChannelLedger>
 
     @Upsert
     suspend fun upsertChannelLedger(row: IcebergChannelLedger)

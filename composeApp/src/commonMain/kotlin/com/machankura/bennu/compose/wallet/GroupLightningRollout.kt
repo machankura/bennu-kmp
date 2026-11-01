@@ -31,7 +31,8 @@ object GroupLightningRollout {
 
     /**
      * The most one channel may hold on mainnet. Every co-signer refuses to sign the first commitment of a
-     * bigger channel, so it never opens, and a channel never grows: the co-signers refuse splices. Lifts
+     * bigger channel, so it never opens, and the shared input of a splice to a bigger one, so it never grows
+     * past it: the one splice they sign is the liquidity purchase the group authorised. Lifts
      * on the same condition as [GroupWalletRollout.MAINNET_CAP]: a release that has run real channels,
      * payments and closes with no refused label and no lost channel.
      */

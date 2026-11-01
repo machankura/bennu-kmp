@@ -24,6 +24,10 @@ import fr.acinq.lightning.transactions.OutgoingHtlc
  *    payment spends. A fall in value is explained by an authorised HTLC we offered disappearing without
  *    coming back, which consumes its budget; any other fall eats the fee allowance, and when that is gone
  *    the co-signer stops signing.
+ *
+ * A splice moves the channel to a new funding output, and each output keeps a ledger of its own: until
+ * the splice confirms, both carry one commitment per update, at the same number. The new output's first
+ * commitment is [openSplice]'s, from the parent's ledger (`docs/group-lightning-liquidity.md`, Phase 5).
  */
 object CoSignerPolicy {
     data class OfferedHtlc(val paymentHash: String, val amountMsat: Long)
@@ -59,6 +63,25 @@ object CoSignerPolicy {
         val offered = offeredBy(remoteSpec)
         val ours = remoteSpec.toRemote.toLong()
         return Ledger(commitIndex, commitTxId, ours, offered, incomingTo(remoteSpec), floorMsat = ours + offered.values.sumOf { it.amountMsat } - feeAllowanceMsat)
+    }
+
+    /**
+     * The ledger for the first commitment on a splice's new funding output, from [parent], the ledger of
+     * the output it spends. lightning-kmp signs it at the parent's commitment number, with the same HTLCs;
+     * all that may change is our balance, which a liquidity purchase lowers by its fees. That fall is
+     * allowed up to [maxFallMsat] -- the authorisation's fee cap -- and it lowers the floor with the value,
+     * once, so the fee is not later read as money that went missing.
+     */
+    fun openSplice(parent: Ledger, commitIndex: Long, commitTxId: String, remoteSpec: CommitmentSpec, maxFallMsat: Long): Verdict {
+        if (commitIndex != parent.commitIndex) return Verdict.Refuse("the splice's first commitment is number $commitIndex, not ${parent.commitIndex} as the channel's")
+        val offered = offeredBy(remoteSpec)
+        val incoming = incomingTo(remoteSpec)
+        if (offered != parent.offered || incoming != parent.incoming) return Verdict.Refuse("the splice's first commitment carries other HTLCs than the channel's")
+        val ours = remoteSpec.toRemote.toLong()
+        val fall = parent.oursMsat - ours
+        if (fall < 0) return Verdict.Refuse("the splice's first commitment gives the group more than the channel did")
+        if (fall > maxFallMsat) return Verdict.Refuse("the splice takes $fall msat from the group, over the $maxFallMsat the group agreed to pay")
+        return Verdict.Sign(Ledger(commitIndex, commitTxId, ours, offered, incoming, parent.floorMsat - fall), emptyMap())
     }
 
     /**

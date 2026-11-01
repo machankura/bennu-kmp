@@ -1,5 +1,6 @@
 package com.machankura.bennu.compose.database.model
 
+import androidx.room3.ColumnInfo
 import androidx.room3.Entity
 import androidx.room3.Index
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
@@ -64,8 +65,14 @@ data class IcebergShareRow(
     val share: HexKey,
 )
 
-/** On a co-signer: what it has let a channel's commitments do, as `CoSignerPolicy.Ledger` in JSON. */
-@Entity(primaryKeys = ["wallet", "channelId"])
+/**
+ * On a co-signer: what it has let one funding output's commitments do, as `CoSignerPolicy.Ledger` in
+ * JSON. A channel has one per funding output this device has signed for: a splice adds one, at
+ * [fundingTxIndex], and until it confirms both carry commitments (`docs/group-lightning-liquidity.md`,
+ * Phase 5). A splice's output names the [parentOutPoint] it spent and the `buy-liquidity`
+ * authorisation, [purchaseId], that let it.
+ */
+@Entity(primaryKeys = ["wallet", "channelId", "fundingOutPoint"])
 data class IcebergChannelLedger(
     val wallet: String,
     val channelId: HexKey,
@@ -73,6 +80,10 @@ data class IcebergChannelLedger(
     val remoteFundingPubKey: HexKey,
     val ledger: String,
     val updatedAt: Instant = Clock.System.now(),
+    @ColumnInfo(defaultValue = "0")
+    val fundingTxIndex: Long = 0,
+    val parentOutPoint: String? = null,
+    val purchaseId: String? = null,
 )
 
 /** On a co-signer: how much of each authorised payment's budget the channel has spent. */
