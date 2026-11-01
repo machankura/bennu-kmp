@@ -615,6 +615,9 @@ data class ChatMessage(
         const val TYPE_LIGHTNING_PAYMENT_RECEIVED = "lightningPaymentReceived"
         const val TYPE_LIGHTNING_PAYMENT_SENT = "lightningPaymentSent"
         const val TYPE_LIGHTNING_PAYMENT_FAILED = "lightningPaymentFailed"
+        /** A liquidity purchase locked or failed (docs/group-lightning-liquidity.md, Phase 7). Keyed on the authorisation's id. */
+        const val TYPE_LIGHTNING_LIQUIDITY_ADDED = "lightningLiquidityAdded"
+        const val TYPE_LIGHTNING_LIQUIDITY_FAILED = "lightningLiquidityFailed"
 
         /**
          * This device's co-signer refused what the operator's node asked it to sign, and why --
@@ -642,6 +645,8 @@ data class ChatMessage(
             TYPE_LIGHTNING_PAYMENT_RECEIVED,
             TYPE_LIGHTNING_PAYMENT_SENT,
             TYPE_LIGHTNING_PAYMENT_FAILED,
+            TYPE_LIGHTNING_LIQUIDITY_ADDED,
+            TYPE_LIGHTNING_LIQUIDITY_FAILED,
             TYPE_LIGHTNING_REFUSED,
             TYPE_LIGHTNING_EQUIVOCATION,
         )

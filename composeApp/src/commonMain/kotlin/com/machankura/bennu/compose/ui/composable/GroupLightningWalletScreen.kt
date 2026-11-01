@@ -1,5 +1,16 @@
 package com.machankura.bennu.compose.ui.composable
 
+import androidx.compose.material.icons.filled.AddLink
+import androidx.compose.material3.TextButton
+import bennu.composeapp.generated.resources.add_liquidity
+import bennu.composeapp.generated.resources.adding_s_sats_of_inbound_liquidity
+import bennu.composeapp.generated.resources.couldn_t_add_liquidity_s
+import bennu.composeapp.generated.resources.inbound_liquidity_added_s_sats_for_s_sats
+import bennu.composeapp.generated.resources.waiting_for_the_last_splice_before_adding_s_sats
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningLiquidityRoute
+import com.machankura.bennu.compose.wallet.lightning.LiquidityPrice
+import com.machankura.bennu.compose.wallet.lightning.WalletWire
+
 import bennu.composeapp.generated.resources.a_channel_closed_s_sats_to_the_onchain_wallet
 import bennu.composeapp.generated.resources.a_channel_is_closing_s_sats_to_the_onchain_wallet
 import androidx.compose.material.icons.filled.LinkOff
@@ -232,6 +243,7 @@ fun GroupLightningWalletScreen(
                     state = state,
                     onReceive = { onNavigateToRoute(GroupLightningReceiveRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
                     onSend = { onNavigateToRoute(GroupLightningSendRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
+                    onAddLiquidity = { onNavigateToRoute(GroupLightningLiquidityRoute(activeUserPublicKey = activeUserPublicKey, chatRoomId = chatRoomId)) },
                     onClose = { channelId, force -> viewModel.close(channelId, force, onSession = toSession, onFailure = { notify(couldNotPropose) }) },
                     onSweep = { viewModel.sweep(onSession = toSession, onFailure = { notify(couldNotPropose) }) },
                     onRekey = {
@@ -250,7 +262,7 @@ fun GroupLightningWalletScreen(
 }
 
 @Composable
-private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, onSend: () -> Unit, onClose: (channelId: String, force: Boolean) -> Unit, onSweep: () -> Unit,
+private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.Opened, onReceive: () -> Unit, onSend: () -> Unit, onAddLiquidity: () -> Unit, onClose: (channelId: String, force: Boolean) -> Unit, onSweep: () -> Unit,
     onRekey: () -> Unit,
     onCloseEarlier: (GroupLightningWalletUIState.Earlier) -> Unit,
     onSweepEarlier: (GroupLightningWalletUIState.Earlier) -> Unit,
@@ -278,7 +290,17 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
                 }
             }
         }
-        item { Balance(state.report, onReceive = onReceive.takeIf { state.operator?.publicKey != null }, onSend = onSend.takeIf { state.operator?.publicKey != null }) }
+        val liquidity = LiquidityPrice.availability(state.report?.snapshot, state.operator?.publicKey != null, GroupLightningRollout.channelCapFor(statement.chain)?.sat)
+            .takeIf { GroupLightningRollout.LIQUIDITY_ENABLED && state.isParticipant }
+        item {
+            Balance(
+                state.report,
+                onReceive = onReceive.takeIf { state.operator?.publicKey != null },
+                onSend = onSend.takeIf { state.operator?.publicKey != null },
+                onAddLiquidity = onAddLiquidity.takeIf { liquidity is LiquidityPrice.Availability.Available && !isPending },
+                liquidityNote = liquidity?.takeIf { it !is LiquidityPrice.Availability.Available && it != LiquidityPrice.Availability.NoOperator }?.let { unavailableBecause(it) },
+            )
+        }
         if (state.unswept.isNotEmpty()) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -292,7 +314,10 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
         }
         state.report?.takeIf { it.checks.isNotEmpty() }?.let { report ->
             item { Text(stringResource(Res.string.channels), style = MaterialTheme.typography.titleSmall) }
-            items(report.checks, key = { it.channel.channelId }) { ChannelRow(it, onClose = { force: Boolean -> onClose(it.channel.channelId, force) }.takeIf { !isPending }) }
+            items(report.checks, key = { it.channel.channelId }) { check ->
+                val purchase = report.snapshot.purchases.lastOrNull { it.channelId == check.channel.channelId && it.state != WalletWire.LOCKED }
+                ChannelRow(check, purchase, onClose = { force: Boolean -> onClose(check.channel.channelId, force) }.takeIf { !isPending })
+            }
         }
         item { Text(stringResource(Res.string.payments), style = MaterialTheme.typography.titleSmall) }
         if (state.payments.isEmpty()) {
@@ -343,9 +368,12 @@ private fun OpenedWallet(modifier: Modifier, state: GroupLightningWalletUIState.
     }
 }
 
-/** The operator's figure for what the group can spend and receive, or a word that there is none yet. */
+/**
+ * The operator's figure for what the group can spend and receive, or a word that there is none yet. Below
+ * the two actions, *Add liquidity* when the group can be asked for it, or [liquidityNote], why not.
+ */
 @Composable
-private fun Balance(report: GroupLightningReports.Report?, onReceive: (() -> Unit)?, onSend: (() -> Unit)?) {
+private fun Balance(report: GroupLightningReports.Report?, onReceive: (() -> Unit)?, onSend: (() -> Unit)?, onAddLiquidity: (() -> Unit)? = null, liquidityNote: String? = null) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(MaterialTheme.spacing.containerPadding), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.relatedGap)) {
             Text(stringResource(Res.string.balance), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -376,13 +404,21 @@ private fun Balance(report: GroupLightningReports.Report?, onReceive: (() -> Uni
                     }
                 }
             }
+            onAddLiquidity?.let {
+                TextButton(onClick = it) {
+                    Icon(Icons.Default.AddLink, contentDescription = Decorative)
+                    Spacer(modifier = Modifier.width(MaterialTheme.spacing.relatedGap))
+                    Text(stringResource(Res.string.add_liquidity))
+                }
+            }
+            liquidityNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }
 
 /** One channel, and whether the operator's figure for it is the one this device co-signed. */
 @Composable
-private fun ChannelRow(check: GroupLightningReports.ChannelCheck, onClose: ((force: Boolean) -> Unit)?) {
+private fun ChannelRow(check: GroupLightningReports.ChannelCheck, purchase: WalletWire.LiquidityPurchase?, onClose: ((force: Boolean) -> Unit)?) {
     val channel = check.channel
     ListItem(
         leadingContent = {
@@ -394,14 +430,28 @@ private fun ChannelRow(check: GroupLightningReports.ChannelCheck, onClose: ((for
         },
         headlineContent = { Text(stringResource(Res.string.s_of_s_sats_are_the_group_s, Satoshi(channel.oursMsat / 1000).grouped(), Satoshi(channel.capacitySat).grouped())) },
         supportingContent = {
-            Text(
-                when (check.agrees) {
-                    true -> stringResource(Res.string.matches_what_your_device_signed)
-                    false -> stringResource(Res.string.your_device_signed_for_s_sats, Satoshi(check.signedOursMsat!! / 1000).grouped())
-                    null -> stringResource(Res.string.your_device_hasn_t_signed_for_this_channel)
-                },
-                color = if (check.agrees == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Column {
+                Text(
+                    when (check.agrees) {
+                        true -> stringResource(Res.string.matches_what_your_device_signed)
+                        false -> stringResource(Res.string.your_device_signed_for_s_sats, Satoshi(check.signedOursMsat!! / 1000).grouped())
+                        null -> stringResource(Res.string.your_device_hasn_t_signed_for_this_channel)
+                    },
+                    color = if (check.agrees == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // A purchase the operator's node is making for this channel, or could not make.
+                purchase?.let { p ->
+                    val amount = Satoshi(p.amountSat).grouped()
+                    Text(
+                        when (p.state) {
+                            WalletWire.WAITING -> stringResource(Res.string.waiting_for_the_last_splice_before_adding_s_sats, amount)
+                            WalletWire.FAILED -> stringResource(Res.string.couldn_t_add_liquidity_s, p.reason.orEmpty())
+                            else -> stringResource(Res.string.adding_s_sats_of_inbound_liquidity, amount)
+                        },
+                        color = if (p.state == WalletWire.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         },
         // Closing is a proposal like any other: the menu only opens the signing session.
         trailingContent = onClose?.let { close ->
@@ -430,6 +480,7 @@ private fun ChannelRow(check: GroupLightningReports.ChannelCheck, onClose: ((for
 @Composable
 internal fun PaymentRow(payment: GroupLightningPaymentRow) {
     val isClose = GroupLightningReports.isChannelClose(payment.incoming, payment.paymentHash)
+    val liquidity = payment.liquiditySat
     val amount = Satoshi(
         if (payment.incoming || isClose) payment.amountMsat / 1000
         else GroupLightningReports.recipientMsat(payment.amountMsat, payment.feesMsat) / 1000
@@ -438,6 +489,7 @@ internal fun PaymentRow(payment: GroupLightningPaymentRow) {
         leadingContent = {
             Icon(
                 when {
+                    liquidity != null -> Icons.Default.AddLink
                     isClose -> Icons.Default.LinkOff
                     payment.incoming -> Icons.AutoMirrored.Filled.CallReceived
                     else -> Icons.AutoMirrored.Filled.CallMade
@@ -448,6 +500,8 @@ internal fun PaymentRow(payment: GroupLightningPaymentRow) {
         headlineContent = {
             Text(
                 when {
+                    // Bought liquidity is room to be paid, never money sent: its amount is what it cost.
+                    liquidity != null -> stringResource(Res.string.inbound_liquidity_added_s_sats_for_s_sats, Satoshi(liquidity).grouped(), Satoshi(payment.amountMsat / 1000).grouped())
                     payment.incoming -> stringResource(Res.string.received_s_sats, amount)
                     isClose && payment.succeeded -> stringResource(Res.string.a_channel_closed_s_sats_to_the_onchain_wallet, amount)
                     isClose -> stringResource(Res.string.a_channel_is_closing_s_sats_to_the_onchain_wallet, amount)

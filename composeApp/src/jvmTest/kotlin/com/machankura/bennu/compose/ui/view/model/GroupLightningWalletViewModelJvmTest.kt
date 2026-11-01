@@ -128,6 +128,7 @@ class GroupLightningWalletViewModelJvmTest {
             "r1".also { requests += amountMsat to description }
         override fun observeInvoice(chatRoomId: String, chain: Chain, wallet: Long, requestId: String): Flow<GroupLightningInvoiceRow?> = flowOf(invoice?.takeIf { it.requestId == requestId })
         override suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession = error("unused")
+        override suspend fun proposeLiquidity(localChatRoom: LocalChatRoom, userPublicKey: HexKey, buy: GroupLightningAuthorisationEvent.BuyLiquidity): FrostSigningSession = error("unused")
         override suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession = error("unused")
         override suspend fun earlierWallets(chatRoomId: String, chain: Chain): List<GroupLightningWalletManager.Wallet> = earlier
         override suspend fun departed(wallet: GroupLightningWalletManager.Wallet): List<HexKey> = departedMembers

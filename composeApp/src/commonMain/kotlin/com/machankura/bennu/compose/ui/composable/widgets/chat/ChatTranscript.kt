@@ -961,6 +961,8 @@ private fun RitualNotice(
         ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED -> Icons.Default.CallReceived
         ChatMessage.TYPE_LIGHTNING_PAYMENT_SENT -> Icons.Default.CallMade
         ChatMessage.TYPE_LIGHTNING_PAYMENT_FAILED -> Icons.Default.ErrorOutline
+        ChatMessage.TYPE_LIGHTNING_LIQUIDITY_ADDED -> Icons.Default.AddLink
+        ChatMessage.TYPE_LIGHTNING_LIQUIDITY_FAILED -> Icons.Default.ErrorOutline
         ChatMessage.TYPE_LIGHTNING_REFUSED -> Icons.Default.Block
         ChatMessage.TYPE_LIGHTNING_EQUIVOCATION -> Icons.Default.Warning
 
@@ -986,6 +988,7 @@ private fun RitualNotice(
             chatMessage.messageType == ChatMessage.TYPE_FROST_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_MEMBER_INVITE_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_LIGHTNING_PAYMENT_FAILED ||
+            chatMessage.messageType == ChatMessage.TYPE_LIGHTNING_LIQUIDITY_FAILED ||
             chatMessage.messageType == ChatMessage.TYPE_LIGHTNING_REFUSED ||
             chatMessage.messageType == ChatMessage.TYPE_LIGHTNING_EQUIVOCATION ||
             chatMessage.messageType == ChatMessage.TYPE_CHANGE_REJECTED ->

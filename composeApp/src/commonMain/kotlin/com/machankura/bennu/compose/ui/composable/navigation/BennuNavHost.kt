@@ -14,6 +14,8 @@ import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightni
 import com.machankura.bennu.compose.ui.composable.GroupLightningWalletScreen
 import com.machankura.bennu.compose.ui.composable.GroupLightningReceiveScreen
 import com.machankura.bennu.compose.ui.composable.GroupLightningSendScreen
+import com.machankura.bennu.compose.ui.composable.GroupLightningLiquidityScreen
+import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningLiquidityRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningSendRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.GroupLightningReceiveRoute
 import com.machankura.bennu.compose.ui.composable.navigation.routes.IcebergCeremonyRoute
@@ -743,6 +745,22 @@ fun BennuNavHost(
                     chatRoomId = route.chatRoomId,
                     chatRepository = databaseChatRepository,
                     lightningRepository = databaseGroupLightningRepository,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable<GroupLightningLiquidityRoute> { backStackEntry ->
+                val route = backStackEntry.toRoute<GroupLightningLiquidityRoute>()
+
+                GroupLightningLiquidityScreen(
+                    activeUserPublicKey = route.activeUserPublicKey,
+                    chatRoomId = route.chatRoomId,
+                    chatRepository = databaseChatRepository,
+                    lightningRepository = databaseGroupLightningRepository,
+                    onNavigateToRoute = { actionRoute ->
+                        navController.navigate(route = actionRoute)
+                    },
                     onNavigateBack = {
                         navController.popBackStack()
                     }

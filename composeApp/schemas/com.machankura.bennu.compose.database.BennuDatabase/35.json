@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 35,
-    "identityHash": "96c5c9b771985195100cd1e3bde04d60",
+    "identityHash": "29067a5a909c975b5c9689f8964c63c4",
     "entities": [
       {
         "tableName": "BroadcastNostrEventReceipt",
@@ -1793,7 +1793,7 @@
       },
       {
         "tableName": "GroupLightningPaymentRow",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`wallet` TEXT NOT NULL, `id` TEXT NOT NULL, `incoming` INTEGER NOT NULL, `amountMsat` INTEGER NOT NULL, `feesMsat` INTEGER NOT NULL, `paymentHash` TEXT, `description` TEXT, `completedAt` INTEGER, `succeeded` INTEGER NOT NULL, PRIMARY KEY(`wallet`, `id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`wallet` TEXT NOT NULL, `id` TEXT NOT NULL, `incoming` INTEGER NOT NULL, `amountMsat` INTEGER NOT NULL, `feesMsat` INTEGER NOT NULL, `paymentHash` TEXT, `description` TEXT, `completedAt` INTEGER, `succeeded` INTEGER NOT NULL, `liquiditySat` INTEGER, PRIMARY KEY(`wallet`, `id`))",
         "fields": [
           {
             "fieldPath": "wallet",
@@ -1845,6 +1845,11 @@
             "columnName": "succeeded",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "liquiditySat",
+            "columnName": "liquiditySat",
+            "affinity": "INTEGER"
           }
         ],
         "primaryKey": {
@@ -5488,7 +5493,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '96c5c9b771985195100cd1e3bde04d60')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '29067a5a909c975b5c9689f8964c63c4')"
     ]
   }
 }

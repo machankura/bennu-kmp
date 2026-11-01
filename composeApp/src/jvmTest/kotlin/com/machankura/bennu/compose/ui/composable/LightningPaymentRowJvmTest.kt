@@ -38,4 +38,30 @@ class LightningPaymentRowJvmTest {
         onNodeWithText("A channel closed: 76,816 sats to the onchain wallet").assertIsDisplayed()
         onNodeWithText("A channel is closing: 50,000 sats to the onchain wallet").assertIsDisplayed()
     }
+
+    @Test
+    fun `bought liquidity is room to be paid, with what it cost, never money sent`() = runDesktopComposeUiTest {
+        setContent {
+            BennuTheme {
+                PaymentRow(GroupLightningPaymentRow("w", "liquidity:t", incoming = false, amountMsat = 2_521_000, feesMsat = 2_521_000, paymentHash = null, description = null, completedAt = null, succeeded = true, liquiditySat = 200_000))
+            }
+        }
+        onNodeWithText("Inbound liquidity added: 200,000 sats, for 2,521 sats in fees").assertIsDisplayed()
+    }
+
+    @Test
+    fun `why liquidity cannot be asked for is said in words`() = runDesktopComposeUiTest {
+        setContent {
+            BennuTheme {
+                Column {
+                    androidx.compose.material3.Text(unavailableBecause(com.machankura.bennu.compose.wallet.lightning.LiquidityPrice.Availability.NoChannel))
+                    androidx.compose.material3.Text(unavailableBecause(com.machankura.bennu.compose.wallet.lightning.LiquidityPrice.Availability.AtTheCap))
+                    androidx.compose.material3.Text(unavailableBecause(com.machankura.bennu.compose.wallet.lightning.LiquidityPrice.Availability.NoPrices))
+                }
+            }
+        }
+        onNodeWithText("Receive a payment first: it opens the channel.").assertIsDisplayed()
+        onNodeWithText("The channel holds the most a channel may on this network for now.").assertIsDisplayed()
+        onNodeWithText("The operator hasn't reported what the LSP sells yet.").assertIsDisplayed()
+    }
 }

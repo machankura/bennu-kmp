@@ -108,7 +108,7 @@ object GroupLightningReports {
         }
         // Payments are kept whatever the snapshot's age: a list of what happened only grows.
         snapshot.payments.forEach { p ->
-            dao.upsertPayment(GroupLightningPaymentRow(snapshot.wallet, p.id, p.incoming, p.amountMsat, p.feesMsat, p.paymentHash, p.description, p.completedAt?.let(Instant::fromEpochMilliseconds), p.succeeded))
+            dao.upsertPayment(GroupLightningPaymentRow(snapshot.wallet, p.id, p.incoming, p.amountMsat, p.feesMsat, p.paymentHash, p.description, p.completedAt?.let(Instant::fromEpochMilliseconds), p.succeeded, p.liquiditySat))
         }
         sayWhatHappened(database, chatRoomId, sentBy, snapshot, previous.takeIf { newer })
     }
@@ -161,6 +161,8 @@ object GroupLightningReports {
             // Lightning payment has one. The channel's closed line already says it, and a second line
             // would read as the group having paid the money away. Found by the regtest run.
             if (isChannelClose(payment.incoming, payment.paymentHash)) return@forEach
+            // A purchase of liquidity is said by its own line, below, as it locks or fails: it is not money sent.
+            if (payment.kind == WalletWire.LIQUIDITY) return@forEach
             val (type, content) = when {
                 payment.incoming && payment.succeeded -> ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED to buildString {
                     append("The group's Lightning wallet received ${sats(payment.amountMsat)}")
@@ -179,6 +181,23 @@ object GroupLightningReports {
                     "A Lightning payment of ${sats(recipientMsat(payment.amountMsat, payment.feesMsat))} failed. Nothing left the wallet."
             }
             GroupLightningLines.writeFact(database, chatRoomId, type, payment.id, sentBy, content, completedAt)
+        }
+
+        // A liquidity purchase, once it has an outcome: the channel is on the splice's output, or it failed.
+        snapshot.purchases.forEach { purchase ->
+            when (purchase.state) {
+                WalletWire.LOCKED -> GroupLightningLines.writeFact(
+                    database, chatRoomId, ChatMessage.TYPE_LIGHTNING_LIQUIDITY_ADDED, purchase.id, sentBy,
+                    "The group's Lightning wallet can receive ${Satoshi(purchase.amountSat).grouped()} sats more" +
+                        (purchase.feeSat?.let { ", for ${Satoshi(it).grouped()} sats in fees." } ?: "."),
+                    sentAt,
+                )
+                WalletWire.FAILED -> GroupLightningLines.writeFact(
+                    database, chatRoomId, ChatMessage.TYPE_LIGHTNING_LIQUIDITY_FAILED, purchase.id, sentBy,
+                    "Adding ${Satoshi(purchase.amountSat).grouped()} sats of inbound liquidity failed" + (purchase.reason?.let { ": $it." } ?: ". Nothing left the wallet."),
+                    sentAt,
+                )
+            }
         }
     }
 

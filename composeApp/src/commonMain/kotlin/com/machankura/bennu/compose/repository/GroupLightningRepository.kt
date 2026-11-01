@@ -94,6 +94,9 @@ interface GroupLightningRepository {
     /** Proposes [pay] to the group; the operator's node pays it once a quorum signs. */
     suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession
 
+    /** Proposes [buy] to the group; the operator's node buys the liquidity once a quorum signs. */
+    suspend fun proposeLiquidity(localChatRoom: LocalChatRoom, userPublicKey: HexKey, buy: GroupLightningAuthorisationEvent.BuyLiquidity): FrostSigningSession
+
     /** Proposes closing [channelId] to the onchain wallet, or force-closing it when [force]. */
     suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession
 
@@ -139,6 +142,7 @@ interface GroupLightningRepository {
             override suspend fun requestInvoice(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, amountMsat: Long?, description: String): String = error("No room to ask in")
             override fun observeInvoice(chatRoomId: String, chain: Chain, wallet: Long, requestId: String): Flow<GroupLightningInvoiceRow?> = flowOf(null)
             override suspend fun proposePayment(localChatRoom: LocalChatRoom, userPublicKey: HexKey, pay: GroupLightningAuthorisationEvent.Pay): FrostSigningSession = error("No room to propose in")
+            override suspend fun proposeLiquidity(localChatRoom: LocalChatRoom, userPublicKey: HexKey, buy: GroupLightningAuthorisationEvent.BuyLiquidity): FrostSigningSession = error("No room to propose in")
             override suspend fun proposeClose(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelId: String, force: Boolean): FrostSigningSession = error("No room to propose in")
             override suspend fun proposeCloseAll(localChatRoom: LocalChatRoom, userPublicKey: HexKey, wallet: GroupLightningWalletManager.Wallet, channelIds: List<String>): FrostSigningSession = error("No room to propose in")
             override suspend fun unswept(chatRoomId: String, report: GroupLightningReports.Report?): List<GroupSweep.Input> = emptyList()

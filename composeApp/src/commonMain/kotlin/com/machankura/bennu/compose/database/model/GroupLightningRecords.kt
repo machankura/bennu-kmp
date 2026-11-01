@@ -33,6 +33,8 @@ data class GroupLightningPaymentRow(
     val description: String?,
     val completedAt: Instant?,
     val succeeded: Boolean,
+    /** For inbound liquidity bought, how much: then [amountMsat] is what it cost (docs/group-lightning-liquidity.md, Phase 7). */
+    val liquiditySat: Long? = null,
 )
 
 /** An invoice the operator made for a member's request. */

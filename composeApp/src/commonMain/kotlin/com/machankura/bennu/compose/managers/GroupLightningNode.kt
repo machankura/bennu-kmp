@@ -7,6 +7,7 @@ import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationE
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
 import com.machankura.bennu.compose.wallet.GroupChainClients
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.machankura.bennu.compose.wallet.lightning.GroupNodeKeyManager
 import com.machankura.bennu.compose.wallet.lightning.GroupSweep
 import com.machankura.bennu.compose.wallet.lightning.WalletWire
@@ -417,7 +418,7 @@ class GroupLightningNode(
         runCatching { answerInvoiceRequests() }.onFailure { logger.e("Could not answer an invoice request", it) }
         runCatching { payAuthorised() }.onFailure { logger.e("Could not make an authorised payment", it) }
         runCatching { closeAuthorised() }.onFailure { logger.e("Could not close an authorised channel", it) }
-        runCatching { buyAuthorised() }.onFailure { logger.e("Could not buy authorised liquidity", it) }
+        if (GroupLightningRollout.LIQUIDITY_ENABLED) runCatching { buyAuthorised() }.onFailure { logger.e("Could not buy authorised liquidity", it) }
     }
 
     /**
