@@ -6,7 +6,7 @@ group's Lightning wallet the same button. The difference is who presses it. In P
 person decides and one key signs. Here the group decides, with a FROST-signed authorisation,
 and `2t-1` co-signers sign a splice that every one of them has checked.
 
-**Being built.** Written against `84984ca8` on `bennu-lightning`, with the
+**Built, but for Phase 9, and off.** Written against `84984ca8` on `bennu-lightning`, with the
 `lightning-kmp-app` submodule at `6f3f792` and lightning-kmp at `bd78ed62` (branch
 `claude/group-lightning-wallet`). The library phases land on a new branch,
 `claude/group-lightning-liquidity`, in both `lightning-kmp-app` and `experimental/lightning-kmp`;
@@ -37,6 +37,8 @@ differently, this table says so.
 | 6 | done: `PeerHandle.fundingRates`, `feeratePerByte` and `buyLiquidity`, `GroupLightningNode.buyAuthorised` on the node's watch, and the snapshot's rates, feerate and purchases. Four tests with the stand-in peer in `GroupLightningLiquidityJvmTest` |
 | 7 | done, behind `GroupLightningRollout.LIQUIDITY_ENABLED`, which is off until Phase 10: `GroupLightningLiquidityScreen` and its route, view model and state; *Add liquidity* on the wallet's balance card, or the reason it is not there; a purchase's state on its channel row; *Inbound liquidity added* in the payment list; and two transcript lines from the snapshot, added and failed. `LiquidityPrice` works out the price on the member's device, and matches what eclair charged in Phase 0 to the sat. Tests: `LiquidityPriceJvmTest`, and two more cases in `LightningPaymentRowJvmTest`. `m3Audit` meets every budget |
 | 8 | **run**, in `GroupLightningRegtestJvmTest`, between *receive* and *pay*: a member prices 200,000 sats from the operator's snapshot, the group authorises it at the default cap, the operator's node splices, every co-signer checks the splice and none refuses; the channel grows from 100,000 to 299,779 sats for 2,521 sats, the figure the member's device estimated; a 50,000-sat payment then arrives with no on-the-fly splice; and *pay*, *close* (124,295 sats to the onchain wallet) and *sweep* run on the spliced channel. Sixty seconds from a fresh network |
+| 9 | **not built**, as the plan leaves it: whether the LSP may splice the channel to deliver a payment nobody asked for is the group's decision, and a statement field to record it. Until then such a splice is refused at its first commitment, by every co-signer, as *the group has not authorised buying liquidity for this channel* |
+| 10 | the documents, and `GroupLightningRollout.LIQUIDITY_ENABLED` is **off**. Phase 8 passed, which is what the plan named for it, but Phase 0's mainnet half was not run: ACINQ's LSP has not been seen to accept a splice in which our funding key does not change, nor its rates read. Both need a node on mainnet and a purchase with real money, which is the owner's to make. Until then the button is not shown and the operator's node buys nothing; every co-signer checks a purchase regardless, so the group is ready when it lifts |
 
 | what the plan said | what it turned out to be |
 |---|---|

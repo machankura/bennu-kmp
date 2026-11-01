@@ -5,6 +5,11 @@ group Lightning wallet, receive, pay, close and sweep against a real lightning-k
 LSP. What the run checks, what it found, and why each LSP setting is there is in
 [docs/group-lightning-wallet.md](../../docs/group-lightning-wallet.md), "The regtest run".
 
+`LiquidityPurchaseRegtestJvmTest` uses the same network for the liquidity plan's Phase 0
+([docs/group-lightning-liquidity.md](../../docs/group-lightning-liquidity.md)): a stock node that keeps one
+funding key buys inbound liquidity from the LSP, with its signatures delayed, to see what eclair accepts
+and how long it waits. The group run buys liquidity too, between receiving and paying.
+
 The run is **not** part of `./gradlew check` or CI. Without `BENNU_REGTEST=1` the test is reported as
 skipped, so a green `jvmTest` says nothing about it.
 

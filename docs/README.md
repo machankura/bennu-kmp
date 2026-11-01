@@ -150,11 +150,14 @@ constraints and its decision table before any phase, its trust table before
 arguing with either, and its two tables of what the build found before
 changing anything it describes.
 
-The group Lightning liquidity note is a phased plan that has not been built.
+The group Lightning liquidity note is a phased plan that has been built, but for
+its Phase 9, and is off until a purchase is made on mainnet.
 It is the group Lightning wallet note's check 8 built for one kind of splice:
 read that note's D6, Phase 9 and Phase 13 first, and the lightning
 remediation README's step 2, which this plan waits for, then its six
-constraints and eight decisions before any phase.
+constraints and eight decisions before any phase, and its table of what
+Phase 0 found against eclair before the code: the minute eclair allows a whole
+splice is what every group signature in it has to fit inside.
 
 The standalone-electrum note is a phased plan that has been built, and is the
 group chain wallet note's *An identity without a node* answered: read that
