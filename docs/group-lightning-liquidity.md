@@ -6,9 +6,11 @@ group's Lightning wallet the same button. The difference is who presses it. In P
 person decides and one key signs. Here the group decides, with a FROST-signed authorisation,
 and `2t-1` co-signers sign a splice that every one of them has checked.
 
-**Plan, not built.** Written against `84984ca8` on `bennu-lightning`, with the
+**Being built.** Written against `84984ca8` on `bennu-lightning`, with the
 `lightning-kmp-app` submodule at `6f3f792` and lightning-kmp at `bd78ed62` (branch
-`claude/group-lightning-wallet`). Read these first:
+`claude/group-lightning-wallet`). The library phases land on a new branch,
+`claude/group-lightning-liquidity`, in both `lightning-kmp-app` and `experimental/lightning-kmp`;
+it is local and not pushed. Read these first:
 
 - [group-lightning-wallet.md](./group-lightning-wallet.md): D6 ("people approve outgoing
   payments, closes and splices"), Phase 9's check 8, and the Phase 13 and 15 rows of its build
@@ -18,6 +20,37 @@ and `2t-1` co-signers sign a splice that every one of them has checked.
   goes after it.
 - `lightning-kmp-app/experimental/lightning-kmp/FEATURE-PARITY.md`, Phase 6 ("splice design B").
   This plan's Phase 1 is that phase.
+
+### Where the build stands
+
+One commit per phase. The phases below are kept as they were written; where the build chose
+differently, this table says so.
+
+| phase | state |
+|---|---|
+| 0 | steps 1, 3 and 4 run on regtest (`LiquidityPurchaseRegtestJvmTest`), after Phase 1, which the key check needs; see *What Phase 0 found*. Step 2 and the mainnet half of step 1 are not run: they need a node on mainnet and a purchase with real money, which is the owner's to make |
+| 1 | done, in the fork: the guard is gone, and `IcebergSpliceTestsCommon` splices a group's channel eight ways. The fork's JVM suite passes but for its Electrum tests, which reach public servers and time out differently on every run |
+| 2 | done, in the fork: `SigningContext.Splice`, and every commitment's context names its funding index. The regtest run checks the context a real purchase fills |
+
+| what the plan said | what it turned out to be |
+|---|---|
+| Phase 0 before Phase 1 | after: the key check needs a node that names one key at every index, and Phase 1 is what makes `fundingPublicKey(1)` return index 0's key for an injected signer. The stock node in the test injects a private-key signer of its own index-0 key |
+| Phase 0 waits for the co-signer core release | it did not need to: none of Phase 0 touches the co-signer. Phases 3 and 5 do, and are built on the co-signer as it stands; the release's rewrite will have to be merged over them |
+| Phase 2 adds a context for the splice and nothing else | also `fundingTxIndex` on `RemoteCommitment` and `LocalCommitment`, defaulted to 0. A co-signer cannot otherwise tell the two commitments of one update apart but by their input, and the plan's ledger per funding output needs to know which is the newer |
+| S4: the new funding amount is at least the old one plus the amount less `purchase.fees.miningFee` | less **our own share of the splice's mining fee**, which is the splice's negative local contribution. `purchase.fees.miningFee` is the LSP's inputs' share, which the group pays from its balance with the service fee, in the first commitment on the new output. Phoenix's estimate (`ChannelManagementFees.miningFee`) is the two shares together, so `estimate.total = -localContribution + purchase.fees.total`, and the authorisation's cap covers both |
+
+### What Phase 0 found
+
+Run on 2026-11-01 against the docker eclair v0.14.4, whose rates are one band, 10,000 to
+10,000,000 sats at 100 sats plus 1% and 400 weight units, paid by any of the four payment types.
+
+| step | found |
+|---|---|
+| 1, our key unchanged | **eclair accepts it.** Three purchases of 200,000 sats in a row on one channel, each naming index 0's key again; eclair's key changed at each, so every new funding output had a script of its own. The source reading in step 1 holds at runtime |
+| the price | 2,521 sats for 200,000 at 2 sat/vbyte: our own mining share 221, the LSP's inputs 200, service 2,100 |
+| 3, how long eclair waits | **one minute for the whole splice, not per signature.** A purchase needs exactly two group signatures (the first commitment on the new output, then the shared input): at 10 seconds a signature it was answered in 20. eclair starts `channel.quiescence-timeout`, 1 minute by default, at quiescence; at 30 seconds a signature it logged *quiescence timed out in state SpliceWaitingForSigs, closing connection* at 60 seconds exactly, as the second signature arrived. So both of the group's signatures, with their echoes, have to fit in under a minute together, and while they are being made the channel carries no payments |
+| what the liquidity is good for | a payment the channel had no room for before arrives over the spliced channel, but **not one over the channel's in-flight maximum**, which was fixed when the channel opened and no splice raises. This LSP sets it at 100% of the opening capacity: the run's channel opened on the fly at 100,000 sats, took 600,000 sats of inbound in three purchases, and eclair then refused a 150,000-sat payment with *in-flight htlcs hold too much value: maximum=100000000 msat*. A payment of 90,000 arrived. Phoenix's channels with ACINQ do not hit this, so ACINQ's mainnet limit is not a share of the opening capacity; on this regtest LSP it is, and the screen (Phase 7) must not promise more per payment than the channel's maximum |
+| 4, two commitments live | 11 to 21 seconds on regtest, from the answer to both `splice_locked`, mining a block a second. eclair locks a splice after confirmations here, since this LSP is not zero-conf with the wallet; on mainnet it is the LSP's confirmation policy, and so a matter of blocks rather than seconds unless ACINQ treats the splice as zero-conf |
 
 Fork paths below are relative to
 `lightning-kmp-app/experimental/lightning-kmp/modules/core/src/commonMain/kotlin/fr/acinq/lightning/`;
