@@ -174,6 +174,9 @@ object GroupLightningCoSigner {
     /** The provision request: a signing request whose kind is `PROVISION`, asking for contributions up to its counter. */
     const val PROVISION = "PROVISION"
 
+    /** The context type of a splice's shared input. */
+    const val SPLICE = "splice"
+
     private suspend fun handleRequest(database: BennuDatabase, localChatRoom: LocalChatRoom, event: Event, userPublicKey: HexKey) {
         val request = CommonJson.decodeFromString(CoSigningWire.SigningRequest.serializer(), event.content)
         val roomId = localChatRoom.chatRoom.id
@@ -202,7 +205,7 @@ object GroupLightningCoSigner {
             )
             return
         }
-        val message = messageOf(request)
+        val message = messageOf(request) ?: return
 
         // Echo, and commit to this hash under this label for good. A label already answered under any
         // other message is never answered again.
@@ -286,11 +289,19 @@ object GroupLightningCoSigner {
             .mapNotNull { runCatching { CommonJson.decodeFromString(CoSigningWire.SigningRequest.serializer(), it.content) }.getOrNull() }
             .firstOrNull { it.requestId == requestId }
 
-    /** The hash the request's transaction signs: recomputed, never read off the request. */
-    fun messageOf(request: CoSigningWire.SigningRequest): ByteVector32 {
+    /**
+     * The hash the request's transaction signs: recomputed, never read off the request. It is the input
+     * spending [CoSigningWire.SigningRequest.input], over every output the transaction spends, which BIP341
+     * commits the signature to. A request that misstates what the other inputs spend gets a signature
+     * nobody can mine, never one that moves money; one that omits them gets nothing, since there is no
+     * hash to compute. Null then.
+     */
+    fun messageOf(request: CoSigningWire.SigningRequest): ByteVector32? {
         val tx = CoSigningWire.tx(request.tx)
         val input = CoSigningWire.inputInfo(request.input)
-        return tx.hashForSigningTaprootKeyPath(0, listOf(input.txOut), SigHash.SIGHASH_DEFAULT)
+        val index = tx.txIn.indexOfFirst { it.outPoint == input.outPoint }.takeIf { it >= 0 } ?: return null
+        val spent = CoSigningWire.spentOutputs(tx, input, request.extraUtxos) ?: return null
+        return tx.hashForSigningTaprootKeyPath(index, spent, SigHash.SIGHASH_DEFAULT)
     }
 
     /**
@@ -312,10 +323,17 @@ object GroupLightningCoSigner {
             if (ByteVector(c)[0].toInt() != indexOf(wallet, participant)) return "a contribution carries another participant's index"
         }
 
-        // Check 3: the funding output is the group key with the counterparty's.
+        // Check 3: the funding output is the group key with the counterparty's. A commitment or a close
+        // spends it alone; a splice spends it once, beside the counterparty's own inputs.
         val tx = CoSigningWire.tx(request.tx)
         val input = CoSigningWire.inputInfo(request.input)
-        if (tx.txIn.size != 1 || tx.txIn[0].outPoint != input.outPoint) return "the transaction does not spend exactly the funding output"
+        val isSplice = request.context?.type == SPLICE
+        if (isSplice) {
+            if (tx.txIn.count { it.outPoint == input.outPoint } != 1) return "the splice does not spend the funding output once"
+        } else if (tx.txIn.size != 1 || tx.txIn[0].outPoint != input.outPoint) {
+            return "the transaction does not spend exactly the funding output"
+        }
+        if (messageOf(request) == null) return "the request does not say what every input of the transaction spends"
         val remoteKey = PublicKey.fromHex(request.remoteFundingPubKey)
         val groupKey = PublicKey.fromHex(statement.icebergKey)
         val expected = Transactions.makeFundingInputInfo(input.outPoint.txid, input.outPoint.index, input.txOut.amount, groupKey, remoteKey, Transactions.CommitmentFormat.SimpleTaprootChannels)
@@ -340,6 +358,7 @@ object GroupLightningCoSigner {
             "remote" -> checkRemote(database, wallet, request, context, params, tx, pinned)
             "closing" -> checkClosing(statement, context, tx, closeTo)
             "local" -> checkLocal(database, wallet, request, context, params, tx, pinned)
+            SPLICE -> "a splice, which this device does not sign yet"
             else -> "an unknown kind of transaction"
         }
     }
@@ -375,7 +394,7 @@ object GroupLightningCoSigner {
             remoteFundingPubKey = PublicKey.fromHex(request.remoteFundingPubKey),
             commitmentInput = CoSigningWire.inputInfo(request.input),
             commitmentFormat = Transactions.CommitmentFormat.SimpleTaprootChannels,
-            spec = CoSigningWire.spec(context.spec, params.channelId),
+            spec = CoSigningWire.spec(context.spec ?: return "no commitment spec", params.channelId),
         )
         return if (rebuilt.tx != tx) "the commitment its context rebuilds to is not the one it asks to sign" else null
     }
@@ -399,7 +418,7 @@ object GroupLightningCoSigner {
         val commitParams = CoSigningWire.commit(context.commit ?: return "no commitment parameters")
         val commitIndex = context.commitIndex ?: return "no commitment number"
         val perCommitmentPoint = PublicKey.fromHex(context.remotePerCommitmentPoint ?: return "no per-commitment point")
-        val spec = CoSigningWire.spec(context.spec, params.channelId)
+        val spec = CoSigningWire.spec(context.spec ?: return "no commitment spec", params.channelId)
         val keys = keyManagerOf(ByteVector(seed.seed), wallet.statement.chain).channelKeys(params.localParams.fundingKeyPath)
             .withGroupBasepoints(wallet.basepoints.forChannel)
         val (rebuilt, _) = Commitments.makeRemoteTxs(
@@ -431,7 +450,7 @@ object GroupLightningCoSigner {
         val remote = ByteVector(context.remoteScript ?: return "no counterparty script")
         if (local != closeTo) return "the close does not pay the group's onchain wallet"
         if (tx.txOut.any { it.publicKeyScript != local && it.publicKeyScript != remote }) return "the close pays a script it did not name"
-        val ours = context.spec.toLocalMsat / 1000
+        val ours = (context.spec ?: return "no commitment spec").toLocalMsat / 1000
         val paid = tx.txOut.filter { it.publicKeyScript == local }.sumOf { it.amount.sat }
         val allowance = statement.policy.commitmentFeeAllowanceSat
         return if (ours > allowance && paid < ours - allowance) "the close pays the group $paid sats of its $ours" else null
@@ -442,7 +461,7 @@ object GroupLightningCoSigner {
         val context = request.context ?: return
         if (context.type != "remote") return
         val params = CoSigningWire.params(context.params)
-        val spec = CoSigningWire.spec(context.spec, params.channelId)
+        val spec = CoSigningWire.spec(context.spec ?: return, params.channelId)
         val tx = CoSigningWire.tx(request.tx)
         val dao = database.icebergCoSigningDao()
         val channelId = params.channelId.toHex()

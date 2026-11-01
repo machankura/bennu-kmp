@@ -31,12 +31,15 @@ differently, this table says so.
 | 0 | steps 1, 3 and 4 run on regtest (`LiquidityPurchaseRegtestJvmTest`), after Phase 1, which the key check needs; see *What Phase 0 found*. Step 2 and the mainnet half of step 1 are not run: they need a node on mainnet and a purchase with real money, which is the owner's to make |
 | 1 | done, in the fork: the guard is gone, and `IcebergSpliceTestsCommon` splices a group's channel eight ways. The fork's JVM suite passes but for its Electrum tests, which reach public servers and time out differently on every run |
 | 2 | done, in the fork: `SigningContext.Splice`, and every commitment's context names its funding index. The regtest run checks the context a real purchase fills |
+| 3 | done: the `splice` context and every spent output on the wire, the sighash over all of them, check 3 for a splice. A co-signer still refuses every splice, now by name (*a splice, which this device does not sign yet*), until Phase 5. `CoSigningWireJvmTest`, four tests |
 
 | what the plan said | what it turned out to be |
 |---|---|
 | Phase 0 before Phase 1 | after: the key check needs a node that names one key at every index, and Phase 1 is what makes `fundingPublicKey(1)` return index 0's key for an injected signer. The stock node in the test injects a private-key signer of its own index-0 key |
 | Phase 0 waits for the co-signer core release | it did not need to: none of Phase 0 touches the co-signer. Phases 3 and 5 do, and are built on the co-signer as it stands; the release's rewrite will have to be merged over them |
 | Phase 2 adds a context for the splice and nothing else | also `fundingTxIndex` on `RemoteCommitment` and `LocalCommitment`, defaulted to 0. A co-signer cannot otherwise tell the two commitments of one update apart but by their input, and the plan's ledger per funding output needs to know which is the newer |
+| a splice's context carries a `spec` like the others | none: `CoSigningWire.Context.spec` is optional now, and every check that reads it refuses a context without one. A splice's money is in the first commitment on the new output, signed just before it |
+| Phase 3: `messageOf` over all of the spent outputs | as written, and it returns null when the request leaves one out, which check 3 refuses before any echo: there is no hash to commit to |
 | S4: the new funding amount is at least the old one plus the amount less `purchase.fees.miningFee` | less **our own share of the splice's mining fee**, which is the splice's negative local contribution. `purchase.fees.miningFee` is the LSP's inputs' share, which the group pays from its balance with the service fee, in the first commitment on the new output. Phoenix's estimate (`ChannelManagementFees.miningFee`) is the two shares together, so `estimate.total = -localContribution + purchase.fees.total`, and the authorisation's cap covers both |
 
 ### What Phase 0 found

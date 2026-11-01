@@ -28,6 +28,7 @@ import fr.acinq.lightning.transactions.IncomingHtlc
 import fr.acinq.lightning.transactions.OutgoingHtlc
 import fr.acinq.lightning.transactions.Transactions
 import fr.acinq.lightning.utils.msat
+import fr.acinq.lightning.wire.LiquidityAds
 import fr.acinq.lightning.wire.OnionRoutingPacket
 import fr.acinq.lightning.wire.UpdateAddHtlc
 import fr.acinq.secp256k1.Hex
@@ -76,7 +77,32 @@ object CoSigningWire {
         val nonInitiatorPaysCommitFees: Boolean,
     )
 
-    /** One of the three things lightning-kmp says it is signing. [type] is `remote`, `local` or `closing`. */
+    /**
+     * Liquidity bought with a splice, as lightning-kmp's `LiquidityAds.Purchase` says it: [amountSat] of
+     * inbound, for [miningFeeSat] (the LSP's inputs) and [serviceFeeSat], paid as [paymentType] names, a
+     * BOLT name such as `from_channel_balance`. [feeCreditUsedMsat] is set only when fee credit paid part of it.
+     */
+    @Serializable
+    data class Purchase(
+        val amountSat: Long,
+        val miningFeeSat: Long,
+        val serviceFeeSat: Long,
+        val paymentType: String,
+        val feeCreditUsedMsat: Long? = null,
+    )
+
+    /**
+     * One of the four things lightning-kmp says it is signing. [type] is `remote`, `local`, `closing` or
+     * `splice`. A commitment names the funding output it is on by [fundingTxIndex]: while a splice is
+     * unconfirmed there is one per output, at the same commitment number.
+     *
+     * A splice is its shared input: the parent funding output [parentFunding], of [parentFundingTxIndex],
+     * spent by a transaction whose output [fundingOutputIndex] is the new funding output, of
+     * [fundingTxIndex], shared with the counterparty's [newRemoteFundingPubKey]; what each side added
+     * ([localContributionSat], [remoteContributionSat]), the [purchase] if it bought liquidity, and the
+     * feerate it was built at. A splice has no [spec]: the money in the new output is the first commitment
+     * on it, signed before this.
+     */
     @Serializable
     data class Context(
         val type: String,
@@ -84,9 +110,18 @@ object CoSigningWire {
         val commit: Commit? = null,
         val commitIndex: Long? = null,
         val remotePerCommitmentPoint: String? = null,
-        val spec: Spec,
+        val spec: Spec? = null,
         val localScript: String? = null,
         val remoteScript: String? = null,
+        val fundingTxIndex: Long = 0,
+        val parentFundingTxIndex: Long? = null,
+        val parentFunding: Input? = null,
+        val fundingOutputIndex: Int? = null,
+        val newRemoteFundingPubKey: String? = null,
+        val localContributionSat: Long? = null,
+        val remoteContributionSat: Long? = null,
+        val purchase: Purchase? = null,
+        val feeratePerKw: Long? = null,
     )
 
     @Serializable
@@ -109,6 +144,11 @@ object CoSigningWire {
         val contributions: List<String>,
         val cosignerAggregatedNonce: String,
         val context: Context? = null,
+        /**
+         * What every other input of [tx] spends. A commitment or a close has one input, [input], and this
+         * is empty; a splice's shared input is one of several, and its signature commits to all of them.
+         */
+        val extraUtxos: List<Input> = emptyList(),
     )
 
     /** Kind 30359: a co-signer saw [messageHash] under [label], and will sign nothing else under it. */
@@ -195,11 +235,47 @@ object CoSigningWire {
 
     fun context(c: FundingSigner.SigningContext): Context? = when (c) {
         FundingSigner.SigningContext.Unknown -> null
-        is FundingSigner.SigningContext.RemoteCommitment -> Context("remote", params(c.channelParams), commit(c.commitParams), c.commitIndex, c.remotePerCommitmentPoint.toString(), spec(c.spec))
-        is FundingSigner.SigningContext.LocalCommitment -> Context("local", params(c.channelParams), commit(c.commitParams), c.commitIndex, null, spec(c.spec))
+        is FundingSigner.SigningContext.RemoteCommitment -> Context("remote", params(c.channelParams), commit(c.commitParams), c.commitIndex, c.remotePerCommitmentPoint.toString(), spec(c.spec), fundingTxIndex = c.fundingTxIndex)
+        is FundingSigner.SigningContext.LocalCommitment -> Context("local", params(c.channelParams), commit(c.commitParams), c.commitIndex, null, spec(c.spec), fundingTxIndex = c.fundingTxIndex)
         is FundingSigner.SigningContext.Closing -> Context("closing", params(c.channelParams), null, null, null, spec(c.spec), hex(c.localScript), hex(c.remoteScript))
-        // Not on the wire yet, so a co-signer reads it as unsaid and refuses, as it refused every splice before.
-        is FundingSigner.SigningContext.Splice -> null
+        is FundingSigner.SigningContext.Splice -> Context(
+            type = "splice",
+            params = params(c.channelParams),
+            fundingTxIndex = c.fundingTxIndex,
+            parentFundingTxIndex = c.parentFundingTxIndex,
+            parentFunding = input(c.parentFunding),
+            fundingOutputIndex = c.fundingOutputIndex,
+            newRemoteFundingPubKey = c.remoteFundingPubKey.toString(),
+            localContributionSat = c.localContribution.sat,
+            remoteContributionSat = c.remoteContribution.sat,
+            purchase = c.purchase?.let(::purchase),
+            feeratePerKw = c.feerate.feerate.sat,
+        )
+    }
+
+    fun purchase(p: LiquidityAds.Purchase): Purchase = Purchase(
+        amountSat = p.amount.sat,
+        miningFeeSat = p.fees.miningFee.sat,
+        serviceFeeSat = p.fees.serviceFee.sat,
+        paymentType = paymentTypeName(p.paymentDetails.paymentType),
+        feeCreditUsedMsat = (p as? LiquidityAds.Purchase.WithFeeCredit)?.feeCreditUsed?.toLong(),
+    )
+
+    /** The BOLT name of a liquidity-ads payment type, which the wire carries: a co-signer reads only `from_channel_balance` as one it signs. */
+    fun paymentTypeName(t: LiquidityAds.PaymentType): String = when (t) {
+        LiquidityAds.PaymentType.FromChannelBalance -> FROM_CHANNEL_BALANCE
+        LiquidityAds.PaymentType.FromFutureHtlc -> "from_future_htlc"
+        LiquidityAds.PaymentType.FromFutureHtlcWithPreimage -> "from_future_htlc_with_preimage"
+        LiquidityAds.PaymentType.FromChannelBalanceForFutureHtlc -> "from_channel_balance_for_future_htlc"
+        is LiquidityAds.PaymentType.Unknown -> "unknown_${t.bitIndex}"
+    }
+
+    const val FROM_CHANNEL_BALANCE = "from_channel_balance"
+
+    /** What every input of [tx] spends, [input] among them, in input order; null when one is not known. */
+    fun spentOutputs(tx: Transaction, input: Transactions.InputInfo, extra: List<Input>): List<TxOut>? {
+        val known = extra.map(::inputInfo).associate { it.outPoint to it.txOut } + (input.outPoint to input.txOut)
+        return tx.txIn.map { known[it.outPoint] ?: return null }
     }
 
     fun input(info: Transactions.InputInfo): Input = Input(info.outPoint.txid.toString(), info.outPoint.index, info.txOut.amount.sat, hex(info.txOut.publicKeyScript))

@@ -19,6 +19,7 @@ import fr.acinq.bitcoin.utils.Either
 import fr.acinq.lightning.crypto.FundingSigner
 import fr.acinq.lightning.crypto.IcebergGroupTransport
 import fr.acinq.lightning.crypto.IcebergRoundTwoRequest
+import fr.acinq.lightning.transactions.Transactions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -172,6 +173,7 @@ class GroupIcebergTransport private constructor(
             contributions = request.contributions.map { it.toByteArray().toHex() },
             cosignerAggregatedNonce = request.cosignerAggregatedNonce.data.toHex(),
             context = CoSigningWire.context(request.context),
+            extraUtxos = request.extraUtxos.map { (outPoint, txOut) -> CoSigningWire.input(Transactions.InputInfo(outPoint, txOut)) },
         )
         val content = CommonJson.encodeToString(CoSigningWire.SigningRequest.serializer(), wire)
         GroupLightningWalletManager.queue(database, localChatRoom, userPublicKey, GroupLightningEvents.SIGNING_REQUEST, content)
