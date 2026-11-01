@@ -1595,7 +1595,8 @@ data class ChatMessage(
                     val signed = GroupSignedEvent.fromEvent(event, chatRoomId = groupId)
                     if (!signed.verifies()) return null
                     val pay = GroupLightningAuthorisationEvent.read(event.tags)
-                    val channelAction = if (pay == null) GroupLightningAuthorisationEvent.readChannelAction(event.tags) ?: return null else null
+                    val buy = if (pay == null) GroupLightningAuthorisationEvent.readBuyLiquidity(event.tags) else null
+                    val channelAction = if (pay == null && buy == null) GroupLightningAuthorisationEvent.readChannelAction(event.tags) ?: return null else null
                     ChatMessage(
                         giftWrapPayloadId = null,
                         messageType = TYPE_GROUP_LIGHTNING_PAYMENT_AUTHORISED,
@@ -1607,6 +1608,7 @@ data class ChatMessage(
                         createdAt = createdAt,
                         content = when {
                             pay != null -> "The group authorised a Lightning payment of ${Satoshi(pay.amountMsat / 1000).grouped()} sats. The operator's node pays it."
+                            buy != null -> "The group authorised adding ${Satoshi(buy.amountSat).grouped()} sats of inbound liquidity, for at most ${Satoshi(buy.maxFeeSat).grouped()} sats in fees. The operator's node buys it."
                             channelAction?.action == GroupLightningAuthorisationEvent.FORCE_CLOSE -> "The group authorised force-closing a Lightning channel. Its money reaches the onchain wallet after a delay."
                             else -> "The group authorised closing a Lightning channel to its onchain wallet."
                         }

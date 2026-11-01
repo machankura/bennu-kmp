@@ -151,6 +151,14 @@ object ProposedEvent {
                 label = "Close a Lightning channel",
                 detail = "Channel ${action.channelId.take(16)}: its money goes to the group's onchain wallet",
             )
+        } ?: GroupLightningAuthorisationEvent.readBuyLiquidity(event.tags)?.let { buy ->
+            // Buying liquidity spends the group's money on room to be paid. A signer weighs how much
+            // room, what it costs at most, and that the LSP may take back what is unused after a year
+            // (docs/group-lightning-liquidity.md, Phase 4).
+            Summary(
+                label = "Add ${Satoshi(buy.amountSat).grouped()} sats of inbound liquidity",
+                detail = "Channel ${buy.channelId.take(16)}: for at most ${Satoshi(buy.maxFeeSat).grouped()} sats in fees, from the group's balance. The LSP may reclaim what is unused after a year",
+            )
         } ?: Summary(label = "Authorise the Lightning wallet", detail = "An authorisation this device cannot read")
 
         // The group agreeing to guard one member's wallet. What a signer weighs

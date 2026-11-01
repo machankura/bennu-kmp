@@ -4,9 +4,12 @@ import com.machankura.bennu.compose.database.BennuDatabase
 import com.machankura.bennu.compose.database.model.FrostSigningSession
 import com.machankura.bennu.compose.database.model.IcebergBudgetSpend
 import com.machankura.bennu.compose.database.model.intermdiate.LocalChatRoom
+import com.machankura.bennu.compose.extensions.toHex
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningWalletStatementEvent
+import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.vitorpamplona.quartz.nip01Core.core.HexKey
+import com.vitorpamplona.quartz.utils.RandomInstance
 import fr.acinq.bitcoin.ByteVector32
 import fr.acinq.lightning.payment.Bolt11Invoice
 import kotlin.time.Clock
@@ -128,6 +131,55 @@ object GroupLightningAuthorisations {
             wallet.statement.chain, wallet.statement.wallet, channelId, (Clock.System.now() + CHANNEL_ACTION_LIFETIME).epochSeconds,
         )
         val template = GroupLightningAuthorisationEvent.template(action)
+        return FrostSigningManager.proposeSigning(database, localChatRoom, userPublicKey, template.kind, template.tags, template.content)
+    }
+
+    /** Why a liquidity purchase cannot be proposed. */
+    sealed class LiquidityProblem {
+        /** A purchase of nothing. */
+        data object NothingToBuy : LiquidityProblem()
+        /** A purchase that would take the channel over what a channel may hold on this network. */
+        data class OverTheCap(val capSat: Long) : LiquidityProblem()
+    }
+
+    class LiquidityProblemException(val problem: LiquidityProblem) : IllegalArgumentException(problem.toString())
+
+    /** How long a liquidity purchase stays open: as long as a close, for the same reason. */
+    val LIQUIDITY_LIFETIME: Duration = CHANNEL_ACTION_LIFETIME
+
+    /**
+     * Every liquidity purchase the group has authorised for [wallet], open at [now], oldest first
+     * (`docs/group-lightning-liquidity.md`, Phase 4). Whether one has already been spent is each
+     * co-signer's ledger to say.
+     */
+    suspend fun liquidityPurchases(database: BennuDatabase, wallet: GroupLightningWalletManager.Wallet, now: Instant = Clock.System.now()): List<GroupLightningAuthorisationEvent.BuyLiquidity> =
+        database.groupSignedEventDao().getByChatRoomIdAndKind(wallet.signedEvent.chatRoomId, GroupLightningAuthorisationEvent.KIND)
+            .filter { it.verifies() }
+            .sortedWith(compareBy({ it.createdAt }, { it.id }))
+            .mapNotNull { GroupLightningAuthorisationEvent.readBuyLiquidity(it.tags) }
+            .filter { it.chain == wallet.statement.chain && it.wallet == wallet.statement.wallet && it.expiresAt > now.epochSeconds }
+
+    /**
+     * The purchase of [amountSat] for [channelId], which holds [capacitySat] now, at most [maxFeeSat] in
+     * fees, or the [LiquidityProblem] with it. The proposer is not trusted on the cap: every co-signer holds the
+     * new funding output to it again.
+     */
+    fun prepareBuyLiquidity(wallet: GroupLightningWalletManager.Wallet, channelId: String, capacitySat: Long, amountSat: Long, maxFeeSat: Long, now: Instant = Clock.System.now()): Result<GroupLightningAuthorisationEvent.BuyLiquidity> {
+        if (amountSat <= 0) return Result.failure(LiquidityProblemException(LiquidityProblem.NothingToBuy))
+        GroupLightningRollout.channelCapFor(wallet.statement.chain)?.let { cap ->
+            if (capacitySat + amountSat > cap.sat) return Result.failure(LiquidityProblemException(LiquidityProblem.OverTheCap(cap.sat)))
+        }
+        return Result.success(
+            GroupLightningAuthorisationEvent.BuyLiquidity(
+                wallet.statement.chain, wallet.statement.wallet, channelId, amountSat, maxFeeSat.coerceAtLeast(0),
+                (now + LIQUIDITY_LIFETIME).epochSeconds, RandomInstance.bytes(8).toHex(),
+            )
+        )
+    }
+
+    /** Proposes [buy] to the group; the operator's node buys once a quorum signs. */
+    suspend fun proposeBuyLiquidity(database: BennuDatabase, localChatRoom: LocalChatRoom, userPublicKey: HexKey, buy: GroupLightningAuthorisationEvent.BuyLiquidity): FrostSigningSession {
+        val template = GroupLightningAuthorisationEvent.template(buy)
         return FrostSigningManager.proposeSigning(database, localChatRoom, userPublicKey, template.kind, template.tags, template.content)
     }
 }
