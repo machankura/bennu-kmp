@@ -1,13 +1,25 @@
 package com.machankura.bennu.compose.managers
 
+import com.machankura.bennu.compose.database.model.MarmotGroupEvent
+import com.machankura.bennu.compose.database.model.NostrEvent
+import com.machankura.bennu.compose.network.serialization.CommonJson
 import com.machankura.bennu.compose.nostr.lightning.GroupLightningAuthorisationEvent
+import com.machankura.bennu.compose.nostr.lightning.GroupLightningEvents
+import com.machankura.bennu.compose.wallet.lightning.WalletWire
 import com.machankura.bennu.compose.text.ProposedEvent
 import com.machankura.bennu.compose.wallet.GroupLightningRollout
 import com.vitorpamplona.quartz.nip01Core.core.Event
 import com.vitorpamplona.quartz.nip01Core.core.toHexKey
 import com.vitorpamplona.quartz.nip01Core.crypto.KeyPair
 import fr.acinq.bitcoin.Chain
+import fr.acinq.lightning.Lightning.randomBytes32
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,6 +29,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * The group deciding to buy inbound liquidity (`docs/group-lightning-liquidity.md`, Phase 4): a
@@ -28,8 +42,46 @@ abstract class GroupLightningLiquidityCases(chain: Chain) {
     private val lsp = "02" + KeyPair().pubKey.toHexKey()
     private val channelId = "ab".repeat(32)
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val nodes = mutableListOf<FakeGroupNode>()
+
     @AfterTest
-    fun close() = fixture.close()
+    fun close() {
+        scope.cancel()
+        fixture.close()
+    }
+
+    /** The operator's node, on a stand-in peer holding one channel of [capacitySat], [live] funding outputs live. */
+    private suspend fun runningNode(all: List<GroupLightningFixture.Device>, live: Int = 1): GroupLightningNode {
+        val operator = all[1]
+        val id = randomBytes32().toHex()
+        operator.db.nostrEventDao().upsert(NostrEvent(id = id, pubKey = operator.publicKey, kind = 445, tags = emptyArray(), content = "", sig = "0".repeat(128)))
+        operator.db.marmotGroupEventDao().upsert(MarmotGroupEvent(id = id, userPublicKey = operator.publicKey, publicKey = operator.publicKey, chatRoomId = fixture.roomId, signature = "", encryptedContent = "", expiresAt = null, savedAt = Clock.System.now()))
+        val node = GroupLightningNode(
+            operator.db, operator.room, operator.publicKey, GroupLightningWalletManager.walletFor(operator.db, fixture.roomId, fixture.chain)!!, scope,
+            { configuration -> FakeGroupNode(configuration).also { fake ->
+                fake.channels = listOf(WalletWire.ChannelView(channelId, "Normal", 25_000, 21_900_000, 3_100_000, "ab".repeat(32), 0, 3, liveFundingOutputs = live))
+                fake.rates = WalletWire.FundingRates(listOf(WalletWire.FundingRate(10_000, 10_000_000, 400, 100, 100, 1_000)), listOf("from_channel_balance"))
+                nodes += fake
+            } },
+            handoverCheck = 10.minutes,
+            minimumPool = 0,
+        )
+        assertIs<GroupLightningNode.State.Running>(node.start())
+        return node
+    }
+
+    private suspend fun authorise(all: List<GroupLightningFixture.Device>, wallet: GroupLightningWalletManager.Wallet, maxFeeSat: Long = 4_000): GroupLightningAuthorisationEvent.BuyLiquidity {
+        val buy = GroupLightningAuthorisations.prepareBuyLiquidity(wallet, channelId, 25_000, 200_000, maxFeeSat).getOrThrow()
+        fixture.signSession(all, all[2], GroupLightningAuthorisations.proposeBuyLiquidity(all[2].db, all[2].room, all[2].publicKey, buy).id)
+        return buy
+    }
+
+    private suspend fun reported(all: List<GroupLightningFixture.Device>, node: GroupLightningNode): WalletWire.Snapshot {
+        node.report(term = 1, force = true)
+        fixture.pump(all, setOf(GroupLightningEvents.SNAPSHOT))
+        return GroupLightningReports.latest(all[3].db, GroupLightningCoSigner.walletKey(fixture.roomId, fixture.chain, 0))!!.snapshot
+    }
 
     private suspend fun opened(): Pair<List<GroupLightningFixture.Device>, GroupLightningWalletManager.Wallet> {
         val all = fixture.group()
@@ -83,6 +135,82 @@ abstract class GroupLightningLiquidityCases(chain: Chain) {
             assertTrue(GroupLightningAuthorisations.budgets(d.db, mine).isEmpty())
             assertTrue(GroupLightningAuthorisations.channelActions(d.db, fixture.roomId, mine.statement).isEmpty())
         }
+    }
+
+    @Test
+    fun `the operator's node buys what the group authorised, once, and every member hears how it went`() = runBlocking<Unit> {
+        val (all, wallet) = opened()
+        val node = runningNode(all)
+        node.buyAuthorised()
+        assertTrue(nodes.single().bought.isEmpty(), "nothing is authorised")
+        val buy = authorise(all, wallet)
+        node.buyAuthorised()
+        withTimeout(5.seconds) { while (nodes.single().bought.isEmpty()) delay(20) }
+        node.buyAuthorised()
+        delay(200)
+        assertEquals(listOf(Triple(buy.id, 200_000L, 4_000L)), nodes.single().bought, "bought once, for the amount and cap the group signed")
+
+        val snapshot = reported(all, node)
+        assertEquals(listOf(WalletWire.LiquidityPurchase(buy.id, channelId, 200_000, WalletWire.PENDING, "cd".repeat(32), 2_521)), snapshot.purchases)
+        assertEquals(nodes.single().rates, snapshot.fundingRates, "what the LSP sells, for a member to price from")
+        assertEquals(2L, snapshot.feeratePerByte)
+        // Once the channel is on the splice's output alone, the purchase reads as locked.
+        nodes.single().channels = nodes.single().channels.map { it.copy(fundingTxId = "cd".repeat(32), capacitySat = 224_779) }
+        assertEquals(WalletWire.LOCKED, reported(all, node).purchases.single().state)
+        node.stop()
+    }
+
+    @Test
+    fun `a purchase that would cost more than the cap is never sent, and is not tried again`() = runBlocking<Unit> {
+        val (all, wallet) = opened()
+        val node = runningNode(all)
+        nodes.single().purchaseFee = 9_000
+        val buy = authorise(all, wallet)
+        node.buyAuthorised()
+        val failed = withTimeout(5.seconds) {
+            var p: WalletWire.LiquidityPurchase? = null
+            while (p?.state != WalletWire.FAILED) { p = reported(all, node).purchases.singleOrNull(); delay(20) }
+            p
+        }
+        assertEquals(buy.id, failed.id)
+        assertTrue("over the 4000 the group agreed to" in failed.reason!!, failed.reason)
+        nodes.single().purchaseFee = 2_521
+        node.buyAuthorised()
+        delay(200)
+        assertTrue(nodes.single().bought.isEmpty(), "a failed purchase waits for the group to ask again")
+        node.stop()
+    }
+
+    @Test
+    fun `while an earlier splice has not locked, the purchase waits, and is made once it has`() = runBlocking<Unit> {
+        val (all, wallet) = opened()
+        val node = runningNode(all, live = 2)
+        val buy = authorise(all, wallet)
+        node.buyAuthorised()
+        delay(200)
+        assertTrue(nodes.single().bought.isEmpty())
+        assertEquals(WalletWire.WAITING, reported(all, node).purchases.single().state)
+        nodes.single().channels = nodes.single().channels.map { it.copy(liveFundingOutputs = 1) }
+        node.buyAuthorised()
+        withTimeout(5.seconds) { while (nodes.single().bought.isEmpty()) delay(20) }
+        assertEquals(buy.id, nodes.single().bought.single().first)
+        node.stop()
+    }
+
+    @Test
+    fun `a snapshot from a build before purchases still reads, and one with them round-trips`() {
+        val old = """{"wallet":"w","term":1,"nodeId":"n","sentAt":1,"channels":[{"channelId":"c","state":"Normal","capacitySat":1,"oursMsat":1,"theirsMsat":0,"fundingTxId":"f","fundingIndex":0,"commitIndex":0}],"payments":[{"id":"p","incoming":true,"amountMsat":1,"feesMsat":0,"succeeded":true}]}"""
+        val read = CommonJson.decodeFromString(WalletWire.Snapshot.serializer(), old)
+        assertEquals(1, read.channels.single().liveFundingOutputs)
+        assertEquals(WalletWire.PAYMENT, read.payments.single().kind)
+        assertTrue(read.purchases.isEmpty() && read.fundingRates == null)
+        val full = read.copy(
+            fundingRates = WalletWire.FundingRates(listOf(WalletWire.FundingRate(1, 2, 3, 4, 5, 6)), listOf("from_channel_balance")),
+            feeratePerByte = 3,
+            purchases = listOf(WalletWire.LiquidityPurchase("i", "c", 200_000, WalletWire.FAILED, reason = "r")),
+            payments = listOf(WalletWire.PaymentView("liquidity:t", false, 2_521_000, 2_521_000, succeeded = true, kind = WalletWire.LIQUIDITY, liquiditySat = 200_000)),
+        )
+        assertEquals(full, CommonJson.decodeFromString(WalletWire.Snapshot.serializer(), CommonJson.encodeToString(WalletWire.Snapshot.serializer(), full)))
     }
 
     @Test

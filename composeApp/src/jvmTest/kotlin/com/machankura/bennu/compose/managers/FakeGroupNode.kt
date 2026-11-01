@@ -38,6 +38,12 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
     val closed = mutableListOf<Pair<String, ByteVector>>()
     val forceClosed = mutableListOf<String>()
     var heldOutputs = listOf<GroupSweep.Input>()
+    var rates: WalletWire.FundingRates? = null
+    var feerate: Long? = 2
+    /** Every purchase asked of the node, as (authorisation id, amount, fee cap). */
+    val bought = mutableListOf<Triple<String, Long, Long>>()
+    /** What a purchase costs here, and so whether it is made: one over the cap is never sent. */
+    var purchaseFee = 2_521L
 
     override suspend fun connect(attempt: Int): Boolean { connected = true; connects++; attempts += attempt; return true }
     override fun disconnect() { disconnected = true }
@@ -55,6 +61,13 @@ class FakeGroupNode(private val configuration: GroupLightningNode.NodeConfigurat
     override fun heldOutputs(): List<GroupSweep.Input> = heldOutputs
     override fun offer(): String =
         OfferManager.deterministicOffer(configuration.chain.chainHash, configuration.keyManager.nodeKeys.nodeKey.privateKey, configuration.lspNodeId, null, null, null).offer.encode()
+    override fun fundingRates(): WalletWire.FundingRates? = rates
+    override fun feeratePerByte(): Long? = feerate
+    override suspend fun buyLiquidity(id: String, channelId: String, amountSat: Long, maxFeeSat: Long): WalletWire.LiquidityPurchase {
+        if (purchaseFee > maxFeeSat) return WalletWire.LiquidityPurchase(id, channelId, amountSat, WalletWire.FAILED, reason = "it would cost $purchaseFee sats, over the $maxFeeSat the group agreed to")
+        bought += Triple(id, amountSat, maxFeeSat)
+        return WalletWire.LiquidityPurchase(id, channelId, amountSat, WalletWire.PENDING, fundingTxId = "cd".repeat(32), feeSat = purchaseFee)
+    }
     override suspend fun hasPaid(paymentHash: String): Boolean = payments.any { !it.incoming && it.paymentHash == paymentHash }
     override suspend fun pay(bolt11: String, amountMsat: Long): WalletWire.PaymentView {
         paid += bolt11 to amountMsat

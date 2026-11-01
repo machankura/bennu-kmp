@@ -31,6 +31,9 @@ import fr.acinq.lightning.blockchain.fee.FeeratePerByte
 import fr.acinq.lightning.blockchain.fee.FeeratePerKw
 import fr.acinq.lightning.blockchain.fee.OnChainFeerates
 import fr.acinq.lightning.channel.ChannelCommand
+import kotlinx.coroutines.flow.update
+import com.machankura.bennu.compose.wallet.lightning.CoSigningWire
+import fr.acinq.lightning.channel.ChannelFundingResponse
 import fr.acinq.lightning.channel.GroupHeldOutputs
 import fr.acinq.lightning.channel.states.ChannelStateWithCommitments
 import fr.acinq.lightning.channel.states.Closed
@@ -142,6 +145,15 @@ class GroupLightningNode(
         fun heldOutputs(): List<GroupSweep.Input>
         /** The node's reusable Bolt12 offer, through the LSP: every member recomputes it from the seed. */
         fun offer(): String?
+        /** The LSP's liquidity rates, as its `init` sent them, or null before it has. */
+        fun fundingRates(): WalletWire.FundingRates?
+        /** The feerate the node would splice at, in sat/vbyte, or null while it has none. */
+        fun feeratePerByte(): Long?
+        /**
+         * Buys [amountSat] of inbound liquidity for [channelId] from the LSP, by splicing, if its estimate is
+         * at most [maxFeeSat], and says what came of it, under the authorisation [id].
+         */
+        suspend fun buyLiquidity(id: String, channelId: String, amountSat: Long, maxFeeSat: Long): WalletWire.LiquidityPurchase
     }
 
     sealed class State {
@@ -161,6 +173,9 @@ class GroupLightningNode(
     /** Held while the node acts on what the room asked of it, so no two callers act on one request at once. */
     private val acting = Mutex()
     private var lastReported: Triple<List<WalletWire.ChannelView>, List<WalletWire.PaymentView>, List<GroupSweep.Input>>? = null
+    private var lastPurchases: List<WalletWire.LiquidityPurchase> = emptyList()
+    /** What came of each liquidity purchase this node took on, by authorisation id. */
+    private val purchases = MutableStateFlow<Map<String, WalletWire.LiquidityPurchase>>(emptyMap())
     private var lastReportedAt: kotlin.time.Instant? = null
 
     /** Starts the node if this device may run it now; otherwise says why not. */
@@ -239,7 +254,8 @@ class GroupLightningNode(
         val handle = peer ?: return
         val now = now()
         val current = Triple(handle.channels(), handle.payments(), handle.heldOutputs())
-        val due = force || current != lastReported || lastReportedAt.let { it == null || now - it >= reportEvery }
+        val bought = purchasesFor(current.first)
+        val due = force || current != lastReported || bought != lastPurchases || lastReportedAt.let { it == null || now - it >= reportEvery }
         if (!due) return
         val snapshot = WalletWire.Snapshot(
             wallet = walletKey, term = term, nodeId = wallet.statement.nodeId, sentAt = now.epochSeconds,
@@ -247,9 +263,13 @@ class GroupLightningNode(
             assignments = transport?.assignments().orEmpty(),
             heldOutputs = current.third,
             offer = handle.offer(),
+            fundingRates = handle.fundingRates(),
+            feeratePerByte = handle.feeratePerByte(),
+            purchases = bought,
         )
         GroupLightningReports.publishSnapshot(database, localChatRoom, userPublicKey, snapshot)
         lastReported = current
+        lastPurchases = bought
         lastReportedAt = now
     }
 
@@ -278,6 +298,39 @@ class GroupLightningNode(
                 runCatching { handle.pay(pay.invoice, pay.amountMsat) }
                     .onSuccess { logger.i("Paid ${pay.paymentHash.take(16)}: ${if (it.succeeded) "sent" else "not sent"}") }
                     .onFailure { logger.e("Paying ${pay.paymentHash.take(16)} failed", it) }
+            }
+        }
+    }
+
+    /** Every purchase this node took on, a pending one read as locked once its channel is on that output alone. */
+    private fun purchasesFor(channels: List<WalletWire.ChannelView>): List<WalletWire.LiquidityPurchase> = purchases.value.values.map { p ->
+        val channel = channels.firstOrNull { it.channelId == p.channelId }
+        if (p.state == WalletWire.PENDING && channel != null && channel.fundingTxId == p.fundingTxId && channel.liveFundingOutputs == 1) p.copy(state = WalletWire.LOCKED) else p
+    }.sortedBy { it.id }
+
+    /**
+     * Buys the inbound liquidity the group has authorised, once per authorisation
+     * (`docs/group-lightning-liquidity.md`, Phase 6). Not while the channel has a splice that has not
+     * locked: eclair refuses another until it does, so the purchase waits, and is tried at the next check
+     * after. A purchase that fails is not tried again by itself; the group signs a new one for another
+     * attempt, and every co-signer holds the fee to the cap whichever it is.
+     */
+    internal suspend fun buyAuthorised() = acting.withLock {
+        val handle = peer ?: return@withLock
+        val channels = handle.channels().associateBy { it.channelId }
+        GroupLightningAuthorisations.liquidityPurchases(database, wallet, now()).forEach { buy ->
+            if (purchases.value[buy.id]?.state.let { it != null && it != WalletWire.WAITING }) return@forEach
+            val channel = channels[buy.channelId] ?: return@forEach
+            if (channel.liveFundingOutputs > 1) {
+                purchases.update { it + (buy.id to WalletWire.LiquidityPurchase(buy.id, buy.channelId, buy.amountSat, WalletWire.WAITING, fundingTxId = channel.fundingTxId)) }
+                return@forEach
+            }
+            purchases.update { it + (buy.id to WalletWire.LiquidityPurchase(buy.id, buy.channelId, buy.amountSat, WalletWire.PENDING)) }
+            scope.launch {
+                val outcome = runCatching { handle.buyLiquidity(buy.id, buy.channelId, buy.amountSat, buy.maxFeeSat) }
+                    .getOrElse { WalletWire.LiquidityPurchase(buy.id, buy.channelId, buy.amountSat, WalletWire.FAILED, reason = it.message ?: it::class.simpleName) }
+                purchases.update { it + (buy.id to outcome) }
+                logger.i("Liquidity purchase ${buy.id}: ${outcome.state}${outcome.reason?.let { r -> ", $r" }.orEmpty()}")
             }
         }
     }
@@ -364,6 +417,7 @@ class GroupLightningNode(
         runCatching { answerInvoiceRequests() }.onFailure { logger.e("Could not answer an invoice request", it) }
         runCatching { payAuthorised() }.onFailure { logger.e("Could not make an authorised payment", it) }
         runCatching { closeAuthorised() }.onFailure { logger.e("Could not close an authorised channel", it) }
+        runCatching { buyAuthorised() }.onFailure { logger.e("Could not buy authorised liquidity", it) }
     }
 
     /**
@@ -560,6 +614,7 @@ class GroupLightningNode(
                             fundingTxId = latest.fundingTxId.toString(),
                             fundingIndex = latest.fundingInput.index,
                             commitIndex = latest.localCommit.index,
+                            liveFundingOutputs = state.commitments.active.size,
                         )
                     }
                 }.sortedBy { it.channelId }
@@ -594,6 +649,32 @@ class GroupLightningNode(
                     }
                 }.map(GroupSweep::inputOf).distinctBy { it.txid to it.index }
                 override fun offer(): String = nodeParams.defaultOffer(walletParams.trampolineNode.id).offer.encode()
+                override fun fundingRates(): WalletWire.FundingRates? = peer.remoteFundingRates.value?.let { rates ->
+                    WalletWire.FundingRates(
+                        rates.fundingRates.map { WalletWire.FundingRate(it.minAmount.sat, it.maxAmount.sat, it.fundingWeight, it.feeProportional, it.feeBase.sat, it.channelCreationFee.sat) },
+                        rates.paymentTypes.map(CoSigningWire::paymentTypeName),
+                    )
+                }
+                override fun feeratePerByte(): Long? = peer.onChainFeeratesFlow.value?.fundingFeerate?.let { FeeratePerByte(it).feerate.sat }
+                override suspend fun buyLiquidity(id: String, channelId: String, amountSat: Long, maxFeeSat: Long): WalletWire.LiquidityPurchase {
+                    fun failed(reason: String) = WalletWire.LiquidityPurchase(id, channelId, amountSat, WalletWire.FAILED, reason = reason)
+                    val amount = Satoshi(amountSat)
+                    val rate = peer.remoteFundingRates.value?.findRate(amount) ?: return failed("the LSP sells no liquidity in that amount")
+                    val feerate = peer.onChainFeeratesFlow.value?.fundingFeerate ?: return failed("the node has no feerate yet")
+                    // As Phoenix does: estimate, then buy at the feerate the estimate raised to, not the target.
+                    val (actual, fees) = peer.estimateFeeForInboundLiquidity(amount, feerate, rate) ?: return failed("the channel is not ready")
+                    if (fees.total.sat > maxFeeSat) return failed("it would cost ${fees.total.sat} sats, over the $maxFeeSat the group agreed to")
+                    return when (val response = peer.requestInboundLiquidity(amount, actual, rate)) {
+                        null -> failed("the channel is not ready")
+                        is ChannelFundingResponse.Success -> WalletWire.LiquidityPurchase(id, channelId, amountSat, WalletWire.PENDING, response.fundingTxId.toString(), fees.total.sat).also {
+                            payments += WalletWire.PaymentView(
+                                id = "liquidity:${response.fundingTxId}", incoming = false, amountMsat = fees.total.sat * 1000, feesMsat = fees.total.sat * 1000,
+                                completedAt = Clock.System.now().toEpochMilliseconds(), succeeded = true, kind = WalletWire.LIQUIDITY, liquiditySat = amountSat,
+                            )
+                        }
+                        is ChannelFundingResponse.Failure -> failed(response::class.simpleName ?: "the splice failed")
+                    }
+                }
                 override suspend fun forceClose(channelId: String) {
                     peer.send(WrappedChannelCommand(ByteVector32(channelId), ChannelCommand.Close.ForceClose))
                 }
