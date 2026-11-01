@@ -151,7 +151,7 @@ arguing with either, and its two tables of what the build found before
 changing anything it describes.
 
 The group Lightning liquidity note is a phased plan that has been built, but for
-its Phase 9, and is off until a purchase is made on mainnet.
+its Phase 9, and is on, on mainnet, by decision ahead of its own mainnet check.
 It is the group Lightning wallet note's check 8 built for one kind of splice:
 read that note's D6, Phase 9 and Phase 13 first, and the lightning
 remediation README's step 2, which this plan waits for, then its six

@@ -40,10 +40,14 @@ object GroupLightningRollout {
 
     /**
      * Whether a member may ask the group to buy inbound liquidity, and the operator's node buys it
-     * (`docs/group-lightning-liquidity.md`). Co-signers check a purchase whether or not it is on, so a
-     * group whose devices all run this build is ready when it lifts.
+     * (`docs/group-lightning-liquidity.md`). Co-signers check a purchase whether or not it is on.
+     *
+     * On, on mainnet, by decision, ahead of the plan's Phase 0 mainnet check: ACINQ's LSP has not yet
+     * been seen to accept a splice whose funding key from us does not change. If it refuses, the splice
+     * aborts before anything is signed into it, and the purchase is reported as failed. What bounds a
+     * purchase meanwhile is [MAINNET_CHANNEL_CAP], the fee cap the group signs, and every co-signer's checks.
      */
-    const val LIQUIDITY_ENABLED: Boolean = false
+    const val LIQUIDITY_ENABLED: Boolean = true
 
     /** The most a channel on [chain] may hold, or null where there is no cap. */
     fun channelCapFor(chain: Chain): Satoshi? = MAINNET_CHANNEL_CAP.takeIf { chain.isMainnet() }
