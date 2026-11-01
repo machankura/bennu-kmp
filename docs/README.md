@@ -38,6 +38,7 @@ silent, or a decision that looked arbitrary and was not.
 | [material-design-conformance.md](./material-design-conformance.md) | what the M3 foundations actually require, measured against all 43 screens — the colour pairing that renders the app's own proposals invisible, and eight phases that put the decisions back in the theme |
 | [group-lightning-wallet.md](./group-lightning-wallet.md) | a Lightning wallet whose channels the group holds with an Iceberg threshold key, run by one elected operator. Covers why Iceberg needs its own ceremony and a DKG of its own, why every payment needs `2t-1` devices to answer, the echo rule that keeps a hostile operator from reusing a nonce label, and why a closing channel must pay the group's key rather than the node's |
 | [group-lightning-transcript.md](./group-lightning-transcript.md) | the group Lightning wallet in a room's chat, phased — why every Lightning kind but the three the group signs became a raw-JSON bubble, the standing notice the Iceberg ceremony never got, and which of the operator's messages earn a line and which never should |
+| [group-lightning-liquidity.md](./group-lightning-liquidity.md) | buying inbound liquidity for the group's Lightning wallet as Phoenix does, phased — why a purchase is a splice every co-signer refuses today, why the group decides it with an authorisation rather than the operator with a tap, the same group key at every funding index, and the rule that lets a device that missed a splice follow the channel to its new output |
 | [lightning/README.md](./lightning/README.md) | the remediation plans for the review of the group Lightning wallet — seven findings, one phased plan each, and the order to build them in |
 | [../testing/regtest/README.md](../testing/regtest/README.md) | running the group Lightning wallet end to end on a regtest network of bitcoind, electrs and two eclair nodes — the prerequisites and ports, where the run's output and eclair's log end up, and what each failure means. Not part of `check` or CI |
 | [marmot-v2.md](./marmot-v2.md) | bringing the group layer onto the Marmot current profile after the quartz 1.15.2 bump — the nine rules that reach this app, why the room's id and the routing id have to become two values, nine phases from reading both profiles to publishing before applying, and the one fork the library cannot yet settle |
@@ -148,6 +149,12 @@ wallet note and the ceremony note, and reads as the lightning-kmp fork's
 constraints and its decision table before any phase, its trust table before
 arguing with either, and its two tables of what the build found before
 changing anything it describes.
+
+The group Lightning liquidity note is a phased plan that has not been built.
+It is the group Lightning wallet note's check 8 built for one kind of splice:
+read that note's D6, Phase 9 and Phase 13 first, and the lightning
+remediation README's step 2, which this plan waits for, then its six
+constraints and eight decisions before any phase.
 
 The standalone-electrum note is a phased plan that has been built, and is the
 group chain wallet note's *An identity without a node* answered: read that
