@@ -129,12 +129,15 @@ class GroupLightningRegtestJvmTest {
         return (result["total_amount"]!!.jsonPrimitive.content.toBigDecimal() * 100_000_000.toBigDecimal()).toLong()
     }
 
-    /** Waits for [condition], mining a block whenever the mempool holds something, so funding and closing confirm. */
-    private suspend fun <T> mineUntil(what: String, timeout: Duration = 3.minutes, condition: suspend () -> T?): T = try {
+    /**
+     * Waits for [condition], mining a block whenever the mempool holds something, so funding and closing
+     * confirm -- or every pass when [confirming], for what needs more than one confirmation, as a splice does.
+     */
+    private suspend fun <T> mineUntil(what: String, timeout: Duration = 3.minutes, confirming: Boolean = false, condition: suspend () -> T?): T = try {
         withTimeout(timeout) {
             var result = condition()
             while (result == null) {
-                if (mempoolSize() > 0) mine(1)
+                if (confirming || mempoolSize() > 0) mine(1)
                 delay(1.seconds)
                 result = condition()
             }
@@ -275,6 +278,29 @@ class GroupLightningRegtestJvmTest {
         assertTrue(channel.oursMsat in 90_000_000..100_000_000, "the group holds the payment, less the LSP's fee: ${channel.oursMsat}")
         assertTrue(received.count { it!!.checks.single().agrees == true } >= 2, "the members who co-signed agree with the operator")
 
+        // Buy liquidity (docs/group-lightning-liquidity.md, Phase 8): a member prices 200,000 sats of inbound
+        // from the operator's snapshot, the group authorises it, the operator's node splices, and every
+        // co-signer checks the first commitment on the new output and the shared input before the group signs.
+        val priced = mineUntil("the LSP's prices in a member's snapshot", 1.minutes) { report(all[3])?.snapshot?.takeIf { it.fundingRates != null && it.feeratePerByte != null } }
+        val price = com.machankura.bennu.compose.wallet.lightning.LiquidityPrice.price(priced.fundingRates!!, 200_000, priced.feeratePerByte!!)!!
+        val buy = GroupLightningAuthorisations.prepareBuyLiquidity(wallet, channel.channelId, channel.capacitySat, 200_000, com.machankura.bennu.compose.wallet.lightning.LiquidityPrice.defaultCap(price)).getOrThrow()
+        signed(all, all[2], GroupLightningAuthorisations.proposeBuyLiquidity(all[2].db, all[2].room, all[2].publicKey, buy).id)
+        mineUntil("eclair to see the chain's tip", 1.minutes) { lsp("getinfo").jsonObject["blockHeight"]!!.jsonPrimitive.long.takeIf { it >= btc("getblockcount").jsonPrimitive.long } }
+        node.buyAuthorised()
+        val bought = mineUntil("every member to see the purchase locked", 4.minutes, confirming = true) {
+            all.map { report(it) }.takeIf { reports -> reports.all { r -> r?.snapshot?.purchases?.singleOrNull()?.state == com.machankura.bennu.compose.wallet.lightning.WalletWire.LOCKED } }
+        }
+        val spliced = bought.first()!!.snapshot.channels.single()
+        println("REGTEST bought: ${spliced.capacitySat} sats now, for ${bought.first()!!.snapshot.purchases.single().feeSat} sats; estimated ${price.totalSat}")
+        assertEquals(channel.channelId, spliced.channelId, "the same channel, grown")
+        assertTrue(spliced.capacitySat > channel.capacitySat + 190_000, "the channel grew by what was bought: ${spliced.capacitySat}")
+        assertTrue(bought.first()!!.snapshot.purchases.single().feeSat!! <= buy.maxFeeSat)
+        all.forEach { d -> assertEquals(0, fixture.lines(d, ChatMessage.TYPE_LIGHTNING_REFUSED).size, "device ${d.index} refused part of an honest purchase") }
+        // And a payment the channel had no room for before arrives over it, with no on-the-fly splice.
+        receive(all, 50_000)
+        val after = mineUntil("the 50,000 sats in a member's snapshot") { report(all[0])?.snapshot?.channels?.singleOrNull()?.takeIf { it.oursMsat > spliced.oursMsat + 45_000_000 } }
+        assertEquals(spliced.capacitySat, after.capacitySat, "no splice was needed to receive it")
+
         // Pay: the group authorises paying the payer, and the operator's node pays it.
         val owed = payer("createinvoice", mapOf("description" to "back", "amountMsat" to "20000000")).jsonObject
         val pay = GroupLightningAuthorisations.prepare(wallet, owed["serialized"]!!.jsonPrimitive.content, null, 2_000_000).getOrThrow()
@@ -328,7 +354,8 @@ class GroupLightningRegtestJvmTest {
                 .forEach { println("REGTEST line, device ${d.index}: ${it.messageType} ${it.content}") }
             assertEquals(2, count(ChatMessage.TYPE_LIGHTNING_CHANNEL_OPENED), "device ${d.index}: one opened line per channel")
             assertEquals(2, count(ChatMessage.TYPE_LIGHTNING_CHANNEL_CLOSED), "device ${d.index}: one closed line per channel")
-            assertEquals(2, count(ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED), "device ${d.index}: the two payments in")
+            assertEquals(3, count(ChatMessage.TYPE_LIGHTNING_PAYMENT_RECEIVED), "device ${d.index}: the three payments in")
+            assertEquals(1, count(ChatMessage.TYPE_LIGHTNING_LIQUIDITY_ADDED), "device ${d.index}: the liquidity bought")
             assertEquals(1, count(ChatMessage.TYPE_LIGHTNING_PAYMENT_SENT), "device ${d.index}: the payment out")
             assertEquals(1, count(ChatMessage.TYPE_LIGHTNING_SEED_SHARED), "device ${d.index}")
             assertEquals(1, count(ChatMessage.TYPE_LIGHTNING_INVOICE_REQUESTED), "device ${d.index}")
