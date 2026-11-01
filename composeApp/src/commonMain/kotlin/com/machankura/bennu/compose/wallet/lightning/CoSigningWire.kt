@@ -198,6 +198,8 @@ object CoSigningWire {
         is FundingSigner.SigningContext.RemoteCommitment -> Context("remote", params(c.channelParams), commit(c.commitParams), c.commitIndex, c.remotePerCommitmentPoint.toString(), spec(c.spec))
         is FundingSigner.SigningContext.LocalCommitment -> Context("local", params(c.channelParams), commit(c.commitParams), c.commitIndex, null, spec(c.spec))
         is FundingSigner.SigningContext.Closing -> Context("closing", params(c.channelParams), null, null, null, spec(c.spec), hex(c.localScript), hex(c.remoteScript))
+        // Not on the wire yet, so a co-signer reads it as unsaid and refuses, as it refused every splice before.
+        is FundingSigner.SigningContext.Splice -> null
     }
 
     fun input(info: Transactions.InputInfo): Input = Input(info.outPoint.txid.toString(), info.outPoint.index, info.txOut.amount.sat, hex(info.txOut.publicKeyScript))
