@@ -1,51 +1,103 @@
-This is a Kotlin Multiplatform project targeting Android, iOS, Desktop (JVM).
+# Bennu
 
-* [/composeApp](./composeApp/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - [commonMain](./composeApp/src/commonMain/kotlin) is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    the [iosMain](./composeApp/src/iosMain/kotlin) folder would be the right place for such calls.
-    Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./composeApp/src/jvmMain/kotlin)
-    folder is the appropriate location.
+Bennu is a group chat app where the group holds bitcoin together. Groups talk over
+[nostr](https://github.com/nostr-protocol/nips) using the Marmot protocol's MLS encryption. A group can also run a key ceremony that gives it a threshold key, which no
+single member holds. The group uses that key to sign as one and to keep on-chain and Lightning
+wallets that need a quorum of members to spend.
 
-* [/iosApp](./iosApp/iosApp) contains iOS applications. Even if you’re sharing your UI with Compose Multiplatform,
-  you need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
+It is a Kotlin Multiplatform app with a Compose Multiplatform UI, built for Android, iOS and
+desktop (JVM).
 
-### Build and Run Android Application
+## What it does
 
-To build and run the development version of the Android app, use the run configuration from the run widget
-in your IDE’s toolbar or build it directly from the terminal:
-- on macOS/Linux
-  ```shell
-  ./gradlew :composeApp:assembleDebug
-  ```
-- on Windows
-  ```shell
-  .\gradlew.bat :composeApp:assembleDebug
-  ```
+- **Group chat.** End-to-end encrypted groups on Marmot, with direct messages between members,
+  inside a group or one to one.
+- **A key for the group.** A ChillDKG ceremony, run in the chat, gives the group a threshold key.
+  Members then approve and sign the group's events with FROST, several at a time if needed.
+- **An on-chain group wallet.** A taproot wallet held by the group's key. Every member who signs
+  a spend checks it first.
+- **Subgroups and guardians.** A group can create subgroups. A parent can keep a guardian leaf in
+  a subgroup's wallet, or in a wallet it keeps for one member, and take the coins back after a
+  delay the parent chooses.
+- **A group Lightning wallet.** Channels whose funding key is an Iceberg threshold key. One
+  elected operator's node runs them, and co-signers check every payment, close and splice. The
+  group can authorise buying inbound liquidity from its LSP.
+- **A wallet of your own.** Each profile can have a personal Lightning and on-chain wallet, built
+  on [lightning-kmp-app](https://github.com/kngako/lightning-kmp-app), a fork of the shared code
+  from ACINQ's Phoenix.
+- **Profiles.** Create a profile, sign in with an existing nsec (without a wallet), preview one
+  from an npub, or keep several profiles on one device. A profile can reach the network over Tor
+  and use its own Electrum server.
 
-### Build and Run Desktop (JVM) Application
+The reasoning behind each of these, including the protocol details and the failure modes, is in
+[docs/](docs/README.md).
 
-To build and run the development version of the desktop app, use the run configuration from the run widget
-in your IDE’s toolbar or run it directly from the terminal:
-- on macOS/Linux
-  ```shell
-  ./gradlew :composeApp:run
-  ```
-- on Windows
-  ```shell
-  .\gradlew.bat :composeApp:run
-  ```
+## Building
 
-### Build and Run iOS Application
+You need JDK 21 and the Android SDK. iOS builds also need Xcode on macOS.
 
-To build and run the development version of the iOS app, use the run configuration from the run widget
-in your IDE’s toolbar or open the [/iosApp](./iosApp) directory in Xcode and run it from there.
+Clone with submodules. The app builds against `lightning-kmp-app` as a composite build, and that
+repository nests its own builds down to `secp256k1-kmp`:
 
----
+```bash
+git clone --recursive https://code.sigidli.com/machankura/bennu-kmp.git
+```
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+In an existing clone, or in a git worktree, which does not get submodules automatically:
+
+```bash
+git submodule update --init --recursive
+```
+
+Each of the five nested Gradle builds needs a `local.properties` that points at the Android SDK.
+The file is gitignored, so create it in each one:
+
+```bash
+for d in . lightning-kmp-app \
+         lightning-kmp-app/experimental/lightning-kmp \
+         lightning-kmp-app/experimental/lightning-kmp/experimental/bitcoin-kmp \
+         lightning-kmp-app/experimental/lightning-kmp/experimental/bitcoin-kmp/experimental/secp256k1-kmp; do
+  echo "sdk.dir=$HOME/Android/Sdk" > "$d/local.properties"
+done
+```
+
+Then build each target (on Windows, use `gradlew.bat`):
+
+- **Android:** `./gradlew :composeApp:assembleDebug`
+- **Desktop:** `./gradlew :composeApp:run`
+- **iOS:** open [iosApp](./iosApp) in Xcode and run it from there.
+
+[docs/jvm-target.md](docs/jvm-target.md) explains what the desktop target needed and how it is
+packaged.
+
+## Checking your work
+
+```bash
+./gradlew :composeApp:compileDebugKotlinAndroid :composeApp:jvmTest
+```
+
+```bash
+./gradlew check
+```
+
+`check` also runs the Material Design 3 audit, `docs/scripts/m3-audit.sh`. It fails a build that
+adds hardcoded spacing or colours, title-case strings, or touch targets under 48dp. [CLAUDE.md](CLAUDE.md)
+lists the UI conventions the audit enforces.
+
+The group Lightning wallet also has an end-to-end test against a regtest network with a real
+LSP. It is skipped unless asked for; [testing/regtest/README.md](testing/regtest/README.md)
+explains how to run it.
+
+## Layout
+
+- [composeApp](./composeApp/src) is the shared app. `commonMain` holds most of the code, and
+  `androidMain`, `iosMain` and `jvmMain` hold each platform's own parts.
+- [iosApp](./iosApp) is the iOS entry point.
+- [lightning-kmp-app](https://github.com/kngako/lightning-kmp-app) is the wallet library, a
+  submodule.
+- [docs](docs/README.md) holds the design notes.
+- [testing/regtest](testing/regtest/README.md) holds the regtest network.
+
 ## License
 
 Copyright (C) 2026 Machankura
